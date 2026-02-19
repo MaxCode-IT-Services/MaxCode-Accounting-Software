@@ -910,7 +910,7 @@ const Settings = () => {
         !driveConfig.refreshToken ||
         !driveConfig.backupApiKey)
     ) {
-      showError("Please fill all required fields");
+      showError("Please fill all required fields to enable auto backup");
       return;
     }
 
@@ -921,7 +921,47 @@ const Settings = () => {
         backupSettings: driveConfig,
       });
 
-      showSuccess("Google Drive backup configuration saved successfully!");
+      // Reload settings to ensure enabled state persists
+      await loadGoogleDriveConfig();
+
+      showSuccess("✅ Google Drive backup configuration saved successfully!");
+
+      if (driveConfig.enabled) {
+        showInfo(
+          "📌 Next: Add these credentials as GitHub Secrets to activate automation. Check console for details.",
+        );
+
+        // Log detailed setup instructions
+        console.log("\n" + "=".repeat(70));
+        console.log(
+          "📋 GITHUB SECRETS SETUP - Copy these to GitHub Repository",
+        );
+        console.log("=".repeat(70));
+        console.log(
+          "\n🔗 Go to: Repository → Settings → Secrets → Actions → New secret\n",
+        );
+        console.log("Add these 7 secrets:\n");
+        console.log("1. GOOGLE_CLIENT_ID");
+        console.log(`   Value: ${driveConfig.clientId}\n`);
+        console.log("2. GOOGLE_CLIENT_SECRET");
+        console.log(`   Value: ${driveConfig.clientSecret}\n`);
+        console.log("3. GOOGLE_REFRESH_TOKEN");
+        console.log(`   Value: ${driveConfig.refreshToken}\n`);
+        console.log("4. GOOGLE_DRIVE_FOLDER_ID");
+        console.log(`   Value: ${driveConfig.folderId}\n`);
+        console.log("5. BACKUP_API_KEY");
+        console.log(`   Value: ${driveConfig.backupApiKey}\n`);
+        console.log("6. NETLIFY_API_URL");
+        console.log(`   Value: https://billing.maxcode.in/api\n`);
+        console.log("7. MONGODB_URI");
+        console.log(`   Value: (your MongoDB connection string)\n`);
+        console.log("=".repeat(70));
+        console.log(
+          `📅 Backup Schedule: ${driveConfig.frequency.toUpperCase()}`,
+        );
+        console.log(`⏰ Backup Time: ${driveConfig.backupTime} IST`);
+        console.log("=".repeat(70) + "\n");
+      }
     } catch (error) {
       console.error("Drive config save error:", error);
       showError(error?.response?.data?.error || "Failed to save configuration");
@@ -2444,12 +2484,102 @@ const Settings = () => {
 
                           {driveConfig.enabled && (
                             <>
+                              <div className="alert alert-info mb-4 border-info">
+                                <div className="d-flex align-items-start">
+                                  <i className="fas fa-info-circle text-info me-3 mt-1"></i>
+                                  <div className="flex-grow-1">
+                                    <h6 className="mb-2">
+                                      <strong>
+                                        🔐 Refresh Token Setup (One-Time Only)
+                                      </strong>
+                                    </h6>
+                                    <p className="mb-2">
+                                      <strong>
+                                        ✅ Generate refresh token once from
+                                        OAuth Playground.
+                                      </strong>
+                                      <br />
+                                      <strong>🔄 Auto-Renewal:</strong> Once
+                                      saved, the token automatically renews
+                                      access in background. No need to
+                                      regenerate unless manually revoked!
+                                    </p>
+                                    <p className="mb-2">
+                                      <strong>📝 Setup Steps:</strong>
+                                    </p>
+                                    <ol className="mb-2 small">
+                                      <li>
+                                        Visit:{" "}
+                                        <a
+                                          href="https://developers.google.com/oauthplayground"
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-primary"
+                                        >
+                                          <strong>
+                                            Google OAuth Playground
+                                          </strong>
+                                        </a>
+                                      </li>
+                                      <li>
+                                        Click <strong>Settings (⚙️)</strong> →
+                                        Enable{" "}
+                                        <strong>
+                                          "Use your own OAuth credentials"
+                                        </strong>
+                                      </li>
+                                      <li>
+                                        Enter your <strong>Client ID</strong>{" "}
+                                        and <strong>Client Secret</strong> (get
+                                        from Google Cloud Console)
+                                      </li>
+                                      <li>
+                                        In <strong>Step 1</strong>: Select{" "}
+                                        <strong>Drive API v3</strong> →{" "}
+                                        <code>
+                                          https://www.googleapis.com/auth/drive.file
+                                        </code>
+                                      </li>
+                                      <li>
+                                        Click <strong>"Authorize APIs"</strong>{" "}
+                                        → Login with your Google account
+                                      </li>
+                                      <li>
+                                        In <strong>Step 2</strong>: Click{" "}
+                                        <strong>
+                                          "Exchange authorization code for
+                                          tokens"
+                                        </strong>
+                                      </li>
+                                      <li>
+                                        Copy the{" "}
+                                        <strong>"Refresh token"</strong> and
+                                        paste below ⬇️
+                                      </li>
+                                      <li className="text-success fw-bold">
+                                        <i className="fas fa-check-circle me-1"></i>
+                                        That's it! Token will auto-renew forever
+                                        (unless manually revoked)
+                                      </li>
+                                    </ol>
+                                    <div className="alert alert-info mb-0 py-2">
+                                      <small>
+                                        💡 <strong>Tip:</strong> Save
+                                        credentials here first with toggle OFF,
+                                        then enable toggle after setup is
+                                        complete.
+                                      </small>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
                               <div className="alert alert-info mb-4">
                                 <i className="fas fa-info-circle me-2"></i>
                                 <strong>Setup Instructions:</strong>
                                 <ol className="mb-0 mt-2 ps-3">
                                   <li>
-                                    Go to{" "}
+                                    Create a project in{" "}
                                     <a
                                       href="https://console.cloud.google.com"
                                       target="_blank"
@@ -2459,16 +2589,28 @@ const Settings = () => {
                                     </a>
                                   </li>
                                   <li>
-                                    Create a project and enable Google Drive API
-                                  </li>
-                                  <li>Create OAuth 2.0 credentials</li>
-                                  <li>
-                                    Get your Client ID, Client Secret, and
-                                    generate Refresh Token
+                                    Enable <strong>Google Drive API</strong> for
+                                    your project
                                   </li>
                                   <li>
-                                    Create a folder in Google Drive for backups
-                                    and copy its Folder ID from URL
+                                    Create <strong>OAuth 2.0 Client ID</strong>{" "}
+                                    credentials
+                                  </li>
+                                  <li>
+                                    Get <strong>Refresh Token</strong> using
+                                    OAuth Playground (see warning above ⬆️)
+                                  </li>
+                                  <li>
+                                    Create a folder in Google Drive and copy its{" "}
+                                    <strong>Folder ID</strong> from URL
+                                  </li>
+                                  <li>
+                                    Fill all fields below and click{" "}
+                                    <strong>"Test Connection"</strong>
+                                  </li>
+                                  <li>
+                                    Once validated, click{" "}
+                                    <strong>"Save Drive Configuration"</strong>
                                   </li>
                                 </ol>
                               </div>
@@ -2571,9 +2713,23 @@ const Settings = () => {
                                       ></i>
                                     </button>
                                   </div>
-                                  <small className="text-muted">
-                                    Generate refresh token using OAuth 2.0
-                                    Playground or your app
+                                  <small className="text-success">
+                                    <i className="fas fa-info-circle me-1"></i>
+                                    <strong>✅ One-Time Setup:</strong> Generate
+                                    refresh token from{" "}
+                                    <a
+                                      href="https://developers.google.com/oauthplayground"
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                    >
+                                      Google OAuth Playground
+                                    </a>
+                                    <br />
+                                    <i className="fas fa-magic me-1"></i>
+                                    <strong>Auto-Renewal:</strong> Once saved,
+                                    this token automatically renews access
+                                    tokens in background. No need to regenerate
+                                    unless manually revoked or password changed.
                                   </small>
                                 </div>
 
@@ -2854,6 +3010,91 @@ const Settings = () => {
                                   Test Connection
                                 </button>
                               </div>
+
+                              {driveConfig.enabled && (
+                                <div className="alert alert-info mt-4">
+                                  <i className="fas fa-info-circle me-2"></i>
+                                  <strong>📌 Automation Setup Required</strong>
+                                  <p className="mb-2 mt-2">
+                                    To activate automatic backups, add these
+                                    credentials as GitHub Secrets:
+                                  </p>
+                                  <ol className="mb-2">
+                                    <li>
+                                      Go to:{" "}
+                                      <strong>
+                                        Repository → Settings → Secrets and
+                                        variables → Actions
+                                      </strong>
+                                    </li>
+                                    <li>
+                                      Click{" "}
+                                      <strong>"New repository secret"</strong>
+                                    </li>
+                                    <li>
+                                      Add these 7 secrets (one by one):
+                                      <ul className="mt-2">
+                                        <li>
+                                          <code>GOOGLE_CLIENT_ID</code>
+                                        </li>
+                                        <li>
+                                          <code>GOOGLE_CLIENT_SECRET</code>
+                                        </li>
+                                        <li>
+                                          <code>GOOGLE_REFRESH_TOKEN</code>
+                                        </li>
+                                        <li>
+                                          <code>GOOGLE_DRIVE_FOLDER_ID</code>
+                                        </li>
+                                        <li>
+                                          <code>BACKUP_API_KEY</code>
+                                        </li>
+                                        <li>
+                                          <code>NETLIFY_API_URL</code>
+                                        </li>
+                                        <li>
+                                          <code>MONGODB_URI</code>
+                                        </li>
+                                      </ul>
+                                    </li>
+                                    <li>
+                                      After saving here, check{" "}
+                                      <strong>browser console</strong> (F12) for
+                                      exact values to copy
+                                    </li>
+                                  </ol>
+                                  <div className="mt-2">
+                                    <strong>Current Schedule:</strong>{" "}
+                                    {driveConfig.frequency
+                                      .charAt(0)
+                                      .toUpperCase() +
+                                      driveConfig.frequency
+                                        .slice(1)
+                                        .replace("_", " ")}{" "}
+                                    at {driveConfig.backupTime} IST
+                                  </div>
+                                  <div className="mt-2">
+                                    <a
+                                      href="https://github.com/yourusername/yourrepo/settings/secrets/actions"
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="btn btn-sm btn-outline-primary me-2"
+                                    >
+                                      <i className="fab fa-github me-1"></i>
+                                      Open GitHub Secrets
+                                    </a>
+                                    <a
+                                      href="https://developers.google.com/oauthplayground"
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="btn btn-sm btn-outline-info"
+                                    >
+                                      <i className="fab fa-google me-1"></i>
+                                      OAuth Playground (Get Refresh Token)
+                                    </a>
+                                  </div>
+                                </div>
+                              )}
                             </>
                           )}
                         </div>

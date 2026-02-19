@@ -8,6 +8,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import AdminDashboardLayout from "../src/Components/DashboardLayout";
+import Home from "../src/Home";
 import Login from "../src/Pages/Login";
 
 // Lazy load User Dashboard pages
@@ -76,15 +77,7 @@ const App = () => {
   return (
     <BrowserRouter>
       <Routes>
-        <Route
-          path="/"
-          element={
-            <Navigate
-              to={isAuthenticated() ? "/admin/dashboard" : "/login"}
-              replace
-            />
-          }
-        />
+        <Route path="/" element={<Home />} />
 
         <Route
           path="/login"

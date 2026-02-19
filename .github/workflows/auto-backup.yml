@@ -1,10 +1,17 @@
-name: Auto Backup to Google Drive
+# ⚠️ DEPRECATED - This workflow is replaced by frequency-specific workflows
+# Please use:
+# - backup-daily.yml
+# - backup-weekly.yml
+# - backup-monthly.yml
+# - backup-every-4-hours.yml
+# - backup-manual.yml
+#
+# Configure backup frequency from: Settings → Backup & Restore → Google Drive Auto Backup
+
+name: "[DEPRECATED] Auto Backup to Google Drive"
 
 on:
-  schedule:
-    # Run daily at 8:00 PM IST (14:30 UTC)
-    - cron: "30 14 * * *"
-  workflow_dispatch: # Allow manual triggering
+  workflow_dispatch: # Manual trigger only (scheduled trigger disabled)
 
 jobs:
   backup:

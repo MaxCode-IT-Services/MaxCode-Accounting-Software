@@ -22,6 +22,7 @@ const GOOGLE_REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN;
 const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
 const NETLIFY_API_URL = process.env.NETLIFY_API_URL;
 const BACKUP_API_KEY = process.env.BACKUP_API_KEY;
+const BACKUP_FREQUENCY = process.env.BACKUP_FREQUENCY || "manual";
 
 // Validate required environment variables
 function validateEnvironmentVariables() {
@@ -56,11 +57,96 @@ function validateEnvironmentVariables() {
   return true;
 }
 
-// Backup API endpoint (single endpoint that returns all data)
-const BACKUP_ENDPOINT = `${NETLIFY_API_URL || "https://accounting-dausa.netlify.app/api"}/backup`;
+// API endpoints
+const BACKUP_ENDPOINT = `${NETLIFY_API_URL || "https://billing.maxcode.in/api"}/backup`;
+const BUSINESS_SETTINGS_ENDPOINT = `${NETLIFY_API_URL || "https://billing.maxcode.in/api"}/business-settings`;
+
+/**
+ * Validate backup settings from backend
+ * Checks if auto backup is enabled and matches current frequency
+ */
+async function validateBackupSettings() {
+  console.log("🔍 Validating backup settings from backend...");
+  console.log(`   Expected Frequency: ${BACKUP_FREQUENCY}`);
+
+  try {
+    const response = await axios.get(BUSINESS_SETTINGS_ENDPOINT, {
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": BACKUP_API_KEY,
+      },
+      timeout: 10000,
+    });
+
+    const backupSettings = response?.data?.settings?.backupSettings;
+
+    if (!backupSettings) {
+      console.log("⚠️  No backup settings found in backend");
+      console.log("   Proceeding with backup anyway (first time setup)");
+      return true;
+    }
+
+    console.log(
+      `   Backup Enabled: ${backupSettings.enabled ? "✅ Yes" : "❌ No"}`,
+    );
+    console.log(
+      `   Configured Frequency: ${backupSettings.frequency || "daily"}`,
+    );
+
+    // Check if backup is disabled
+    if (!backupSettings.enabled) {
+      console.log("\n⏸️  BACKUP SKIPPED");
+      console.log("   Reason: Auto backup is disabled in settings");
+      console.log(
+        "   Enable it from: Settings → Backup & Restore → Google Drive Auto Backup",
+      );
+      return false;
+    }
+
+    // Check if frequency matches
+    const configuredFrequency = backupSettings.frequency || "daily";
+    if (configuredFrequency !== BACKUP_FREQUENCY) {
+      console.log("\n⏩ BACKUP SKIPPED");
+      console.log(
+        `   Reason: Frequency mismatch (Expected: ${BACKUP_FREQUENCY}, Got: ${configuredFrequency})`,
+      );
+      console.log(`   Current schedule: ${configuredFrequency.toUpperCase()}`);
+      console.log("   Change frequency from: Settings → Backup & Restore");
+      return false;
+    }
+
+    console.log("✅ Backup settings validated successfully");
+    return true;
+  } catch (error) {
+    console.error("⚠️  Failed to fetch backup settings:", error.message);
+    console.log("   Proceeding with backup anyway (settings check failed)");
+    return true; // Continue with backup if settings check fails
+  }
+}
 
 /**
  * Setup Google Drive OAuth2 Client
+ *
+ * IMPORTANT: How Refresh Token Works
+ * ====================================
+ *
+ * 1. Refresh token is LONG-LIVED (doesn't expire frequently)
+ * 2. Access token expires every ~1 hour
+ * 3. When access token expires, Google OAuth2 client AUTOMATICALLY:
+ *    - Uses refresh_token to get a new access token
+ *    - Handles renewal in the background
+ *    - No manual intervention needed!
+ *
+ * YOU ONLY NEED TO:
+ * - Generate refresh token ONCE from OAuth Playground
+ * - Save it in GitHub Secrets / Settings
+ * - It will work automatically forever (unless revoked)
+ *
+ * Refresh token expires ONLY if:
+ * - User manually revokes access
+ * - User changes Google account password
+ * - Token unused for 6+ months
+ * - You regenerate OAuth credentials (Client ID/Secret)
  */
 function getGoogleDriveClient() {
   try {
@@ -70,6 +156,7 @@ function getGoogleDriveClient() {
       "https://developers.google.com/oauthplayground",
     );
 
+    // Set refresh token - Google OAuth2 library will auto-renew access tokens
     oauth2Client.setCredentials({
       refresh_token: GOOGLE_REFRESH_TOKEN,
     });
@@ -275,6 +362,7 @@ async function runBackup() {
   console.log(
     `📅 Date: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`,
   );
+  console.log(`🔄 Frequency: ${BACKUP_FREQUENCY.toUpperCase()}`);
   console.log("─".repeat(60));
 
   try {
@@ -284,8 +372,18 @@ async function runBackup() {
     }
 
     console.log("✅ Environment variables validated");
-    console.log(`📡 Backup Endpoint: ${BACKUP_ENDPOINT}`);
     console.log("─".repeat(60));
+
+    // Validate backup settings from backend
+    const shouldProceed = await validateBackupSettings();
+    if (!shouldProceed) {
+      console.log("─".repeat(60));
+      console.log("🛑 Backup cancelled based on settings validation");
+      process.exit(0); // Exit gracefully without error
+    }
+
+    console.log("─".repeat(60));
+    console.log(`📡 Backup Endpoint: ${BACKUP_ENDPOINT}`);
 
     // Step 1: Fetch all data
     const backupData = await fetchAllData();

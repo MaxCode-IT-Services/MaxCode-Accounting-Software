@@ -1,0 +1,53 @@
+name: Auto Backup - Weekly
+
+on:
+  schedule:
+    # Run weekly on Monday at 8:00 PM IST (14:30 UTC)
+    - cron: "30 14 * * 1"
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  backup:
+    name: Weekly Backup to Google Drive
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: |
+          npm install axios googleapis dotenv
+
+      - name: Run Backup Script
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          NETLIFY_API_URL: ${{ secrets.NETLIFY_API_URL }}
+          BACKUP_API_KEY: ${{ secrets.BACKUP_API_KEY }}
+          BACKUP_FREQUENCY: "weekly"
+        run: node scripts/auto-backup.js
+
+      - name: Upload Backup Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: weekly-backup-${{ github.run_number }}
+          path: backup-*.json
+          retention-days: 7
+
+      - name: Notify on Success
+        if: success()
+        run: echo "✅ Weekly backup completed successfully at $(date)"
+
+      - name: Notify on Failure
+        if: failure()
+        run: echo "❌ Weekly backup failed at $(date)"
