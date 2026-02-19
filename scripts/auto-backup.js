@@ -70,20 +70,47 @@ async function validateBackupSettings() {
   console.log(`   Expected Frequency: ${BACKUP_FREQUENCY}`);
 
   try {
-    const response = await axios.get(BUSINESS_SETTINGS_ENDPOINT, {
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": BACKUP_API_KEY,
-      },
-      timeout: 10000,
-    });
+    // First try with API Key (new secure endpoint)
+    const apiKeyResponse = await axios
+      .get(`${BACKUP_ENDPOINT}/validate-backup-settings`, {
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": BACKUP_API_KEY,
+        },
+        timeout: 10000,
+      })
+      .catch((err) => {
+        console.log(
+          "   Note: API Key validation endpoint not available, attempting direct settings fetch...",
+        );
+        return null;
+      });
 
-    const backupSettings = response?.data?.settings?.backupSettings;
+    // Try alternative endpoint if API key approach failed
+    let backupSettings = apiKeyResponse?.data?.backupSettings;
+
+    if (!backupSettings) {
+      // Alternative: Try fetching via business-settings endpoint
+      const settingsResponse = await axios.get(BUSINESS_SETTINGS_ENDPOINT, {
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": BACKUP_API_KEY,
+        },
+        timeout: 10000,
+      });
+      backupSettings = settingsResponse?.data?.settings?.backupSettings;
+    }
 
     if (!backupSettings) {
       console.log("⚠️  No backup settings found in backend");
-      console.log("   Proceeding with backup anyway (first time setup)");
-      return true;
+      console.log("   ⛔ CRITICAL: Cannot verify if backup is enabled!");
+      console.log(
+        "   ⚠️  Skipping backup (safety first - won't backup without verification)",
+      );
+      console.log(
+        "\n🔧 FIX: Make sure your BACKUP_API_KEY environment variable is set correctly",
+      );
+      return false; // Changed from true to false for safety!
     }
 
     console.log(
@@ -118,9 +145,17 @@ async function validateBackupSettings() {
     console.log("✅ Backup settings validated successfully");
     return true;
   } catch (error) {
-    console.error("⚠️  Failed to fetch backup settings:", error.message);
-    console.log("   Proceeding with backup anyway (settings check failed)");
-    return true; // Continue with backup if settings check fails
+    console.error("❌ CRITICAL ERROR: Failed to fetch backup settings");
+    console.error("   Error:", error.message);
+    console.log("\n⛔ BACKUP SKIPPED (Safety First)");
+    console.log("   Cannot verify backup settings - refusing to proceed");
+    console.log("\n🔧 TROUBLESHOOTING:");
+    console.log("   1. Check if BACKUP_API_KEY is set correctly");
+    console.log("   2. Check if NETLIFY_API_URL is reachable");
+    console.log("   3. Check MongoDB connection");
+    console.log("   4. Review GitHub Actions logs for more details");
+
+    return false; // Changed from true - NEVER proceed if settings check fails!
   }
 }
 

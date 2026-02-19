@@ -183,6 +183,44 @@ export async function handler(event) {
 
   try {
     const method = event.httpMethod;
+    const path = event.path || event.rawUrl || "";
+
+    // Special endpoint for backup validation (used by auto-backup.js script)
+    if (
+      path.includes("validate-backup-settings") ||
+      event.queryStringParameters?.validate === "settings"
+    ) {
+      const isApiKeyAuthorized = hasValidBackupApiKey(event);
+
+      if (!isApiKeyAuthorized) {
+        return createResponse(
+          401,
+          {
+            error: "Unauthorized. Provide valid X-API-Key header.",
+          },
+          origin,
+        );
+      }
+
+      const { db } = await connectToDatabase();
+      const businessSettings = await db
+        .collection("business_settings")
+        .findOne({});
+      const backupSettings = businessSettings?.backupSettings || {
+        enabled: false,
+        frequency: "daily",
+      };
+
+      return createResponse(
+        200,
+        {
+          success: true,
+          backupSettings,
+          timestamp: new Date().toISOString(),
+        },
+        origin,
+      );
+    }
 
     if (method === "GET") {
       const isApiKeyAuthorized = hasValidBackupApiKey(event);
