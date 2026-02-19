@@ -6,7 +6,7 @@ import {
   showWarning,
 } from "../Components/ToastNotification";
 import ConfirmationModal from "../Components/ConfirmationModal";
-import { apiGet, apiPut } from "../utils/api";
+import { apiGet, apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 
 const Settings = () => {
@@ -162,6 +162,12 @@ const Settings = () => {
     backupApiKey: "",
     folderId: "",
     backupTime: "20:00", // 8 PM default
+    frequency: "daily",
+    everyHours: 4,
+    dayOfWeek: "monday",
+    dayOfMonth: 1,
+    monthOfYear: 1,
+    timezone: "Asia/Kolkata",
   });
   const [isDriveSaving, setIsDriveSaving] = useState(false);
   const [showDrivePassword, setShowDrivePassword] = useState({
@@ -176,11 +182,12 @@ const Settings = () => {
     loadGoogleDriveConfig();
   }, []);
 
-  const loadGoogleDriveConfig = () => {
+  const loadGoogleDriveConfig = async () => {
     try {
-      const savedConfig = localStorage.getItem("googleDriveConfig");
-      if (savedConfig) {
-        const parsed = JSON.parse(savedConfig);
+      const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
+      const parsed = response?.data?.settings?.backupSettings;
+
+      if (parsed && typeof parsed === "object") {
         setDriveConfig({
           enabled: parsed.enabled || false,
           clientId: parsed.clientId || "",
@@ -189,8 +196,13 @@ const Settings = () => {
           backupApiKey: parsed.backupApiKey || "",
           folderId: parsed.folderId || "",
           backupTime: parsed.backupTime || "20:00",
+          frequency: parsed.frequency || "daily",
+          everyHours: Number(parsed.everyHours) || 4,
+          dayOfWeek: parsed.dayOfWeek || "monday",
+          dayOfMonth: Number(parsed.dayOfMonth) || 1,
+          monthOfYear: Number(parsed.monthOfYear) || 1,
+          timezone: parsed.timezone || "Asia/Kolkata",
         });
-        console.log("✅ Google Drive config loaded from local storage");
       }
     } catch (error) {
       console.error("Error loading Google Drive config:", error);
@@ -793,48 +805,13 @@ const Settings = () => {
   const handleExportBackup = async () => {
     try {
       setIsExporting(true);
-      setBackupProgress("Fetching data from database...");
+      setBackupProgress("Creating secure backup from server...");
 
-      const collections = [
-        { name: "clients", endpoint: API_ENDPOINTS.CLIENTS.LIST },
-        { name: "vendors", endpoint: API_ENDPOINTS.VENDORS.LIST },
-        { name: "staff", endpoint: API_ENDPOINTS.STAFF.LIST },
-        { name: "invoices", endpoint: API_ENDPOINTS.INVOICES.LIST },
-        { name: "purchases", endpoint: API_ENDPOINTS.PURCHASES.LIST },
-        { name: "rcm", endpoint: API_ENDPOINTS.RCM.LIST },
-        { name: "projects", endpoint: API_ENDPOINTS.PROJECTS.LIST },
-        { name: "services", endpoint: API_ENDPOINTS.SERVICES.LIST },
-        { name: "years", endpoint: API_ENDPOINTS.YEARS.LIST },
-      ];
+      const response = await apiGet(API_ENDPOINTS.BACKUP.EXPORT);
+      const backupData = response?.data?.data;
 
-      const backupData = {
-        exportDate: new Date().toISOString(),
-        version: "1.0",
-        collections: {},
-      };
-
-      // Fetch all data
-      for (const collection of collections) {
-        setBackupProgress(`Fetching ${collection.name}...`);
-        try {
-          const response = await apiGet(collection.endpoint);
-          backupData.collections[collection.name] = response.data;
-        } catch (error) {
-          console.error(`Error fetching ${collection.name}:`, error);
-          backupData.collections[collection.name] = [];
-        }
-      }
-
-      // Fetch business settings
-      setBackupProgress("Fetching business settings...");
-      try {
-        const businessResponse = await apiGet(
-          API_ENDPOINTS.BUSINESS_SETTINGS.GET,
-        );
-        backupData.businessSettings = businessResponse.data;
-      } catch (error) {
-        console.error("Error fetching business settings:", error);
-        backupData.businessSettings = {};
+      if (!backupData?.collections) {
+        throw new Error("Invalid backup response from server");
       }
 
       setBackupProgress("Creating backup file...");
@@ -846,7 +823,9 @@ const Settings = () => {
       // Create download link
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      const timestamp = new Date()
+      const exportDate =
+        backupData?.metadata?.timestamp || new Date().toISOString();
+      const timestamp = new Date(exportDate)
         .toISOString()
         .replace(/[:.]/g, "-")
         .split("T")[0];
@@ -874,7 +853,7 @@ const Settings = () => {
     if (!file) return;
 
     // Validate file type
-    if (!file.name.endsWith(".json")) {
+    if (!file.name.toLowerCase().endsWith(".json")) {
       showError("Please select a valid JSON backup file");
       return;
     }
@@ -888,18 +867,24 @@ const Settings = () => {
       const backupData = JSON.parse(fileContent);
 
       // Validate backup structure
-      if (!backupData.collections || !backupData.exportDate) {
+      if (
+        !backupData.collections ||
+        (!backupData.metadata && !backupData.exportDate)
+      ) {
         showError("Invalid backup file format");
         setIsImporting(false);
         setBackupProgress("");
         return;
       }
 
-      setBackupProgress("Restoring data... This may take a while");
+      setBackupProgress("Restoring data from secure server...");
 
-      showWarning(
-        "Backup restore functionality requires backend implementation. Please contact administrator.",
-      );
+      await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
+        action: "restore",
+        backupData,
+      });
+
+      showSuccess("Backup restored successfully!");
 
       setBackupProgress("");
     } catch (error) {
@@ -918,16 +903,12 @@ const Settings = () => {
 
   // Google Drive Configuration Handlers
   const handleSaveDriveConfig = async () => {
-    if (!driveConfig.enabled) {
-      showError("Please enable auto backup first");
-      return;
-    }
-
     if (
-      !driveConfig.clientId ||
-      !driveConfig.clientSecret ||
-      !driveConfig.refreshToken ||
-      !driveConfig.backupApiKey
+      driveConfig.enabled &&
+      (!driveConfig.clientId ||
+        !driveConfig.clientSecret ||
+        !driveConfig.refreshToken ||
+        !driveConfig.backupApiKey)
     ) {
       showError("Please fill all required fields");
       return;
@@ -936,36 +917,14 @@ const Settings = () => {
     try {
       setIsDriveSaving(true);
 
-      // Save to localStorage for now (will be synced to backend)
-      localStorage.setItem("googleDriveConfig", JSON.stringify(driveConfig));
+      await apiPut(API_ENDPOINTS.BUSINESS_SETTINGS.UPDATE, {
+        backupSettings: driveConfig,
+      });
 
-      showSuccess("✅ Google Drive configuration saved successfully!");
-      showInfo(
-        "🔑 Next Step: Add these credentials as GitHub Secrets (Settings → Secrets → Actions) to activate automatic backups",
-      );
-
-      // Log instructions to console for easy reference
-      console.log(`
-╔════════════════════════════════════════════════════════════╗
-║           ADD THESE GITHUB SECRETS                         ║
-╠════════════════════════════════════════════════════════════╣
-║ Go to: GitHub Repository → Settings → Secrets → Actions   ║
-║                                                            ║
-║ Add these 7 secrets:                                       ║
-║ 1. GOOGLE_CLIENT_ID                                        ║
-║ 2. GOOGLE_CLIENT_SECRET                                    ║
-║ 3. GOOGLE_REFRESH_TOKEN                                    ║
-║ 4. GOOGLE_DRIVE_FOLDER_ID                                  ║
-║ 5. NETLIFY_API_URL (your Netlify functions URL)            ║
-║ 6. BACKUP_API_KEY (create strong random key)               ║
-║ 7. MONGODB_URI (if not already added)                      ║
-║                                                            ║
-║ Then backup will run automatically daily at 8 PM IST      ║
-╚════════════════════════════════════════════════════════════╝
-      `);
+      showSuccess("Google Drive backup configuration saved successfully!");
     } catch (error) {
       console.error("Drive config save error:", error);
-      showError("Failed to save configuration");
+      showError(error?.response?.data?.error || "Failed to save configuration");
     } finally {
       setIsDriveSaving(false);
     }
@@ -985,8 +944,10 @@ const Settings = () => {
       setIsDriveSaving(true);
       showInfo("Testing Google Drive connection...");
 
-      // Simulate connection test (actual implementation would call backend)
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await apiPost(API_ENDPOINTS.BACKUP.TEST_DRIVE, {
+        action: "test-drive-config",
+        driveConfig,
+      });
 
       showSuccess("Google Drive connection successful!");
     } catch (error) {
@@ -994,6 +955,29 @@ const Settings = () => {
       showError(
         "Failed to connect to Google Drive. Please check your credentials.",
       );
+    } finally {
+      setIsDriveSaving(false);
+    }
+  };
+
+  const handleRunBackupNow = async () => {
+    try {
+      setIsDriveSaving(true);
+      const response = await apiPost(API_ENDPOINTS.BACKUP.RUN_NOW, {
+        action: "run-now",
+      });
+
+      const stats = response?.data?.stats;
+      if (stats) {
+        showSuccess(
+          `Backup run complete: ${stats.totalRecords} records across ${stats.collections} collections`,
+        );
+      } else {
+        showSuccess("Backup run completed successfully");
+      }
+    } catch (error) {
+      console.error("Run backup now error:", error);
+      showError(error?.response?.data?.error || "Failed to run backup now");
     } finally {
       setIsDriveSaving(false);
     }
@@ -2217,7 +2201,7 @@ const Settings = () => {
                             </div>
                             <h4 className="fw-bold mb-2">Export Backup</h4>
                             <p className="text-muted">
-                              Download all your data as a ZIP file for
+                              Download all your data as a secure JSON backup for
                               safekeeping
                             </p>
                           </div>
@@ -2306,7 +2290,7 @@ const Settings = () => {
                             <h4 className="fw-bold mb-2">Restore Backup</h4>
                             <p className="text-muted">
                               Import and restore data from a previously exported
-                              ZIP file
+                              JSON backup file
                             </p>
                           </div>
 
@@ -2340,7 +2324,7 @@ const Settings = () => {
                               </li>
                               <li>
                                 <i className="fas fa-arrow-right text-primary me-2"></i>
-                                Verify the ZIP file is not corrupted
+                                Verify the JSON file is not corrupted
                               </li>
                               <li>
                                 <i className="fas fa-arrow-right text-primary me-2"></i>
@@ -2352,7 +2336,7 @@ const Settings = () => {
                           <input
                             type="file"
                             ref={backupFileInputRef}
-                            accept=".zip"
+                            accept=".json"
                             style={{ display: "none" }}
                             onChange={handleImportBackup}
                           />
@@ -2432,7 +2416,7 @@ const Settings = () => {
                               </h5>
                               <p className="text-muted mb-0">
                                 Automatically backup your data to Google Drive
-                                daily
+                                with flexible schedule options
                               </p>
                             </div>
                             <div className="form-check form-switch">
@@ -2666,6 +2650,32 @@ const Settings = () => {
 
                                 <div className="col-md-6">
                                   <label className="form-label fw-bold">
+                                    <i className="fas fa-calendar-alt me-2"></i>
+                                    Backup Frequency
+                                  </label>
+                                  <select
+                                    className="form-select modern-input"
+                                    value={driveConfig.frequency}
+                                    onChange={(e) =>
+                                      setDriveConfig({
+                                        ...driveConfig,
+                                        frequency: e.target.value,
+                                      })
+                                    }
+                                  >
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                    <option value="yearly">Yearly</option>
+                                    <option value="every_4_hours">
+                                      Every 4 Hours
+                                    </option>
+                                    <option value="manual">Manual Only</option>
+                                  </select>
+                                </div>
+
+                                <div className="col-md-6">
+                                  <label className="form-label fw-bold">
                                     <i className="fas fa-clock me-2"></i>
                                     Backup Time (24-hour format)
                                   </label>
@@ -2673,6 +2683,11 @@ const Settings = () => {
                                     type="time"
                                     className="form-control modern-input"
                                     value={driveConfig.backupTime}
+                                    disabled={
+                                      driveConfig.frequency ===
+                                        "every_4_hours" ||
+                                      driveConfig.frequency === "manual"
+                                    }
                                     onChange={(e) =>
                                       setDriveConfig({
                                         ...driveConfig,
@@ -2681,9 +2696,127 @@ const Settings = () => {
                                     }
                                   />
                                   <small className="text-muted">
-                                    Default: 20:00 (8:00 PM IST)
+                                    Used for Daily, Weekly, Monthly, and Yearly
+                                    schedules
                                   </small>
                                 </div>
+
+                                {driveConfig.frequency === "weekly" && (
+                                  <div className="col-md-6">
+                                    <label className="form-label fw-bold">
+                                      <i className="fas fa-calendar-week me-2"></i>
+                                      Day of Week
+                                    </label>
+                                    <select
+                                      className="form-select modern-input"
+                                      value={driveConfig.dayOfWeek}
+                                      onChange={(e) =>
+                                        setDriveConfig({
+                                          ...driveConfig,
+                                          dayOfWeek: e.target.value,
+                                        })
+                                      }
+                                    >
+                                      <option value="monday">Monday</option>
+                                      <option value="tuesday">Tuesday</option>
+                                      <option value="wednesday">
+                                        Wednesday
+                                      </option>
+                                      <option value="thursday">Thursday</option>
+                                      <option value="friday">Friday</option>
+                                      <option value="saturday">Saturday</option>
+                                      <option value="sunday">Sunday</option>
+                                    </select>
+                                  </div>
+                                )}
+
+                                {(driveConfig.frequency === "monthly" ||
+                                  driveConfig.frequency === "yearly") && (
+                                  <div className="col-md-6">
+                                    <label className="form-label fw-bold">
+                                      <i className="fas fa-calendar-day me-2"></i>
+                                      Day of Month
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="31"
+                                      className="form-control modern-input"
+                                      value={driveConfig.dayOfMonth}
+                                      onChange={(e) =>
+                                        setDriveConfig({
+                                          ...driveConfig,
+                                          dayOfMonth: Math.max(
+                                            1,
+                                            Math.min(
+                                              31,
+                                              Number(e.target.value) || 1,
+                                            ),
+                                          ),
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                )}
+
+                                {driveConfig.frequency === "yearly" && (
+                                  <div className="col-md-6">
+                                    <label className="form-label fw-bold">
+                                      <i className="fas fa-calendar me-2"></i>
+                                      Month of Year
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="12"
+                                      className="form-control modern-input"
+                                      value={driveConfig.monthOfYear}
+                                      onChange={(e) =>
+                                        setDriveConfig({
+                                          ...driveConfig,
+                                          monthOfYear: Math.max(
+                                            1,
+                                            Math.min(
+                                              12,
+                                              Number(e.target.value) || 1,
+                                            ),
+                                          ),
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                )}
+
+                                {driveConfig.frequency === "every_4_hours" && (
+                                  <div className="col-md-6">
+                                    <label className="form-label fw-bold">
+                                      <i className="fas fa-history me-2"></i>
+                                      Interval (Hours)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="24"
+                                      className="form-control modern-input"
+                                      value={driveConfig.everyHours}
+                                      onChange={(e) =>
+                                        setDriveConfig({
+                                          ...driveConfig,
+                                          everyHours: Math.max(
+                                            1,
+                                            Math.min(
+                                              24,
+                                              Number(e.target.value) || 4,
+                                            ),
+                                          ),
+                                        })
+                                      }
+                                    />
+                                    <small className="text-muted">
+                                      Set 4 for every 4 hours backups
+                                    </small>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="mt-4">
@@ -2705,6 +2838,14 @@ const Settings = () => {
                                   )}
                                 </button>
                                 <button
+                                  className="btn btn-primary btn-lg ms-2"
+                                  onClick={handleRunBackupNow}
+                                  disabled={isDriveSaving}
+                                >
+                                  <i className="fas fa-play me-2"></i>
+                                  Run Backup Now
+                                </button>
+                                <button
                                   className="btn btn-info btn-lg ms-2"
                                   onClick={handleTestDriveConnection}
                                   disabled={isDriveSaving}
@@ -2712,110 +2853,6 @@ const Settings = () => {
                                   <i className="fas fa-plug me-2"></i>
                                   Test Connection
                                 </button>
-                              </div>
-
-                              <div className="alert alert-info mt-3">
-                                <i className="fas fa-info-circle me-2"></i>
-                                <strong>✅ Configuration Saved!</strong> Now
-                                follow these steps:
-                                <ol className="mb-0 mt-2 ps-3">
-                                  <li>
-                                    <strong>Commit to GitHub</strong> (if not
-                                    done):
-                                    <code className="ms-2 small">
-                                      git add . && git commit -m "Setup backup"
-                                      && git push
-                                    </code>
-                                  </li>
-                                  <li>
-                                    <strong>Add GitHub Secrets</strong>:
-                                    <ul className="mt-1">
-                                      <li>
-                                        Go to: Repository → Settings → Secrets
-                                        and variables → Actions
-                                      </li>
-                                      <li>
-                                        Click "New repository secret" and add
-                                        these 7 secrets:
-                                      </li>
-                                      <li className="text-primary">
-                                        • GOOGLE_CLIENT_ID
-                                      </li>
-                                      <li className="text-primary">
-                                        • GOOGLE_CLIENT_SECRET
-                                      </li>
-                                      <li className="text-primary">
-                                        • GOOGLE_REFRESH_TOKEN
-                                      </li>
-                                      <li className="text-primary">
-                                        • GOOGLE_DRIVE_FOLDER_ID
-                                      </li>
-                                      <li className="text-primary">
-                                        • NETLIFY_API_URL (your Netlify base
-                                        URL)
-                                      </li>
-                                      <li className="text-primary">
-                                        • MONGODB_URI (if not already added)
-                                      </li>
-                                      <li className="text-primary">
-                                        • BACKUP_API_KEY (if not already added)
-                                      </li>
-                                    </ul>
-                                  </li>
-                                  <li>
-                                    <strong>Test:</strong> GitHub Actions →
-                                    "Auto Backup to Google Drive" → Run workflow
-                                  </li>
-                                </ol>
-                                <div className="mt-2">
-                                  <a
-                                    href="https://github.com/settings/tokens"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="btn btn-sm btn-outline-primary me-2"
-                                  >
-                                    <i className="fab fa-github me-1"></i>
-                                    Open GitHub
-                                  </a>
-                                  <button
-                                    className="btn btn-sm btn-outline-info"
-                                    onClick={() => {
-                                      console.log("=".repeat(60));
-                                      console.log("📋 GitHub Secrets to Add:");
-                                      console.log("=".repeat(60));
-                                      console.log(
-                                        "1. GOOGLE_CLIENT_ID =",
-                                        driveConfig.clientId,
-                                      );
-                                      console.log(
-                                        "2. GOOGLE_CLIENT_SECRET =",
-                                        driveConfig.clientSecret,
-                                      );
-                                      console.log(
-                                        "3. GOOGLE_REFRESH_TOKEN =",
-                                        driveConfig.refreshToken,
-                                      );
-                                      console.log(
-                                        "4. GOOGLE_DRIVE_FOLDER_ID =",
-                                        driveConfig.folderId,
-                                      );
-                                      console.log(
-                                        "5. NETLIFY_API_URL = https://accounting-dausa.netlify.app/api",
-                                      );
-                                      console.log(
-                                        "6. BACKUP_API_KEY =",
-                                        driveConfig.backupApiKey,
-                                      );
-                                      console.log(
-                                        "7. MONGODB_URI = (your MongoDB connection string)",
-                                      );
-                                      console.log("=".repeat(60));
-                                    }}
-                                  >
-                                    <i className="fas fa-terminal me-1"></i>
-                                    Copy to Console
-                                  </button>
-                                </div>
                               </div>
                             </>
                           )}

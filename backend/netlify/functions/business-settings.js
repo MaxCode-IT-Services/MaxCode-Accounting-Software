@@ -41,7 +41,68 @@ const ALLOWED_FIELDS = [
   "invoiceTermsConditions",
   "selfInvoiceTermsConditions",
   "services",
+  "backupSettings",
 ];
+
+const sanitizeBackupSettings = (value = {}) => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const frequency = [
+    "daily",
+    "weekly",
+    "monthly",
+    "yearly",
+    "every_4_hours",
+    "manual",
+  ].includes(value.frequency)
+    ? value.frequency
+    : "daily";
+
+  const dayOfMonthRaw = Number.parseInt(value.dayOfMonth, 10);
+  const dayOfMonth = Number.isFinite(dayOfMonthRaw)
+    ? Math.min(Math.max(dayOfMonthRaw, 1), 31)
+    : 1;
+
+  const monthOfYearRaw = Number.parseInt(value.monthOfYear, 10);
+  const monthOfYear = Number.isFinite(monthOfYearRaw)
+    ? Math.min(Math.max(monthOfYearRaw, 1), 12)
+    : 1;
+
+  const everyHoursRaw = Number.parseInt(value.everyHours, 10);
+  const everyHours = Number.isFinite(everyHoursRaw)
+    ? Math.min(Math.max(everyHoursRaw, 1), 24)
+    : 4;
+
+  return {
+    enabled: Boolean(value.enabled),
+    clientId: typeof value.clientId === "string" ? value.clientId.trim() : "",
+    clientSecret:
+      typeof value.clientSecret === "string" ? value.clientSecret.trim() : "",
+    refreshToken:
+      typeof value.refreshToken === "string" ? value.refreshToken.trim() : "",
+    backupApiKey:
+      typeof value.backupApiKey === "string" ? value.backupApiKey.trim() : "",
+    folderId: typeof value.folderId === "string" ? value.folderId.trim() : "",
+    backupTime:
+      typeof value.backupTime === "string" &&
+      /^\d{2}:\d{2}$/.test(value.backupTime)
+        ? value.backupTime
+        : "20:00",
+    frequency,
+    everyHours,
+    dayOfWeek:
+      typeof value.dayOfWeek === "string" ? value.dayOfWeek.trim() : "monday",
+    dayOfMonth,
+    monthOfYear,
+    timezone:
+      typeof value.timezone === "string" && value.timezone.trim()
+        ? value.timezone.trim()
+        : "Asia/Kolkata",
+    updatedAt: new Date(),
+  };
+};
 
 const getBaseUrl = (event) => {
   const host =
@@ -113,6 +174,11 @@ const sanitizeSettingsPayload = (payload = {}) => {
             status: item?.status === "inactive" ? "inactive" : "active",
           }))
           .filter((item) => item.name && item.hsnCode);
+      } else if (field === "backupSettings") {
+        const sanitizedBackupSettings = sanitizeBackupSettings(value);
+        if (sanitizedBackupSettings) {
+          sanitized[field] = sanitizedBackupSettings;
+        }
       } else {
         sanitized[field] = value;
       }

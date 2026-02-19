@@ -58,6 +58,14 @@ const API_ENDPOINTS = {
     CHANGE_PIN: "/settings",
   },
 
+  // Backup endpoints
+  BACKUP: {
+    EXPORT: "/backup",
+    RESTORE: "/backup",
+    TEST_DRIVE: "/backup",
+    RUN_NOW: "/backup",
+  },
+
   // Purchase endpoints
   PURCHASES: {
     LIST: "/purchases",
