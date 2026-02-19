@@ -56,6 +56,14 @@ export async function handler(event) {
           return createResponse(401, { error: "Invalid credentials" }, origin);
         }
 
+        if (user.status && user.status !== "Active") {
+          return createResponse(
+            403,
+            { error: "Your account is inactive. Please contact admin." },
+            origin,
+          );
+        }
+
         // Verify password or pin
         let isValidCredential = await comparePassword(pin, user.pin);
 

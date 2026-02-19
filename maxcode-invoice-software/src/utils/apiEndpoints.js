@@ -111,6 +111,15 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/staff?id=${id}`,
   },
 
+  // Team Members endpoints
+  TEAM_MEMBERS: {
+    LIST: "/team-members",
+    CREATE: "/team-members",
+    GET: (id) => `/team-members?id=${id}`,
+    UPDATE: (id) => `/team-members?id=${id}`,
+    DELETE: (id) => `/team-members?id=${id}`,
+  },
+
   // Add more endpoints as needed
 };
 

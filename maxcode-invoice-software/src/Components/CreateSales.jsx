@@ -610,16 +610,33 @@ const CreateSales = ({
   const clientSelectStyles = {
     control: (base, state) => ({
       ...base,
-      minHeight: "38px",
-      borderColor: errors.clientRefId
-        ? "#dc3545"
+      minHeight: "48px",
+      border: errors.clientRefId
+        ? "2px solid #dc3545"
         : state.isFocused
-          ? "#86b7fe"
-          : base.borderColor,
-      boxShadow: state.isFocused ? "0 0 0 .25rem rgba(13,110,253,.25)" : "none",
-      "&:hover": {
-        borderColor: errors.clientRefId ? "#dc3545" : "#86b7fe",
-      },
+          ? "2px solid #667eea"
+          : "2px solid #e9ecef",
+      borderColor:
+        state.isHovered && !errors.clientRefId ? "#d6dbe1" : undefined,
+      borderRadius: "10px",
+      boxShadow: state.isFocused
+        ? "0 0 0 .25rem rgba(102, 126, 234, 0.15)"
+        : "none",
+      backgroundColor: "#ffffff",
+      transition: "all 0.3s ease",
+    }),
+    valueContainer: (base) => ({
+      ...base,
+      padding: "6px 8px",
+    }),
+    input: (base) => ({
+      ...base,
+      margin: "2px",
+      padding: 0,
+    }),
+    indicatorsContainer: (base) => ({
+      ...base,
+      paddingRight: "8px",
     }),
     menu: (base) => ({
       ...base,
@@ -642,21 +659,34 @@ const CreateSales = ({
   };
 
   const itemServiceSelectStyles = {
-    control: (base) => ({
+    control: (base, state) => ({
       ...base,
-      minHeight: "31px",
-      borderColor: "#ced4da",
+      minHeight: "34px",
+      border: state.isFocused ? "2px solid #667eea" : "2px solid #e9ecef",
+      borderColor: state.isHovered ? "#d6dbe1" : undefined,
+      borderRadius: "10px",
       fontSize: "0.875rem",
+      boxShadow: state.isFocused
+        ? "0 0 0 .25rem rgba(102, 126, 234, 0.15)"
+        : "none",
+      backgroundColor: "#ffffff",
+      transition: "all 0.3s ease",
     }),
     valueContainer: (base) => ({
       ...base,
-      paddingTop: "1px",
-      paddingBottom: "1px",
+      paddingTop: "2px",
+      paddingBottom: "2px",
+      paddingLeft: "8px",
     }),
     input: (base) => ({
       ...base,
       margin: 0,
       padding: 0,
+    }),
+    indicatorsContainer: (base) => ({
+      ...base,
+      height: "42px",
+      paddingRight: "4px",
     }),
     menu: (base) => ({
       ...base,
@@ -676,10 +706,6 @@ const CreateSales = ({
           : base.backgroundColor,
       color: state.isSelected ? "#fff" : "#212529",
       cursor: "pointer",
-    }),
-    indicatorsContainer: (base) => ({
-      ...base,
-      height: "29px",
     }),
   };
 
@@ -721,7 +747,7 @@ const CreateSales = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.invoiceNumber ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.invoiceNumber ? "is-invalid" : ""}`}
                     id="invoiceNumber"
                     name="invoiceNumber"
                     value={formData.invoiceNumber}
@@ -743,7 +769,7 @@ const CreateSales = ({
                   </label>
                   <input
                     type="date"
-                    className={`form-control ${errors.invoiceDate ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.invoiceDate ? "is-invalid" : ""}`}
                     id="invoiceDate"
                     name="invoiceDate"
                     value={formData.invoiceDate}
@@ -804,7 +830,7 @@ const CreateSales = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="clientId"
                     name="clientId"
                     value={formData.clientId}
@@ -820,7 +846,7 @@ const CreateSales = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="businessName"
                     name="businessName"
                     value={formData.businessName}
@@ -836,7 +862,7 @@ const CreateSales = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="gstin"
                     name="gstin"
                     value={formData.gstin}
@@ -852,7 +878,7 @@ const CreateSales = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="phoneNumber"
                     name="phoneNumber"
                     value={formData.phoneNumber}
@@ -868,7 +894,7 @@ const CreateSales = ({
                   </label>
                   <input
                     type="email"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="email"
                     name="email"
                     value={formData.email}
@@ -884,7 +910,7 @@ const CreateSales = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="address"
                     name="address"
                     value={formData.address}
@@ -900,7 +926,7 @@ const CreateSales = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="placeOfSupply"
                     name="placeOfSupply"
                     value={formData.placeOfSupply}
@@ -973,7 +999,7 @@ const CreateSales = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.itemDescription}
                                 onChange={(e) =>
                                   handleItemChange(
@@ -989,7 +1015,7 @@ const CreateSales = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.hsnCode}
                                 onChange={(e) =>
                                   handleItemChange(
@@ -1005,7 +1031,7 @@ const CreateSales = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.qty}
                                 onChange={(e) => {
                                   handleNumberInput(e);
@@ -1022,7 +1048,7 @@ const CreateSales = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.price}
                                 onChange={(e) => {
                                   handleNumberInput(e);
@@ -1039,7 +1065,7 @@ const CreateSales = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={toNumber(item.amount).toFixed(2)}
                                 readOnly
                                 style={{
@@ -1112,7 +1138,7 @@ const CreateSales = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold"
+                              className="form-control modern-input fw-bold"
                               value={taxData.subtotal}
                               readOnly
                               style={{
@@ -1137,7 +1163,7 @@ const CreateSales = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control modern-input"
                               id="taxPercentage"
                               value={taxData.taxPercentage}
                               onChange={(e) => {
@@ -1165,7 +1191,7 @@ const CreateSales = ({
                             </span>
                             <input
                               type="text"
-                              className={`form-control fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
+                              className={`form-control modern-input fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
                               value={taxData.cgst}
                               readOnly
                               style={{
@@ -1190,7 +1216,7 @@ const CreateSales = ({
                             </span>
                             <input
                               type="text"
-                              className={`form-control fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
+                              className={`form-control modern-input fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
                               value={taxData.sgst}
                               readOnly
                               style={{
@@ -1214,7 +1240,7 @@ const CreateSales = ({
                             </span>
                             <input
                               type="text"
-                              className={`form-control fw-bold ${!isRajasthan ? "text-primary" : "text-muted"}`}
+                              className={`form-control modern-input fw-bold ${!isRajasthan ? "text-primary" : "text-muted"}`}
                               value={taxData.igst}
                               readOnly
                               style={{
@@ -1239,7 +1265,7 @@ const CreateSales = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control modern-input"
                               id="roundingAmount"
                               name="roundingAmount"
                               value={formData.roundingAmount}
@@ -1264,7 +1290,7 @@ const CreateSales = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold text-danger"
+                              className="form-control modern-input fw-bold text-danger"
                               value={taxData.totalAmount}
                               readOnly
                             />
@@ -1300,7 +1326,7 @@ const CreateSales = ({
                           <select
                             id="paymentStatus"
                             name="paymentStatus"
-                            className={`form-select ${errors.paymentStatus ? "is-invalid" : ""}`}
+                            className={`form-select modern-input ${errors.paymentStatus ? "is-invalid" : ""}`}
                             value={formData.paymentStatus}
                             onChange={handleInputChange}
                             disabled={isViewMode}
@@ -1329,7 +1355,7 @@ const CreateSales = ({
                           <select
                             id="paymentMethod"
                             name="paymentMethod"
-                            className="form-select"
+                            className="form-select modern-input"
                             value={formData.paymentMethod}
                             onChange={handleInputChange}
                             disabled={isViewMode}
@@ -1358,7 +1384,7 @@ const CreateSales = ({
                           </label>
                           <input
                             type="date"
-                            className="form-control"
+                            className="form-control modern-input"
                             id="paymentDate"
                             name="paymentDate"
                             value={formData.paymentDate}
@@ -1383,7 +1409,7 @@ const CreateSales = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control modern-input"
                               id="amountReceived"
                               name="amountReceived"
                               value={formData.amountReceived}
@@ -1411,7 +1437,7 @@ const CreateSales = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control modern-input"
                               id="tdsPercent"
                               name="tdsPercent"
                               value={formData.tdsPercent}
@@ -1439,7 +1465,7 @@ const CreateSales = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold text-danger"
+                              className="form-control modern-input fw-bold text-danger"
                               id="tdsAmount"
                               name="tdsAmount"
                               value={formData.tdsAmount}

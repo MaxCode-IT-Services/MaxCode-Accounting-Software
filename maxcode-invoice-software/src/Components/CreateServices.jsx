@@ -576,16 +576,33 @@ const CreateServices = ({
   const clientSelectStyles = {
     control: (base, state) => ({
       ...base,
-      minHeight: "38px",
-      borderColor: errors.clientRefId
-        ? "#dc3545"
+      minHeight: "48px",
+      border: errors.clientRefId
+        ? "2px solid #dc3545"
         : state.isFocused
-          ? "#86b7fe"
-          : base.borderColor,
-      boxShadow: state.isFocused ? "0 0 0 .25rem rgba(13,110,253,.25)" : "none",
-      "&:hover": {
-        borderColor: errors.clientRefId ? "#dc3545" : "#86b7fe",
-      },
+          ? "2px solid #667eea"
+          : "2px solid #e9ecef",
+      borderColor:
+        state.isHovered && !errors.clientRefId ? "#d6dbe1" : undefined,
+      borderRadius: "10px",
+      boxShadow: state.isFocused
+        ? "0 0 0 .25rem rgba(102, 126, 234, 0.15)"
+        : "none",
+      backgroundColor: "#ffffff",
+      transition: "all 0.3s ease",
+    }),
+    valueContainer: (base) => ({
+      ...base,
+      padding: "6px 8px",
+    }),
+    input: (base) => ({
+      ...base,
+      margin: "2px",
+      padding: 0,
+    }),
+    indicatorsContainer: (base) => ({
+      ...base,
+      paddingRight: "8px",
     }),
     menu: (base) => ({
       ...base,
@@ -608,21 +625,34 @@ const CreateServices = ({
   };
 
   const serviceNameSelectStyles = {
-    control: (base) => ({
+    control: (base, state) => ({
       ...base,
-      minHeight: "31px",
-      borderColor: "#ced4da",
+      minHeight: "34px",
+      border: state.isFocused ? "2px solid #667eea" : "2px solid #e9ecef",
+      borderColor: state.isHovered ? "#d6dbe1" : undefined,
+      borderRadius: "10px",
       fontSize: "0.875rem",
+      boxShadow: state.isFocused
+        ? "0 0 0 .25rem rgba(102, 126, 234, 0.15)"
+        : "none",
+      backgroundColor: "#ffffff",
+      transition: "all 0.3s ease",
     }),
     valueContainer: (base) => ({
       ...base,
-      paddingTop: "1px",
-      paddingBottom: "1px",
+      paddingTop: "2px",
+      paddingBottom: "2px",
+      paddingLeft: "8px",
     }),
     input: (base) => ({
       ...base,
       margin: 0,
       padding: 0,
+    }),
+    indicatorsContainer: (base) => ({
+      ...base,
+      height: "42px",
+      paddingRight: "4px",
     }),
     menu: (base) => ({
       ...base,
@@ -642,10 +672,6 @@ const CreateServices = ({
           : base.backgroundColor,
       color: state.isSelected ? "#fff" : "#212529",
       cursor: "pointer",
-    }),
-    indicatorsContainer: (base) => ({
-      ...base,
-      height: "29px",
     }),
   };
 
@@ -700,7 +726,7 @@ const CreateServices = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.serviceNumber ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.serviceNumber ? "is-invalid" : ""}`}
                     id="serviceNumber"
                     name="serviceNumber"
                     value={formData.serviceNumber}
@@ -721,7 +747,7 @@ const CreateServices = ({
                   </label>
                   <input
                     type="date"
-                    className={`form-control ${errors.serviceDate ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.serviceDate ? "is-invalid" : ""}`}
                     id="serviceDate"
                     name="serviceDate"
                     value={formData.serviceDate}
@@ -781,7 +807,7 @@ const CreateServices = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="clientId"
                     value={formData.clientId}
                     readOnly
@@ -794,7 +820,7 @@ const CreateServices = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="businessName"
                     value={formData.businessName}
                     readOnly
@@ -807,7 +833,7 @@ const CreateServices = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="gstin"
                     value={formData.gstin}
                     readOnly
@@ -820,7 +846,7 @@ const CreateServices = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.phoneNumber ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.phoneNumber ? "is-invalid" : ""}`}
                     id="phoneNumber"
                     name="phoneNumber"
                     value={formData.phoneNumber}
@@ -839,7 +865,7 @@ const CreateServices = ({
                   </label>
                   <input
                     type="email"
-                    className={`form-control ${errors.email ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.email ? "is-invalid" : ""}`}
                     id="email"
                     name="email"
                     value={formData.email}
@@ -858,7 +884,7 @@ const CreateServices = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="address"
                     value={formData.address}
                     readOnly
@@ -930,7 +956,7 @@ const CreateServices = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={service.description}
                                 onChange={(e) =>
                                   handleServiceChange(
@@ -946,7 +972,7 @@ const CreateServices = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={service.price}
                                 onChange={(e) => {
                                   handleNumberInput(e);
@@ -963,7 +989,7 @@ const CreateServices = ({
                             <td>
                               <input
                                 type="date"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={service.startDate}
                                 onChange={(e) =>
                                   handleServiceChange(
@@ -978,7 +1004,7 @@ const CreateServices = ({
                             <td>
                               <input
                                 type="date"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={service.expiryDate}
                                 onChange={(e) =>
                                   handleServiceChange(
@@ -1125,7 +1151,7 @@ const CreateServices = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={transaction.description}
                                 onChange={(e) =>
                                   handleTransactionChange(
@@ -1141,7 +1167,7 @@ const CreateServices = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={transaction.price}
                                 onChange={(e) => {
                                   handleNumberInput(e);
@@ -1158,7 +1184,7 @@ const CreateServices = ({
                             <td>
                               <input
                                 type="date"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={transaction.renewDate}
                                 onChange={(e) =>
                                   handleTransactionChange(
@@ -1173,7 +1199,7 @@ const CreateServices = ({
                             <td>
                               <input
                                 type="date"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={transaction.expiryDate}
                                 onChange={(e) =>
                                   handleTransactionChange(
@@ -1260,7 +1286,7 @@ const CreateServices = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold"
+                              className="form-control modern-input fw-bold"
                               value={summary.totalServiceAmount}
                               readOnly
                             />
@@ -1276,7 +1302,7 @@ const CreateServices = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold"
+                              className="form-control modern-input fw-bold"
                               value={summary.totalTransactionAmount}
                               readOnly
                             />
@@ -1292,7 +1318,7 @@ const CreateServices = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold text-danger"
+                              className="form-control modern-input fw-bold text-danger"
                               value={summary.grandTotal}
                               readOnly
                             />

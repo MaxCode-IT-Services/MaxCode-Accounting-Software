@@ -741,15 +741,31 @@ const CreateProject = ({
     control: (base, state) => ({
       ...base,
       minHeight,
-      borderColor: hasError
-        ? "#dc3545"
+      border: hasError
+        ? "2px solid #dc3545"
         : state.isFocused
-          ? "#86b7fe"
-          : base.borderColor,
-      boxShadow: state.isFocused ? "0 0 0 .25rem rgba(13,110,253,.25)" : "none",
-      "&:hover": {
-        borderColor: hasError ? "#dc3545" : "#86b7fe",
-      },
+          ? "2px solid #667eea"
+          : "2px solid #e9ecef",
+      borderColor: state.isHovered && !hasError ? "#d6dbe1" : undefined,
+      borderRadius: "10px",
+      boxShadow: state.isFocused
+        ? "0 0 0 .25rem rgba(102, 126, 234, 0.15)"
+        : "none",
+      backgroundColor: "#ffffff",
+      transition: "all 0.3s ease",
+    }),
+    valueContainer: (base) => ({
+      ...base,
+      padding: "6px 8px",
+    }),
+    input: (base) => ({
+      ...base,
+      margin: "2px",
+      padding: 0,
+    }),
+    indicatorsContainer: (base) => ({
+      ...base,
+      paddingRight: "8px",
     }),
     menu: (base) => ({
       ...base,
@@ -834,7 +850,7 @@ const CreateProject = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.projectId ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.projectId ? "is-invalid" : ""}`}
                     id="projectId"
                     name="projectId"
                     value={formData.projectId}
@@ -854,7 +870,7 @@ const CreateProject = ({
                   </label>
                   <input
                     type="date"
-                    className={`form-control ${errors.projectDate ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.projectDate ? "is-invalid" : ""}`}
                     id="projectDate"
                     name="projectDate"
                     value={formData.projectDate}
@@ -874,7 +890,7 @@ const CreateProject = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.projectName ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.projectName ? "is-invalid" : ""}`}
                     id="projectName"
                     name="projectName"
                     value={formData.projectName}
@@ -899,7 +915,7 @@ const CreateProject = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.projectDevelopmentTime ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.projectDevelopmentTime ? "is-invalid" : ""}`}
                     id="projectDevelopmentTime"
                     name="projectDevelopmentTime"
                     value={formData.projectDevelopmentTime}
@@ -920,7 +936,7 @@ const CreateProject = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.projectTotalCost ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.projectTotalCost ? "is-invalid" : ""}`}
                     id="projectTotalCost"
                     name="projectTotalCost"
                     value={formData.projectTotalCost}
@@ -941,7 +957,7 @@ const CreateProject = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.totalDeveloperCost ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.totalDeveloperCost ? "is-invalid" : ""}`}
                     id="totalDeveloperCost"
                     name="totalDeveloperCost"
                     value={formData.totalDeveloperCost}
@@ -999,7 +1015,7 @@ const CreateProject = ({
                   <label className="form-label">Client ID</label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     value={formData.clientId}
                     readOnly
                     style={{ backgroundColor: "#e9ecef" }}
@@ -1009,7 +1025,7 @@ const CreateProject = ({
                   <label className="form-label">Business Name</label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     value={formData.businessName}
                     readOnly
                     style={{ backgroundColor: "#e9ecef" }}
@@ -1019,7 +1035,7 @@ const CreateProject = ({
                   <label className="form-label">GSTIN</label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     value={formData.gstin}
                     readOnly
                     style={{ backgroundColor: "#e9ecef" }}
@@ -1029,7 +1045,7 @@ const CreateProject = ({
                   <label className="form-label">Phone Number</label>
                   <input
                     type="text"
-                    className={`form-control ${errors.phoneNumber ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.phoneNumber ? "is-invalid" : ""}`}
                     value={formData.phoneNumber}
                     readOnly
                     style={{ backgroundColor: "#e9ecef" }}
@@ -1044,7 +1060,7 @@ const CreateProject = ({
                   <label className="form-label">Email Address</label>
                   <input
                     type="email"
-                    className={`form-control ${errors.email ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.email ? "is-invalid" : ""}`}
                     value={formData.email}
                     readOnly
                     style={{ backgroundColor: "#e9ecef" }}
@@ -1059,7 +1075,7 @@ const CreateProject = ({
                   <label className="form-label">Address</label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     value={formData.address}
                     readOnly
                     style={{ backgroundColor: "#e9ecef" }}
@@ -1086,14 +1102,14 @@ const CreateProject = ({
                       <thead className="table-primary">
                         <tr>
                           <th style={{ width: "50px" }}>S.N</th>
-                          <th style={{ width: "170px" }}>Invoice Number</th>
-                          <th style={{ width: "230px" }}>Description</th>
-                          <th style={{ width: "140px" }}>Payment Date</th>
-                          <th style={{ width: "140px" }}>Payment Method</th>
-                          <th style={{ width: "120px" }}>Amount (₹)</th>
-                          <th style={{ width: "110px" }}>Tax (₹)</th>
-                          <th style={{ width: "130px" }}>Total Amount (₹)</th>
-                          <th style={{ width: "80px" }}>Action</th>
+                          <th style={{ width: "210px" }}>Invoice Number</th>
+                          <th style={{ width: "240px" }}>Description</th>
+                          <th style={{ width: "120px" }}>Payment Date</th>
+                          <th style={{ width: "120px" }}>Payment Method</th>
+                          <th style={{ width: "110px" }}>Amount (₹)</th>
+                          <th style={{ width: "100px" }}>Tax (₹)</th>
+                          <th style={{ width: "110px" }}>Total Amount (₹)</th>
+                          <th style={{ width: "40px" }}>Action</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1139,7 +1155,7 @@ const CreateProject = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={payment.description}
                                 onChange={(e) =>
                                   handlePaymentChange(
@@ -1155,7 +1171,7 @@ const CreateProject = ({
                             <td>
                               <input
                                 type="date"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={payment.paymentDate}
                                 onChange={(e) =>
                                   handlePaymentChange(
@@ -1169,7 +1185,7 @@ const CreateProject = ({
                             </td>
                             <td>
                               <select
-                                className="form-select form-select-sm"
+                                className="form-select form-select-sm modern-input"
                                 value={payment.paymentMethod}
                                 onChange={(e) =>
                                   handlePaymentChange(
@@ -1190,7 +1206,7 @@ const CreateProject = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={payment.amount}
                                 onChange={(e) =>
                                   handlePaymentChange(
@@ -1206,7 +1222,7 @@ const CreateProject = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={payment.tax}
                                 onChange={(e) =>
                                   handlePaymentChange(
@@ -1222,7 +1238,7 @@ const CreateProject = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={payment.totalAmount}
                                 onChange={(e) =>
                                   handlePaymentChange(
@@ -1333,7 +1349,7 @@ const CreateProject = ({
                               <td>
                                 <input
                                   type="text"
-                                  className="form-control form-control-sm"
+                                  className="form-control modern-input form-control-sm"
                                   value={transaction.description}
                                   onChange={(e) =>
                                     handlePayoutChange(
@@ -1349,7 +1365,7 @@ const CreateProject = ({
                               <td>
                                 <input
                                   type="date"
-                                  className="form-control form-control-sm"
+                                  className="form-control modern-input form-control-sm"
                                   value={transaction.payoutDate}
                                   onChange={(e) =>
                                     handlePayoutChange(
@@ -1364,7 +1380,7 @@ const CreateProject = ({
                               <td>
                                 <input
                                   type="text"
-                                  className="form-control form-control-sm"
+                                  className="form-control modern-input form-control-sm"
                                   value={transaction.payoutAmount}
                                   onChange={(e) =>
                                     handlePayoutChange(
@@ -1379,7 +1395,7 @@ const CreateProject = ({
                               </td>
                               <td>
                                 <select
-                                  className="form-select form-select-sm"
+                                  className="form-select form-select-sm modern-input"
                                   value={transaction.payoutMethod}
                                   onChange={(e) =>
                                     handlePayoutChange(
@@ -1456,7 +1472,7 @@ const CreateProject = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold"
+                              className="form-control modern-input fw-bold"
                               value={formatCurrency(
                                 summary.totalProjectAmountWithoutTax,
                               )}
@@ -1475,7 +1491,7 @@ const CreateProject = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold"
+                              className="form-control modern-input fw-bold"
                               value={formatCurrency(summary.totalAmountWithTax)}
                               readOnly
                             />
@@ -1495,7 +1511,7 @@ const CreateProject = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold"
+                              className="form-control modern-input fw-bold"
                               value={formatCurrency(summary.totalClientPayable)}
                               readOnly
                             />
@@ -1512,7 +1528,7 @@ const CreateProject = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold"
+                              className="form-control modern-input fw-bold"
                               value={formatCurrency(
                                 summary.totalDeveloperPayable,
                               )}
@@ -1531,7 +1547,7 @@ const CreateProject = ({
                             </span>
                             <input
                               type="text"
-                              className={`form-control fw-bold ${summary.remainingAmount < 0 ? "text-danger" : "text-success"}`}
+                              className={`form-control modern-input fw-bold ${summary.remainingAmount < 0 ? "text-danger" : "text-success"}`}
                               value={formatCurrency(summary.remainingAmount)}
                               readOnly
                             />

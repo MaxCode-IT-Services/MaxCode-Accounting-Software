@@ -545,7 +545,7 @@ const CreatePurchase = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.invoiceNumber ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.invoiceNumber ? "is-invalid" : ""}`}
                     id="invoiceNumber"
                     name="invoiceNumber"
                     value={formData.invoiceNumber}
@@ -568,7 +568,7 @@ const CreatePurchase = ({
                   </label>
                   <input
                     type="date"
-                    className={`form-control ${errors.invoiceDate ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.invoiceDate ? "is-invalid" : ""}`}
                     id="invoiceDate"
                     name="invoiceDate"
                     value={formData.invoiceDate}
@@ -623,7 +623,7 @@ const CreatePurchase = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="businessName"
                     name="businessName"
                     value={formData.businessName}
@@ -640,7 +640,7 @@ const CreatePurchase = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="gstin"
                     name="gstin"
                     value={formData.gstin}
@@ -657,7 +657,7 @@ const CreatePurchase = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="phoneNumber"
                     name="phoneNumber"
                     value={formData.phoneNumber}
@@ -674,7 +674,7 @@ const CreatePurchase = ({
                   </label>
                   <input
                     type="email"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="email"
                     name="email"
                     value={formData.email}
@@ -691,7 +691,7 @@ const CreatePurchase = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="address"
                     name="address"
                     value={formData.address}
@@ -708,7 +708,7 @@ const CreatePurchase = ({
                   </label>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control modern-input"
                     id="placeOfSupply"
                     name="placeOfSupply"
                     value={formData.placeOfSupply}
@@ -754,7 +754,7 @@ const CreatePurchase = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.itemName}
                                 onChange={(e) =>
                                   handleItemChange(
@@ -770,7 +770,7 @@ const CreatePurchase = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.itemDescription}
                                 onChange={(e) =>
                                   handleItemChange(
@@ -786,7 +786,7 @@ const CreatePurchase = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.hsnCode}
                                 onChange={(e) =>
                                   handleItemChange(
@@ -802,7 +802,7 @@ const CreatePurchase = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.qty}
                                 onChange={(e) => {
                                   handleNumberInput(e);
@@ -819,7 +819,7 @@ const CreatePurchase = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.price}
                                 onChange={(e) => {
                                   handleNumberInput(e);
@@ -836,7 +836,7 @@ const CreatePurchase = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.amount.toFixed(2)}
                                 readOnly
                                 style={{
@@ -911,7 +911,7 @@ const CreatePurchase = ({
                               </span>
                               <input
                                 type="text"
-                                className="form-control fw-bold"
+                                className="form-control modern-input fw-bold"
                                 value={taxData.subtotal}
                                 readOnly
                                 style={{
@@ -938,7 +938,7 @@ const CreatePurchase = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control modern-input"
                               id="taxPercentage"
                               value={taxData.taxPercentage}
                               onChange={(e) => {
@@ -966,7 +966,7 @@ const CreatePurchase = ({
                             </span>
                             <input
                               type="text"
-                              className={`form-control fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
+                              className={`form-control modern-input fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
                               value={taxData.cgst}
                               readOnly
                             />
@@ -988,7 +988,7 @@ const CreatePurchase = ({
                             </span>
                             <input
                               type="text"
-                              className={`form-control fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
+                              className={`form-control modern-input fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
                               value={taxData.sgst}
                               readOnly
                             />
@@ -1009,7 +1009,7 @@ const CreatePurchase = ({
                             </span>
                             <input
                               type="text"
-                              className={`form-control fw-bold ${!isRajasthan ? "text-primary" : "text-muted"}`}
+                              className={`form-control modern-input fw-bold ${!isRajasthan ? "text-primary" : "text-muted"}`}
                               value={taxData.igst}
                               readOnly
                             />
@@ -1031,7 +1031,7 @@ const CreatePurchase = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control modern-input"
                               id="roundingAmount"
                               name="roundingAmount"
                               value={formData.roundingAmount}
@@ -1056,7 +1056,7 @@ const CreatePurchase = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold text-danger"
+                              className="form-control modern-input fw-bold text-danger"
                               value={taxData.totalAmount}
                               readOnly
                               style={{
@@ -1095,7 +1095,7 @@ const CreatePurchase = ({
                           <select
                             id="paymentStatus"
                             name="paymentStatus"
-                            className={`form-select ${errors.paymentStatus ? "is-invalid" : ""}`}
+                            className={`form-select modern-input ${errors.paymentStatus ? "is-invalid" : ""}`}
                             value={formData.paymentStatus}
                             onChange={handleInputChange}
                             disabled={isViewMode}
@@ -1124,7 +1124,7 @@ const CreatePurchase = ({
                           <select
                             id="paymentMethod"
                             name="paymentMethod"
-                            className="form-select"
+                            className="form-select modern-input"
                             value={formData.paymentMethod}
                             onChange={handleInputChange}
                             disabled={isViewMode}
@@ -1153,7 +1153,7 @@ const CreatePurchase = ({
                           </label>
                           <input
                             type="date"
-                            className="form-control"
+                            className="form-control modern-input"
                             id="paymentDate"
                             name="paymentDate"
                             value={formData.paymentDate}
@@ -1173,7 +1173,7 @@ const CreatePurchase = ({
                             Invoice Type
                           </label>
                           <select
-                            className="form-select"
+                            className="form-select modern-input"
                             id="invoiceType"
                             name="invoiceType"
                             value={formData.invoiceType}
@@ -1200,7 +1200,7 @@ const CreatePurchase = ({
                           </label>
                           <input
                             type="url"
-                            className="form-control"
+                            className="form-control modern-input"
                             id="invoiceURL"
                             name="invoiceURL"
                             value={formData.invoiceURL}

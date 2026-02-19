@@ -10,6 +10,7 @@ import {
 import AdminDashboardLayout from "../src/Components/DashboardLayout";
 import Home from "../src/Home";
 import Login from "../src/Pages/Login";
+import { hasModuleAccess } from "../src/utils/permissions";
 
 // Lazy load User Dashboard pages
 const AdminDashboard = lazy(() => import("../src/Pages/Dashboard.jsx"));
@@ -37,6 +38,7 @@ const BalanceSheet = lazy(() => import("../src/Pages/BalanceSheet"));
 const FinancialYearManagement = lazy(
   () => import("../src/Pages/FinancialYearManagement"),
 );
+const TeamManagement = lazy(() => import("../src/Pages/TeamManagement"));
 const Setting = lazy(() => import("../src/Pages/Setting"));
 // const PageNotFound = lazy(() => import("./Website/Pages/PageNotFound"));
 
@@ -73,6 +75,18 @@ const PublicRoute = ({ children }) => {
   return children;
 };
 
+const PermissionRoute = ({ moduleKey, children }) => {
+  if (hasModuleAccess(moduleKey)) {
+    return children;
+  }
+
+  if (hasModuleAccess("dashboard")) {
+    return <Navigate to="/admin/dashboard" replace />;
+  }
+
+  return <Navigate to="/login" replace />;
+};
+
 const App = () => {
   return (
     <BrowserRouter>
@@ -101,150 +115,195 @@ const App = () => {
           <Route
             index
             element={
-              <Suspense fallback={<Loading />}>
-                <AdminDashboard />
-              </Suspense>
+              <PermissionRoute moduleKey="dashboard">
+                <Suspense fallback={<Loading />}>
+                  <AdminDashboard />
+                </Suspense>
+              </PermissionRoute>
             }
           />
           <Route
             path="dashboard"
             element={
-              <Suspense fallback={<Loading />}>
-                <AdminDashboard />
-              </Suspense>
+              <PermissionRoute moduleKey="dashboard">
+                <Suspense fallback={<Loading />}>
+                  <AdminDashboard />
+                </Suspense>
+              </PermissionRoute>
             }
           />
           <Route
             path="client-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <ClientManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="clientManagement">
+                <Suspense fallback={<Loading />}>
+                  <ClientManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
           <Route
             path="vendor-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <VendorManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="vendorManagement">
+                <Suspense fallback={<Loading />}>
+                  <VendorManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="staff-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <StaffManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="staffManagement">
+                <Suspense fallback={<Loading />}>
+                  <StaffManagement />
+                </Suspense>
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="team-management"
+            element={
+              <PermissionRoute moduleKey="teamManagement">
+                <Suspense fallback={<Loading />}>
+                  <TeamManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="purchase-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <PurchaseManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="purchaseManagement">
+                <Suspense fallback={<Loading />}>
+                  <PurchaseManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="sales-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <SalesManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="salesManagement">
+                <Suspense fallback={<Loading />}>
+                  <SalesManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="services-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <ServicesManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="servicesManagement">
+                <Suspense fallback={<Loading />}>
+                  <ServicesManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="project-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <ProjectManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="projectManagement">
+                <Suspense fallback={<Loading />}>
+                  <ProjectManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="project-details"
             element={
-              <Suspense fallback={<Loading />}>
-                <ProjectDetails />
-              </Suspense>
+              <PermissionRoute moduleKey="projectDetails">
+                <Suspense fallback={<Loading />}>
+                  <ProjectDetails />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="rcm-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <RcmManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="rcmManagement">
+                <Suspense fallback={<Loading />}>
+                  <RcmManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="ledger-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <LedgerManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="ledgerManagement">
+                <Suspense fallback={<Loading />}>
+                  <LedgerManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="detailed-ledger-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <DetailedLedgerManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="detailedLedgerManagement">
+                <Suspense fallback={<Loading />}>
+                  <DetailedLedgerManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="developer-payout-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <DeveloperPayoutManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="developerPayoutManagement">
+                <Suspense fallback={<Loading />}>
+                  <DeveloperPayoutManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="balance-sheet"
             element={
-              <Suspense fallback={<Loading />}>
-                <BalanceSheet />
-              </Suspense>
+              <PermissionRoute moduleKey="balanceSheet">
+                <Suspense fallback={<Loading />}>
+                  <BalanceSheet />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="financial-year-management"
             element={
-              <Suspense fallback={<Loading />}>
-                <FinancialYearManagement />
-              </Suspense>
+              <PermissionRoute moduleKey="financialYearManagement">
+                <Suspense fallback={<Loading />}>
+                  <FinancialYearManagement />
+                </Suspense>
+              </PermissionRoute>
             }
           />
 
           <Route
             path="Setting"
             element={
-              <Suspense fallback={<Loading />}>
-                <Setting />
-              </Suspense>
+              <PermissionRoute moduleKey="setting">
+                <Suspense fallback={<Loading />}>
+                  <Setting />
+                </Suspense>
+              </PermissionRoute>
             }
           />
         </Route>

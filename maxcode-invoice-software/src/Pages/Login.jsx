@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost, setAuthToken } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import { PERMISSION_MODULES } from "../utils/permissions";
 import {
   showSuccess,
   showError,
@@ -112,8 +113,26 @@ const Login = ({ settings }) => {
           response.data.message || "Welcome back! Authentication successful",
         );
 
-        // Navigate to admin dashboard
-        navigate("/admin/dashboard");
+        const loggedInUser = response.data.user || {};
+        const userPermissions = loggedInUser.permissions || {};
+        const isTeamMember = loggedInUser.userType === "team-member";
+
+        if (isTeamMember) {
+          const firstAllowedModule = PERMISSION_MODULES.find(
+            (module) => userPermissions[module.key]?.active === true,
+          );
+
+          if (firstAllowedModule?.route) {
+            navigate(firstAllowedModule.route);
+          } else {
+            showError("No module permission assigned to this user");
+            localStorage.removeItem("access_token");
+            localStorage.removeItem("maxcode_auth");
+            localStorage.removeItem("user_info");
+          }
+        } else {
+          navigate("/admin/dashboard");
+        }
       } else {
         showError(response.data.message || "Invalid credentials");
         setPin(["", "", "", "", "", ""]);

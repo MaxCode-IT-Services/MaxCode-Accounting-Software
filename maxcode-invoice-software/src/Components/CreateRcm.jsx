@@ -576,7 +576,7 @@ const CreateRcm = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.selfInvoiceNumber ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.selfInvoiceNumber ? "is-invalid" : ""}`}
                     id="selfInvoiceNumber"
                     name="selfInvoiceNumber"
                     value={formData.selfInvoiceNumber}
@@ -597,7 +597,7 @@ const CreateRcm = ({
                   </label>
                   <input
                     type="date"
-                    className={`form-control ${errors.invoiceDate ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.invoiceDate ? "is-invalid" : ""}`}
                     id="invoiceDate"
                     name="invoiceDate"
                     value={formData.invoiceDate}
@@ -618,7 +618,7 @@ const CreateRcm = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.originalRefNo ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.originalRefNo ? "is-invalid" : ""}`}
                     id="originalRefNo"
                     name="originalRefNo"
                     value={formData.originalRefNo}
@@ -640,7 +640,7 @@ const CreateRcm = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.placeOfSupply ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.placeOfSupply ? "is-invalid" : ""}`}
                     id="placeOfSupply"
                     name="placeOfSupply"
                     value={formData.placeOfSupply}
@@ -673,7 +673,7 @@ const CreateRcm = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.serviceProviderBusinessName ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.serviceProviderBusinessName ? "is-invalid" : ""}`}
                     id="serviceProviderBusinessName"
                     name="serviceProviderBusinessName"
                     value={formData.serviceProviderBusinessName}
@@ -775,7 +775,7 @@ const CreateRcm = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control ${errors.address ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.address ? "is-invalid" : ""}`}
                     id="address"
                     name="address"
                     value={formData.address}
@@ -826,7 +826,7 @@ const CreateRcm = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.itemName}
                                 onChange={(e) =>
                                   handleItemChange(
@@ -842,7 +842,7 @@ const CreateRcm = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.itemDescription}
                                 onChange={(e) =>
                                   handleItemChange(
@@ -858,7 +858,7 @@ const CreateRcm = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.hsnCode}
                                 onChange={(e) =>
                                   handleItemChange(
@@ -874,7 +874,7 @@ const CreateRcm = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.qty}
                                 onChange={(e) => {
                                   handleNumberInput(e);
@@ -891,7 +891,7 @@ const CreateRcm = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={item.price}
                                 onChange={(e) => {
                                   handleNumberInput(e);
@@ -908,7 +908,7 @@ const CreateRcm = ({
                             <td>
                               <input
                                 type="text"
-                                className="form-control form-control-sm"
+                                className="form-control modern-input form-control-sm"
                                 value={toNumber(item.amount).toFixed(2)}
                                 readOnly
                                 style={{
@@ -980,7 +980,7 @@ const CreateRcm = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold"
+                              className="form-control modern-input fw-bold"
                               value={taxData.subtotal}
                               readOnly
                               style={{
@@ -1004,7 +1004,7 @@ const CreateRcm = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control modern-input"
                               id="taxPercentage"
                               value={taxData.taxPercentage}
                               onChange={(e) => {
@@ -1029,7 +1029,7 @@ const CreateRcm = ({
                             </span>
                             <input
                               type="text"
-                              className={`form-control fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
+                              className={`form-control modern-input fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
                               value={taxData.cgst}
                               readOnly
                               style={{
@@ -1051,7 +1051,7 @@ const CreateRcm = ({
                             </span>
                             <input
                               type="text"
-                              className={`form-control fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
+                              className={`form-control modern-input fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
                               value={taxData.sgst}
                               readOnly
                               style={{
@@ -1072,7 +1072,7 @@ const CreateRcm = ({
                             </span>
                             <input
                               type="text"
-                              className={`form-control fw-bold ${!isRajasthan ? "text-primary" : "text-muted"}`}
+                              className={`form-control modern-input fw-bold ${!isRajasthan ? "text-primary" : "text-muted"}`}
                               value={taxData.igst}
                               readOnly
                               style={{
@@ -1096,7 +1096,7 @@ const CreateRcm = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control modern-input"
                               id="roundingAmount"
                               name="roundingAmount"
                               value={formData.roundingAmount}
@@ -1120,7 +1120,7 @@ const CreateRcm = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold text-danger"
+                              className="form-control modern-input fw-bold text-danger"
                               value={taxData.totalAmount}
                               readOnly
                             />
@@ -1155,7 +1155,7 @@ const CreateRcm = ({
                           <select
                             id="paymentStatus"
                             name="paymentStatus"
-                            className={`form-select ${errors.paymentStatus ? "is-invalid" : ""}`}
+                            className={`form-select modern-input ${errors.paymentStatus ? "is-invalid" : ""}`}
                             value={formData.paymentStatus}
                             onChange={handleInputChange}
                             disabled={isViewMode}
@@ -1183,7 +1183,7 @@ const CreateRcm = ({
                           <select
                             id="paymentMethod"
                             name="paymentMethod"
-                            className="form-select"
+                            className="form-select modern-input"
                             value={formData.paymentMethod}
                             onChange={handleInputChange}
                             disabled={isViewMode}
@@ -1211,7 +1211,7 @@ const CreateRcm = ({
                           </label>
                           <input
                             type="date"
-                            className="form-control"
+                            className="form-control modern-input"
                             id="paymentDate"
                             name="paymentDate"
                             value={formData.paymentDate}
@@ -1235,7 +1235,7 @@ const CreateRcm = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control modern-input"
                               id="paidAmount"
                               name="paidAmount"
                               value={formData.paidAmount}
@@ -1262,7 +1262,7 @@ const CreateRcm = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control"
+                              className="form-control modern-input"
                               id="tdsPercent"
                               name="tdsPercent"
                               value={formData.tdsPercent}
@@ -1289,7 +1289,7 @@ const CreateRcm = ({
                             </span>
                             <input
                               type="text"
-                              className="form-control fw-bold text-danger"
+                              className="form-control modern-input fw-bold text-danger"
                               id="tdsAmount"
                               name="tdsAmount"
                               value={formData.tdsAmount}

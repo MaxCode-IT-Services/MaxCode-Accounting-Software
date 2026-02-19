@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiGet, clearAuth } from "../utils/api";
+import { hasModuleAccess } from "../utils/permissions";
 
 interface DashboardNavbarProps {
   children: React.ReactNode;
@@ -327,78 +328,108 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
 
   // Admin Menu Items
   const adminMenuItems = [
-    { to: "/admin/dashboard", icon: "fa-solid fa-house", label: "Dashboard" },
+    {
+      to: "/admin/dashboard",
+      icon: "fa-solid fa-house",
+      label: "Dashboard",
+      permissionKey: "dashboard",
+    },
     {
       to: "/admin/client-management",
       icon: "fa-solid fa-users",
       label: "Client Management",
+      permissionKey: "clientManagement",
     },
     {
       to: "/admin/vendor-management",
       icon: "fa-solid fa-store",
       label: "Vendor Management",
+      permissionKey: "vendorManagement",
     },
     {
       to: "/admin/purchase-management",
       icon: "fa-solid fa-cart-plus",
       label: "Purchase Management",
+      permissionKey: "purchaseManagement",
     },
     {
       to: "/admin/sales-management",
       icon: "fa-brands fa-shopify",
       label: "Sales Management",
+      permissionKey: "salesManagement",
     },
     {
       to: "/admin/rcm-management",
       icon: "fa-solid fa-file-invoice-dollar",
       label: "RCM Management",
+      permissionKey: "rcmManagement",
     },
     {
       to: "/admin/ledger-management",
       icon: "fa-solid fa-book",
       label: "Ledger Management",
+      permissionKey: "ledgerManagement",
     },
     {
       to: "/admin/detailed-ledger-management",
       icon: "fa-solid fa-table-list",
       label: "Detailed Ledger",
+      permissionKey: "detailedLedgerManagement",
     },
     {
       to: "/admin/balance-sheet",
       icon: "fa-solid fa-scale-unbalanced-flip",
       label: "Balance Sheet",
+      permissionKey: "balanceSheet",
     },
     {
       to: "/admin/services-management",
       icon: "fa-solid fa-globe",
       label: "Services Management",
+      permissionKey: "servicesManagement",
     },
     {
       to: "/admin/project-management",
       icon: "fa-solid fa-diagram-project",
       label: "Project Management",
+      permissionKey: "projectManagement",
     },
     {
       to: "/admin/project-details",
       icon: "fa-solid fa-list-check",
       label: "Project Details",
+      permissionKey: "projectDetails",
     },
     {
       to: "/admin/developer-payout-management",
       icon: "fa-solid fa-hand-holding-dollar",
       label: "Developer Payout",
+      permissionKey: "developerPayoutManagement",
     },
     {
       to: "/admin/staff-management",
       icon: "fa-solid fa-user-tie",
       label: "Staff Management",
+      permissionKey: "staffManagement",
+    },
+    {
+      to: "/admin/team-management",
+      icon: "fa-solid fa-user-shield",
+      label: "Team Management",
+      permissionKey: "teamManagement",
     },
     {
       to: "/admin/financial-year-management",
       icon: "fa-regular fa-calendar-days",
       label: "Financial Year Management",
+      permissionKey: "financialYearManagement",
     },
-    { to: "/admin/setting", icon: "fa-solid fa-gear", label: "Setting" },
+    {
+      to: "/admin/setting",
+      icon: "fa-solid fa-gear",
+      label: "Setting",
+      permissionKey: "setting",
+    },
   ];
 
   // Super Menu Items
@@ -426,11 +457,17 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   const getCurrentMenuItems = () => {
     switch (userRole) {
       case "admin":
-        return adminMenuItems;
+        return adminMenuItems.filter((item: any) => {
+          if (!item.permissionKey) return true;
+          return hasModuleAccess(item.permissionKey);
+        });
       case "super":
         return superMenuItems;
       default:
-        return adminMenuItems;
+        return adminMenuItems.filter((item: any) => {
+          if (!item.permissionKey) return true;
+          return hasModuleAccess(item.permissionKey);
+        });
     }
   };
 

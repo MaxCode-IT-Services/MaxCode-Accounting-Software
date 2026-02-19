@@ -64,3 +64,49 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Global Modal Form Styling - aligned with CreateClient modern-input look */
+
+/* React-Select Modern Input Styling */
+.react-select__control {
+  border: 2px solid #e9ecef !important;
+  border-radius: 10px !important;
+  min-height: 48px !important;
+  box-shadow: none !important;
+  transition: all 0.3s ease !important;
+  background: #ffffff !important;
+}
+
+.react-select__control:hover {
+  border-color: #d6dbe1 !important;
+}
+
+.react-select__control--is-focused {
+  border-color: var(--counter-color, #667eea) !important;
+}
+
+.react-select__value-container {
+  padding: 4px 12px !important;
+}
+
+.react-select__placeholder {
+  color: #6c757d !important;
+}
+
+.react-select__single-value {
+  color: #212529 !important;
+}
+
+.react-select__indicator-separator {
+  background-color: #dee2e6 !important;
+}
+
+.react-select__menu {
+  z-index: 1065 !important;
+}
+
+.react-select__control--is-disabled {
+  background-color: #f8f9fa !important;
+  border-color: #dee2e6 !important;
+  color: #6c757d !important;
+}
