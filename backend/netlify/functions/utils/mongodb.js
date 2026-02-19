@@ -1,8 +1,17 @@
 import { MongoClient } from "mongodb";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import { setupDb } from "./setupDb.js";
 
 let cachedClient = null;
 let cachedDb = null;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 
 /**
  * Connects to MongoDB using connection pooling
@@ -28,7 +37,7 @@ export async function connectToDatabase() {
       useUnifiedTopology: true,
     });
 
-    const db = client.db(process.env.DB_NAME);
+    const db = client.db(process.env.DB_NAME || "Maxcode-Invoice");
 
     // Cache the connection
     cachedClient = client;
