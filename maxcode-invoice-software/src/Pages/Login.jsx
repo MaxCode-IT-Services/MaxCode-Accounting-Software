@@ -18,7 +18,14 @@ const Login = ({ settings }) => {
   const [focusedField, setFocusedField] = useState(null);
   const [errors, setErrors] = useState({});
 
+  // Two-Factor Authentication state
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [tempToken, setTempToken] = useState(null);
+  const [twoFACode, setTwoFACode] = useState(["", "", "", "", "", ""]);
+  const [isVerifying2FA, setIsVerifying2FA] = useState(false);
+
   const pinRefs = useRef([]);
+  const twoFACodeRefs = useRef([]);
 
   // Remove auto-focus completely - user must click to focus
   useEffect(() => {
@@ -68,6 +75,111 @@ const Login = ({ settings }) => {
     }
   };
 
+  // 2FA Code handlers
+  const handleTwoFACodeChange = (index, value) => {
+    if (value.length > 1) value = value[value.length - 1];
+    if (!/^\d?$/.test(value)) return;
+
+    const newCode = [...twoFACode];
+    newCode[index] = value;
+    setTwoFACode(newCode);
+
+    // Clear error if exists
+    if (errors.twoFACode) {
+      setErrors((prev) => ({ ...prev, twoFACode: null }));
+    }
+
+    // Auto focus next input
+    if (value && index < 5) {
+      twoFACodeRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleTwoFAKeyDown = (index, e) => {
+    if (e.key === "Backspace" && !twoFACode[index] && index > 0) {
+      twoFACodeRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleTwoFAPaste = (e) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData("text").replace(/\D/g, "");
+    if (pastedData.length === 6) {
+      const newCode = pastedData.split("");
+      setTwoFACode(newCode);
+      twoFACodeRefs.current[5]?.focus();
+    }
+  };
+
+  const handle2FASubmit = async (e) => {
+    e.preventDefault();
+    const code = twoFACode.join("");
+
+    if (code.length !== 6 || !/^\d+$/.test(code)) {
+      setErrors({ twoFACode: "Please enter a valid 6-digit code" });
+      return;
+    }
+
+    setIsVerifying2FA(true);
+
+    try {
+      // Send 2FA code along with temp token
+      const response = await apiPost(API_ENDPOINTS.AUTH.LOGIN, {
+        action: "verify-2fa",
+        tempToken,
+        twoFACode: code,
+      });
+
+      if (response.data.token) {
+        setAuthToken(response.data.token);
+        localStorage.setItem("maxcode_auth", "true");
+
+        if (response.data.user) {
+          localStorage.setItem("user_info", JSON.stringify(response.data.user));
+        }
+
+        showSuccess("✅ 2FA verified! Welcome back!");
+
+        const loggedInUser = response.data.user || {};
+        const userPermissions = loggedInUser.permissions || {};
+        const isTeamMember = loggedInUser.userType === "team-member";
+
+        if (isTeamMember) {
+          const firstAllowedModule = PERMISSION_MODULES.find(
+            (module) => userPermissions[module.key]?.active === true,
+          );
+
+          if (firstAllowedModule?.route) {
+            navigate(firstAllowedModule.route);
+          } else {
+            showError("No module permission assigned to this user");
+            localStorage.removeItem("access_token");
+            localStorage.removeItem("maxcode_auth");
+            localStorage.removeItem("user_info");
+            setNeeds2FA(false);
+          }
+        } else {
+          navigate("/admin/dashboard");
+        }
+      } else {
+        showError(response.data.message || "2FA verification failed");
+        setTwoFACode(["", "", "", "", "", ""]);
+        setErrors({ twoFACode: "Invalid 2FA code" });
+      }
+    } catch (error) {
+      console.error("2FA verification error:", error);
+      const errorMessage =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        "2FA verification failed";
+      showError(errorMessage);
+      setTwoFACode(["", "", "", "", "", ""]);
+      setErrors({ twoFACode: "Verification failed" });
+    } finally {
+      setIsVerifying2FA(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const enteredPin = pin.join("");
@@ -95,6 +207,17 @@ const Login = ({ settings }) => {
         phone: mobile,
         pin: enteredPin,
       });
+
+      // If 2FA is required
+      if (response.data.needs2FA && response.data.tempToken) {
+        setTempToken(response.data.tempToken);
+        setNeeds2FA(true);
+        showInfo(
+          "✓ PIN verified! Please enter your 2FA code from your authenticator app",
+        );
+        setPin(["", "", "", "", "", ""]);
+        return;
+      }
 
       // If login successful, store the token
       if (response.data.token) {
@@ -310,157 +433,287 @@ const Login = ({ settings }) => {
                 />
               </div>
 
-              <form onSubmit={handleSubmit} className="flex-grow-1">
-                {/* Mobile Number Field */}
-                <div className="mb-4">
-                  <label className="form-label fw-semibold text-secondary mb-2">
-                    <i
-                      className="fas fa-phone-alt me-2"
-                      style={{ color: "var(--primary-color)" }}
-                    ></i>
-                    Mobile Number
-                  </label>
-                  <div className="input-group">
-                    <span className="input-group-text flag-india bg-light border-0 rounded-start-3 px-3">
-                      <img
-                        src="https://flagcdn.com/w40/in.png"
-                        alt="India"
-                        className="flag-icon rounded"
-                        style={{
-                          width: "24px",
-                          height: "16px",
-                          objectFit: "cover",
-                        }}
-                      />
-                      <span className="ms-2 fw-semibold">+91</span>
-                    </span>
-                    <input
-                      type="tel"
-                      className={`form-control modern-input fw-bold ${errors.mobile ? "is-invalid" : ""}`}
-                      id="phoneNumber"
-                      name="phoneNumber"
-                      value={mobile}
-                      onChange={handleMobileChange}
-                      minLength="10"
-                      maxLength="10"
-                      placeholder="10-digit mobile number"
-                      onFocus={() => setFocusedField("mobile")}
-                      onBlur={() => setFocusedField(null)}
-                      style={{
-                        fontSize: "1.1rem",
-                        boxShadow:
-                          focusedField === "mobile"
-                            ? "0 0 0 3px rgba(0,112,38,0.1)"
-                            : "none",
-                      }}
-                    />
-                    {errors.mobile && (
-                      <div className="invalid-feedback d-block">
-                        {errors.mobile}
+              <form
+                onSubmit={needs2FA ? handle2FASubmit : handleSubmit}
+                className="flex-grow-1"
+              >
+                {!needs2FA ? (
+                  <>
+                    {/* Mobile Number Field */}
+                    <div className="mb-4">
+                      <label className="form-label fw-semibold text-secondary mb-2">
+                        <i
+                          className="fas fa-phone-alt me-2"
+                          style={{ color: "var(--primary-color)" }}
+                        ></i>
+                        Mobile Number
+                      </label>
+                      <div className="input-group">
+                        <span className="input-group-text flag-india bg-light border-0 rounded-start-3 px-3">
+                          <img
+                            src="https://flagcdn.com/w40/in.png"
+                            alt="India"
+                            className="flag-icon rounded"
+                            style={{
+                              width: "24px",
+                              height: "16px",
+                              objectFit: "cover",
+                            }}
+                          />
+                          <span className="ms-2 fw-semibold">+91</span>
+                        </span>
+                        <input
+                          type="tel"
+                          className={`form-control modern-input fw-bold ${errors.mobile ? "is-invalid" : ""}`}
+                          id="phoneNumber"
+                          name="phoneNumber"
+                          value={mobile}
+                          onChange={handleMobileChange}
+                          minLength="10"
+                          maxLength="10"
+                          placeholder="10-digit mobile number"
+                          onFocus={() => setFocusedField("mobile")}
+                          onBlur={() => setFocusedField(null)}
+                          style={{
+                            fontSize: "1.1rem",
+                            boxShadow:
+                              focusedField === "mobile"
+                                ? "0 0 0 3px rgba(0,112,38,0.1)"
+                                : "none",
+                          }}
+                        />
+                        {errors.mobile && (
+                          <div className="invalid-feedback d-block">
+                            {errors.mobile}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
+                    </div>
 
-                {/* PIN Field */}
-                <div className="mb-4">
-                  <div className="d-flex justify-content-between align-items-center mb-2">
-                    <label className="form-label fw-semibold text-secondary mb-0">
-                      <i
-                        className="fas fa-lock me-2"
-                        style={{ color: "var(--primary-color)" }}
-                      ></i>
-                      Security PIN
-                    </label>
-                    <span
-                      className="badge fw-bold px-3 py-2 rounded-pill"
+                    {/* PIN Field */}
+                    <div className="mb-4">
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <label className="form-label fw-semibold text-secondary mb-0">
+                          <i
+                            className="fas fa-lock me-2"
+                            style={{ color: "var(--primary-color)" }}
+                          ></i>
+                          Security PIN
+                        </label>
+                        <span
+                          className="badge fw-bold px-3 py-2 rounded-pill"
+                          style={{
+                            backgroundColor: "var(--primary-light)",
+                            color: "var(--primary-color)",
+                          }}
+                        >
+                          6-Digit PIN
+                        </span>
+                      </div>
+
+                      <div className="pin-container mb-2">
+                        {pin.map((digit, i) => (
+                          <div key={i} className="pin-box fw-bold">
+                            <input
+                              ref={(el) => (pinRefs.current[i] = el)}
+                              type="password"
+                              className={`pin-input ${digit ? "filled" : ""} ${errors.pin ? "error" : ""}`}
+                              value={digit}
+                              onChange={(e) =>
+                                handlePinChange(i, e.target.value)
+                              }
+                              onKeyDown={(e) => handleKeyDown(i, e)}
+                              onFocus={() => setFocusedField(`pin-${i}`)}
+                              onBlur={() => setFocusedField(null)}
+                              onPaste={i === 0 ? handlePaste : undefined}
+                              inputMode="numeric"
+                              autoComplete="off"
+                              maxLength={1}
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* PIN Status */}
+                      <div className="pin-status">
+                        <span className="text-muted small">
+                          <i
+                            className="fas fa-info-circle me-1"
+                            style={{ color: "var(--primary-color)" }}
+                          ></i>
+                          {isPinComplete
+                            ? "PIN entered successfully"
+                            : `${6 - pin.filter((d) => d).length} digits remaining`}
+                        </span>
+                        {isPinComplete && (
+                          <span
+                            className="status-ready"
+                            style={{ color: "var(--primary-color)" }}
+                          >
+                            <i className="fas fa-check-circle me-1"></i>
+                            Ready
+                          </span>
+                        )}
+                      </div>
+
+                      {errors.pin && (
+                        <div className="error-message mt-2">
+                          <i className="fas fa-exclamation-circle me-1"></i>
+                          {errors.pin}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Submit Button */}
+                    <button
+                      type="submit"
+                      disabled={loading || !mobile || !isPinComplete}
+                      className="btn btn-lg w-100 py-3 rounded-3 fw-semibold text-white position-relative overflow-hidden"
                       style={{
-                        backgroundColor: "var(--primary-light)",
-                        color: "var(--primary-color)",
+                        background: "var(--header-gradient)",
+                        border: "none",
+                        opacity: loading || !mobile || !isPinComplete ? 0.8 : 1,
+                        transition: "all 0.3s ease",
                       }}
                     >
-                      6-Digit PIN
-                    </span>
-                  </div>
-
-                  <div className="pin-container mb-2">
-                    {pin.map((digit, i) => (
-                      <div key={i} className="pin-box fw-bold">
-                        <input
-                          ref={(el) => (pinRefs.current[i] = el)}
-                          type="password"
-                          className={`pin-input ${digit ? "filled" : ""} ${errors.pin ? "error" : ""}`}
-                          value={digit}
-                          onChange={(e) => handlePinChange(i, e.target.value)}
-                          onKeyDown={(e) => handleKeyDown(i, e)}
-                          onFocus={() => setFocusedField(`pin-${i}`)}
-                          onBlur={() => setFocusedField(null)}
-                          onPaste={i === 0 ? handlePaste : undefined}
-                          inputMode="numeric"
-                          autoComplete="off"
-                          maxLength={1}
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* PIN Status */}
-                  <div className="pin-status">
-                    <span className="text-muted small">
-                      <i
-                        className="fas fa-info-circle me-1"
-                        style={{ color: "var(--primary-color)" }}
-                      ></i>
-                      {isPinComplete
-                        ? "PIN entered successfully"
-                        : `${6 - pin.filter((d) => d).length} digits remaining`}
-                    </span>
-                    {isPinComplete && (
-                      <span
-                        className="status-ready"
-                        style={{ color: "var(--primary-color)" }}
-                      >
-                        <i className="fas fa-check-circle me-1"></i>
-                        Ready
-                      </span>
-                    )}
-                  </div>
-
-                  {errors.pin && (
-                    <div className="error-message mt-2">
-                      <i className="fas fa-exclamation-circle me-1"></i>
-                      {errors.pin}
-                    </div>
-                  )}
-                </div>
-
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={loading || !mobile || !isPinComplete}
-                  className="btn btn-lg w-100 py-3 rounded-3 fw-semibold text-white position-relative overflow-hidden"
-                  style={{
-                    background: "var(--header-gradient)",
-                    border: "none",
-                    opacity: loading || !mobile || !isPinComplete ? 0.8 : 1,
-                    transition: "all 0.3s ease",
-                  }}
-                >
-                  {loading ? (
-                    <div className="d-flex align-items-center justify-content-center gap-3">
+                      {loading ? (
+                        <div className="d-flex align-items-center justify-content-center gap-3">
+                          <div
+                            className="spinner-border spinner-border-sm"
+                            role="status"
+                          ></div>
+                          <span>Authenticating...</span>
+                        </div>
+                      ) : (
+                        <div className="d-flex align-items-center justify-content-center gap-3">
+                          <span>Access Dashboard</span>
+                          <i className="fas fa-arrow-right"></i>
+                        </div>
+                      )}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* 2FA Verification Screen */}
+                    <div className="mb-4 text-center">
                       <div
-                        className="spinner-border spinner-border-sm"
-                        role="status"
-                      ></div>
-                      <span>Authenticating...</span>
+                        className="mb-3"
+                        style={{
+                          fontSize: "3rem",
+                          color: "var(--primary-color)",
+                        }}
+                      >
+                        <i className="fas fa-shield-check"></i>
+                      </div>
+                      <h4 className="fw-semibold mb-2">
+                        Two-Factor Authentication
+                      </h4>
+                      <p className="text-muted small">
+                        Enter the 6-digit code from your authenticator app
+                      </p>
                     </div>
-                  ) : (
-                    <div className="d-flex align-items-center justify-content-center gap-3">
-                      <span>Access Dashboard</span>
-                      <i className="fas fa-arrow-right"></i>
+
+                    {/* 2FA Code Input */}
+                    <div className="mb-4">
+                      <label className="form-label fw-semibold text-secondary mb-2">
+                        <i
+                          className="fas fa-qrcode me-2"
+                          style={{ color: "var(--primary-color)" }}
+                        ></i>
+                        Authenticator Code
+                      </label>
+
+                      <div className="pin-container mb-2">
+                        {twoFACode.map((digit, i) => (
+                          <div key={i} className="pin-box fw-bold">
+                            <input
+                              ref={(el) => (twoFACodeRefs.current[i] = el)}
+                              type="text"
+                              className={`pin-input ${digit ? "filled" : ""} ${errors.twoFACode ? "error" : ""}`}
+                              value={digit}
+                              onChange={(e) =>
+                                handleTwoFACodeChange(i, e.target.value)
+                              }
+                              onKeyDown={(e) => handleTwoFAKeyDown(i, e)}
+                              onFocus={() => setFocusedField(`2fa-${i}`)}
+                              onBlur={() => setFocusedField(null)}
+                              onPaste={i === 0 ? handleTwoFAPaste : undefined}
+                              inputMode="numeric"
+                              autoComplete="off"
+                              maxLength={1}
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* 2FA Status */}
+                      <div className="pin-status">
+                        <span className="text-muted small">
+                          <i
+                            className="fas fa-info-circle me-1"
+                            style={{ color: "var(--primary-color)" }}
+                          ></i>
+                          {twoFACode.every((d) => d)
+                            ? "Code ready to verify"
+                            : `${6 - twoFACode.filter((d) => d).length} digits remaining`}
+                        </span>
+                      </div>
+
+                      {errors.twoFACode && (
+                        <div className="error-message mt-2">
+                          <i className="fas fa-exclamation-circle me-1"></i>
+                          {errors.twoFACode}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </button>
+
+                    {/* 2FA Submit Button */}
+                    <button
+                      type="submit"
+                      disabled={isVerifying2FA || !twoFACode.every((d) => d)}
+                      className="btn btn-lg w-100 py-3 rounded-3 fw-semibold text-white position-relative overflow-hidden"
+                      style={{
+                        background: "var(--header-gradient)",
+                        border: "none",
+                        opacity:
+                          isVerifying2FA || !twoFACode.every((d) => d)
+                            ? 0.8
+                            : 1,
+                        transition: "all 0.3s ease",
+                      }}
+                    >
+                      {isVerifying2FA ? (
+                        <div className="d-flex align-items-center justify-content-center gap-3">
+                          <div
+                            className="spinner-border spinner-border-sm"
+                            role="status"
+                          ></div>
+                          <span>Verifying...</span>
+                        </div>
+                      ) : (
+                        <div className="d-flex align-items-center justify-content-center gap-3">
+                          <span>Verify & Login</span>
+                          <i className="fas fa-check"></i>
+                        </div>
+                      )}
+                    </button>
+
+                    {/* Back Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNeeds2FA(false);
+                        setTempToken(null);
+                        setTwoFACode(["", "", "", "", "", ""]);
+                        setErrors({});
+                      }}
+                      className="btn btn-link w-100 mt-3 text-muted"
+                    >
+                      <i className="fas fa-arrow-left me-2"></i>
+                      Back to Login
+                    </button>
+                  </>
+                )}
               </form>
 
               {/* Mobile Footer */}

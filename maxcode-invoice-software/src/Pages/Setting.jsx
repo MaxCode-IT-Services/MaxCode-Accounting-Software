@@ -54,6 +54,19 @@ const Settings = () => {
     confirmPin: false,
   });
 
+  // 2FA State
+  const [twoFAData, setTwoFAData] = useState({
+    enabled: false,
+    twoFACode: "",
+  });
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState("");
+  const [backupCodes, setBackupCodes] = useState([]);
+  const [showBackupCodes, setShowBackupCodes] = useState(false);
+  const [is2FALoading, setIs2FALoading] = useState(false);
+  const [show2FAVerification, setShow2FAVerification] = useState(false);
+  const [disable2FACode, setDisable2FACode] = useState("");
+
   // Business Details State
   const [businessSettings, setBusinessSettings] = useState({
     // Branding Assets
@@ -424,6 +437,104 @@ const Settings = () => {
   const handlePinCancel = () => {
     setPinData({ oldPin: "", newPin: "", confirmPin: "" });
     showInfo("PIN change cancelled");
+  };
+
+  // 2FA Handlers
+  const handleGenerate2FA = async () => {
+    setIs2FALoading(true);
+    try {
+      const response = await apiPost(API_ENDPOINTS.TWO_FACTOR_AUTH.GENERATE, {
+        action: "generate-2fa",
+      });
+
+      if (response?.data?.qrCode && response?.data?.backupCodes) {
+        setQrCodeUrl(response.data.qrCode);
+        setBackupCodes(response.data.backupCodes);
+        setShowQRModal(true);
+        setTwoFAData({ enabled: false, twoFACode: "" });
+        showInfo("Scan the QR code with Google Authenticator or Zoho Auth");
+      }
+    } catch (error) {
+      showError(error?.response?.data?.error || "Failed to generate QR code");
+    } finally {
+      setIs2FALoading(false);
+    }
+  };
+
+  const handleVerifyAndEnable2FA = async () => {
+    if (twoFAData.twoFACode.length !== 6) {
+      showError("Please enter 6 digits");
+      return;
+    }
+
+    setIs2FALoading(true);
+    try {
+      await apiPost(API_ENDPOINTS.TWO_FACTOR_AUTH.ENABLE, {
+        action: "enable-2fa",
+        twoFACode: twoFAData.twoFACode,
+      });
+
+      setTwoFAData({ enabled: true, twoFACode: "" });
+      setShowBackupCodes(true);
+      setShowQRModal(false);
+      showSuccess("2FA enabled successfully! Save your backup codes!");
+    } catch (error) {
+      showError(
+        error?.response?.data?.error ||
+          "Invalid code. Please try again with correct code from your app.",
+      );
+    } finally {
+      setIs2FALoading(false);
+    }
+  };
+
+  const handleDisable2FA = async () => {
+    if (disable2FACode.length !== 6 && disable2FACode.length < 8) {
+      showError("Please enter 6-digit code or backup code");
+      return;
+    }
+
+    setIs2FALoading(true);
+    try {
+      await apiPost(API_ENDPOINTS.TWO_FACTOR_AUTH.DISABLE, {
+        action: "disable-2fa",
+        twoFACode: disable2FACode,
+      });
+
+      setTwoFAData({ enabled: false, twoFACode: "" });
+      setDisable2FACode("");
+      setShow2FAVerification(false);
+      showSuccess("2FA disabled successfully");
+    } catch (error) {
+      showError(
+        error?.response?.data?.error ||
+          "Invalid code. Please try again with correct code.",
+      );
+    } finally {
+      setIs2FALoading(false);
+    }
+  };
+
+  const handleCopyBackupCodes = () => {
+    const text = backupCodes.join("\n");
+    navigator.clipboard.writeText(text).then(() => {
+      showSuccess("Backup codes copied to clipboard!");
+    });
+  };
+
+  const handleDownloadBackupCodes = () => {
+    const text = backupCodes.join("\n");
+    const element = document.createElement("a");
+    element.setAttribute(
+      "href",
+      "data:text/plain;charset=utf-8," + encodeURIComponent(text),
+    );
+    element.setAttribute("download", "2fa-backup-codes.txt");
+    element.style.display = "none";
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+    showSuccess("Backup codes downloaded!");
   };
 
   const handleImageClick = () => {
@@ -1060,6 +1171,15 @@ const Settings = () => {
                 </li>
                 <li className="nav-item">
                   <button
+                    className={`nav-link ${activeTab === "2fa" ? "active" : ""}`}
+                    onClick={() => setActiveTab("2fa")}
+                  >
+                    <i className="fas fa-shield-alt me-2"></i>
+                    Two-Factor Auth
+                  </button>
+                </li>
+                <li className="nav-item">
+                  <button
                     className={`nav-link ${activeTab === "business" ? "active" : ""}`}
                     onClick={() => setActiveTab("business")}
                   >
@@ -1402,6 +1522,256 @@ const Settings = () => {
                         </div>
                       </div>
                     </form>
+                  </div>
+                </div>
+              )}
+
+              {/* Two-Factor Authentication Tab */}
+              {activeTab === "2fa" && (
+                <div className="card modern-card">
+                  <div className="card-body">
+                    <h5 className="card-title mb-4">
+                      <i className="fas fa-shield-alt me-2 text-primary"></i>
+                      Two-Factor Authentication (2FA)
+                    </h5>
+
+                    {/* 2FA Status Card */}
+                    <div className="alert alert-info mb-4">
+                      <i className="fas fa-info-circle me-2"></i>
+                      <strong>About 2FA:</strong> Two-Factor Authentication adds
+                      an extra layer of security. After entering your PIN during
+                      login, you'll need to enter a 6-digit code from Google
+                      Authenticator, Zoho Auth, or use your backup codes.
+                    </div>
+
+                    {/* 2FA Status & Toggle */}
+                    <div className="row mb-4">
+                      <div className="col-12">
+                        <div className="card bg-light">
+                          <div className="card-body d-flex justify-content-between align-items-center">
+                            <div className="d-flex align-items-center gap-3">
+                              <div
+                                className={`badge badge-pill ${twoFAData.enabled ? "bg-success" : "bg-danger"}`}
+                                style={{ padding: "10px 15px" }}
+                              >
+                                <i
+                                  className={`fas ${twoFAData.enabled ? "fa-check-circle" : "fa-times-circle"} me-2`}
+                                ></i>
+                                {twoFAData.enabled ? "ENABLED" : "DISABLED"}
+                              </div>
+                              <div>
+                                <h6 className="mb-1">
+                                  {twoFAData.enabled
+                                    ? "2FA is Active"
+                                    : "2FA is Inactive"}
+                                </h6>
+                                <small className="text-muted">
+                                  {twoFAData.enabled
+                                    ? "Your account is protected with two-factor authentication"
+                                    : "Enable 2FA to secure your account"}
+                                </small>
+                              </div>
+                            </div>
+
+                            {!twoFAData.enabled ? (
+                              <button
+                                type="button"
+                                className="btn btn-success btn-lg"
+                                onClick={handleGenerate2FA}
+                                disabled={is2FALoading}
+                              >
+                                {is2FALoading ? (
+                                  <>
+                                    <span
+                                      className="spinner-border spinner-border-sm me-2"
+                                      role="status"
+                                      aria-hidden="true"
+                                    ></span>
+                                    Generating...
+                                  </>
+                                ) : (
+                                  <>
+                                    <i className="fas fa-qrcode me-2"></i>
+                                    Enable 2FA
+                                  </>
+                                )}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-lg"
+                                onClick={() => setShow2FAVerification(true)}
+                              >
+                                <i className="fas fa-times me-2"></i>
+                                Disable 2FA
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Backup Codes Display */}
+                    {showBackupCodes && (
+                      <div className="row mb-4">
+                        <div className="col-12">
+                          <div className="card border-warning">
+                            <div className="card-header bg-warning bg-opacity-10">
+                              <h6 className="mb-0">
+                                <i className="fas fa-exclamation-triangle me-2 text-warning"></i>
+                                Save Your Backup Codes
+                              </h6>
+                            </div>
+                            <div className="card-body">
+                              <p className="text-muted mb-3">
+                                Save these codes in a safe place. Each code can
+                                be used once if you lose access to your
+                                authenticator app.
+                              </p>
+                              <div
+                                className="bg-light p-3 rounded mb-3"
+                                style={{
+                                  fontFamily: "monospace",
+                                  fontSize: "14px",
+                                  whiteSpace: "pre-wrap",
+                                }}
+                              >
+                                {backupCodes.map((code, index) => (
+                                  <div key={index}>{code}</div>
+                                ))}
+                              </div>
+                              <div className="d-flex gap-2">
+                                <button
+                                  type="button"
+                                  className="btn btn-primary"
+                                  onClick={handleCopyBackupCodes}
+                                >
+                                  <i className="fas fa-copy me-2"></i>
+                                  Copy Codes
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary"
+                                  onClick={handleDownloadBackupCodes}
+                                >
+                                  <i className="fas fa-download me-2"></i>
+                                  Download
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-secondary ms-auto"
+                                  onClick={() => setShowBackupCodes(false)}
+                                >
+                                  <i className="fas fa-check me-2"></i>
+                                  I've Saved Codes
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Disable 2FA Verification */}
+                    {show2FAVerification && (
+                      <div className="row mb-4">
+                        <div className="col-12">
+                          <div className="card border-danger">
+                            <div className="card-header bg-danger bg-opacity-10">
+                              <h6 className="mb-0">
+                                <i className="fas fa-lock me-2 text-danger"></i>
+                                Disable 2FA - Verify Identity
+                              </h6>
+                            </div>
+                            <div className="card-body">
+                              <p className="text-muted mb-3">
+                                Enter your 6-digit 2FA code or a backup code to
+                                confirm disabling 2FA.
+                              </p>
+                              <div className="mb-3">
+                                <label
+                                  htmlFor="disable2FACode"
+                                  className="form-label"
+                                >
+                                  Verification Code
+                                </label>
+                                <input
+                                  type="text"
+                                  className="form-control modern-input"
+                                  id="disable2FACode"
+                                  value={disable2FACode}
+                                  onChange={(e) =>
+                                    setDisable2FACode(
+                                      e.target.value.slice(0, 8),
+                                    )
+                                  }
+                                  placeholder="Enter 6-digit code or 8-character backup code"
+                                  maxLength="8"
+                                />
+                              </div>
+                              <div className="d-flex gap-2">
+                                <button
+                                  type="button"
+                                  className="btn btn-danger"
+                                  onClick={handleDisable2FA}
+                                  disabled={is2FALoading}
+                                >
+                                  {is2FALoading ? (
+                                    <>
+                                      <span
+                                        className="spinner-border spinner-border-sm me-2"
+                                        role="status"
+                                        aria-hidden="true"
+                                      ></span>
+                                      Disabling...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <i className="fas fa-trash me-2"></i>
+                                      Disable 2FA
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-secondary"
+                                  onClick={() => {
+                                    setShow2FAVerification(false);
+                                    setDisable2FACode("");
+                                  }}
+                                >
+                                  <i className="fas fa-times me-2"></i>
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Safety Tips */}
+                    <div className="alert alert-warning">
+                      <h6 className="alert-heading">
+                        <i className="fas fa-lightbulb me-2"></i>
+                        Safety Tips:
+                      </h6>
+                      <ul className="mb-0 ps-3">
+                        <li>
+                          Save your backup codes in a secure location (password
+                          manager, safe)
+                        </li>
+                        <li>
+                          Each backup code can be used only once if you lose
+                          phone access
+                        </li>
+                        <li>
+                          During login, you can use either the 6-digit code from
+                          your app OR your main PIN
+                        </li>
+                        <li>Keep your authenticator app up-to-date</li>
+                      </ul>
+                    </div>
                   </div>
                 </div>
               )}
@@ -3108,13 +3478,175 @@ const Settings = () => {
         </div>
       </div>
 
+      {/* QR Code Modal for 2FA Setup */}
+      {showQRModal && (
+        <div
+          className="modal d-block"
+          style={{
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 1060,
+          }}
+        >
+          <div className="modal-dialog modal-lg modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header bg-primary text-white">
+                <h5 className="modal-title">
+                  <i className="fas fa-qrcode me-2"></i>
+                  Setup Two-Factor Authentication
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => setShowQRModal(false)}
+                ></button>
+              </div>
+              <div className="modal-body">
+                <div className="row">
+                  <div className="col-md-6 text-center">
+                    <h6 className="mb-3">Step 1: Scan QR Code</h6>
+                    <div className="mb-3">
+                      {qrCodeUrl && (
+                        <img
+                          src={qrCodeUrl}
+                          alt="2FA QR Code"
+                          style={{ maxWidth: "200px", height: "auto" }}
+                        />
+                      )}
+                    </div>
+                    <small className="text-muted">
+                      Use Google Authenticator, Zoho Auth, Microsoft
+                      Authenticator, or any TOTP-compatible app
+                    </small>
+                  </div>
+
+                  <div className="col-md-6">
+                    <h6 className="mb-3">Step 2: Enter Verification Code</h6>
+                    <p className="text-muted small mb-3">
+                      Enter the 6-digit code from your authenticator app:
+                    </p>
+                    <div className="mb-3">
+                      <input
+                        type="text"
+                        className="form-control form-control-lg text-center"
+                        value={twoFAData.twoFACode}
+                        onChange={(e) => {
+                          const value = e.target.value
+                            .replace(/[^0-9]/g, "")
+                            .slice(0, 6);
+                          setTwoFAData({ ...twoFAData, twoFACode: value });
+                        }}
+                        placeholder="000000"
+                        maxLength="6"
+                        inputMode="numeric"
+                        style={{
+                          fontSize: "24px",
+                          letterSpacing: "8px",
+                          fontWeight: "bold",
+                        }}
+                      />
+                    </div>
+
+                    <div className="alert alert-info small">
+                      <i className="fas fa-info-circle me-2"></i>
+                      Codes refresh every 30 seconds. Enter the current code
+                      shown in your app.
+                    </div>
+
+                    <div className="alert alert-warning small">
+                      <i className="fas fa-exclamation-triangle me-2"></i>
+                      <strong>Important:</strong> After enabling 2FA, save your
+                      backup codes! You cannot use 2FA without them.
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowQRModal(false);
+                    setTwoFAData({ enabled: false, twoFACode: "" });
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleVerifyAndEnable2FA}
+                  disabled={is2FALoading || twoFAData.twoFACode.length !== 6}
+                >
+                  {is2FALoading ? (
+                    <>
+                      <span
+                        className="spinner-border spinner-border-sm me-2"
+                        role="status"
+                        aria-hidden="true"
+                      ></span>
+                      Enabling...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-check me-2"></i>
+                      Enable 2FA
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style jsx>{`
+        .tabs-container {
+          width: 100%;
+          overflow: hidden;
+        }
+
         .modern-tabs {
-          border: none;
+          border: none !important;
           background: rgba(255, 255, 255, 0.1);
           backdrop-filter: blur(10px);
           border-radius: 15px;
           padding: 5px;
+          display: flex !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          scroll-behavior: smooth;
+          flex-wrap: nowrap !important;
+          gap: 0;
+          width: 100%;
+          margin: 0 !important;
+        }
+
+        .modern-tabs::-webkit-scrollbar {
+          height: 6px;
+        }
+
+        .modern-tabs::-webkit-scrollbar-track {
+          background: rgba(0, 0, 0, 0.1);
+          border-radius: 10px;
+        }
+
+        .modern-tabs::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.3);
+          border-radius: 10px;
+        }
+
+        .modern-tabs::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.5);
+        }
+
+        .modern-tabs .nav-item {
+          flex-shrink: 0 !important;
+          min-width: max-content;
         }
 
         .modern-tabs .nav-link {
@@ -3125,6 +3657,8 @@ const Settings = () => {
           margin: 0 5px;
           transition: all 0.3s ease;
           background: #6c757d;
+          flex-shrink: 0;
+          white-space: nowrap;
         }
 
         .modern-tabs .nav-link:hover {

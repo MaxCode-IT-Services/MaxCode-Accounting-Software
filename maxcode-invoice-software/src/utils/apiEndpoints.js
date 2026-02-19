@@ -120,6 +120,15 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/team-members?id=${id}`,
   },
 
+  // Two-Factor Authentication endpoints
+  TWO_FACTOR_AUTH: {
+    GET_STATUS: "/two-factor-auth",
+    GENERATE: "/two-factor-auth",
+    VERIFY: "/two-factor-auth",
+    ENABLE: "/two-factor-auth",
+    DISABLE: "/two-factor-auth",
+  },
+
   // Add more endpoints as needed
 };
 

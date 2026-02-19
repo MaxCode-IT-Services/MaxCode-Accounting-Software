@@ -9,6 +9,7 @@ import {
   validateRequiredFields,
   sanitizeUser,
 } from "./utils/auth.js";
+import speakeasy from "speakeasy";
 
 /**
  * Authentication API
@@ -71,6 +72,28 @@ export async function handler(event) {
           return createResponse(401, { error: "Invalid credentials" }, origin);
         }
 
+        // Check if 2FA is enabled
+        if (user.twoFactor?.enabled) {
+          // Generate temporary token for 2FA verification
+          const tempToken = generateToken({
+            userId: user._id.toString(),
+            email: user.email,
+            phone: user.phone,
+            temp: true,
+            exp: Date.now() + 5 * 60 * 1000, // 5 minutes
+          });
+
+          return createResponse(
+            200,
+            {
+              message: "PIN verified. Please provide 2FA code.",
+              needs2FA: true,
+              tempToken,
+            },
+            origin,
+          );
+        }
+
         // Generate token
         const tokenPayload = {
           userId: user._id.toString(),
@@ -91,6 +114,102 @@ export async function handler(event) {
           200,
           {
             message: "Welcome back! Login successful",
+            ...createAuthResponse(user, token),
+          },
+          origin,
+        );
+      }
+
+      // VERIFY 2FA
+      if (action === "verify-2fa") {
+        const { tempToken, twoFACode } = body;
+
+        if (!tempToken || !twoFACode) {
+          return createResponse(
+            400,
+            { error: "Temp token and 2FA code are required" },
+            origin,
+          );
+        }
+
+        let decoded;
+        try {
+          decoded = verifyToken(tempToken);
+        } catch (error) {
+          return createResponse(
+            401,
+            { error: "Invalid or expired temporary token" },
+            origin,
+          );
+        }
+
+        if (!decoded.temp) {
+          return createResponse(401, { error: "Invalid token type" }, origin);
+        }
+
+        const user = await usersCollection.findOne({
+          _id: new ObjectId(decoded.userId),
+        });
+
+        if (!user) {
+          return createResponse(401, { error: "User not found" }, origin);
+        }
+
+        if (!user.twoFactor?.enabled || !user.twoFactor?.secret) {
+          return createResponse(
+            400,
+            { error: "2FA not enabled for this account" },
+            origin,
+          );
+        }
+
+        // Verify TOTP token
+        const isValid = speakeasy.totp.verify({
+          secret: user.twoFactor.secret,
+          encoding: "base32",
+          token: twoFACode,
+          window: 2,
+        });
+
+        if (!isValid) {
+          // Check backup codes
+          let isBackupCode = false;
+          if (user.twoFactor.backupCodes) {
+            isBackupCode = user.twoFactor.backupCodes.includes(twoFACode);
+            if (isBackupCode) {
+              // Remove used backup code
+              await usersCollection.updateOne(
+                { _id: user._id },
+                { $pull: { "twoFactor.backupCodes": twoFACode } },
+              );
+            }
+          }
+
+          if (!isBackupCode) {
+            return createResponse(401, { error: "Invalid 2FA code" }, origin);
+          }
+        }
+
+        // Generate full token
+        const tokenPayload = {
+          userId: user._id.toString(),
+          email: user.email,
+          phone: user.phone,
+          role: user.role || "user",
+        };
+
+        const token = generateToken(tokenPayload);
+
+        // Update last login
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { $set: { lastLogin: new Date() } },
+        );
+
+        return createResponse(
+          200,
+          {
+            message: "2FA verified. Login successful!",
             ...createAuthResponse(user, token),
           },
           origin,

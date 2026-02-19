@@ -15,7 +15,9 @@
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.5",
     "jsonwebtoken": "^9.0.2",
-    "mongodb": "^6.3.0"
+    "mongodb": "^6.3.0",
+    "speakeasy": "^2.0.0",
+    "qrcode": "^1.5.3"
   },
   "devDependencies": {}
 }
