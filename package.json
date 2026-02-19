@@ -1,0 +1,42 @@
+{
+  "name": "maxcode-invoice-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MaxCode Invoice Software - Full Stack Application",
+  "scripts": {
+    "install:all": "npm install && cd backend && npm install && cd ../maxcode-invoice-software && npm install",
+    "dev:frontend": "cd maxcode-invoice-software && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "build:frontend": "cd maxcode-invoice-software && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "build": "npm run build:frontend && npm run build:backend",
+    "deploy:frontend": "cd maxcode-invoice-software && netlify deploy --prod",
+    "deploy:backend": "cd backend && netlify deploy --prod",
+    "deploy": "npm run deploy:backend && npm run deploy:frontend",
+    "lint:frontend": "cd maxcode-invoice-software && npm run lint",
+    "test": "echo 'Tests not configured yet'",
+    "backup": "node scripts/auto-backup.js",
+    "backup:test": "echo 'Running test backup...' && npm run backup"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/maxcode-invoice.git"
+  },
+  "keywords": [
+    "invoice",
+    "billing",
+    "mongodb",
+    "react",
+    "netlify"
+  ],
+  "author": "MaxCode",
+  "license": "MIT"
+}

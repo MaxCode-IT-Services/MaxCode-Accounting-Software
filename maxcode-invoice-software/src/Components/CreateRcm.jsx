@@ -1,0 +1,1385 @@
+import React, { useState, useEffect } from "react";
+import { showError } from "./ToastNotification";
+
+const CreateRcm = ({
+  show,
+  onClose,
+  onSubmit,
+  editingRecord = null,
+  defaultFinancialYear = null,
+  existingInvoices = [],
+}) => {
+  const [formData, setFormData] = useState({
+    selfInvoiceNumber: "",
+    invoiceDate: "",
+    originalRefNo: "",
+    serviceProviderBusinessName: "",
+    gstin: "",
+    noGSTIN: false,
+    address: "",
+    placeOfSupply: "Rajasthan (08)",
+    roundingAmount: "0",
+    paymentStatus: "Unpaid",
+    paymentMethod: "",
+    paymentDate: "",
+    paidAmount: "",
+    tdsPercent: "0",
+    tdsAmount: "0",
+  });
+
+  const [items, setItems] = useState([
+    {
+      id: 1,
+      itemName: "",
+      itemDescription: "",
+      hsnCode: "",
+      qty: "",
+      price: "",
+      amount: 0,
+    },
+  ]);
+
+  const [taxData, setTaxData] = useState({
+    subtotal: "0.00",
+    taxPercentage: 18,
+    cgst: "0.00",
+    sgst: "0.00",
+    igst: "0.00",
+    totalAmount: "0.00",
+  });
+
+  const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (show) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "auto";
+      setSubmitting(false);
+    }
+
+    return () => {
+      document.body.style.overflow = "auto";
+    };
+  }, [show]);
+
+  // GSTIN validation function
+  const validateGSTIN = (gstin) => {
+    if (!gstin || formData.noGSTIN) return true;
+
+    const gstinPattern =
+      /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/;
+
+    if (!gstinPattern.test(gstin)) {
+      return false;
+    }
+
+    return validateGSTINChecksum(gstin);
+  };
+
+  const validateGSTINChecksum = (gstin) => {
+    if (gstin.length !== 15) return false;
+
+    const GSTIN_CODEPOINT_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let factor = 2;
+    let sum = 0;
+
+    for (let i = gstin.length - 2; i >= 0; i--) {
+      let codePoint = GSTIN_CODEPOINT_CHARS.indexOf(gstin[i]);
+      if (codePoint === -1) return false;
+
+      let digit = factor * codePoint;
+      factor = factor === 2 ? 1 : 2;
+      digit = Math.floor(digit / 36) + (digit % 36);
+      sum += digit;
+    }
+
+    sum = sum % 36;
+    let checkCodePoint = (36 - sum) % 36;
+
+    return gstin[gstin.length - 1] === GSTIN_CODEPOINT_CHARS[checkCodePoint];
+  };
+
+  useEffect(() => {
+    if (editingRecord) {
+      setFormData({
+        selfInvoiceNumber: editingRecord.selfInvoiceNumber || "",
+        invoiceDate: editingRecord.invoiceDate || "",
+        originalRefNo: editingRecord.originalRefNo || "",
+        serviceProviderBusinessName:
+          editingRecord.serviceProviderBusinessName || "",
+        gstin: editingRecord.gstin || "",
+        noGSTIN: editingRecord.noGSTIN || false,
+        address: editingRecord.address || "",
+        placeOfSupply: "Rajasthan (08)",
+        roundingAmount: editingRecord.roundingAmount || "0",
+        paymentStatus: editingRecord.paymentStatus || "Unpaid",
+        paymentMethod: editingRecord.paymentMethod || "",
+        paymentDate: editingRecord.paymentDate || "",
+        paidAmount: editingRecord.paidAmount || "",
+        tdsPercent: editingRecord.tdsPercent || "0",
+        tdsAmount: editingRecord.tdsAmount || "0",
+      });
+      setItems(
+        editingRecord.items || [
+          {
+            id: 1,
+            itemName: "",
+            itemDescription: "",
+            hsnCode: "",
+            qty: "",
+            price: "",
+            amount: 0,
+          },
+        ],
+      );
+      if (editingRecord.taxData) {
+        setTaxData(editingRecord.taxData);
+      }
+    } else {
+      resetForm();
+    }
+  }, [editingRecord, show]);
+
+  useEffect(() => {
+    if (!show || editingRecord || !defaultFinancialYear) return;
+
+    if (defaultFinancialYear.taxPercentage !== undefined) {
+      setTaxData((prev) => ({
+        ...prev,
+        taxPercentage: Number(defaultFinancialYear.taxPercentage) || 0,
+      }));
+      calculateTotals(items, defaultFinancialYear.taxPercentage, null);
+    }
+
+    const selfInvoiceFormat =
+      defaultFinancialYear.selfInvoiceFormat ||
+      defaultFinancialYear.invoiceFormat;
+
+    if (selfInvoiceFormat) {
+      const nextInvoiceNumber = getNextInvoiceNumber(
+        selfInvoiceFormat,
+        existingInvoices,
+      );
+      setFormData((prev) => ({
+        ...prev,
+        selfInvoiceNumber: nextInvoiceNumber,
+        placeOfSupply: "Rajasthan (08)",
+      }));
+    }
+  }, [defaultFinancialYear, existingInvoices, editingRecord, show]);
+
+  const resetForm = () => {
+    setFormData({
+      selfInvoiceNumber: "",
+      invoiceDate: "",
+      originalRefNo: "",
+      serviceProviderBusinessName: "",
+      gstin: "",
+      noGSTIN: false,
+      address: "",
+      placeOfSupply: "Rajasthan (08)",
+      roundingAmount: "0",
+      paymentStatus: "Unpaid",
+      paymentMethod: "",
+      paymentDate: "",
+      paidAmount: "",
+      tdsPercent: "0",
+      tdsAmount: "0",
+    });
+    setItems([
+      {
+        id: 1,
+        itemName: "",
+        itemDescription: "",
+        hsnCode: "",
+        qty: "",
+        price: "",
+        amount: 0,
+      },
+    ]);
+    setTaxData({
+      subtotal: "0.00",
+      taxPercentage: 18,
+      cgst: "0.00",
+      sgst: "0.00",
+      igst: "0.00",
+      totalAmount: "0.00",
+    });
+    setErrors({});
+  };
+
+  const toNumber = (value) => {
+    const num = parseFloat(value);
+    return Number.isNaN(num) ? 0 : num;
+  };
+
+  const escapeRegExp = (value) => {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  };
+
+  const getNextInvoiceNumber = (format, invoices) => {
+    if (!format) return "";
+    const match = String(format).match(/^(.*?)(\d+)$/);
+    if (!match) return format;
+
+    const prefix = match[1];
+    const seed = match[2];
+    const width = seed.length;
+    const seedNumber = parseInt(seed, 10) || 1;
+    const pattern = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
+
+    let maxNumber = 0;
+    (invoices || []).forEach((invoice) => {
+      const invoiceNumber = String(invoice?.selfInvoiceNumber || "");
+      const invoiceMatch = invoiceNumber.match(pattern);
+      if (invoiceMatch) {
+        const current = parseInt(invoiceMatch[1], 10);
+        if (!Number.isNaN(current) && current > maxNumber) {
+          maxNumber = current;
+        }
+      }
+    });
+
+    const nextNumber = Math.max(seedNumber, maxNumber + 1);
+    return `${prefix}${String(nextNumber).padStart(width, "0")}`;
+  };
+
+  const handleNumberInput = (e) => {
+    const value = e.target.value;
+    const filteredValue = value.replace(/[^0-9.]/g, "");
+    const parts = filteredValue.split(".");
+    const validValue =
+      parts.length > 2
+        ? parts[0] + "." + parts.slice(1).join("")
+        : filteredValue;
+    e.target.value = validValue;
+  };
+
+  const computeTdsAmount = (totalAmount, tdsPercent) => {
+    const total = toNumber(totalAmount);
+    const percent = toNumber(tdsPercent);
+    return ((total * percent) / 100).toFixed(2);
+  };
+
+  const calculateTotals = (
+    itemsList,
+    taxPercentage,
+    manualRoundingAmount = null,
+  ) => {
+    const subtotal = itemsList.reduce(
+      (sum, item) => sum + (toNumber(item.amount) || 0),
+      0,
+    );
+    const taxAmount = (subtotal * toNumber(taxPercentage)) / 100;
+    const cgst = 0;
+    const sgst = 0;
+    const igst = taxAmount;
+
+    const subtotalWithTax = subtotal + taxAmount;
+
+    let roundValue;
+    if (manualRoundingAmount !== null && manualRoundingAmount !== undefined) {
+      roundValue = toNumber(manualRoundingAmount);
+    } else {
+      const decimalPart = subtotalWithTax - Math.floor(subtotalWithTax);
+      if (decimalPart <= 0.5) {
+        roundValue = -decimalPart;
+      } else {
+        roundValue = 1 - decimalPart;
+      }
+    }
+
+    const totalAmount = subtotalWithTax + roundValue;
+
+    setTaxData({
+      subtotal: subtotal.toFixed(2),
+      taxPercentage: toNumber(taxPercentage),
+      cgst: cgst.toFixed(2),
+      sgst: sgst.toFixed(2),
+      igst: igst.toFixed(2),
+      totalAmount: totalAmount.toFixed(2),
+    });
+
+    setFormData((prev) => ({
+      ...prev,
+      roundingAmount: roundValue.toFixed(2),
+      tdsAmount: computeTdsAmount(totalAmount, prev.tdsPercent),
+    }));
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+
+    if (name === "gstin") {
+      const upperValue = value.toUpperCase();
+      setFormData((prev) => ({
+        ...prev,
+        [name]: upperValue,
+      }));
+
+      if (upperValue && !validateGSTIN(upperValue) && !formData.noGSTIN) {
+        setErrors((prev) => ({
+          ...prev,
+          gstin: "Invalid GSTIN format. Example: 08KIBTK1234A1ZU",
+        }));
+      } else {
+        setErrors((prev) => ({
+          ...prev,
+          gstin: "",
+        }));
+      }
+    } else if (name === "noGSTIN") {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: checked,
+        gstin: checked ? "Unregistered" : "",
+      }));
+
+      if (checked) {
+        setErrors((prev) => ({
+          ...prev,
+          gstin: "",
+        }));
+      }
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: name === "placeOfSupply" ? "Rajasthan (08)" : value,
+      }));
+    }
+
+    if (errors[name]) {
+      setErrors((prev) => ({
+        ...prev,
+        [name]: "",
+      }));
+    }
+  };
+
+  const handleRoundingChange = (e) => {
+    const value = e.target.value;
+    setFormData((prev) => ({
+      ...prev,
+      roundingAmount: value,
+    }));
+    calculateTotals(items, taxData.taxPercentage, value);
+  };
+
+  const handleTdsPercentChange = (e) => {
+    const value = e.target.value;
+    setFormData((prev) => ({
+      ...prev,
+      tdsPercent: value,
+      tdsAmount: computeTdsAmount(taxData.totalAmount, value),
+    }));
+  };
+
+  const handleItemChange = (id, field, value) => {
+    const updatedItems = items.map((item) => {
+      if (item.id === id) {
+        const updatedItem = { ...item, [field]: value };
+        if (field === "qty" || field === "price") {
+          const qty = toNumber(field === "qty" ? value : updatedItem.qty);
+          const price = toNumber(field === "price" ? value : updatedItem.price);
+          updatedItem.amount = qty * price;
+        }
+        return updatedItem;
+      }
+      return item;
+    });
+
+    setItems(updatedItems);
+    calculateTotals(updatedItems, taxData.taxPercentage, null);
+  };
+
+  const handleAddItem = () => {
+    const newItem = {
+      id: items.length > 0 ? Math.max(...items.map((i) => i.id)) + 1 : 1,
+      itemName: "",
+      itemDescription: "",
+      hsnCode: "",
+      qty: "",
+      price: "",
+      amount: 0,
+    };
+    setItems((prev) => [...prev, newItem]);
+  };
+
+  const handleRemoveItem = (id) => {
+    if (items.length === 1) {
+      showError("At least one item is required");
+      return;
+    }
+    const updatedItems = items.filter((item) => item.id !== id);
+    setItems(updatedItems);
+    calculateTotals(
+      updatedItems,
+      taxData.taxPercentage,
+      formData.roundingAmount,
+    );
+  };
+
+  const handleTaxChange = (e) => {
+    const newTaxPercentage = e.target.value;
+    calculateTotals(items, newTaxPercentage, null);
+  };
+
+  const fieldNames = {
+    selfInvoiceNumber: "Self Invoice Number",
+    invoiceDate: "Invoice Date",
+    originalRefNo: "Original Ref. No",
+    serviceProviderBusinessName: "Service Provider Business Name",
+    gstin: "GSTIN",
+    address: "Address",
+    placeOfSupply: "Place of Supply",
+    paymentStatus: "Payment Status",
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+    const requiredFields = [
+      "selfInvoiceNumber",
+      "invoiceDate",
+      "originalRefNo",
+      "serviceProviderBusinessName",
+      "address",
+      "placeOfSupply",
+      "paymentStatus",
+    ];
+
+    if (!formData.noGSTIN) {
+      requiredFields.push("gstin");
+    }
+
+    requiredFields.forEach((field) => {
+      if (!formData[field] || formData[field].toString().trim() === "") {
+        newErrors[field] = `${fieldNames[field]} is required`;
+      }
+    });
+
+    let hasValidItem = false;
+    items.forEach((item) => {
+      if (item.itemName && item.qty && item.price) {
+        hasValidItem = true;
+      }
+    });
+
+    if (!hasValidItem) {
+      newErrors.items =
+        "At least one item with name, quantity, and price is required";
+      showError("Please add at least one item with complete details");
+    }
+
+    if (!formData.noGSTIN && formData.gstin && !validateGSTIN(formData.gstin)) {
+      newErrors.gstin = "Please enter a valid GSTIN number";
+    }
+
+    setErrors(newErrors);
+
+    if (Object.keys(newErrors).length > 0) {
+      const firstErrorField = Object.keys(newErrors)[0];
+      if (firstErrorField !== "items") {
+        const firstFieldName = fieldNames[firstErrorField];
+        showError(`Please fill ${firstFieldName} field correctly`);
+      }
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (submitting) return;
+
+    if (validateForm()) {
+      const submitData = {
+        ...formData,
+        placeOfSupply: "Rajasthan (08)",
+        items: items,
+        taxData: {
+          ...taxData,
+          cgst: "0.00",
+          sgst: "0.00",
+          igst: (
+            (toNumber(taxData.subtotal) * toNumber(taxData.taxPercentage)) /
+            100
+          ).toFixed(2),
+        },
+        id: editingRecord?.id || Date.now(),
+        createdDate: editingRecord?.createdDate || new Date().toISOString(),
+      };
+
+      try {
+        setSubmitting(true);
+        await onSubmit(submitData);
+      } catch (error) {
+        console.error("RCM submit failed:", error);
+      } finally {
+        setSubmitting(false);
+      }
+    }
+  };
+
+  const RequiredStar = () => <span className="text-danger">*</span>;
+
+  if (!show) return null;
+
+  const modalTitle = editingRecord
+    ? editingRecord.isViewMode
+      ? `View RCM - ${formData.selfInvoiceNumber || ""}`
+      : `Edit RCM - ${formData.selfInvoiceNumber || ""}`
+    : "Add New RCM";
+
+  const isViewMode = editingRecord?.isViewMode;
+  const isRajasthan = false;
+
+  return (
+    <div
+      className={`modal ${show ? "show d-block" : "d-none"}`}
+      tabIndex="-1"
+      role="dialog"
+      style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+    >
+      <div className="modal-dialog modal-fullscreen" role="document">
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title">{modalTitle}</h5>
+            <button
+              type="button"
+              className="btn-close"
+              onClick={onClose}
+            ></button>
+          </div>
+
+          <div
+            className="modal-body"
+            style={{ maxHeight: "75vh", overflowY: "auto" }}
+          >
+            <form id="rcmForm" onSubmit={handleSubmit} noValidate>
+              <div className="row mb-4">
+                <div className="col-12">
+                  <h6 className="border-bottom pb-2 mb-3">
+                    <i className="fas fa-info-circle me-2 text-primary"></i>
+                    Basic Information
+                  </h6>
+                </div>
+
+                <div className="col-md-3 mb-3">
+                  <label htmlFor="selfInvoiceNumber" className="form-label">
+                    <i className="fas fa-file-invoice me-2 text-primary"></i>
+                    Self Invoice Number <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control ${errors.selfInvoiceNumber ? "is-invalid" : ""}`}
+                    id="selfInvoiceNumber"
+                    name="selfInvoiceNumber"
+                    value={formData.selfInvoiceNumber}
+                    placeholder="Auto Generated Self Invoice Number"
+                    readOnly
+                  />
+                  {errors.selfInvoiceNumber && (
+                    <div className="invalid-feedback d-block">
+                      {errors.selfInvoiceNumber}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-3 mb-3">
+                  <label htmlFor="invoiceDate" className="form-label">
+                    <i className="fas fa-calendar me-2 text-primary"></i>
+                    Invoice Date <RequiredStar />
+                  </label>
+                  <input
+                    type="date"
+                    className={`form-control ${errors.invoiceDate ? "is-invalid" : ""}`}
+                    id="invoiceDate"
+                    name="invoiceDate"
+                    value={formData.invoiceDate}
+                    onChange={handleInputChange}
+                    readOnly={isViewMode}
+                  />
+                  {errors.invoiceDate && (
+                    <div className="invalid-feedback d-block">
+                      {errors.invoiceDate}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-3 mb-3">
+                  <label htmlFor="originalRefNo" className="form-label">
+                    <i className="fas fa-receipt me-2 text-primary"></i>
+                    Original Ref. No <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control ${errors.originalRefNo ? "is-invalid" : ""}`}
+                    id="originalRefNo"
+                    name="originalRefNo"
+                    value={formData.originalRefNo}
+                    onChange={handleInputChange}
+                    placeholder="Enter Original Ref. No"
+                    readOnly={isViewMode}
+                  />
+                  {errors.originalRefNo && (
+                    <div className="invalid-feedback d-block">
+                      {errors.originalRefNo}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-3 mb-3">
+                  <label htmlFor="placeOfSupply" className="form-label">
+                    <i className="fas fa-map-marked-alt me-2 text-primary"></i>
+                    Place of Supply <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control ${errors.placeOfSupply ? "is-invalid" : ""}`}
+                    id="placeOfSupply"
+                    name="placeOfSupply"
+                    value={formData.placeOfSupply}
+                    placeholder="Enter Place of Supply"
+                    readOnly
+                  />
+                  {errors.placeOfSupply && (
+                    <div className="invalid-feedback d-block">
+                      {errors.placeOfSupply}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="row mb-4">
+                <div className="col-12">
+                  <h6 className="border-bottom pb-2 mb-3">
+                    <i className="fas fa-building me-2 text-success"></i>
+                    Supplier/Service Provider Details
+                  </h6>
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label
+                    htmlFor="serviceProviderBusinessName"
+                    className="form-label"
+                  >
+                    <i className="fas fa-building me-2 text-primary"></i>
+                    Service Provider Business Name <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control ${errors.serviceProviderBusinessName ? "is-invalid" : ""}`}
+                    id="serviceProviderBusinessName"
+                    name="serviceProviderBusinessName"
+                    value={formData.serviceProviderBusinessName}
+                    onChange={handleInputChange}
+                    placeholder="Enter Business Name"
+                    readOnly={isViewMode}
+                  />
+                  {errors.serviceProviderBusinessName && (
+                    <div className="invalid-feedback d-block">
+                      {errors.serviceProviderBusinessName}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="gstin" className="form-label">
+                    <i className="fas fa-file-invoice me-2 text-primary"></i>
+                    GSTIN&nbsp;
+                    {!formData.noGSTIN && <RequiredStar />}
+                    {formData.noGSTIN && (
+                      <span className="text-muted ms-2">(Not Applicable)</span>
+                    )}
+                  </label>
+
+                  <div className="input-group">
+                    {/* Left Validation Icon */}
+                    <span className="input-group-text gstin-icon-left">
+                      {!formData.noGSTIN && formData.gstin && (
+                        <>
+                          {validateGSTIN(formData.gstin) ? (
+                            <i className="fas fa-check-circle text-success"></i>
+                          ) : (
+                            <i className="fas fa-times-circle text-danger"></i>
+                          )}
+                        </>
+                      )}
+                      {formData.noGSTIN && (
+                        <i className="fas fa-ban text-secondary"></i>
+                      )}
+                      {!formData.gstin && !formData.noGSTIN && (
+                        <i className="fas fa-file-invoice text-muted"></i>
+                      )}
+                    </span>
+
+                    {/* GSTIN Input */}
+                    <input
+                      type="text"
+                      className={`form-control modern-input ${
+                        errors.gstin ? "is-invalid" : ""
+                      } ${formData.noGSTIN ? "disabled-input" : ""}`}
+                      id="gstin"
+                      name="gstin"
+                      value={formData.gstin}
+                      onChange={handleInputChange}
+                      placeholder={
+                        formData.noGSTIN
+                          ? "GSTIN not required"
+                          : "22AAAAA0000A1Z5"
+                      }
+                      maxLength="15"
+                      readOnly={isViewMode || formData.noGSTIN}
+                      disabled={formData.noGSTIN}
+                      style={{ textTransform: "uppercase" }}
+                    />
+
+                    {/* Right Side Checkbox */}
+                    <span className="input-group-text no-gst-checkbox">
+                      <input
+                        className="form-check-input mt-0"
+                        type="checkbox"
+                        id="noGSTIN"
+                        name="noGSTIN"
+                        checked={formData.noGSTIN}
+                        onChange={handleInputChange}
+                        disabled={isViewMode}
+                        aria-label="No GST"
+                      />
+                      <label
+                        htmlFor="noGSTIN"
+                        className="ms-1 mb-0 no-gst-label"
+                      >
+                        No GST
+                      </label>
+                    </span>
+                  </div>
+
+                  {/* Error Message */}
+                  {errors.gstin && (
+                    <div className="invalid-feedback d-block">
+                      {errors.gstin}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="address" className="form-label">
+                    <i className="fas fa-map-marker-alt me-2 text-primary"></i>
+                    Address <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control ${errors.address ? "is-invalid" : ""}`}
+                    id="address"
+                    name="address"
+                    value={formData.address}
+                    onChange={handleInputChange}
+                    placeholder="Enter Address"
+                    readOnly={isViewMode}
+                  />
+                  {errors.address && (
+                    <div className="invalid-feedback d-block">
+                      {errors.address}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="row mb-4">
+                <div className="col-12">
+                  <h6 className="border-bottom pb-2 mb-3">
+                    <i className="fas fa-th-list me-2 text-info"></i>
+                    Items Details
+                  </h6>
+                  {errors.items && (
+                    <div className="alert alert-danger">{errors.items}</div>
+                  )}
+                </div>
+
+                <div className="col-12">
+                  <div className="table-responsive">
+                    <table className="table table-bordered table-hover">
+                      <thead className="table-primary">
+                        <tr>
+                          <th style={{ width: "50px" }}>S.N</th>
+                          <th style={{ width: "200px" }}>Item Name</th>
+                          <th style={{ width: "250px" }}>Item Description</th>
+                          <th style={{ width: "120px" }}>HSN Code</th>
+                          <th style={{ width: "100px" }}>QTY</th>
+                          <th style={{ width: "120px" }}>Price (Rs)</th>
+                          <th style={{ width: "120px" }}>Amount (Rs)</th>
+                          <th style={{ width: "80px" }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((item, index) => (
+                          <tr key={item.id}>
+                            <td className="text-center align-middle">
+                              <strong>{index + 1}</strong>
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                className="form-control form-control-sm"
+                                value={item.itemName}
+                                onChange={(e) =>
+                                  handleItemChange(
+                                    item.id,
+                                    "itemName",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="Item Name"
+                                readOnly={isViewMode}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                className="form-control form-control-sm"
+                                value={item.itemDescription}
+                                onChange={(e) =>
+                                  handleItemChange(
+                                    item.id,
+                                    "itemDescription",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="Description"
+                                readOnly={isViewMode}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                className="form-control form-control-sm"
+                                value={item.hsnCode}
+                                onChange={(e) =>
+                                  handleItemChange(
+                                    item.id,
+                                    "hsnCode",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="HSN Code"
+                                readOnly={isViewMode}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                className="form-control form-control-sm"
+                                value={item.qty}
+                                onChange={(e) => {
+                                  handleNumberInput(e);
+                                  handleItemChange(
+                                    item.id,
+                                    "qty",
+                                    e.target.value,
+                                  );
+                                }}
+                                placeholder="QTY"
+                                readOnly={isViewMode}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                className="form-control form-control-sm"
+                                value={item.price}
+                                onChange={(e) => {
+                                  handleNumberInput(e);
+                                  handleItemChange(
+                                    item.id,
+                                    "price",
+                                    e.target.value,
+                                  );
+                                }}
+                                placeholder="Price"
+                                readOnly={isViewMode}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                className="form-control form-control-sm"
+                                value={toNumber(item.amount).toFixed(2)}
+                                readOnly
+                                style={{
+                                  backgroundColor: "#f8f9fa",
+                                  fontWeight: "bold",
+                                }}
+                              />
+                            </td>
+                            <td className="text-center align-middle">
+                              {!isViewMode && (
+                                <button
+                                  type="button"
+                                  className="btn btn-danger btn-sm"
+                                  onClick={() => handleRemoveItem(item.id)}
+                                  disabled={items.length === 1}
+                                >
+                                  <i className="fas fa-trash"></i>
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {!isViewMode && (
+                    <button
+                      type="button"
+                      className="btn btn-success btn-sm mt-2"
+                      onClick={handleAddItem}
+                    >
+                      <i className="fas fa-plus me-2"></i>
+                      Add New Item
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="row mb-4">
+                <div className="col-12">
+                  <h6 className="border-bottom pb-2 mb-3">
+                    <i className="fas fa-calculator me-2 text-warning"></i>
+                    Amount Calculation
+                  </h6>
+                </div>
+
+                <div className="col-md-6">
+                  <div
+                    className="card shadow-sm border-0"
+                    style={{ backgroundColor: "#f8f9fa" }}
+                  >
+                    <div className="card-header bg-success rounded-top-3 text-white">
+                      <h6 className="mb-0">
+                        <i className="fas fa-receipt me-2"></i>Amount
+                        Calculation
+                      </h6>
+                    </div>
+                    <div className="card-body">
+                      <div className="row">
+                        <div className="col-md-4 mb-3">
+                          <label className="form-label fw-bold">
+                            <i className="fas fa-coins me-2 text-info"></i>
+                            Subtotal Amount
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-info text-white">
+                              ₹
+                            </span>
+                            <input
+                              type="text"
+                              className="form-control fw-bold"
+                              value={taxData.subtotal}
+                              readOnly
+                              style={{
+                                backgroundColor: "#e3f2fd",
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="taxPercentage"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-percentage me-2 text-warning"></i>
+                            Tax Percentage
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-warning text-white">
+                              %
+                            </span>
+                            <input
+                              type="text"
+                              className="form-control"
+                              id="taxPercentage"
+                              value={taxData.taxPercentage}
+                              onChange={(e) => {
+                                handleNumberInput(e);
+                                handleTaxChange(e);
+                              }}
+                              readOnly={isViewMode}
+                              style={{ fontWeight: "600" }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label className="form-label fw-bold">
+                            <i className="fas fa-file-invoice me-2 text-success"></i>
+                            CGST ({isRajasthan ? taxData.taxPercentage / 2 : 0}
+                            %)
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-success text-white">
+                              ₹
+                            </span>
+                            <input
+                              type="text"
+                              className={`form-control fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
+                              value={taxData.cgst}
+                              readOnly
+                              style={{
+                                backgroundColor: "#ffffff",
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label className="form-label fw-bold">
+                            <i className="fas fa-file-invoice me-2 text-success"></i>
+                            SGST ({isRajasthan ? taxData.taxPercentage / 2 : 0}
+                            %)
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-success text-white">
+                              ₹
+                            </span>
+                            <input
+                              type="text"
+                              className={`form-control fw-bold ${isRajasthan ? "text-success" : "text-muted"}`}
+                              value={taxData.sgst}
+                              readOnly
+                              style={{
+                                backgroundColor: "#fff",
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label className="form-label fw-bold">
+                            <i className="fas fa-file-invoice me-2 text-primary"></i>
+                            IGST ({!isRajasthan ? taxData.taxPercentage : 0}%)
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-success text-white">
+                              ₹
+                            </span>
+                            <input
+                              type="text"
+                              className={`form-control fw-bold ${!isRajasthan ? "text-primary" : "text-muted"}`}
+                              value={taxData.igst}
+                              readOnly
+                              style={{
+                                backgroundColor: "#fff",
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="roundingAmount"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-adjust me-2 text-secondary"></i>
+                            Rounding Amount
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-secondary text-white">
+                              ₹
+                            </span>
+                            <input
+                              type="text"
+                              className="form-control"
+                              id="roundingAmount"
+                              name="roundingAmount"
+                              value={formData.roundingAmount}
+                              onChange={(e) => {
+                                handleNumberInput(e);
+                                handleRoundingChange(e);
+                              }}
+                              readOnly={isViewMode}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label className="form-label fw-bold">
+                            <i className="fas fa-rupee-sign me-2 text-danger"></i>
+                            Total Amount
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-danger text-white">
+                              ₹
+                            </span>
+                            <input
+                              type="text"
+                              className="form-control fw-bold text-danger"
+                              value={taxData.totalAmount}
+                              readOnly
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="col-md-6">
+                  <div
+                    className="card shadow-sm border-0"
+                    style={{ backgroundColor: "#f8f9fa" }}
+                  >
+                    <div className="card-header bg-success rounded-top-3 text-white">
+                      <h6 className="mb-0">
+                        <i className="fas fa-credit-card me-2"></i>Payment
+                        Information
+                      </h6>
+                    </div>
+                    <div className="card-body">
+                      <div className="row">
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="paymentStatus"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-money-check-alt me-2 text-primary"></i>
+                            Payment Status <RequiredStar />
+                          </label>
+                          <select
+                            id="paymentStatus"
+                            name="paymentStatus"
+                            className={`form-select ${errors.paymentStatus ? "is-invalid" : ""}`}
+                            value={formData.paymentStatus}
+                            onChange={handleInputChange}
+                            disabled={isViewMode}
+                            style={{ fontWeight: "600" }}
+                          >
+                            <option value="Paid">✓ Paid</option>
+                            <option value="Unpaid">✗ Unpaid</option>
+                            <option value="Partial">⧗ Partial</option>
+                          </select>
+                          {errors.paymentStatus && (
+                            <div className="invalid-feedback d-block">
+                              {errors.paymentStatus}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="paymentMethod"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-wallet me-2 text-success"></i>
+                            Payment Method
+                          </label>
+                          <select
+                            id="paymentMethod"
+                            name="paymentMethod"
+                            className="form-select"
+                            value={formData.paymentMethod}
+                            onChange={handleInputChange}
+                            disabled={isViewMode}
+                            style={{ fontWeight: "500" }}
+                          >
+                            <option value="">Select Payment Method</option>
+                            <option value="Cash">💵 Cash</option>
+                            <option value="Bank Transfer">
+                              🏦 Bank Transfer
+                            </option>
+                            <option value="Credit Card">💳 Credit Card</option>
+                            <option value="Debit Card">💳 Debit Card</option>
+                            <option value="UPI">📱 UPI</option>
+                            <option value="Cheque">📝 Cheque</option>
+                          </select>
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="paymentDate"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-calendar-check me-2 text-info"></i>
+                            Payment Date
+                          </label>
+                          <input
+                            type="date"
+                            className="form-control"
+                            id="paymentDate"
+                            name="paymentDate"
+                            value={formData.paymentDate}
+                            onChange={handleInputChange}
+                            readOnly={isViewMode}
+                            style={{ fontWeight: "500" }}
+                          />
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="paidAmount"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-hand-holding-usd me-2 text-success"></i>
+                            Paid Amount
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-success text-white">
+                              ₹
+                            </span>
+                            <input
+                              type="text"
+                              className="form-control"
+                              id="paidAmount"
+                              name="paidAmount"
+                              value={formData.paidAmount}
+                              onChange={(e) => {
+                                handleNumberInput(e);
+                                handleInputChange(e);
+                              }}
+                              readOnly={isViewMode}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="tdsPercent"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-percentage me-2 text-warning"></i>
+                            TDS (%)
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-warning text-white">
+                              %
+                            </span>
+                            <input
+                              type="text"
+                              className="form-control"
+                              id="tdsPercent"
+                              name="tdsPercent"
+                              value={formData.tdsPercent}
+                              onChange={(e) => {
+                                handleNumberInput(e);
+                                handleTdsPercentChange(e);
+                              }}
+                              readOnly={isViewMode}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="tdsAmount"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-file-invoice me-2 text-danger"></i>
+                            TDS Amount
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-danger text-white">
+                              ₹
+                            </span>
+                            <input
+                              type="text"
+                              className="form-control fw-bold text-danger"
+                              id="tdsAmount"
+                              name="tdsAmount"
+                              value={formData.tdsAmount}
+                              readOnly
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <div className="modal-footer">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onClose}
+            >
+              <i className="fas fa-times me-2"></i>
+              {isViewMode ? "Close" : "Cancel"}
+            </button>
+            {!isViewMode && (
+              <button
+                type="submit"
+                form="rcmForm"
+                className="btn btn-success"
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <>
+                    <span
+                      className="spinner-border spinner-border-sm me-2"
+                      role="status"
+                      aria-hidden="true"
+                    ></span>
+                    {editingRecord ? "Updating..." : "Saving..."}
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-check me-2"></i>
+                    {editingRecord ? "Update RCM" : "Save RCM"}
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <style jsx>{`
+        .modal-body::-webkit-scrollbar {
+          width: 8px;
+        }
+
+        .modal-body::-webkit-scrollbar-track {
+          background: #f1f1f1;
+        }
+
+        .modal-body::-webkit-scrollbar-thumb {
+          background: #888;
+          border-radius: 4px;
+        }
+
+        .modal-body::-webkit-scrollbar-thumb:hover {
+          background: #555;
+        }
+
+        .table-responsive::-webkit-scrollbar {
+          height: 8px;
+        }
+
+        .table-responsive::-webkit-scrollbar-track {
+          background: #f1f1f1;
+        }
+
+        .table-responsive::-webkit-scrollbar-thumb {
+          background: #888;
+          border-radius: 4px;
+        }
+
+        .invalid-feedback.d-block {
+          display: block !important;
+          margin-top: 5px;
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default CreateRcm;

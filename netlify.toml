@@ -1,0 +1,31 @@
+[build]
+  command = "cd maxcode-invoice-software && npm install && npm run build && cd ../backend && npm install"
+  publish = "maxcode-invoice-software/dist"
+  functions = "backend/netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[dev]
+  command = "npm run dev"
+  port = 5173
+  targetPort = 5173
+  framework = "#custom"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"

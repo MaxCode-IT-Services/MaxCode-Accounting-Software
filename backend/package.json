@@ -1,0 +1,21 @@
+{
+  "name": "maxcode-invoice-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "netlify dev",
+    "build": "echo 'Backend functions ready'",
+    "test": "echo 'Tests not configured yet'",
+    "deploy": "netlify deploy --prod",
+    "deploy:preview": "netlify deploy",
+    "functions:invoke": "netlify functions:invoke"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.3.0"
+  },
+  "devDependencies": {}
+}
