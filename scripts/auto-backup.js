@@ -57,7 +57,7 @@ function validateEnvironmentVariables() {
 }
 
 // Backup API endpoint (single endpoint that returns all data)
-const BACKUP_ENDPOINT = `${NETLIFY_API_URL || "https://maxcode-invoice.netlify.app/api"}/backup`;
+const BACKUP_ENDPOINT = `${NETLIFY_API_URL || "https://accounting-dausa.netlify.app/api"}/backup`;
 
 /**
  * Setup Google Drive OAuth2 Client

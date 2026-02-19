@@ -2800,7 +2800,7 @@ const Settings = () => {
                                         driveConfig.folderId,
                                       );
                                       console.log(
-                                        "5. NETLIFY_API_URL = https://maxcode-invoice.netlify.app/api",
+                                        "5. NETLIFY_API_URL = https://accounting-dausa.netlify.app/api",
                                       );
                                       console.log(
                                         "6. BACKUP_API_KEY =",
