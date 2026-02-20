@@ -288,7 +288,7 @@ const FinancialYearManagement = () => {
     { key: "action", label: "Actions", width: 200 },
   ];
 
-  const fixedColumns = ["sn", "action"];
+  const fixedColumns = ["sn"];
   const defaultVisibleColumns = [
     "sn",
     "financialYear",

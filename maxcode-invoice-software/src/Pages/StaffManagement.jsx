@@ -204,8 +204,13 @@ const StaffManagement = () => {
       width: 150,
       render: (value) =>
         value ? (
-          <a href={value} target="_blank" rel="noopener noreferrer">
-            Open Link
+          <a
+            href={value}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-center text-danger"
+          >
+            <i class="fa-solid fa-up-right-from-square"></i> View Now
           </a>
         ) : (
           "-"
@@ -217,8 +222,13 @@ const StaffManagement = () => {
       width: 150,
       render: (value) =>
         value ? (
-          <a href={value} target="_blank" rel="noopener noreferrer">
-            Open Link
+          <a
+            href={value}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-center text-danger"
+          >
+            <i class="fa-solid fa-up-right-from-square"></i> View Now
           </a>
         ) : (
           "-"
@@ -230,8 +240,13 @@ const StaffManagement = () => {
       width: 150,
       render: (value) =>
         value ? (
-          <a href={value} target="_blank" rel="noopener noreferrer">
-            Open Link
+          <a
+            href={value}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-center text-danger"
+          >
+            <i class="fa-solid fa-up-right-from-square"></i> View Now
           </a>
         ) : (
           "-"
@@ -246,26 +261,14 @@ const StaffManagement = () => {
     { key: "action", label: "Actions", width: 150 },
   ];
 
-  const fixedColumns = ["sn", "action"];
+  const fixedColumns = ["sn"];
   const defaultVisibleColumns = [
     "sn",
     "profilePhotoUrl",
     "developerName",
     "phoneNumber",
-    "emergencyContact",
     "email",
-    "designation",
     "department",
-    "bankName",
-    "accountHolderName",
-    "bankAccountNumber",
-    "branch",
-    "dateOfBirthDisplay",
-    "aadharNumber",
-    "pnaNumber",
-    "googleDriveLink",
-    "aadharGoogleDriveLink",
-    "panCardGoogleDriveLink",
     "status",
     "createdDateTime",
     "action",

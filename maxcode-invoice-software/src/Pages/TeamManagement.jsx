@@ -160,7 +160,7 @@ const TeamManagement = () => {
     [],
   );
 
-  const fixedColumns = ["sn", "action"];
+  const fixedColumns = ["sn"];
   const defaultVisibleColumns = [
     "sn",
     "name",

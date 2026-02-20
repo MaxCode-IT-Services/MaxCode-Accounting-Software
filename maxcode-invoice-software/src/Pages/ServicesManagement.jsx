@@ -534,7 +534,7 @@ const ServicesManagement = () => {
     { key: "action", label: "Actions", width: 170 },
   ];
 
-  const fixedColumns = ["sn", "action"];
+  const fixedColumns = ["sn"];
   const defaultVisibleColumns = [
     "sn",
     "serviceNumber",

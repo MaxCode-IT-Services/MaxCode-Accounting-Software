@@ -1,7 +1,6 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
 import { google } from "googleapis";
-import stream from "stream";
 
 /**
  * Backup API Endpoint
@@ -209,10 +208,6 @@ const uploadToGoogleDrive = async (
     // Convert backup data to JSON string
     const backupJson = JSON.stringify(backupData, null, 2);
 
-    // Create a readable stream from the JSON string
-    const bufferStream = new stream.PassThrough();
-    bufferStream.end(Buffer.from(backupJson));
-
     // Upload to Google Drive
     const fileMetadata = {
       name: fileName,
@@ -224,14 +219,13 @@ const uploadToGoogleDrive = async (
       fileMetadata.parents = [driveConfig.folderId];
     }
 
-    const media = {
-      mimeType: "application/json",
-      body: bufferStream,
-    };
-
+    // Upload using multipart upload with Buffer
     const response = await drive.files.create({
       requestBody: fileMetadata,
-      media: media,
+      media: {
+        mimeType: "application/json",
+        body: backupJson, // Send as string directly
+      },
       fields: "id, name, webViewLink, size",
     });
 

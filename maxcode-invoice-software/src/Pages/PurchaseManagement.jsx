@@ -576,7 +576,7 @@ const PurchaseManagement = () => {
     { key: "action", label: "Actions", width: 150 },
   ];
 
-  const fixedColumns = ["sn", "action"];
+  const fixedColumns = ["sn"];
   const defaultVisibleColumns = [
     "sn",
     "invoiceNumber",

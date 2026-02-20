@@ -512,7 +512,7 @@ const RcmManagement = () => {
     { key: "action", label: "Actions", width: 180 },
   ];
 
-  const fixedColumns = ["sn", "action"];
+  const fixedColumns = ["sn"];
   const defaultVisibleColumns = [
     "sn",
     "selfInvoiceNumber",
