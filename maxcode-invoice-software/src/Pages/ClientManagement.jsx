@@ -215,20 +215,17 @@ const ClientManagement = () => {
   const fixedColumns = ["sn"];
   const defaultVisibleColumns = [
     "sn",
-    "clientId",
     "clientName",
     "businessName",
     "phoneNumber",
-    "placeOfSupply",
     "status",
     "gstStatus",
-    "sendAutoInvoice",
     "createdDateTime",
     "action",
   ];
 
   // Columns with dropdown filter
-  const columnsWithDropdownFilter = ["status", "gstStatus"];
+  const columnsWithDropdownFilter = ["status", "gstStatus", "placeOfSupply"];
 
   // Columns with date range filter
   const columnsWithDateFilter = ["createdDateTime"];

@@ -78,11 +78,11 @@ button:focus-visible {
 }
 
 .react-select__control:hover {
-  border-color: #d6dbe1 !important;
+  border-color: #007026 !important;
 }
 
 .react-select__control--is-focused {
-  border-color: var(--counter-color, #667eea) !important;
+  border-color: var(--maxcode-primary-hover, #667eea) !important;
 }
 
 .react-select__value-container {

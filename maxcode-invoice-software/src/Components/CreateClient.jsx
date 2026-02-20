@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import Select from "react-select";
 import { showSuccess, showError } from "./ToastNotification";
 import { apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
@@ -587,21 +588,34 @@ const CreateClient = ({ show, onClose, onSubmit, editingRecord = null }) => {
                     <i className="fas fa-map-marked-alt me-2 text-primary"></i>
                     Place of Supply <RequiredStar />
                   </label>
-                  <select
-                    id="placeOfSupply"
+                  <Select
+                    inputId="placeOfSupply"
                     name="placeOfSupply"
-                    className={`form-select modern-input ${errors.placeOfSupply ? "is-invalid" : ""}`}
-                    value={formData.placeOfSupply}
-                    onChange={handleInputChange}
-                    disabled={isViewMode}
-                  >
-                    <option value="">Select Place of Supply</option>
-                    {INDIAN_STATES.map((s) => (
-                      <option key={s.code} value={`${s.name} (${s.code})`}>
-                        {`${s.name} (${s.code})`}
-                      </option>
-                    ))}
-                  </select>
+                    classNamePrefix="react-select"
+                    value={
+                      INDIAN_STATES.map((s) => ({
+                        value: `${s.name} (${s.code})`,
+                        label: `${s.name} (${s.code})`,
+                      })).find((opt) => opt.value === formData.placeOfSupply) ||
+                      null
+                    }
+                    onChange={(selectedOption) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        placeOfSupply: selectedOption
+                          ? selectedOption.value
+                          : "",
+                      }));
+                    }}
+                    options={INDIAN_STATES.map((s) => ({
+                      value: `${s.name} (${s.code})`,
+                      label: `${s.name} (${s.code})`,
+                    }))}
+                    isDisabled={isViewMode}
+                    isClearable
+                    isSearchable
+                    placeholder="Select Place of Supply"
+                  />
                   {errors.placeOfSupply && (
                     <div className="invalid-feedback d-block">
                       {errors.placeOfSupply}
