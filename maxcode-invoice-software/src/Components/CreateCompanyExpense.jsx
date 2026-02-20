@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { showError } from "./ToastNotification";
 
+const RequiredStar = () => <span className="text-danger ms-1">*</span>;
+
 const CreateCompanyExpense = ({
   show,
   onClose,
@@ -11,8 +13,10 @@ const CreateCompanyExpense = ({
   const [formData, setFormData] = useState({
     expenseNumber: "",
     expenseDate: "",
-    expenseCategory: "General",
     expenseTitle: "",
+    expenseFor: "",
+    referenceNumber: "",
+    entrySource: "No Bill",
     partyName: "",
     description: "",
     amount: "",
@@ -22,6 +26,7 @@ const CreateCompanyExpense = ({
     paidAmount: "",
     financialYear: "",
     notes: "",
+    paymentProof: "",
   });
 
   const [errors, setErrors] = useState({});
@@ -55,8 +60,10 @@ const CreateCompanyExpense = ({
     setFormData({
       expenseNumber: getNextExpenseNumber(existingRecords),
       expenseDate: new Date().toISOString().slice(0, 10),
-      expenseCategory: "General",
       expenseTitle: "",
+      expenseFor: "",
+      referenceNumber: "",
+      entrySource: "No Bill",
       partyName: "",
       description: "",
       amount: "",
@@ -66,6 +73,7 @@ const CreateCompanyExpense = ({
       paidAmount: "",
       financialYear: localStorage.getItem("selectedFinancialYear") || "",
       notes: "",
+      paymentProof: "",
     });
     setErrors({});
   };
@@ -78,8 +86,11 @@ const CreateCompanyExpense = ({
         expenseNumber: editingRecord.expenseNumber || "",
         expenseDate:
           editingRecord.expenseDate || editingRecord.invoiceDate || "",
-        expenseCategory: editingRecord.expenseCategory || "General",
         expenseTitle: editingRecord.expenseTitle || "",
+        expenseFor: editingRecord.expenseFor || "",
+        referenceNumber:
+          editingRecord.referenceNumber || editingRecord.voucherNumber || "",
+        entrySource: editingRecord.entrySource || "No Bill",
         partyName:
           editingRecord.partyName ||
           editingRecord.businessName ||
@@ -100,6 +111,7 @@ const CreateCompanyExpense = ({
           localStorage.getItem("selectedFinancialYear") ||
           "",
         notes: editingRecord.notes || "",
+        paymentProof: editingRecord.paymentProof || "",
       });
       setErrors({});
       return;
@@ -130,10 +142,32 @@ const CreateCompanyExpense = ({
         ? value.replace(/[^0-9.]/g, "")
         : value;
 
-    setFormData((prev) => ({
-      ...prev,
-      [name]: normalizedValue,
-    }));
+    setFormData((prev) => {
+      const updated = {
+        ...prev,
+        [name]: normalizedValue,
+      };
+
+      if (name === "paymentStatus") {
+        if (normalizedValue === "Unpaid") {
+          updated.paymentDate = "";
+          updated.paidAmount = "";
+        }
+
+        if (normalizedValue === "Paid") {
+          updated.paidAmount = updated.amount || "";
+          if (!updated.paymentDate) {
+            updated.paymentDate = new Date().toISOString().slice(0, 10);
+          }
+        }
+      }
+
+      if (name === "amount" && prev.paymentStatus === "Paid") {
+        updated.paidAmount = normalizedValue;
+      }
+
+      return updated;
+    });
 
     if (errors[name]) {
       setErrors((prev) => ({
@@ -158,6 +192,17 @@ const CreateCompanyExpense = ({
       newErrors.expenseTitle = "Expense title is required";
     }
 
+    if (!formData.paymentStatus) {
+      newErrors.paymentStatus = "Payment status is required";
+    }
+
+    if (
+      ["Paid", "Partial"].includes(formData.paymentStatus) &&
+      !String(formData.paymentMethod || "").trim()
+    ) {
+      newErrors.paymentMethod = "Payment method is required";
+    }
+
     const amount = parseFloat(formData.amount || 0);
     if (Number.isNaN(amount) || amount <= 0) {
       newErrors.amount = "Valid expense amount is required";
@@ -173,6 +218,11 @@ const CreateCompanyExpense = ({
 
     if (formData.paymentStatus === "Paid" && !formData.paymentDate) {
       newErrors.paymentDate = "Paid expense ke liye payment date required hai";
+    }
+
+    if (formData.paymentStatus === "Partial" && !formData.paymentDate) {
+      newErrors.paymentDate =
+        "Partial payment ke liye payment date required hai";
     }
 
     setErrors(newErrors);
@@ -206,8 +256,10 @@ const CreateCompanyExpense = ({
         expenseNumber: formData.expenseNumber.trim(),
         expenseDate: formData.expenseDate,
         invoiceDate: formData.expenseDate,
-        expenseCategory: formData.expenseCategory,
         expenseTitle: formData.expenseTitle.trim(),
+        expenseFor: formData.expenseFor.trim(),
+        referenceNumber: formData.referenceNumber.trim(),
+        entrySource: formData.entrySource,
         partyName: formData.partyName.trim(),
         businessName: formData.partyName.trim(),
         vendorName: formData.partyName.trim(),
@@ -222,6 +274,7 @@ const CreateCompanyExpense = ({
         invoiceType: "No GST",
         financialYear: formData.financialYear || "",
         notes: formData.notes.trim(),
+        paymentProof: formData.paymentProof.trim(),
         taxData: {
           taxableAmount: amount,
           subtotal: amount,
@@ -265,12 +318,13 @@ const CreateCompanyExpense = ({
               <div className="row g-3">
                 <div className="col-md-6">
                   <label htmlFor="expenseNumber" className="form-label">
-                    Expense Number *
+                    Expense Number
+                    <RequiredStar />
                   </label>
                   <input
                     id="expenseNumber"
                     name="expenseNumber"
-                    className={`form-control ${errors.expenseNumber ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.expenseNumber ? "is-invalid" : ""}`}
                     value={formData.expenseNumber}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
@@ -284,13 +338,14 @@ const CreateCompanyExpense = ({
 
                 <div className="col-md-6">
                   <label htmlFor="expenseDate" className="form-label">
-                    Expense Date *
+                    Expense Date
+                    <RequiredStar />
                   </label>
                   <input
                     type="date"
                     id="expenseDate"
                     name="expenseDate"
-                    className={`form-control ${errors.expenseDate ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.expenseDate ? "is-invalid" : ""}`}
                     value={formData.expenseDate}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
@@ -301,35 +356,14 @@ const CreateCompanyExpense = ({
                 </div>
 
                 <div className="col-md-6">
-                  <label htmlFor="expenseCategory" className="form-label">
-                    Category
-                  </label>
-                  <select
-                    id="expenseCategory"
-                    name="expenseCategory"
-                    className="form-select"
-                    value={formData.expenseCategory}
-                    onChange={handleInputChange}
-                    disabled={isViewMode}
-                  >
-                    <option value="General">General</option>
-                    <option value="Travel">Travel</option>
-                    <option value="Food">Food</option>
-                    <option value="Maintenance">Maintenance</option>
-                    <option value="Office">Office</option>
-                    <option value="Utility">Utility</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-
-                <div className="col-md-6">
                   <label htmlFor="expenseTitle" className="form-label">
-                    Expense Title *
+                    Expense Title
+                    <RequiredStar />
                   </label>
                   <input
                     id="expenseTitle"
                     name="expenseTitle"
-                    className={`form-control ${errors.expenseTitle ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.expenseTitle ? "is-invalid" : ""}`}
                     value={formData.expenseTitle}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
@@ -343,13 +377,62 @@ const CreateCompanyExpense = ({
                 </div>
 
                 <div className="col-md-6">
+                  <label htmlFor="expenseFor" className="form-label">
+                    Expense For
+                  </label>
+                  <input
+                    id="expenseFor"
+                    name="expenseFor"
+                    className="form-control modern-input"
+                    value={formData.expenseFor}
+                    onChange={handleInputChange}
+                    readOnly={isViewMode}
+                    placeholder="Example: Office rent / Internet / Travel"
+                  />
+                </div>
+
+                <div className="col-md-6">
+                  <label htmlFor="referenceNumber" className="form-label">
+                    Reference No.
+                  </label>
+                  <input
+                    id="referenceNumber"
+                    name="referenceNumber"
+                    className="form-control modern-input"
+                    value={formData.referenceNumber}
+                    onChange={handleInputChange}
+                    readOnly={isViewMode}
+                    placeholder="Optional voucher/entry reference"
+                  />
+                </div>
+
+                <div className="col-md-6">
+                  <label htmlFor="entrySource" className="form-label">
+                    Entry Source
+                  </label>
+                  <select
+                    id="entrySource"
+                    name="entrySource"
+                    className="form-select modern-input"
+                    value={formData.entrySource}
+                    onChange={handleInputChange}
+                    disabled={isViewMode}
+                  >
+                    <option value="No Bill">No Bill</option>
+                    <option value="Self Note">Self Note</option>
+                    <option value="Cash Memo">Cash Memo</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div className="col-md-6">
                   <label htmlFor="partyName" className="form-label">
                     Party/Vendor Name
                   </label>
                   <input
                     id="partyName"
                     name="partyName"
-                    className="form-control"
+                    className="form-control modern-input"
                     value={formData.partyName}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
@@ -359,12 +442,13 @@ const CreateCompanyExpense = ({
 
                 <div className="col-md-6">
                   <label htmlFor="amount" className="form-label">
-                    Amount *
+                    Amount
+                    <RequiredStar />
                   </label>
                   <input
                     id="amount"
                     name="amount"
-                    className={`form-control ${errors.amount ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.amount ? "is-invalid" : ""}`}
                     value={formData.amount}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
@@ -378,11 +462,12 @@ const CreateCompanyExpense = ({
                 <div className="col-md-4">
                   <label htmlFor="paymentStatus" className="form-label">
                     Payment Status
+                    <RequiredStar />
                   </label>
                   <select
                     id="paymentStatus"
                     name="paymentStatus"
-                    className="form-select"
+                    className={`form-select modern-input ${errors.paymentStatus ? "is-invalid" : ""}`}
                     value={formData.paymentStatus}
                     onChange={handleInputChange}
                     disabled={isViewMode}
@@ -391,16 +476,22 @@ const CreateCompanyExpense = ({
                     <option value="Unpaid">Unpaid</option>
                     <option value="Partial">Partial</option>
                   </select>
+                  {errors.paymentStatus && (
+                    <div className="invalid-feedback">
+                      {errors.paymentStatus}
+                    </div>
+                  )}
                 </div>
 
                 <div className="col-md-4">
                   <label htmlFor="paymentMethod" className="form-label">
                     Payment Method
+                    {formData.paymentStatus !== "Unpaid" && <RequiredStar />}
                   </label>
                   <select
                     id="paymentMethod"
                     name="paymentMethod"
-                    className="form-select"
+                    className={`form-select modern-input ${errors.paymentMethod ? "is-invalid" : ""}`}
                     value={formData.paymentMethod}
                     onChange={handleInputChange}
                     disabled={isViewMode}
@@ -412,17 +503,23 @@ const CreateCompanyExpense = ({
                     <option value="Credit Card">Credit Card</option>
                     <option value="Debit Card">Debit Card</option>
                   </select>
+                  {errors.paymentMethod && (
+                    <div className="invalid-feedback">
+                      {errors.paymentMethod}
+                    </div>
+                  )}
                 </div>
 
                 <div className="col-md-4">
                   <label htmlFor="paymentDate" className="form-label">
                     Payment Date
+                    {formData.paymentStatus !== "Unpaid" && <RequiredStar />}
                   </label>
                   <input
                     type="date"
                     id="paymentDate"
                     name="paymentDate"
-                    className={`form-control ${errors.paymentDate ? "is-invalid" : ""}`}
+                    className={`form-control modern-input ${errors.paymentDate ? "is-invalid" : ""}`}
                     value={formData.paymentDate}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
@@ -440,7 +537,7 @@ const CreateCompanyExpense = ({
                     <input
                       id="paidAmount"
                       name="paidAmount"
-                      className={`form-control ${errors.paidAmount ? "is-invalid" : ""}`}
+                      className={`form-control modern-input ${errors.paidAmount ? "is-invalid" : ""}`}
                       value={formData.paidAmount}
                       onChange={handleInputChange}
                       readOnly={isViewMode}
@@ -455,6 +552,21 @@ const CreateCompanyExpense = ({
                 )}
 
                 <div className="col-12">
+                  <label htmlFor="paymentProof" className="form-label">
+                    Payment Proof / UTR / Txn ID
+                  </label>
+                  <input
+                    id="paymentProof"
+                    name="paymentProof"
+                    className="form-control modern-input"
+                    value={formData.paymentProof}
+                    onChange={handleInputChange}
+                    readOnly={isViewMode}
+                    placeholder="Optional"
+                  />
+                </div>
+
+                <div className="col-12">
                   <label htmlFor="description" className="form-label">
                     Description
                   </label>
@@ -462,7 +574,7 @@ const CreateCompanyExpense = ({
                     id="description"
                     name="description"
                     rows={2}
-                    className="form-control"
+                    className="form-control modern-input"
                     value={formData.description}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
@@ -477,7 +589,7 @@ const CreateCompanyExpense = ({
                     id="notes"
                     name="notes"
                     rows={2}
-                    className="form-control"
+                    className="form-control modern-input"
                     value={formData.notes}
                     onChange={handleInputChange}
                     readOnly={isViewMode}

@@ -24,12 +24,12 @@ const CompanyExpenseManagement = () => {
   const [showCreateExpenseForm, setShowCreateExpenseForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
+  const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly");
 
   const [statistics, setStatistics] = useState({
     total: 0,
     paid: 0,
     unpaid: 0,
-    partial: 0,
     totalAmount: 0,
   });
 
@@ -53,16 +53,16 @@ const CompanyExpenseManagement = () => {
       color: "danger",
     },
     {
-      icon: "fas fa-hourglass-half",
-      title: "Partial",
-      key: "partial",
-      color: "warning",
-    },
-    {
       icon: "fas fa-rupee-sign",
       title: "Total Amount",
       key: "totalAmount",
       color: "info",
+    },
+    {
+      icon: "fa-regular fa-calendar-days",
+      title: "Financial Year",
+      key: "year",
+      color: "warning",
     },
     {
       icon: "fas fa-plus-circle",
@@ -135,9 +135,52 @@ const CompanyExpenseManagement = () => {
       total: data.length,
       paid: data.filter((record) => record.paymentStatus === "Paid").length,
       unpaid: data.filter((record) => record.paymentStatus === "Unpaid").length,
-      partial: data.filter((record) => record.paymentStatus === "Partial")
-        .length,
       totalAmount,
+    });
+  };
+
+  const filterByPeriodMode = (sourceRecords) => {
+    if (!Array.isArray(sourceRecords)) return [];
+    if (financialPeriodMode === "yearly") return sourceRecords;
+
+    const today = getDateOnly(new Date());
+    if (!today) return sourceRecords;
+
+    const todayMonth = today.getMonth();
+    const todayYear = today.getFullYear();
+    const todayQuarter = Math.floor(todayMonth / 3);
+    const todayHalf = todayMonth < 6 ? 0 : 1;
+
+    return sourceRecords.filter((record) => {
+      const expenseDate = getDateOnly(record.expenseDate || record.invoiceDate);
+      if (!expenseDate) return false;
+
+      if (financialPeriodMode === "daily") {
+        return expenseDate.getTime() === today.getTime();
+      }
+
+      if (financialPeriodMode === "monthly") {
+        return (
+          expenseDate.getFullYear() === todayYear &&
+          expenseDate.getMonth() === todayMonth
+        );
+      }
+
+      if (financialPeriodMode === "quarterly") {
+        return (
+          expenseDate.getFullYear() === todayYear &&
+          Math.floor(expenseDate.getMonth() / 3) === todayQuarter
+        );
+      }
+
+      if (financialPeriodMode === "half-yearly") {
+        return (
+          expenseDate.getFullYear() === todayYear &&
+          (expenseDate.getMonth() < 6 ? 0 : 1) === todayHalf
+        );
+      }
+
+      return true;
     });
   };
 
@@ -366,8 +409,26 @@ const CompanyExpenseManagement = () => {
     }
   };
 
+  const cardFilteredRecords = useMemo(() => {
+    if (activeCardFilter === "paid") {
+      return records.filter((record) => record.paymentStatus === "Paid");
+    }
+
+    if (activeCardFilter === "unpaid") {
+      return records.filter((record) =>
+        ["Unpaid", "Partial"].includes(record.paymentStatus),
+      );
+    }
+
+    return records;
+  }, [records, activeCardFilter]);
+
+  const periodFilteredRecords = useMemo(() => {
+    return filterByPeriodMode(cardFilteredRecords);
+  }, [cardFilteredRecords, financialPeriodMode]);
+
   const prepareTableData = useMemo(() => {
-    return records.map((record, index) => {
+    return periodFilteredRecords.map((record, index) => {
       const amount = parseFloat(
         record?.taxData?.totalAmount || record?.amount || 0,
       );
@@ -380,20 +441,23 @@ const CompanyExpenseManagement = () => {
         paymentDateFormatted: record.paymentDate
           ? formatDateForDisplay(record.paymentDate)
           : "-",
+        expenseFor: record.expenseFor || "-",
+        referenceNumber: record.referenceNumber || "-",
         createdDateTime:
           record.createdDateTime ||
           formatDateTimeForDisplay(record.createdDate),
         amount,
       };
     });
-  }, [records]);
+  }, [periodFilteredRecords]);
 
   const columns = [
     { key: "sn", label: "S.No", width: 70 },
     { key: "expenseNumber", label: "Expense No.", width: 140 },
     { key: "expenseDateFormatted", label: "Expense Date", width: 130 },
-    { key: "expenseCategory", label: "Category", width: 130 },
     { key: "expenseTitle", label: "Expense Title", width: 180 },
+    { key: "expenseFor", label: "Expense For", width: 180 },
+    { key: "referenceNumber", label: "Reference No.", width: 150 },
     { key: "partyName", label: "Party/Vendor", width: 180 },
     {
       key: "amount",
@@ -423,6 +487,8 @@ const CompanyExpenseManagement = () => {
     },
     { key: "paymentMethod", label: "Payment Method", width: 130 },
     { key: "paymentDateFormatted", label: "Payment Date", width: 130 },
+    { key: "entrySource", label: "Entry Source", width: 130 },
+    { key: "paymentProof", label: "Payment Proof/UTR", width: 150 },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
     { key: "action", label: "Actions", width: 150 },
   ];
@@ -432,21 +498,24 @@ const CompanyExpenseManagement = () => {
     "sn",
     "expenseNumber",
     "expenseDateFormatted",
-    "expenseCategory",
     "expenseTitle",
+    "expenseFor",
+    "referenceNumber",
     "partyName",
     "amount",
     "paymentStatus",
     "paymentMethod",
     "paymentDateFormatted",
+    "entrySource",
+    "paymentProof",
     "createdDateTime",
     "action",
   ];
 
   const columnsWithDropdownFilter = [
-    "expenseCategory",
     "paymentStatus",
     "paymentMethod",
+    "entrySource",
   ];
   const columnsWithDateFilter = [
     "createdDateTime",
@@ -455,16 +524,6 @@ const CompanyExpenseManagement = () => {
   ];
 
   const filterOptions = {
-    expenseCategory: [
-      "All",
-      "General",
-      "Travel",
-      "Food",
-      "Maintenance",
-      "Office",
-      "Utility",
-      "Other",
-    ],
     paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
     paymentMethod: [
       "All",
@@ -475,6 +534,7 @@ const CompanyExpenseManagement = () => {
       "Credit Card",
       "Debit Card",
     ],
+    entrySource: ["All", "No Bill", "Self Note", "Cash Memo", "Other"],
   };
 
   const handleCardClick = (cardKey) => {
@@ -482,6 +542,22 @@ const CompanyExpenseManagement = () => {
       setEditingRecord(null);
       setShowCreateExpenseForm(true);
       return;
+    }
+
+    if (cardKey === "year") {
+      const periodCycle = [
+        "daily",
+        "monthly",
+        "quarterly",
+        "half-yearly",
+        "yearly",
+      ];
+
+      setFinancialPeriodMode((prev) => {
+        const currentIndex = periodCycle.indexOf(prev);
+        if (currentIndex === -1) return "daily";
+        return periodCycle[(currentIndex + 1) % periodCycle.length];
+      });
     }
 
     setActiveCardFilter(cardKey);
@@ -495,6 +571,7 @@ const CompanyExpenseManagement = () => {
     await fetchFinancialYears();
     await fetchCompanyExpenses();
     setActiveCardFilter("total");
+    setFinancialPeriodMode("yearly");
     showInfo("Company expense data refreshed!");
   };
 
@@ -551,14 +628,30 @@ const CompanyExpenseManagement = () => {
                     >
                       {card.key === "addNew"
                         ? "+ Add New"
-                        : card.key === "totalAmount"
-                          ? `₹ ${parseFloat(
-                              statistics[card.key] || 0,
-                            ).toLocaleString("en-IN", {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}`
-                          : statistics[card.key]}
+                        : card.key === "year"
+                          ? `${
+                              selectedFinancialYear === "ALL"
+                                ? "All Year"
+                                : selectedFinancialYear
+                            } • ${
+                              financialPeriodMode === "daily"
+                                ? "Daily"
+                                : financialPeriodMode === "monthly"
+                                  ? "Monthly"
+                                  : financialPeriodMode === "quarterly"
+                                    ? "Quarterly"
+                                    : financialPeriodMode === "half-yearly"
+                                      ? "Half-Yearly"
+                                      : "Yearly"
+                            }`
+                          : card.key === "totalAmount"
+                            ? `₹ ${parseFloat(
+                                statistics[card.key] || 0,
+                              ).toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}`
+                            : statistics[card.key]}
                     </h6>
                   </div>
                 </div>
