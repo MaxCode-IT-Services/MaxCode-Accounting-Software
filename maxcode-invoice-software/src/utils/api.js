@@ -84,6 +84,62 @@ export const getAuthToken = () => {
   return null;
 };
 
+let verifySessionPromise = null;
+let lastVerifiedAt = 0;
+let lastVerifiedResult = false;
+const VERIFY_CACHE_TTL_MS = 15000;
+
+export const verifyServerSession = async () => {
+  const now = Date.now();
+
+  if (now - lastVerifiedAt < VERIFY_CACHE_TTL_MS) {
+    return lastVerifiedResult;
+  }
+
+  if (verifySessionPromise) {
+    return verifySessionPromise;
+  }
+
+  verifySessionPromise = (async () => {
+    try {
+      const response = await api.get("/auth", {
+        params: { action: "verify" },
+      });
+
+      const isValidSession =
+        response.status === 200 && response.data?.authenticated === true;
+
+      if (isValidSession) {
+        localStorage.setItem("maxcode_auth", "true");
+        if (response.data?.user) {
+          localStorage.setItem("user_info", JSON.stringify(response.data.user));
+        }
+        lastVerifiedResult = true;
+        lastVerifiedAt = Date.now();
+        return true;
+      }
+
+      clearAuth();
+      localStorage.removeItem("user_info");
+      lastVerifiedResult = false;
+      lastVerifiedAt = Date.now();
+      return false;
+    } catch (error) {
+      clearAuth();
+      localStorage.removeItem("user_info");
+      lastVerifiedResult = false;
+      lastVerifiedAt = Date.now();
+      return false;
+    }
+  })();
+
+  try {
+    return await verifySessionPromise;
+  } finally {
+    verifySessionPromise = null;
+  }
+};
+
 // Helper to clear all auth data
 export const clearAuth = () => {
   localStorage.removeItem("access_token");

@@ -1,5 +1,5 @@
 // App.js
-import React, { lazy, Suspense } from "react";
+import React, { lazy, Suspense, useEffect, useState } from "react";
 import {
   BrowserRouter,
   Navigate,
@@ -11,6 +11,7 @@ import AdminDashboardLayout from "../src/Components/DashboardLayout";
 import Home from "../src/Home";
 import Login from "../src/Pages/Login";
 import { hasModuleAccess } from "../src/utils/permissions";
+import { verifyServerSession } from "../src/utils/api";
 
 // Lazy load User Dashboard pages
 const AdminDashboard = lazy(() => import("../src/Pages/Dashboard.jsx"));
@@ -54,15 +55,34 @@ export const Loading = () => (
   </div>
 );
 
-const isAuthenticated = () => {
-  const authFlag = localStorage.getItem("maxcode_auth") === "true";
-  return authFlag;
-};
-
 const ProtectedRoute = ({ children }) => {
   const location = useLocation();
+  const [isChecking, setIsChecking] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  if (!isAuthenticated()) {
+  useEffect(() => {
+    let mounted = true;
+
+    const verifySession = async () => {
+      const authenticated = await verifyServerSession();
+      if (mounted) {
+        setIsAuthenticated(authenticated);
+        setIsChecking(false);
+      }
+    };
+
+    verifySession();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (isChecking) {
+    return <Loading />;
+  }
+
+  if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
@@ -70,7 +90,32 @@ const ProtectedRoute = ({ children }) => {
 };
 
 const PublicRoute = ({ children }) => {
-  if (isAuthenticated()) {
+  const [isChecking, setIsChecking] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const verifySession = async () => {
+      const authenticated = await verifyServerSession();
+      if (mounted) {
+        setIsAuthenticated(authenticated);
+        setIsChecking(false);
+      }
+    };
+
+    verifySession();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (isChecking) {
+    return <Loading />;
+  }
+
+  if (isAuthenticated) {
     return <Navigate to="/admin/dashboard" replace />;
   }
 

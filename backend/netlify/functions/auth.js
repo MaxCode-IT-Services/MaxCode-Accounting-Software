@@ -4,6 +4,7 @@ import {
   generateToken,
   generateTempToken,
   verifyToken,
+  verifyRequestToken,
   hashPassword,
   comparePassword,
   createAuthResponse,
@@ -30,6 +31,59 @@ export async function handler(event) {
   try {
     const { db } = await connectToDatabase();
     const usersCollection = db.collection("users");
+
+    const queryAction = event.queryStringParameters?.action;
+    const isVerifySessionRequest =
+      event.httpMethod === "GET" &&
+      (queryAction === "verify" || event.path?.endsWith("/auth/verify"));
+
+    if (isVerifySessionRequest) {
+      try {
+        const decodedToken = verifyRequestToken(event);
+
+        const userQuery = decodedToken?.userId
+          ? { _id: new ObjectId(decodedToken.userId) }
+          : decodedToken?.phone
+            ? { phone: String(decodedToken.phone) }
+            : null;
+
+        if (!userQuery) {
+          return createResponse(
+            401,
+            { authenticated: false, error: "Invalid session payload" },
+            origin,
+            { "Set-Cookie": createClearAuthCookie() },
+          );
+        }
+
+        const user = await usersCollection.findOne(userQuery);
+
+        if (!user || (user.status && user.status !== "Active")) {
+          return createResponse(
+            401,
+            { authenticated: false, error: "Session is not valid" },
+            origin,
+            { "Set-Cookie": createClearAuthCookie() },
+          );
+        }
+
+        return createResponse(
+          200,
+          {
+            authenticated: true,
+            user: createAuthResponse(user, null).user,
+          },
+          origin,
+        );
+      } catch (error) {
+        return createResponse(
+          401,
+          { authenticated: false, error: "Invalid or expired session" },
+          origin,
+          { "Set-Cookie": createClearAuthCookie() },
+        );
+      }
+    }
 
     // Parse request body
     const body = event.body ? JSON.parse(event.body) : {};
