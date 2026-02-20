@@ -33,7 +33,7 @@ const getDynamicCollectionNames = async (db) => {
       .listCollections({}, { nameOnly: true })
       .toArray();
 
-    return allCollections
+    const collectionNames = allCollections
       .map((item) => item?.name)
       .filter(
         (name) =>
@@ -41,8 +41,16 @@ const getDynamicCollectionNames = async (db) => {
           name.length > 0 &&
           !name.startsWith("system."),
       );
-  } catch {
-    return [...DEFAULT_BACKUP_COLLECTIONS];
+
+    if (collectionNames.length === 0) {
+      throw new Error("No user collections found for backup");
+    }
+
+    return collectionNames;
+  } catch (error) {
+    throw new Error(
+      `Failed to discover collections for backup: ${error?.message || "Unknown error"}`,
+    );
   }
 };
 
