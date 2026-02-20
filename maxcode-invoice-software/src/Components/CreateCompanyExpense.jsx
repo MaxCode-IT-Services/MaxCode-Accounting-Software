@@ -63,12 +63,12 @@ const CreateCompanyExpense = ({
       expenseTitle: "",
       expenseFor: "",
       referenceNumber: "",
-      entrySource: "No Bill",
+      entrySource: "",
       partyName: "",
       description: "",
       amount: "",
-      paymentStatus: "Paid",
-      paymentMethod: "Cash",
+      paymentStatus: "",
+      paymentMethod: "",
       paymentDate: new Date().toISOString().slice(0, 10),
       paidAmount: "",
       financialYear: localStorage.getItem("selectedFinancialYear") || "",
@@ -90,7 +90,7 @@ const CreateCompanyExpense = ({
         expenseFor: editingRecord.expenseFor || "",
         referenceNumber:
           editingRecord.referenceNumber || editingRecord.voucherNumber || "",
-        entrySource: editingRecord.entrySource || "No Bill",
+        entrySource: editingRecord.entrySource || "",
         partyName:
           editingRecord.partyName ||
           editingRecord.businessName ||
@@ -100,8 +100,8 @@ const CreateCompanyExpense = ({
         amount: String(
           editingRecord.amount || editingRecord?.taxData?.totalAmount || "",
         ),
-        paymentStatus: editingRecord.paymentStatus || "Paid",
-        paymentMethod: editingRecord.paymentMethod || "Cash",
+        paymentStatus: editingRecord.paymentStatus || "",
+        paymentMethod: editingRecord.paymentMethod || "",
         paymentDate: editingRecord.paymentDate || "",
         paidAmount: String(
           editingRecord.paidAmount || editingRecord.amountPaid || "",
@@ -299,7 +299,7 @@ const CreateCompanyExpense = ({
       role="dialog"
       style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
     >
-      <div className="modal-dialog modal-lg" role="document">
+      <div className="modal-dialog modal-fullscreen" role="document">
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title">{modalTitle}</h5>
@@ -313,10 +313,10 @@ const CreateCompanyExpense = ({
           <form onSubmit={handleSubmit} noValidate>
             <div
               className="modal-body"
-              style={{ maxHeight: "70vh", overflowY: "auto" }}
+              style={{ maxHeight: "78vh", overflowY: "auto" }}
             >
               <div className="row g-3">
-                <div className="col-md-6">
+                <div className="col-md-4">
                   <label htmlFor="expenseNumber" className="form-label">
                     Expense Number
                     <RequiredStar />
@@ -336,7 +336,7 @@ const CreateCompanyExpense = ({
                   )}
                 </div>
 
-                <div className="col-md-6">
+                <div className="col-md-4">
                   <label htmlFor="expenseDate" className="form-label">
                     Expense Date
                     <RequiredStar />
@@ -355,7 +355,7 @@ const CreateCompanyExpense = ({
                   )}
                 </div>
 
-                <div className="col-md-6">
+                <div className="col-md-4">
                   <label htmlFor="expenseTitle" className="form-label">
                     Expense Title
                     <RequiredStar />
@@ -376,7 +376,7 @@ const CreateCompanyExpense = ({
                   )}
                 </div>
 
-                <div className="col-md-6">
+                <div className="col-md-4">
                   <label htmlFor="expenseFor" className="form-label">
                     Expense For
                   </label>
@@ -391,7 +391,7 @@ const CreateCompanyExpense = ({
                   />
                 </div>
 
-                <div className="col-md-6">
+                <div className="col-md-4">
                   <label htmlFor="referenceNumber" className="form-label">
                     Reference No.
                   </label>
@@ -406,7 +406,7 @@ const CreateCompanyExpense = ({
                   />
                 </div>
 
-                <div className="col-md-6">
+                <div className="col-md-4">
                   <label htmlFor="entrySource" className="form-label">
                     Entry Source
                   </label>
@@ -418,6 +418,7 @@ const CreateCompanyExpense = ({
                     onChange={handleInputChange}
                     disabled={isViewMode}
                   >
+                    <option value="">-- Select Entry Source --</option>
                     <option value="No Bill">No Bill</option>
                     <option value="Self Note">Self Note</option>
                     <option value="Cash Memo">Cash Memo</option>
@@ -425,7 +426,7 @@ const CreateCompanyExpense = ({
                   </select>
                 </div>
 
-                <div className="col-md-6">
+                <div className="col-md-4">
                   <label htmlFor="partyName" className="form-label">
                     Party/Vendor Name
                   </label>
@@ -440,7 +441,7 @@ const CreateCompanyExpense = ({
                   />
                 </div>
 
-                <div className="col-md-6">
+                <div className="col-md-4">
                   <label htmlFor="amount" className="form-label">
                     Amount
                     <RequiredStar />
@@ -472,6 +473,7 @@ const CreateCompanyExpense = ({
                     onChange={handleInputChange}
                     disabled={isViewMode}
                   >
+                    <option value="">-- Select Payment Status --</option>
                     <option value="Paid">Paid</option>
                     <option value="Unpaid">Unpaid</option>
                     <option value="Partial">Partial</option>
@@ -496,6 +498,7 @@ const CreateCompanyExpense = ({
                     onChange={handleInputChange}
                     disabled={isViewMode}
                   >
+                    <option value="">-- Select Payment Method --</option>
                     <option value="Cash">Cash</option>
                     <option value="Bank Transfer">Bank Transfer</option>
                     <option value="UPI">UPI</option>
@@ -530,9 +533,9 @@ const CreateCompanyExpense = ({
                 </div>
 
                 {formData.paymentStatus === "Partial" && (
-                  <div className="col-md-6">
+                  <div className="col-md-4">
                     <label htmlFor="paidAmount" className="form-label">
-                      Paid Amount *
+                      Paid Amount
                     </label>
                     <input
                       id="paidAmount"
@@ -551,7 +554,7 @@ const CreateCompanyExpense = ({
                   </div>
                 )}
 
-                <div className="col-12">
+                <div className="col-md-4">
                   <label htmlFor="paymentProof" className="form-label">
                     Payment Proof / UTR / Txn ID
                   </label>
@@ -566,14 +569,14 @@ const CreateCompanyExpense = ({
                   />
                 </div>
 
-                <div className="col-12">
+                <div className="col-md-4">
                   <label htmlFor="description" className="form-label">
                     Description
                   </label>
                   <textarea
                     id="description"
                     name="description"
-                    rows={2}
+                    rows={1}
                     className="form-control modern-input"
                     value={formData.description}
                     onChange={handleInputChange}
@@ -581,14 +584,14 @@ const CreateCompanyExpense = ({
                   />
                 </div>
 
-                <div className="col-12">
+                <div className="col-md-4">
                   <label htmlFor="notes" className="form-label">
                     Notes
                   </label>
                   <textarea
                     id="notes"
                     name="notes"
-                    rows={2}
+                    rows={1}
                     className="form-control modern-input"
                     value={formData.notes}
                     onChange={handleInputChange}
