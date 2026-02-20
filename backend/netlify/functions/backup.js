@@ -1,6 +1,7 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
 import { google } from "googleapis";
+import { Readable } from "stream";
 
 /**
  * Backup API Endpoint
@@ -205,8 +206,11 @@ const uploadToGoogleDrive = async (
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const fileName = `maxcode-backup-${trigger}-${timestamp}.json`;
 
-    // Convert backup data to JSON buffer
-    const backupBuffer = Buffer.from(JSON.stringify(backupData, null, 2));
+    // Convert backup data to JSON string
+    const backupJson = JSON.stringify(backupData, null, 2);
+
+    // Create a readable stream from the JSON string
+    const bufferStream = Readable.from([backupJson]);
 
     // Upload to Google Drive
     const fileMetadata = {
@@ -221,7 +225,7 @@ const uploadToGoogleDrive = async (
 
     const media = {
       mimeType: "application/json",
-      body: backupBuffer,
+      body: bufferStream,
     };
 
     const response = await drive.files.create({
