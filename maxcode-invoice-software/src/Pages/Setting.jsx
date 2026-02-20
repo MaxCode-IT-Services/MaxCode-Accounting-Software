@@ -261,42 +261,45 @@ const Settings = () => {
     try {
       let fallbackProfile = DEFAULT_PROFILE_FORM;
 
-    const storedUserInfo = localStorage.getItem("user_info");
-    if (storedUserInfo) {
-      try {
-        const parsedUser = JSON.parse(storedUserInfo);
-        fallbackProfile = normalizeProfilePayload({
-          ...DEFAULT_PROFILE_FORM,
-          name: parsedUser?.name || DEFAULT_PROFILE_FORM.name,
-          email: parsedUser?.email || DEFAULT_PROFILE_FORM.email,
-          phone:
-            parsedUser?.phone ||
-            parsedUser?.mobile ||
-            DEFAULT_PROFILE_FORM.phone,
-          role: parsedUser?.role || DEFAULT_PROFILE_FORM.role,
-        });
-      } catch (error) {
-        console.error("Failed to parse cached user info:", error);
+      const storedUserInfo = localStorage.getItem("user_info");
+      if (storedUserInfo) {
+        try {
+          const parsedUser = JSON.parse(storedUserInfo);
+          fallbackProfile = normalizeProfilePayload({
+            ...DEFAULT_PROFILE_FORM,
+            name: parsedUser?.name || DEFAULT_PROFILE_FORM.name,
+            email: parsedUser?.email || DEFAULT_PROFILE_FORM.email,
+            phone:
+              parsedUser?.phone ||
+              parsedUser?.mobile ||
+              DEFAULT_PROFILE_FORM.phone,
+            role: parsedUser?.role || DEFAULT_PROFILE_FORM.role,
+          });
+        } catch (error) {
+          console.error("Failed to parse cached user info:", error);
+        }
       }
-    }
 
-    setFormData(fallbackProfile);
-    setInitialProfileData(fallbackProfile);
+      setFormData(fallbackProfile);
+      setInitialProfileData(fallbackProfile);
 
-    try {
-      const response = await apiGet(API_ENDPOINTS.SETTINGS.PROFILE);
-      const remoteProfile = response?.data?.profile;
+      try {
+        const response = await apiGet(API_ENDPOINTS.SETTINGS.PROFILE);
+        const remoteProfile = response?.data?.profile;
 
-      if (remoteProfile && typeof remoteProfile === "object") {
-        const mergedProfile = normalizeProfilePayload({
-          ...fallbackProfile,
-          ...remoteProfile,
-        });
-        setFormData(mergedProfile);
-        setInitialProfileData(mergedProfile);
+        if (remoteProfile && typeof remoteProfile === "object") {
+          const mergedProfile = normalizeProfilePayload({
+            ...fallbackProfile,
+            ...remoteProfile,
+          });
+          setFormData(mergedProfile);
+          setInitialProfileData(mergedProfile);
+        }
+      } catch (error) {
+        // Silently handle network errors for profile settings
       }
     } catch (error) {
-      // Silently handle network errors for profile settings
+      console.error("Error loading profile settings:", error);
     }
   };
 
