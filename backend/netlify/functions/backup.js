@@ -306,9 +306,8 @@ const uploadToGoogleDrive = async (
   try {
     const accessToken = await getGoogleAccessToken(driveConfig);
 
-    // Create backup file name with timestamp
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const fileName = `maxcode-backup-${trigger}-${timestamp}.json`;
+    // Keep a single rolling backup file (overwrite on each run)
+    const fileName = "maxcode-backup-latest.json";
 
     // Convert backup data to JSON string
     const backupJson = JSON.stringify(backupData, null, 2);
@@ -333,17 +332,47 @@ const uploadToGoogleDrive = async (
       `${backupJson}\r\n` +
       `--${boundary}--`;
 
-    const uploadResponse = await fetch(
-      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,size",
+    const escapedName = fileName.replace(/'/g, "\\'");
+    const folderFilter =
+      driveConfig.folderId && driveConfig.folderId.trim()
+        ? ` and '${driveConfig.folderId.trim()}' in parents`
+        : "";
+    const searchQuery = `name='${escapedName}' and trashed=false${folderFilter}`;
+
+    const searchResponse = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQuery)}&fields=files(id,name,webViewLink,size)&pageSize=1`,
       {
-        method: "POST",
+        method: "GET",
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          "Content-Type": `multipart/related; boundary=${boundary}`,
         },
-        body: multipartBody,
       },
     );
+
+    const searchPayload = await searchResponse.json().catch(() => ({}));
+    if (!searchResponse.ok) {
+      throw new Error(
+        searchPayload?.error?.message ||
+          "Failed to search existing backup file",
+      );
+    }
+
+    const existingFileId = searchPayload?.files?.[0]?.id;
+
+    const uploadUrl = existingFileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingFileId)}?uploadType=multipart&fields=id,name,webViewLink,size`
+      : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,size";
+
+    const uploadMethod = existingFileId ? "PATCH" : "POST";
+
+    const uploadResponse = await fetch(uploadUrl, {
+      method: uploadMethod,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body: multipartBody,
+    });
 
     // Check if response is OK before trying to parse JSON
     const responseText = await uploadResponse.text();

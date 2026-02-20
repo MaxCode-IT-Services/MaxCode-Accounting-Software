@@ -5,7 +5,7 @@ import { createResponse } from "./mongodb.js";
 // JWT configuration
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "365d"; // 1 year
+const JWT_EXPIRES_IN = "1d";
 
 /**
  * Generate JWT token
