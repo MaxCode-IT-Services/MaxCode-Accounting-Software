@@ -10,7 +10,11 @@ import {
 import AdminDashboardLayout from "../src/Components/DashboardLayout";
 import Home from "../src/Home";
 import Login from "../src/Pages/Login";
-import { hasModuleAccess } from "../src/utils/permissions";
+import {
+  hasModuleAccess,
+  PERMISSION_MODULES,
+  getStoredUserInfo,
+} from "../src/utils/permissions";
 import { verifyServerSession } from "../src/utils/api";
 
 // Lazy load User Dashboard pages
@@ -56,6 +60,26 @@ export const Loading = () => (
 );
 
 const isAuthenticated = () => localStorage.getItem("maxcode_auth") === "true";
+
+const getPostLoginRoute = () => {
+  const userInfo = getStoredUserInfo();
+
+  if (!userInfo) {
+    return "/admin/dashboard";
+  }
+
+  const isTeamMember = userInfo.userType === "team-member";
+  if (!isTeamMember) {
+    return "/admin/dashboard";
+  }
+
+  const permissions = userInfo.permissions || {};
+  const firstAllowedModule = PERMISSION_MODULES.find(
+    (module) => permissions[module.key]?.active === true,
+  );
+
+  return firstAllowedModule?.route || "/login";
+};
 
 const ProtectedRoute = ({ children }) => {
   const location = useLocation();
@@ -118,7 +142,7 @@ const PublicRoute = ({ children }) => {
   }
 
   if (isAuthenticated) {
-    return <Navigate to="/admin/dashboard" replace />;
+    return <Navigate to={getPostLoginRoute()} replace />;
   }
 
   return children;
@@ -129,8 +153,9 @@ const PermissionRoute = ({ moduleKey, children }) => {
     return children;
   }
 
-  if (hasModuleAccess("dashboard")) {
-    return <Navigate to="/admin/dashboard" replace />;
+  const postLoginRoute = getPostLoginRoute();
+  if (postLoginRoute !== "/login") {
+    return <Navigate to={postLoginRoute} replace />;
   }
 
   return <Navigate to="/login" replace />;
@@ -372,7 +397,7 @@ const App = () => {
           path="*"
           element={
             <Navigate
-              to={isAuthenticated() ? "/admin/dashboard" : "/login"}
+              to={isAuthenticated() ? getPostLoginRoute() : "/login"}
               replace
             />
           }

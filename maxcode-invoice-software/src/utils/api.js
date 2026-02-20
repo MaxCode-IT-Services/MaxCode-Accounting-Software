@@ -89,6 +89,16 @@ let lastVerifiedAt = 0;
 let lastVerifiedResult = false;
 const VERIFY_CACHE_TTL_MS = 15000;
 
+export const markSessionAuthenticated = (user = null) => {
+  localStorage.setItem("maxcode_auth", "true");
+  if (user) {
+    localStorage.setItem("user_info", JSON.stringify(user));
+  }
+
+  lastVerifiedResult = true;
+  lastVerifiedAt = Date.now();
+};
+
 export const verifyServerSession = async () => {
   const now = Date.now();
 
@@ -110,12 +120,7 @@ export const verifyServerSession = async () => {
         response.status === 200 && response.data?.authenticated === true;
 
       if (isValidSession) {
-        localStorage.setItem("maxcode_auth", "true");
-        if (response.data?.user) {
-          localStorage.setItem("user_info", JSON.stringify(response.data.user));
-        }
-        lastVerifiedResult = true;
-        lastVerifiedAt = Date.now();
+        markSessionAuthenticated(response.data?.user || null);
         return true;
       }
 

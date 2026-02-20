@@ -1,7 +1,7 @@
 // Login.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiPost } from "../utils/api";
+import { apiPost, markSessionAuthenticated } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { PERMISSION_MODULES } from "../utils/permissions";
 import {
@@ -131,11 +131,7 @@ const Login = ({ settings }) => {
       });
 
       if (response.data.user) {
-        localStorage.setItem("maxcode_auth", "true");
-
-        if (response.data.user) {
-          localStorage.setItem("user_info", JSON.stringify(response.data.user));
-        }
+        markSessionAuthenticated(response.data.user);
 
         showSuccess("✅ 2FA verified! Welcome back!");
 
@@ -219,13 +215,7 @@ const Login = ({ settings }) => {
 
       // If login successful, store the token
       if (response.data.user) {
-        // Keep the existing auth flag for compatibility
-        localStorage.setItem("maxcode_auth", "true");
-
-        // Store user info if provided
-        if (response.data.user) {
-          localStorage.setItem("user_info", JSON.stringify(response.data.user));
-        }
+        markSessionAuthenticated(response.data.user);
 
         showSuccess(
           response.data.message || "Welcome back! Authentication successful",
