@@ -708,7 +708,7 @@ const CreateServices = ({
 
           <div
             className="modal-body"
-            style={{ maxHeight: "75vh", overflowY: "auto" }}
+            style={{ maxHeight: "78vh", overflowY: "auto" }}
           >
             <form id="servicesForm" onSubmit={handleSubmit} noValidate>
               <div className="row mb-4">

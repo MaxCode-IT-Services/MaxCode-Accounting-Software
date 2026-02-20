@@ -260,7 +260,6 @@ const CreateClient = ({ show, onClose, onSubmit, editingRecord = null }) => {
       "address",
       "placeOfSupply",
       "phoneNumber",
-      "email",
     ];
 
     // Add GSTIN to required fields only if noGSTIN is false
@@ -534,7 +533,7 @@ const CreateClient = ({ show, onClose, onSubmit, editingRecord = null }) => {
                 <div className="col-md-6 mb-3">
                   <label htmlFor="email" className="form-label">
                     <i className="fas fa-envelope me-2 text-primary"></i>
-                    Email ID <RequiredStar />
+                    Email ID
                   </label>
                   <input
                     type="email"

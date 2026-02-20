@@ -771,7 +771,7 @@ const CreateSales = ({
 
           <div
             className="modal-body"
-            style={{ maxHeight: "75vh", overflowY: "auto" }}
+            style={{ maxHeight: "78vh", overflowY: "auto" }}
           >
             <form id="salesForm" onSubmit={handleSubmit} noValidate>
               <div className="row mb-4">

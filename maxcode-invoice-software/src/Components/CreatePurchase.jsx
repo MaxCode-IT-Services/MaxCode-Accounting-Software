@@ -566,7 +566,7 @@ const CreatePurchase = ({
 
           <div
             className="modal-body"
-            style={{ maxHeight: "75vh", overflowY: "auto" }}
+            style={{ maxHeight: "78vh", overflowY: "auto" }}
           >
             <form id="purchaseForm" onSubmit={handleSubmit} noValidate>
               {/* Basic Information */}
