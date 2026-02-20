@@ -76,7 +76,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    document.title = "Dashboard | RAJS Fiber Management";
+    document.title = "Dashboard | MaxCode IT Services";
   }, []);
 
   const [loading, setLoading] = useState(false);

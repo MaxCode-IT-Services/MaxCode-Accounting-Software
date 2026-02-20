@@ -82,7 +82,7 @@ const Settings = () => {
     gstin: "",
     companyAddress: "123 Business Park, Mumbai",
     companyPhone: "9876543210",
-    companyEmail: "info@rajsfiber.com",
+    companyEmail: "contact@maxcode.in",
 
     // Banking & Prefs
     bankName: "State Bank of India",
@@ -199,9 +199,17 @@ const Settings = () => {
   const load2FAStatus = async () => {
     try {
       const response = await apiGet(API_ENDPOINTS.TWO_FACTOR_AUTH.GET_STATUS);
-      if (response?.data?.twoFactorEnabled) {
+      console.log("📊 2FA Status Response:", response.data);
+      console.log(
+        "📱 twoFactorEnabled from API:",
+        response?.data?.twoFactorEnabled,
+      );
+
+      if (response?.data?.twoFactorEnabled === true) {
+        console.log("✅ 2FA is enabled according to API");
         setTwoFAData((prev) => ({ ...prev, enabled: true }));
       } else {
+        console.log("⚠️ 2FA is NOT enabled according to API");
         setTwoFAData((prev) => ({ ...prev, enabled: false }));
       }
     } catch (error) {
@@ -489,14 +497,20 @@ const Settings = () => {
         token: twoFAData.twoFACode,
       });
 
+      console.log("🔐 Enable 2FA Response:", response.data);
+      console.log("✅ success:", response?.data?.success);
+
       if (response?.data?.success) {
+        console.log("✅ 2FA enabled successfully!");
         setTwoFAData({ enabled: true, twoFACode: "" });
         setBackupCodes(response?.data?.backupCodes || []);
         setShowBackupCodes(true);
         setShowQRModal(false);
         showSuccess("✅ 2FA enabled successfully! Save your backup codes!");
+        await load2FAStatus();
       }
     } catch (error) {
+      console.error("❌ Error enabling 2FA:", error.response?.data);
       showError(
         error?.response?.data?.error ||
           "Invalid authenticator code. Please try again.",
@@ -516,13 +530,14 @@ const Settings = () => {
     try {
       await apiPost(API_ENDPOINTS.TWO_FACTOR_AUTH.DISABLE, {
         action: "disable-2fa",
-        twoFACode: disable2FACode,
+        verificationToken: disable2FACode,
       });
 
       setTwoFAData({ enabled: false, twoFACode: "" });
       setDisable2FACode("");
       setShow2FAVerification(false);
-      showSuccess("2FA disabled successfully");
+      showSuccess("✅ 2FA disabled successfully");
+      await load2FAStatus();
     } catch (error) {
       showError(
         error?.response?.data?.error ||
@@ -1640,39 +1655,43 @@ const Settings = () => {
                               </div>
                             </div>
 
-                            {!twoFAData.enabled ? (
-                              <button
-                                type="button"
-                                className="btn btn-success btn-lg"
-                                onClick={handleGenerate2FA}
+                            <div
+                              className="form-check form-switch"
+                              style={{
+                                transform: "scale(1.5)",
+                                transformOrigin: "right",
+                              }}
+                            >
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                id="twoFAToggle"
+                                checked={twoFAData.enabled}
+                                onChange={(e) => {
+                                  if (e.target.checked && !twoFAData.enabled) {
+                                    // Enabling 2FA
+                                    handleGenerate2FA();
+                                  } else if (
+                                    !e.target.checked &&
+                                    twoFAData.enabled
+                                  ) {
+                                    // Disabling 2FA
+                                    setShow2FAVerification(true);
+                                  }
+                                }}
                                 disabled={is2FALoading}
-                              >
-                                {is2FALoading ? (
-                                  <>
-                                    <span
-                                      className="spinner-border spinner-border-sm me-2"
-                                      role="status"
-                                      aria-hidden="true"
-                                    ></span>
-                                    Generating...
-                                  </>
-                                ) : (
-                                  <>
-                                    <i className="fas fa-qrcode me-2"></i>
-                                    Enable 2FA
-                                  </>
-                                )}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="btn btn-danger btn-lg"
-                                onClick={() => setShow2FAVerification(true)}
-                              >
-                                <i className="fas fa-times me-2"></i>
-                                Disable 2FA
-                              </button>
-                            )}
+                                style={{
+                                  cursor: "pointer",
+                                  width: "50px",
+                                  height: "28px",
+                                }}
+                              />
+                              <label
+                                className="form-check-label"
+                                htmlFor="twoFAToggle"
+                                style={{ cursor: "pointer", marginTop: "6px" }}
+                              ></label>
+                            </div>
                           </div>
                         </div>
                       </div>

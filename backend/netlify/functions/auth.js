@@ -73,7 +73,11 @@ export async function handler(event) {
         }
 
         // Check if 2FA is enabled
-        if (user.twoFactor?.enabled) {
+        console.log("🔐 User twoFactor data:", user.twoFactor);
+        console.log("📱 twoFactor.enabled:", user.twoFactor?.enabled);
+
+        if (user.twoFactor?.enabled === true) {
+          console.log("✅ 2FA is enabled - sending tempToken");
           // Generate temporary token for 2FA verification
           const tempToken = generateToken({
             userId: user._id.toString(),
@@ -93,6 +97,8 @@ export async function handler(event) {
             origin,
           );
         }
+
+        console.log("⚠️ 2FA is NOT enabled - logging in directly");
 
         // Generate token
         const tokenPayload = {

@@ -208,8 +208,16 @@ const Login = ({ settings }) => {
         pin: enteredPin,
       });
 
+      console.log("🔐 Login Response:", response.data);
+      console.log("📱 needs2FA:", response.data.needs2FA);
+      console.log(
+        "🔑 tempToken:",
+        response.data.tempToken ? "EXISTS" : "MISSING",
+      );
+
       // If 2FA is required
       if (response.data.needs2FA && response.data.tempToken) {
+        console.log("✅ 2FA is enabled - showing 2FA screen");
         setTempToken(response.data.tempToken);
         setNeeds2FA(true);
         showInfo(
@@ -217,6 +225,10 @@ const Login = ({ settings }) => {
         );
         setPin(["", "", "", "", "", ""]);
         return;
+      }
+
+      if (!response.data.needs2FA) {
+        console.log("⚠️ 2FA is NOT enabled for this account");
       }
 
       // If login successful, store the token

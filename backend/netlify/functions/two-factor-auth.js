@@ -2,6 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
 import speakeasy from "speakeasy";
 import QRCode from "qrcode";
+import { ObjectId } from "mongodb";
 
 /**
  * Two-Factor Authentication (2FA) API Endpoint
@@ -69,9 +70,14 @@ export async function handler(event) {
     const usersCollection = db.collection("users");
 
     if (event.httpMethod === "GET") {
+      console.log("🔍 GET request - userId from JWT:", user.userId);
+
       const userData = await usersCollection.findOne({
-        _id: user.userId,
+        _id: new ObjectId(user.userId),
       });
+
+      console.log("📊 User data from DB:", userData?.twoFactor);
+      console.log("✅ twoFactor.enabled:", userData?.twoFactor?.enabled);
 
       return createResponse(
         200,
@@ -99,12 +105,13 @@ export async function handler(event) {
         const backupCodes = backupCodesGenerator();
 
         // Store temporary secret (not yet verified/enabled)
+        const userObjectId = new ObjectId(user.userId);
         await usersCollection.updateOne(
-          { _id: user.userId },
+          { _id: userObjectId },
           {
             $set: {
               twoFactor: {
-                ...((await usersCollection.findOne({ _id: user.userId }))
+                ...((await usersCollection.findOne({ _id: userObjectId }))
                   ?.twoFactor || {}),
                 tempSecret: secret.base32,
                 tempQRCode: null, // Don't store QR in DB, generate on-demand
@@ -137,8 +144,9 @@ export async function handler(event) {
           return createResponse(400, { error: "Invalid token format" }, origin);
         }
 
+        const userObjectId = new ObjectId(user.userId);
         const userData = await usersCollection.findOne({
-          _id: user.userId,
+          _id: userObjectId,
         });
 
         const tempSecret = userData?.twoFactor?.tempSecret;
@@ -170,8 +178,9 @@ export async function handler(event) {
       if (action === "enable-2fa") {
         const { token } = payload;
 
+        const userObjectId = new ObjectId(user.userId);
         const userData = await usersCollection.findOne({
-          _id: user.userId,
+          _id: userObjectId,
         });
 
         const tempSecret = userData?.twoFactor?.tempSecret;
@@ -205,7 +214,7 @@ export async function handler(event) {
         const backupCodes = userData?.twoFactor?.tempBackupCodes || [];
 
         await usersCollection.updateOne(
-          { _id: user.userId },
+          { _id: userObjectId },
           {
             $set: {
               twoFactor: {
@@ -247,7 +256,7 @@ export async function handler(event) {
         }
 
         const userData = await usersCollection.findOne({
-          _id: user.userId,
+          _id: new ObjectId(user.userId),
         });
 
         if (!userData?.twoFactor?.enabled) {
@@ -264,7 +273,7 @@ export async function handler(event) {
             userData.twoFactor.backupCodes.includes(verificationToken);
           if (isBackupCode) {
             await usersCollection.updateOne(
-              { _id: user.userId },
+              { _id: new ObjectId(user.userId) },
               {
                 $pull: {
                   "twoFactor.backupCodes": verificationToken,
@@ -288,7 +297,7 @@ export async function handler(event) {
 
         // Disable 2FA
         await usersCollection.updateOne(
-          { _id: user.userId },
+          { _id: new ObjectId(user.userId) },
           {
             $set: {
               twoFactor: {
