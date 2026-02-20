@@ -473,7 +473,6 @@ const CreatePurchase = ({
           createdDate: editingRecord?.createdDate || new Date().toISOString(),
         };
 
-        console.log("Purchase Data:", submitData);
         await onSubmit(submitData);
       } finally {
         setSubmitting(false);

@@ -739,44 +739,10 @@ const Settings = () => {
     try {
       const payload = buildBusinessSettingsPayload(businessSettings);
 
-      // Debug: Log what we're sending to backend
-      console.log("📤 Sending to Backend:", {
-        profilePhotoUrl: payload.profilePhotoUrl
-          ? "✅ " + payload.profilePhotoUrl.substring(0, 50) + "..."
-          : "❌ Empty",
-        logoUrl: payload.logoUrl
-          ? "✅ " + payload.logoUrl.substring(0, 50) + "..."
-          : "❌ Empty",
-        qrCodeUrl: payload.qrCodeUrl
-          ? "✅ " + payload.qrCodeUrl.substring(0, 50) + "..."
-          : "❌ Empty",
-        sealUrl: payload.sealUrl
-          ? "✅ " + payload.sealUrl.substring(0, 50) + "..."
-          : "❌ Empty",
-        paidSealUrl: payload.paidSealUrl
-          ? "✅ " + payload.paidSealUrl.substring(0, 50) + "..."
-          : "❌ Empty",
-        unpaidSealUrl: payload.unpaidSealUrl
-          ? "✅ " + payload.unpaidSealUrl.substring(0, 50) + "..."
-          : "❌ Empty",
-      });
-
       const response = await apiPut(
         API_ENDPOINTS.BUSINESS_SETTINGS.UPDATE,
         payload,
       );
-
-      // Debug: Log response from backend
-      console.log("📥 Received from Backend:", {
-        profilePhotoUrl: response?.data?.settings?.profilePhotoUrl
-          ? "✅"
-          : "❌",
-        logoUrl: response?.data?.settings?.logoUrl ? "✅" : "❌",
-        qrCodeUrl: response?.data?.settings?.qrCodeUrl ? "✅" : "❌",
-        sealUrl: response?.data?.settings?.sealUrl ? "✅" : "❌",
-        paidSealUrl: response?.data?.settings?.paidSealUrl ? "✅" : "❌",
-        unpaidSealUrl: response?.data?.settings?.unpaidSealUrl ? "✅" : "❌",
-      });
 
       const savedSettings = response?.data?.settings;
       const mergedSavedSettings = {
@@ -796,7 +762,6 @@ const Settings = () => {
 
       showSuccess("✅ All changes saved successfully!");
     } catch (error) {
-      console.error("❌ Save Error:", error);
       localStorage.setItem(
         "business_settings",
         JSON.stringify(buildBusinessSettingsPayload(businessSettings)),

@@ -66,9 +66,7 @@ const buildBackupPayload = async (db) => {
       const collection = db.collection(collectionName);
       const data = await collection.find({}).toArray();
       backupData.collections[collectionName] = data;
-      console.log(`  ✅ ${collectionName}: ${data.length} records`);
     } catch (error) {
-      console.error(`  ❌ Error fetching ${collectionName}:`, error.message);
       backupData.collections[collectionName] = [];
     }
   }
@@ -240,11 +238,8 @@ export async function handler(event) {
       }
 
       const { db } = await connectToDatabase();
-      console.log("📦 Fetching all collections for backup...");
       const backupData = await buildBackupPayload(db);
       const stats = getBackupStats(backupData);
-
-      console.log(`✅ Backup complete: ${stats.totalRecords} total records`);
 
       return createResponse(
         200,
@@ -366,7 +361,6 @@ export async function handler(event) {
 
     return createResponse(405, { error: "Method not allowed" }, origin);
   } catch (error) {
-    console.error("❌ Backup error:", error);
     return createResponse(
       500,
       {
