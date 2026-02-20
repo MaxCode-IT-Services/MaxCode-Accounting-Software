@@ -2,6 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import {
   generateToken,
+  generateTempToken,
   verifyToken,
   hashPassword,
   comparePassword,
@@ -78,14 +79,16 @@ export async function handler(event) {
 
         if (user.twoFactor?.enabled === true) {
           console.log("✅ 2FA is enabled - sending tempToken");
-          // Generate temporary token for 2FA verification
-          const tempToken = generateToken({
-            userId: user._id.toString(),
-            email: user.email,
-            phone: user.phone,
-            temp: true,
-            exp: Date.now() + 5 * 60 * 1000, // 5 minutes
-          });
+          // Generate temporary token for 2FA verification (valid for 5 minutes)
+          const tempToken = generateTempToken(
+            {
+              userId: user._id.toString(),
+              email: user.email,
+              phone: user.phone,
+              temp: true,
+            },
+            "5m",
+          );
 
           return createResponse(
             200,

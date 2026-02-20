@@ -18,6 +18,16 @@ export function generateToken(payload) {
 }
 
 /**
+ * Generate Temporary Token (for 2FA verification, etc)
+ */
+export function generateTempToken(payload, expiresIn = "5m") {
+  return jwt.sign(payload, JWT_SECRET, {
+    expiresIn,
+    issuer: "maxcode-invoice",
+  });
+}
+
+/**
  * Verify JWT token
  */
 export function verifyToken(token) {
