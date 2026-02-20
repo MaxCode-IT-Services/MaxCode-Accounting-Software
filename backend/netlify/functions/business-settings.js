@@ -156,10 +156,14 @@ const sanitizeSettingsPayload = (payload = {}) => {
 
         if (IMAGE_FIELDS.includes(field)) {
           if (trimmedValue.startsWith("data:image/")) {
+            // New image upload - always save base64 data
             sanitized[field] = trimmedValue;
           } else if (isManagedBusinessAssetUrl(trimmedValue)) {
-            continue;
+            // Keep managed URLs only if not being replaced
+            // This allows new uploads to override old managed URLs
+            sanitized[field] = trimmedValue;
           } else {
+            // External image URL - normalize to HTTPS
             sanitized[field] = normalizeHttpsUrl(trimmedValue);
           }
         } else {
