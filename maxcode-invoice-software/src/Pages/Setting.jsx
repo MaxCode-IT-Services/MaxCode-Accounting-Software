@@ -257,8 +257,9 @@ const Settings = () => {
     };
   };
 
+  const loadProfileSettings = async () => {
     try {
-    let fallbackProfile = DEFAULT_PROFILE_FORM;
+      let fallbackProfile = DEFAULT_PROFILE_FORM;
 
     const storedUserInfo = localStorage.getItem("user_info");
     if (storedUserInfo) {
