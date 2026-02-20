@@ -15,8 +15,8 @@ import QRCode from "qrcode";
 
 const generate2FASecret = (userEmail) => {
   return speakeasy.generateSecret({
-    name: `MaxCode Invoice (${userEmail})`,
-    issuer: "MaxCode",
+    name: `MaxCode Accounting (${userEmail})`,
+    issuer: "MaxCode IT Services",
     length: 32, // Standard length for TOTP
   });
 };
@@ -168,6 +168,8 @@ export async function handler(event) {
 
       // Enable 2FA (save verified secret)
       if (action === "enable-2fa") {
+        const { token } = payload;
+
         const userData = await usersCollection.findOne({
           _id: user.userId,
         });
@@ -181,9 +183,27 @@ export async function handler(event) {
           );
         }
 
+        if (!token || token.length !== 6 || !/^\d+$/.test(token)) {
+          return createResponse(
+            400,
+            {
+              error: "Please provide 6-digit code from your authenticator app",
+            },
+            origin,
+          );
+        }
+
+        const isValid = verifyTOTPToken(tempSecret, token);
+        if (!isValid) {
+          return createResponse(
+            401,
+            { error: "Invalid authenticator code. Please try again." },
+            origin,
+          );
+        }
+
         const backupCodes = userData?.twoFactor?.tempBackupCodes || [];
 
-        // Enable 2FA with verified secret
         await usersCollection.updateOne(
           { _id: user.userId },
           {
@@ -191,7 +211,7 @@ export async function handler(event) {
               twoFactor: {
                 enabled: true,
                 secret: tempSecret,
-                backupCodes, // Store backup codes
+                backupCodes,
                 enabledAt: new Date(),
                 tempSecret: null,
                 tempQRCode: null,
@@ -205,8 +225,8 @@ export async function handler(event) {
           200,
           {
             success: true,
-            message: "Two-factor authentication enabled",
-            backupCodes, // Show to user with instruction to save them
+            message: "Two-factor authentication enabled successfully!",
+            backupCodes,
             instruction:
               "Save these backup codes in a safe place. Use them if you lose access to your authenticator app.",
           },

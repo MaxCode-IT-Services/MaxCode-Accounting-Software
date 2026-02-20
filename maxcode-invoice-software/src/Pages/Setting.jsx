@@ -193,7 +193,22 @@ const Settings = () => {
     loadProfileSettings();
     loadBusinessSettings();
     loadGoogleDriveConfig();
+    load2FAStatus();
   }, []);
+
+  const load2FAStatus = async () => {
+    try {
+      const response = await apiGet(API_ENDPOINTS.TWO_FACTOR_AUTH.GET_STATUS);
+      if (response?.data?.twoFactorEnabled) {
+        setTwoFAData((prev) => ({ ...prev, enabled: true }));
+      } else {
+        setTwoFAData((prev) => ({ ...prev, enabled: false }));
+      }
+    } catch (error) {
+      console.error("Failed to load 2FA status:", error);
+      setTwoFAData((prev) => ({ ...prev, enabled: false }));
+    }
+  };
 
   const loadGoogleDriveConfig = async () => {
     try {
@@ -463,25 +478,28 @@ const Settings = () => {
 
   const handleVerifyAndEnable2FA = async () => {
     if (twoFAData.twoFACode.length !== 6) {
-      showError("Please enter 6 digits");
+      showError("Please enter 6 digits from your authenticator app");
       return;
     }
 
     setIs2FALoading(true);
     try {
-      await apiPost(API_ENDPOINTS.TWO_FACTOR_AUTH.ENABLE, {
+      const response = await apiPost(API_ENDPOINTS.TWO_FACTOR_AUTH.ENABLE, {
         action: "enable-2fa",
-        twoFACode: twoFAData.twoFACode,
+        token: twoFAData.twoFACode,
       });
 
-      setTwoFAData({ enabled: true, twoFACode: "" });
-      setShowBackupCodes(true);
-      setShowQRModal(false);
-      showSuccess("2FA enabled successfully! Save your backup codes!");
+      if (response?.data?.success) {
+        setTwoFAData({ enabled: true, twoFACode: "" });
+        setBackupCodes(response?.data?.backupCodes || []);
+        setShowBackupCodes(true);
+        setShowQRModal(false);
+        showSuccess("✅ 2FA enabled successfully! Save your backup codes!");
+      }
     } catch (error) {
       showError(
         error?.response?.data?.error ||
-          "Invalid code. Please try again with correct code from your app.",
+          "Invalid authenticator code. Please try again.",
       );
     } finally {
       setIs2FALoading(false);
@@ -1599,15 +1617,6 @@ const Settings = () => {
                         <div className="card bg-light">
                           <div className="card-body d-flex justify-content-between align-items-center">
                             <div className="d-flex align-items-center gap-3">
-                              <div
-                                className={`badge badge-pill ${twoFAData.enabled ? "bg-success" : "bg-danger"}`}
-                                style={{ padding: "10px 15px" }}
-                              >
-                                <i
-                                  className={`fas ${twoFAData.enabled ? "fa-check-circle" : "fa-times-circle"} me-2`}
-                                ></i>
-                                {twoFAData.enabled ? "ENABLED" : "DISABLED"}
-                              </div>
                               <div>
                                 <h6 className="mb-1">
                                   {twoFAData.enabled
@@ -1619,6 +1628,15 @@ const Settings = () => {
                                     ? "Your account is protected with two-factor authentication"
                                     : "Enable 2FA to secure your account"}
                                 </small>
+                              </div>
+                              <div
+                                className={`badge badge-pill ${twoFAData.enabled ? "bg-success" : "bg-danger"}`}
+                                style={{ padding: "10px 15px" }}
+                              >
+                                <i
+                                  className={`fas ${twoFAData.enabled ? "fa-check-circle" : "fa-times-circle"} me-2`}
+                                ></i>
+                                {twoFAData.enabled ? "ENABLED" : "DISABLED"}
                               </div>
                             </div>
 
@@ -3543,7 +3561,7 @@ const Settings = () => {
         >
           <div className="modal-dialog modal-lg modal-dialog-centered">
             <div className="modal-content">
-              <div className="modal-header bg-primary text-white">
+              <div className="modal-header bg-success text-white">
                 <h5 className="modal-title">
                   <i className="fas fa-qrcode me-2"></i>
                   Setup Two-Factor Authentication
