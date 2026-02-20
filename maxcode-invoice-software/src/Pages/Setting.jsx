@@ -635,10 +635,7 @@ const Settings = () => {
         };
 
         mergeBusinessSettings(mergedSettings);
-        localStorage.setItem(
-          "business_settings",
-          JSON.stringify(mergedSettings),
-        );
+        localStorage.removeItem("business_settings");
         return;
       }
     } catch (error) {
@@ -756,20 +753,13 @@ const Settings = () => {
 
       if (savedSettings || payload) {
         mergeBusinessSettings(mergedSavedSettings);
-        localStorage.setItem(
-          "business_settings",
-          JSON.stringify(mergedSavedSettings),
-        );
-      } else {
-        localStorage.setItem("business_settings", JSON.stringify(payload));
       }
+
+      localStorage.removeItem("business_settings");
 
       showSuccess("✅ All changes saved successfully!");
     } catch (error) {
-      localStorage.setItem(
-        "business_settings",
-        JSON.stringify(buildBusinessSettingsPayload(businessSettings)),
-      );
+      localStorage.removeItem("business_settings");
       showError(error?.response?.data?.error || "Failed to sync profile");
     } finally {
       setIsSaving(false);

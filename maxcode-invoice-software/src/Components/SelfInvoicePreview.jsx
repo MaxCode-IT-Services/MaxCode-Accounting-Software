@@ -208,10 +208,7 @@ const SelfInvoicePreview = ({
         const remoteSettings = response?.data?.settings;
         if (remoteSettings) {
           applyTerms(remoteSettings);
-          localStorage.setItem(
-            "business_settings",
-            JSON.stringify(remoteSettings),
-          );
+          localStorage.removeItem("business_settings");
         }
       } catch (error) {
         console.error("Failed to fetch self invoice terms:", error);

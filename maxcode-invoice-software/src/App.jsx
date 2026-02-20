@@ -55,9 +55,8 @@ export const Loading = () => (
 );
 
 const isAuthenticated = () => {
-  const token = localStorage.getItem("access_token");
   const authFlag = localStorage.getItem("maxcode_auth") === "true";
-  return Boolean(token) && authFlag;
+  return authFlag;
 };
 
 const ProtectedRoute = ({ children }) => {

@@ -71,10 +71,13 @@ export function getCorsHeaders(origin) {
 /**
  * Helper to create API response
  */
-export function createResponse(statusCode, body, origin = null) {
+export function createResponse(statusCode, body, origin = null, extraHeaders = {}) {
   return {
     statusCode,
-    headers: getCorsHeaders(origin),
+    headers: {
+      ...getCorsHeaders(origin),
+      ...extraHeaders,
+    },
     body: JSON.stringify(body),
   };
 }

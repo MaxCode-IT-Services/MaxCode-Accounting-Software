@@ -7,6 +7,8 @@ import {
   hashPassword,
   comparePassword,
   createAuthResponse,
+  createAuthCookie,
+  createClearAuthCookie,
   validateRequiredFields,
   sanitizeUser,
 } from "./utils/auth.js";
@@ -120,6 +122,7 @@ export async function handler(event) {
             ...createAuthResponse(user, token),
           },
           origin,
+          { "Set-Cookie": createAuthCookie(token) },
         );
       }
 
@@ -216,6 +219,7 @@ export async function handler(event) {
             ...createAuthResponse(user, token),
           },
           origin,
+          { "Set-Cookie": createAuthCookie(token) },
         );
       }
 
@@ -281,7 +285,14 @@ export async function handler(event) {
             ...createAuthResponse(newUser, token),
           },
           origin,
+          { "Set-Cookie": createAuthCookie(token) },
         );
+      }
+
+      if (action === "logout") {
+        return createResponse(200, { message: "Logout successful" }, origin, {
+          "Set-Cookie": createClearAuthCookie(),
+        });
       }
 
       // LOGOUT

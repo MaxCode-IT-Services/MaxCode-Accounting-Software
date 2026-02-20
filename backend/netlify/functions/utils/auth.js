@@ -6,6 +6,27 @@ import { createResponse } from "./mongodb.js";
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 const JWT_EXPIRES_IN = "1d";
+const AUTH_COOKIE_NAME = "maxcode_auth_token";
+
+function parseCookies(cookieHeader = "") {
+  if (!cookieHeader || typeof cookieHeader !== "string") {
+    return {};
+  }
+
+  return cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((acc, current) => {
+      const separatorIndex = current.indexOf("=");
+      if (separatorIndex === -1) return acc;
+      const key = current.slice(0, separatorIndex).trim();
+      const value = current.slice(separatorIndex + 1).trim();
+      if (!key) return acc;
+      acc[key] = decodeURIComponent(value);
+      return acc;
+    }, {});
+}
 
 /**
  * Generate JWT token
@@ -13,7 +34,7 @@ const JWT_EXPIRES_IN = "1d";
 export function generateToken(payload) {
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
-    issuer: "maxcode-invoice",
+    issuer: "MaxCode IT Services",
   });
 }
 
@@ -23,7 +44,7 @@ export function generateToken(payload) {
 export function generateTempToken(payload, expiresIn = "5m") {
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn,
-    issuer: "maxcode-invoice",
+    issuer: "MaxCode IT Services",
   });
 }
 
@@ -33,7 +54,7 @@ export function generateTempToken(payload, expiresIn = "5m") {
 export function verifyToken(token) {
   try {
     return jwt.verify(token, JWT_SECRET, {
-      issuer: "maxcode-invoice",
+      issuer: "MaxCode IT Services",
     });
   } catch (error) {
     throw new Error("Invalid or expired token");
@@ -61,17 +82,31 @@ export async function comparePassword(password, hashedPassword) {
 export function extractToken(event) {
   const authHeader = event.headers.authorization || event.headers.Authorization;
 
-  if (!authHeader) {
-    return null;
+  if (authHeader) {
+    // Support both "Bearer <token>" and just "<token>"
+    const parts = authHeader.split(" ");
+    if (parts.length === 2 && parts[0] === "Bearer") {
+      return parts[1];
+    }
+
+    return authHeader;
   }
 
-  // Support both "Bearer <token>" and just "<token>"
-  const parts = authHeader.split(" ");
-  if (parts.length === 2 && parts[0] === "Bearer") {
-    return parts[1];
-  }
+  const cookieHeader = event.headers.cookie || event.headers.Cookie;
+  const cookies = parseCookies(cookieHeader);
+  return cookies[AUTH_COOKIE_NAME] || null;
+}
 
-  return authHeader;
+export function createAuthCookie(token) {
+  const isProduction = process.env.NODE_ENV === "production";
+  const secureFlag = isProduction ? "Secure; " : "";
+  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; ${secureFlag}SameSite=Lax; Max-Age=86400`;
+}
+
+export function createClearAuthCookie() {
+  const isProduction = process.env.NODE_ENV === "production";
+  const secureFlag = isProduction ? "Secure; " : "";
+  return `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; ${secureFlag}SameSite=Lax; Max-Age=0`;
 }
 
 /**

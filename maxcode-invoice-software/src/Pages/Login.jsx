@@ -1,7 +1,7 @@
 // Login.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiPost, setAuthToken } from "../utils/api";
+import { apiPost } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { PERMISSION_MODULES } from "../utils/permissions";
 import {
@@ -130,8 +130,7 @@ const Login = ({ settings }) => {
         twoFACode: code,
       });
 
-      if (response.data.token) {
-        setAuthToken(response.data.token);
+      if (response.data.user) {
         localStorage.setItem("maxcode_auth", "true");
 
         if (response.data.user) {
@@ -153,7 +152,6 @@ const Login = ({ settings }) => {
             navigate(firstAllowedModule.route);
           } else {
             showError("No module permission assigned to this user");
-            localStorage.removeItem("access_token");
             localStorage.removeItem("maxcode_auth");
             localStorage.removeItem("user_info");
             setNeeds2FA(false);
@@ -220,10 +218,7 @@ const Login = ({ settings }) => {
       }
 
       // If login successful, store the token
-      if (response.data.token) {
-        // Store the access token
-        setAuthToken(response.data.token);
-
+      if (response.data.user) {
         // Keep the existing auth flag for compatibility
         localStorage.setItem("maxcode_auth", "true");
 
@@ -249,7 +244,6 @@ const Login = ({ settings }) => {
             navigate(firstAllowedModule.route);
           } else {
             showError("No module permission assigned to this user");
-            localStorage.removeItem("access_token");
             localStorage.removeItem("maxcode_auth");
             localStorage.removeItem("user_info");
           }

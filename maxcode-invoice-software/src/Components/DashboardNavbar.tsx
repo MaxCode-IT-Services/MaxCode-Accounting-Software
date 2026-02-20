@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet, clearAuth } from "../utils/api";
+import { apiGet, apiPost, clearAuth } from "../utils/api";
 import { hasModuleAccess } from "../utils/permissions";
 
 interface DashboardNavbarProps {
@@ -289,8 +289,10 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   };
 
   // Logout function - Clear localStorage and redirect
-  const handleLogout = () => {
+  const handleLogout = async () => {
     try {
+      await apiPost(API_ENDPOINTS.AUTH.LOGIN, { action: "logout" });
+
       // Clear auth and user data from localStorage
       clearAuth();
       localStorage.removeItem("user");

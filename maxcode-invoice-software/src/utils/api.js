@@ -22,24 +22,6 @@ const api = axios.create({
   withCredentials: true, // Enable sending cookies and auth headers
 });
 
-// Request interceptor to add access token to headers
-api.interceptors.request.use(
-  (config) => {
-    // Get token from localStorage
-    const token = localStorage.getItem("access_token");
-
-    // If token exists, add it to headers
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  },
-);
-
 // Response interceptor to handle errors globally
 api.interceptors.response.use(
   (response) => {
@@ -51,10 +33,11 @@ api.interceptors.response.use(
       // Server responded with error status
       switch (error.response.status) {
         case 401:
-          // Unauthorized - clear token and redirect to login
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("maxcode_auth");
-          window.location.href = "/login";
+          // Unauthorized - clear auth state and redirect to login
+          clearAuth();
+          if (window.location.pathname !== "/login") {
+            window.location.href = "/login";
+          }
           break;
         case 403:
           console.error("Access forbidden");
@@ -93,22 +76,17 @@ export const apiPatch = (url, data = {}, config = {}) =>
   api.patch(url, data, config);
 export const apiDelete = (url, config = {}) => api.delete(url, config);
 
-// Helper to set token manually if needed
-export const setAuthToken = (token) => {
-  if (token) {
-    localStorage.setItem("access_token", token);
-  } else {
-    localStorage.removeItem("access_token");
-  }
-};
+// Compatibility helper retained for existing imports.
+export const setAuthToken = (_token) => {};
 
 // Helper to get current token
 export const getAuthToken = () => {
-  return localStorage.getItem("access_token");
+  return null;
 };
 
 // Helper to clear all auth data
 export const clearAuth = () => {
   localStorage.removeItem("access_token");
   localStorage.removeItem("maxcode_auth");
+  localStorage.removeItem("business_settings");
 };

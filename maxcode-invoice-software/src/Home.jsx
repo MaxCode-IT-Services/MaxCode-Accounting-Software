@@ -130,9 +130,8 @@ const steps = [
 ];
 
 const checkAuthStatus = () => {
-  const token = localStorage.getItem("access_token");
   const authFlag = localStorage.getItem("maxcode_auth") === "true";
-  return Boolean(token) && authFlag;
+  return authFlag;
 };
 
 const Home = () => {
