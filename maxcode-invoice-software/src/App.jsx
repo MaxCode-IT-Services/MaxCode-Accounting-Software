@@ -55,6 +55,8 @@ export const Loading = () => (
   </div>
 );
 
+const isAuthenticated = () => localStorage.getItem("maxcode_auth") === "true";
+
 const ProtectedRoute = ({ children }) => {
   const location = useLocation();
   const [isChecking, setIsChecking] = useState(true);
