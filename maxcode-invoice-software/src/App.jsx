@@ -378,7 +378,7 @@ const App = () => {
 
         {/* 404 Page */}
         {/* <Route
-          path="*"
+          path="**"
           element={
             <Suspense fallback={<Loading />}>
               <PageNotFound />
