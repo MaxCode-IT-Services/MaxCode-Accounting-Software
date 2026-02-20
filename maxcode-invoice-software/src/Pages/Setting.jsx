@@ -687,18 +687,30 @@ const Settings = () => {
 
     setUploadingField(field);
 
-    setTimeout(() => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result;
-        handleBusinessChange(field, base64);
-        showSuccess(
-          `${field.replace(/([A-Z])/g, " $1").replace(/^./, (str) => str.toUpperCase())} uploaded successfully!`,
-        );
-        setUploadingField(null);
-      };
-      reader.readAsDataURL(file);
-    }, 500);
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const base64 = event.target.result;
+      // Store base64 directly in state
+      handleBusinessChange(field, base64);
+
+      const fieldLabel = field
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim();
+
+      showSuccess(
+        `${fieldLabel} uploaded successfully! Click SAVE CHANGES to save.`,
+      );
+      setUploadingField(null);
+    };
+
+    reader.onerror = () => {
+      showError("Failed to read image. Please try again.");
+      setUploadingField(null);
+    };
+
+    reader.readAsDataURL(file);
   };
 
   const handleSaveAll = async () => {
@@ -706,10 +718,46 @@ const Settings = () => {
 
     try {
       const payload = buildBusinessSettingsPayload(businessSettings);
+
+      // Debug: Log what we're sending to backend
+      console.log("📤 Sending to Backend:", {
+        profilePhotoUrl: payload.profilePhotoUrl
+          ? "✅ " + payload.profilePhotoUrl.substring(0, 50) + "..."
+          : "❌ Empty",
+        logoUrl: payload.logoUrl
+          ? "✅ " + payload.logoUrl.substring(0, 50) + "..."
+          : "❌ Empty",
+        qrCodeUrl: payload.qrCodeUrl
+          ? "✅ " + payload.qrCodeUrl.substring(0, 50) + "..."
+          : "❌ Empty",
+        sealUrl: payload.sealUrl
+          ? "✅ " + payload.sealUrl.substring(0, 50) + "..."
+          : "❌ Empty",
+        paidSealUrl: payload.paidSealUrl
+          ? "✅ " + payload.paidSealUrl.substring(0, 50) + "..."
+          : "❌ Empty",
+        unpaidSealUrl: payload.unpaidSealUrl
+          ? "✅ " + payload.unpaidSealUrl.substring(0, 50) + "..."
+          : "❌ Empty",
+      });
+
       const response = await apiPut(
         API_ENDPOINTS.BUSINESS_SETTINGS.UPDATE,
         payload,
       );
+
+      // Debug: Log response from backend
+      console.log("📥 Received from Backend:", {
+        profilePhotoUrl: response?.data?.settings?.profilePhotoUrl
+          ? "✅"
+          : "❌",
+        logoUrl: response?.data?.settings?.logoUrl ? "✅" : "❌",
+        qrCodeUrl: response?.data?.settings?.qrCodeUrl ? "✅" : "❌",
+        sealUrl: response?.data?.settings?.sealUrl ? "✅" : "❌",
+        paidSealUrl: response?.data?.settings?.paidSealUrl ? "✅" : "❌",
+        unpaidSealUrl: response?.data?.settings?.unpaidSealUrl ? "✅" : "❌",
+      });
+
       const savedSettings = response?.data?.settings;
       const mergedSavedSettings = {
         ...payload,
@@ -726,8 +774,9 @@ const Settings = () => {
         localStorage.setItem("business_settings", JSON.stringify(payload));
       }
 
-      showSuccess("Profile synced to Cloud successfully!");
+      showSuccess("✅ All changes saved successfully!");
     } catch (error) {
+      console.error("❌ Save Error:", error);
       localStorage.setItem(
         "business_settings",
         JSON.stringify(buildBusinessSettingsPayload(businessSettings)),

@@ -3,6 +3,7 @@ import { verifyRequestToken } from "./utils/auth.js";
 import { ObjectId } from "mongodb";
 
 const SETTINGS_COLLECTION = "business_settings";
+const ASSETS_COLLECTION = "business_assets";
 
 const IMAGE_FIELDS = [
   "profilePhotoUrl",
@@ -155,16 +156,20 @@ const sanitizeSettingsPayload = (payload = {}) => {
         const trimmedValue = value.trim();
 
         if (IMAGE_FIELDS.includes(field)) {
+          // Always prefer base64 data for images
           if (trimmedValue.startsWith("data:image/")) {
-            // New image upload - always save base64 data
+            // New image upload - save base64 directly
             sanitized[field] = trimmedValue;
           } else if (isManagedBusinessAssetUrl(trimmedValue)) {
-            // Keep managed URLs only if not being replaced
-            // This allows new uploads to override old managed URLs
+            // Existing managed asset URL - keep it to maintain database integrity
+            // This allows old images to persist if not replaced with new upload
             sanitized[field] = trimmedValue;
-          } else {
-            // External image URL - normalize to HTTPS
+          } else if (trimmedValue.length > 0) {
+            // External image URL from third party - normalize to HTTPS
             sanitized[field] = normalizeHttpsUrl(trimmedValue);
+          } else {
+            // Empty string - skip to avoid clearing previous valid image
+            // Only update if new value is provided
           }
         } else {
           sanitized[field] = trimmedValue;
@@ -212,22 +217,33 @@ const mapSettingsForClient = (document, event) => {
       continue;
     }
 
-    const settingsId = document?._id?.toString();
-    const version = document?.updatedAt
-      ? new Date(document.updatedAt).getTime()
-      : document?.createdAt
-        ? new Date(document.createdAt).getTime()
-        : Date.now();
-    const shortAssetUrl = settingsId
-      ? `${getBaseUrl(event)}/api/business-settings?id=${buildAssetRef(settingsId, field)}&v=${version}`
-      : "";
+    // If it's already a short URL (managed asset or external URL), return as-is
+    if (
+      isManagedBusinessAssetUrl(value) ||
+      value.startsWith("https://") ||
+      value.startsWith("http://")
+    ) {
+      response[field] = value;
+      continue;
+    }
 
-    if (value.startsWith("data:image/") || isManagedBusinessAssetUrl(value)) {
+    // If it's old base64 data, convert to short URL for backward compatibility
+    if (value.startsWith("data:image/")) {
+      const settingsId = document?._id?.toString();
+      const version = document?.updatedAt
+        ? new Date(document.updatedAt).getTime()
+        : document?.createdAt
+          ? new Date(document.createdAt).getTime()
+          : Date.now();
+      const shortAssetUrl = settingsId
+        ? `${getBaseUrl(event)}/api/business-settings?id=${buildAssetRef(settingsId, field)}&v=${version}`
+        : "";
       response[field] = shortAssetUrl;
       continue;
     }
 
-    response[field] = normalizeHttpsUrl(value);
+    // Empty value
+    response[field] = "";
   }
 
   if (
@@ -257,52 +273,53 @@ const parseDataUrl = (dataUrl) => {
   };
 };
 
-const buildAssetRef = (settingsId, field) =>
-  `${settingsId}.${FIELD_TO_INDEX[field]}`;
-
-const parseAssetRef = (assetRef) => {
-  if (!assetRef || typeof assetRef !== "string") return null;
-
-  const [settingsId, fieldIndex] = assetRef.split(".");
-  if (!settingsId || !fieldIndex) return null;
-
-  const field = INDEX_TO_FIELD[fieldIndex];
-  if (!field) return null;
-
-  return { assetId: settingsId, field };
-};
-
-const parseManagedAssetUrl = (assetUrl) => {
-  if (!assetUrl || typeof assetUrl !== "string") return null;
-
-  try {
-    const url = new URL(assetUrl);
-    const idQuery = url.searchParams.get("id");
-
-    if (idQuery) {
-      const fromIdQuery = parseAssetRef(idQuery);
-      if (fromIdQuery) return fromIdQuery;
-    }
-
-    const pathMatch = url.pathname.match(
-      /\/business-settings\/asset\/([^/]+)\/([^/?]+)/,
-    );
-
-    if (pathMatch) {
-      return {
-        assetId: decodeURIComponent(pathMatch[1]),
-        field: decodeURIComponent(pathMatch[2]),
-      };
-    }
-  } catch {
+// Save base64 image to assets collection and return short URL reference
+const saveImageAsset = async (db, base64DataUrl, userId, field, event) => {
+  if (!base64DataUrl || !base64DataUrl.startsWith("data:image/")) {
     return null;
   }
 
-  return null;
+  try {
+    const parsed = parseDataUrl(base64DataUrl);
+    if (!parsed) return null;
+
+    const assetsCollection = db.collection(ASSETS_COLLECTION);
+
+    // Create asset document
+    const assetDoc = {
+      userId,
+      field,
+      mimeType: parsed.mimeType,
+      data: parsed.data,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await assetsCollection.insertOne(assetDoc);
+    const assetId = result.insertedId.toString();
+
+    // Return short URL reference
+    const shortUrl = `${getBaseUrl(event)}/api/business-settings?assetId=${assetId}&field=${field}`;
+    return shortUrl;
+  } catch (error) {
+    console.error("Error saving image asset:", error);
+    return null;
+  }
+};
+
 };
 
 const getAssetParams = (event) => {
   const query = event.queryStringParameters || {};
+
+  // Check for new assetId format
+  if (query.assetId && query.field) {
+    return {
+      assetId: query.assetId,
+      field: query.field,
+      isNewFormat: true,
+    };
+  }
 
   if (query.id) {
     const parsed = parseAssetRef(query.id);
@@ -332,7 +349,8 @@ const getAssetParams = (event) => {
 };
 
 async function handleAssetRequest(event, origin) {
-  const { assetId, field } = getAssetParams(event);
+  const assetParams = getAssetParams(event);
+  const { assetId, field, isNewFormat } = assetParams;
 
   if (!assetId || !field || !IMAGE_FIELDS.includes(field)) {
     return createResponse(
@@ -342,6 +360,35 @@ async function handleAssetRequest(event, origin) {
     );
   }
 
+  const { db } = await connectToDatabase();
+
+  // New format: assetId is from business_assets collection
+  if (isNewFormat) {
+    try {
+      const assetObjectId = new ObjectId(assetId);
+      const assetsCollection = db.collection(ASSETS_COLLECTION);
+      const asset = await assetsCollection.findOne({ _id: assetObjectId });
+
+      if (!asset || !asset.data) {
+        return createResponse(404, { error: "Asset not found" }, origin);
+      }
+
+      return {
+        statusCode: 200,
+        headers: {
+          "Content-Type": asset.mimeType || "image/png",
+          "Cache-Control": "public, max-age=3600",
+        },
+        isBase64Encoded: true,
+        body: asset.data,
+      };
+    } catch (error) {
+      console.error("Error fetching asset:", error);
+      return createResponse(404, { error: "Asset not found" }, origin);
+    }
+  }
+
+  // Old format: assetId is settings ID (backward compatibility)
   let settingsId;
   try {
     settingsId = new ObjectId(assetId);
@@ -349,9 +396,7 @@ async function handleAssetRequest(event, origin) {
     return createResponse(400, { error: "Invalid assetId" }, origin);
   }
 
-  const { db } = await connectToDatabase();
   const settingsCollection = db.collection(SETTINGS_COLLECTION);
-
   const settings = await settingsCollection.findOne({ _id: settingsId });
   const assetValue = settings?.[field];
 
@@ -491,6 +536,27 @@ export async function handler(event) {
         !Object.prototype.hasOwnProperty.call(sanitizedPayload, "gstin")
       ) {
         sanitizedPayload.gstin = "";
+      }
+
+      // Process base64 images and convert to short URL references
+      const assetsCollection = db.collection(ASSETS_COLLECTION);
+      for (const field of IMAGE_FIELDS) {
+        if (
+          sanitizedPayload[field] &&
+          typeof sanitizedPayload[field] === "string" &&
+          sanitizedPayload[field].startsWith("data:image/")
+        ) {
+          const shortUrl = await saveImageAsset(
+            db,
+            sanitizedPayload[field],
+            user.userId,
+            field,
+            event,
+          );
+          if (shortUrl) {
+            sanitizedPayload[field] = shortUrl;
+          }
+        }
       }
 
       await settingsCollection.updateOne(
