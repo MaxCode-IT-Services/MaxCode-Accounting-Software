@@ -10,6 +10,7 @@ const initialFormState = {
   phoneNumber: "",
   emergencyContact: "",
   email: "",
+  githubUsername: "",
   dateOfBirth: "",
   joiningDate: "",
   aadharNumber: "",
@@ -17,6 +18,7 @@ const initialFormState = {
   bankName: "",
   accountHolderName: "",
   bankAccountNumber: "",
+  ifscCode: "",
   branch: "",
   fatherName: "",
   bloodGroup: "",
@@ -54,6 +56,7 @@ const CreateStaff = ({ show, onClose, onSubmit, editingRecord = null }) => {
         phoneNumber: editingRecord.phoneNumber || "",
         emergencyContact: editingRecord.emergencyContact || "",
         email: editingRecord.email || "",
+        githubUsername: editingRecord.githubUsername || "",
         dateOfBirth: editingRecord.dateOfBirth || "",
         joiningDate: editingRecord.joiningDate || "",
         aadharNumber: editingRecord.aadharNumber || "",
@@ -61,6 +64,7 @@ const CreateStaff = ({ show, onClose, onSubmit, editingRecord = null }) => {
         bankName: editingRecord.bankName || "",
         accountHolderName: editingRecord.accountHolderName || "",
         bankAccountNumber: editingRecord.bankAccountNumber || "",
+        ifscCode: editingRecord.ifscCode || "",
         branch: editingRecord.branch || "",
         fatherName: editingRecord.fatherName || "",
         bloodGroup: editingRecord.bloodGroup || "",
@@ -83,6 +87,7 @@ const CreateStaff = ({ show, onClose, onSubmit, editingRecord = null }) => {
     phoneNumber: "Phone Number",
     emergencyContact: "Emergency Contact",
     email: "Email ID",
+    githubUsername: "Github Username",
     dateOfBirth: "Date of Birth",
     joiningDate: "Joining Date",
     aadharNumber: "Aadhar Number",
@@ -90,6 +95,7 @@ const CreateStaff = ({ show, onClose, onSubmit, editingRecord = null }) => {
     bankName: "Bank Name",
     accountHolderName: "Account Holder Name",
     bankAccountNumber: "Bank Account Number",
+    ifscCode: "IFSC Code",
     branch: "Branch",
     fatherName: "Father's Name",
     bloodGroup: "Blood Group",
@@ -634,6 +640,28 @@ const CreateStaff = ({ show, onClose, onSubmit, editingRecord = null }) => {
                     </div>
 
                     <div className="col-md-3">
+                      <label htmlFor="githubUsername" className="form-label">
+                        <i className="fab fa-github me-2 text-primary"></i>
+                        Github Username
+                      </label>
+                      <input
+                        type="text"
+                        className={`form-control modern-input ${errors.githubUsername ? "is-invalid" : ""}`}
+                        id="githubUsername"
+                        name="githubUsername"
+                        value={formData.githubUsername}
+                        onChange={handleInputChange}
+                        placeholder="Enter Github Username"
+                        readOnly={isViewMode}
+                      />
+                      {errors.githubUsername && (
+                        <div className="invalid-feedback d-block">
+                          {errors.githubUsername}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="col-md-3">
                       <label htmlFor="bloodGroup" className="form-label">
                         <i className="fas fa-tint me-2 text-primary"></i>
                         Blood Group
@@ -814,6 +842,29 @@ const CreateStaff = ({ show, onClose, onSubmit, editingRecord = null }) => {
                       {errors.bankAccountNumber && (
                         <div className="invalid-feedback d-block">
                           {errors.bankAccountNumber}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="col-md-3">
+                      <label htmlFor="ifscCode" className="form-label">
+                        <i className="fas fa-university me-2 text-primary"></i>
+                        IFSC Code
+                      </label>
+                      <input
+                        type="text"
+                        className={`form-control modern-input ${errors.ifscCode ? "is-invalid" : ""}`}
+                        id="ifscCode"
+                        name="ifscCode"
+                        value={formData.ifscCode}
+                        onChange={handleInputChange}
+                        placeholder="Enter IFSC Code"
+                        maxLength="11"
+                        readOnly={isViewMode}
+                      />
+                      {errors.ifscCode && (
+                        <div className="invalid-feedback d-block">
+                          {errors.ifscCode}
                         </div>
                       )}
                     </div>

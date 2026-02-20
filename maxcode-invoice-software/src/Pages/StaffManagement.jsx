@@ -189,6 +189,7 @@ const StaffManagement = () => {
     { key: "phoneNumber", label: "Phone", width: 120 },
     { key: "emergencyContact", label: "Emergency Contact", width: 150 },
     { key: "email", label: "Email", width: 220 },
+    { key: "githubUsername", label: "Github", width: 160 },
     { key: "designation", label: "Designation", width: 160 },
     { key: "department", label: "Department", width: 150 },
     { key: "dateOfBirthDisplay", label: "Date of Birth", width: 130 },
@@ -197,6 +198,7 @@ const StaffManagement = () => {
     { key: "bankName", label: "Bank Name", width: 170 },
     { key: "accountHolderName", label: "Account Holder", width: 180 },
     { key: "bankAccountNumber", label: "A/C Number", width: 160 },
+    { key: "ifscCode", label: "IFSC Code", width: 140 },
     { key: "branch", label: "Branch", width: 150 },
     {
       key: "googleDriveLink",

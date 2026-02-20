@@ -751,19 +751,24 @@ const CreatePurchase = ({
                     inputId="placeOfSupply"
                     name="placeOfSupply"
                     classNamePrefix="react-select"
-                    value={INDIAN_STATES.map(s => ({
-                      value: `${s.name} (${s.code})`,
-                      label: `${s.name} (${s.code})`
-                    })).find(opt => opt.value === formData.placeOfSupply) || null}
+                    value={
+                      INDIAN_STATES.map((s) => ({
+                        value: `${s.name} (${s.code})`,
+                        label: `${s.name} (${s.code})`,
+                      })).find((opt) => opt.value === formData.placeOfSupply) ||
+                      null
+                    }
                     onChange={(selectedOption) => {
-                      setFormData(prev => ({
+                      setFormData((prev) => ({
                         ...prev,
-                        placeOfSupply: selectedOption ? selectedOption.value : ''
+                        placeOfSupply: selectedOption
+                          ? selectedOption.value
+                          : "",
                       }));
                     }}
-                    options={INDIAN_STATES.map(s => ({
+                    options={INDIAN_STATES.map((s) => ({
                       value: `${s.name} (${s.code})`,
-                      label: `${s.name} (${s.code})`
+                      label: `${s.name} (${s.code})`,
                     }))}
                     isDisabled={isViewMode}
                     isClearable
