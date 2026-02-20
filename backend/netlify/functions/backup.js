@@ -1,12 +1,14 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
+import { google } from "googleapis";
 
 /**
  * Backup API Endpoint
  * - GET: Export backup data (supports JWT auth or X-API-Key auth)
  * - POST action=restore: Restore backup data (JWT required)
- * - POST action=test-drive-config: Validate Drive config payload (JWT required)
- * - POST action=run-now: Create a backup snapshot now (JWT required)
+ * - POST action=test-drive-config: Test Google Drive connection (JWT required)
+ * - POST action=run-now: Create a backup snapshot and upload to Drive (JWT required)
+ * - POST action=run-automated: Scheduled backup run via GitHub Actions (API Key required)
  */
 
 const BACKUP_COLLECTIONS = [
@@ -171,6 +173,126 @@ const validateDriveConfigPayload = (config = {}) => {
   return { valid: true };
 };
 
+/**
+ * Upload backup data to Google Drive
+ * @param {Object} driveConfig - Google Drive configuration
+ * @param {Object} backupData - Backup data to upload
+ * @param {string} trigger - Trigger type (manual/automated)
+ * @returns {Promise<Object>} Upload result with fileId and fileUrl
+ */
+const uploadToGoogleDrive = async (
+  driveConfig,
+  backupData,
+  trigger = "manual",
+) => {
+  try {
+    // Create OAuth2 client
+    const oauth2Client = new google.auth.OAuth2(
+      driveConfig.clientId,
+      driveConfig.clientSecret,
+      "https://developers.google.com/oauthplayground", // Redirect URI used during token generation
+    );
+
+    // Set credentials with refresh token
+    oauth2Client.setCredentials({
+      refresh_token: driveConfig.refreshToken,
+    });
+
+    // Initialize Drive API
+    const drive = google.drive({ version: "v3", auth: oauth2Client });
+
+    // Create backup file name with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const fileName = `maxcode-backup-${trigger}-${timestamp}.json`;
+
+    // Convert backup data to JSON buffer
+    const backupBuffer = Buffer.from(JSON.stringify(backupData, null, 2));
+
+    // Upload to Google Drive
+    const fileMetadata = {
+      name: fileName,
+      mimeType: "application/json",
+    };
+
+    // Only specify parent folder if folderId is provided
+    if (driveConfig.folderId && driveConfig.folderId.trim()) {
+      fileMetadata.parents = [driveConfig.folderId];
+    }
+
+    const media = {
+      mimeType: "application/json",
+      body: backupBuffer,
+    };
+
+    const response = await drive.files.create({
+      requestBody: fileMetadata,
+      media: media,
+      fields: "id, name, webViewLink, size",
+    });
+
+    return {
+      success: true,
+      fileId: response.data.id,
+      fileName: response.data.name,
+      fileUrl: response.data.webViewLink,
+      fileSize: response.data.size,
+    };
+  } catch (error) {
+    throw new Error(`Google Drive upload failed: ${error.message}`);
+  }
+};
+
+/**
+ * Test Google Drive connection
+ * @param {Object} driveConfig - Google Drive configuration
+ * @returns {Promise<Object>} Test result
+ */
+const testGoogleDriveConnection = async (driveConfig) => {
+  try {
+    // Create OAuth2 client
+    const oauth2Client = new google.auth.OAuth2(
+      driveConfig.clientId,
+      driveConfig.clientSecret,
+      "https://developers.google.com/oauthplayground",
+    );
+
+    // Set credentials with refresh token
+    oauth2Client.setCredentials({
+      refresh_token: driveConfig.refreshToken,
+    });
+
+    // Initialize Drive API
+    const drive = google.drive({ version: "v3", auth: oauth2Client });
+
+    // Test: Get user info
+    const about = await drive.about.get({
+      fields: "user(emailAddress, displayName), storageQuota",
+    });
+
+    // If folderId is provided, verify it exists
+    if (driveConfig.folderId && driveConfig.folderId.trim()) {
+      try {
+        await drive.files.get({
+          fileId: driveConfig.folderId,
+          fields: "id, name",
+        });
+      } catch (error) {
+        throw new Error(
+          `Folder ID not found or not accessible: ${error.message}`,
+        );
+      }
+    }
+
+    return {
+      success: true,
+      user: about.data.user,
+      storageQuota: about.data.storageQuota,
+    };
+  } catch (error) {
+    throw new Error(`Drive connection test failed: ${error.message}`);
+  }
+};
+
 export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
@@ -324,36 +446,222 @@ export async function handler(event) {
           );
         }
 
-        return createResponse(
-          200,
-          {
-            success: true,
-            message: "Google Drive configuration payload is valid",
-          },
-          origin,
-        );
+        // Actually test the Google Drive connection
+        try {
+          const testResult = await testGoogleDriveConnection(body.driveConfig);
+
+          return createResponse(
+            200,
+            {
+              success: true,
+              message: "Google Drive connection successful",
+              user: testResult.user,
+            },
+            origin,
+          );
+        } catch (error) {
+          return createResponse(
+            400,
+            {
+              success: false,
+              error: error.message,
+            },
+            origin,
+          );
+        }
       }
 
       if (action === "run-now") {
+        // Get backup settings from database
+        const businessSettings = await db
+          .collection("business_settings")
+          .findOne({ userId: user.userId });
+
+        const driveConfig = businessSettings?.backupSettings;
+
+        // Check if Google Drive backup is enabled
+        if (!driveConfig || !driveConfig.enabled) {
+          // If Drive is not enabled, just create local backup
+          const backupData = await buildBackupPayload(db);
+          const stats = getBackupStats(backupData);
+
+          await db.collection("backup_runs").insertOne({
+            userId: user.userId,
+            triggeredAt: new Date(),
+            trigger: "manual",
+            stats,
+            status: "completed-local-only",
+          });
+
+          return createResponse(
+            200,
+            {
+              success: true,
+              message:
+                "Manual backup completed (local only - Google Drive not enabled)",
+              stats,
+            },
+            origin,
+          );
+        }
+
+        // Create backup data
         const backupData = await buildBackupPayload(db);
         const stats = getBackupStats(backupData);
 
-        await db.collection("backup_runs").insertOne({
-          userId: user.userId,
-          triggeredAt: new Date(),
-          trigger: "manual",
-          stats,
-        });
+        // Upload to Google Drive
+        try {
+          const uploadResult = await uploadToGoogleDrive(
+            driveConfig,
+            backupData,
+            "manual",
+          );
 
-        return createResponse(
-          200,
-          {
-            success: true,
-            message: "Manual backup run completed",
+          // Save backup run record with Drive info
+          await db.collection("backup_runs").insertOne({
+            userId: user.userId,
+            triggeredAt: new Date(),
+            trigger: "manual",
             stats,
-          },
-          origin,
-        );
+            status: "completed",
+            driveFileId: uploadResult.fileId,
+            driveFileName: uploadResult.fileName,
+            driveFileUrl: uploadResult.fileUrl,
+            driveFileSize: uploadResult.fileSize,
+          });
+
+          return createResponse(
+            200,
+            {
+              success: true,
+              message: `Backup uploaded to Google Drive successfully`,
+              stats,
+              drive: {
+                fileName: uploadResult.fileName,
+                fileUrl: uploadResult.fileUrl,
+                fileSize: uploadResult.fileSize,
+              },
+            },
+            origin,
+          );
+        } catch (error) {
+          // Save backup run with error status
+          await db.collection("backup_runs").insertOne({
+            userId: user.userId,
+            triggeredAt: new Date(),
+            trigger: "manual",
+            stats,
+            status: "failed",
+            error: error.message,
+          });
+
+          return createResponse(
+            500,
+            {
+              success: false,
+              error: `Backup created but upload failed: ${error.message}`,
+              stats,
+            },
+            origin,
+          );
+        }
+      }
+
+      if (action === "run-automated") {
+        // This action is for GitHub Actions scheduled backups
+        // Requires X-API-Key authentication
+        const isApiKeyAuthorized = hasValidBackupApiKey(event);
+
+        if (!isApiKeyAuthorized) {
+          return createResponse(
+            401,
+            {
+              error:
+                "Unauthorized. Valid X-API-Key required for automated backups.",
+            },
+            origin,
+          );
+        }
+
+        // Get backup settings from database (first user or system-wide settings)
+        const businessSettings = await db
+          .collection("business_settings")
+          .findOne({});
+
+        const driveConfig = businessSettings?.backupSettings;
+
+        // Check if Google Drive backup is enabled
+        if (!driveConfig || !driveConfig.enabled) {
+          return createResponse(
+            200,
+            {
+              success: false,
+              message: "Google Drive backup is not enabled in settings",
+            },
+            origin,
+          );
+        }
+
+        // Create backup data
+        const backupData = await buildBackupPayload(db);
+        const stats = getBackupStats(backupData);
+
+        // Upload to Google Drive
+        try {
+          const uploadResult = await uploadToGoogleDrive(
+            driveConfig,
+            backupData,
+            "automated",
+          );
+
+          // Save backup run record
+          await db.collection("backup_runs").insertOne({
+            userId: businessSettings.userId || "automated",
+            triggeredAt: new Date(),
+            trigger: "automated",
+            stats,
+            status: "completed",
+            driveFileId: uploadResult.fileId,
+            driveFileName: uploadResult.fileName,
+            driveFileUrl: uploadResult.fileUrl,
+            driveFileSize: uploadResult.fileSize,
+          });
+
+          return createResponse(
+            200,
+            {
+              success: true,
+              message: `Automated backup uploaded to Google Drive successfully`,
+              stats,
+              drive: {
+                fileName: uploadResult.fileName,
+                fileUrl: uploadResult.fileUrl,
+                fileSize: uploadResult.fileSize,
+              },
+            },
+            origin,
+          );
+        } catch (error) {
+          // Save backup run with error status
+          await db.collection("backup_runs").insertOne({
+            userId: businessSettings.userId || "automated",
+            triggeredAt: new Date(),
+            trigger: "automated",
+            stats,
+            status: "failed",
+            error: error.message,
+          });
+
+          return createResponse(
+            500,
+            {
+              success: false,
+              error: `Automated backup upload failed: ${error.message}`,
+              stats,
+            },
+            origin,
+          );
+        }
       }
 
       return createResponse(400, { error: "Invalid action" }, origin);

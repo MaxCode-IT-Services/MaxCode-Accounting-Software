@@ -1133,16 +1133,23 @@ const Settings = () => {
       setIsDriveSaving(true);
       showInfo("Testing Google Drive connection...");
 
-      await apiPost(API_ENDPOINTS.BACKUP.TEST_DRIVE, {
+      const response = await apiPost(API_ENDPOINTS.BACKUP.TEST_DRIVE, {
         action: "test-drive-config",
         driveConfig,
       });
 
-      showSuccess("Google Drive connection successful!");
+      if (response?.data?.user?.emailAddress) {
+        showSuccess(
+          `✅ Google Drive connected successfully!\nLogged in as: ${response.data.user.emailAddress}`,
+        );
+      } else {
+        showSuccess("✅ Google Drive connection successful!");
+      }
     } catch (error) {
       console.error("Drive connection test error:", error);
       showError(
-        "Failed to connect to Google Drive. Please check your credentials.",
+        error?.response?.data?.error ||
+          "Failed to connect to Google Drive. Please check your credentials.",
       );
     } finally {
       setIsDriveSaving(false);
@@ -1152,21 +1159,33 @@ const Settings = () => {
   const handleRunBackupNow = async () => {
     try {
       setIsDriveSaving(true);
+      showInfo("⏳ Creating backup and uploading to Google Drive...");
+
       const response = await apiPost(API_ENDPOINTS.BACKUP.RUN_NOW, {
         action: "run-now",
       });
 
       const stats = response?.data?.stats;
-      if (stats) {
+      const drive = response?.data?.drive;
+
+      if (drive?.fileName) {
         showSuccess(
-          `Backup run complete: ${stats.totalRecords} records across ${stats.collections} collections`,
+          `✅ Backup uploaded to Google Drive!\n📁 ${drive.fileName}\n📊 ${stats.totalRecords} records across ${stats.collections} collections`,
+        );
+      } else if (stats) {
+        showSuccess(
+          `✅ Backup completed (local only)!\n📊 ${stats.totalRecords} records across ${stats.collections} collections\n💡 Enable Google Drive in configuration to upload backups`,
         );
       } else {
-        showSuccess("Backup run completed successfully");
+        showSuccess("✅ Backup completed successfully");
       }
     } catch (error) {
       console.error("Run backup now error:", error);
-      showError(error?.response?.data?.error || "Failed to run backup now");
+      showError(
+        error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          "Failed to run backup",
+      );
     } finally {
       setIsDriveSaving(false);
     }
