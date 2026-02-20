@@ -525,16 +525,6 @@ export async function handler(event) {
     if (event.httpMethod === "PUT") {
       const payload = event.body ? JSON.parse(event.body) : {};
       const sanitizedPayload = sanitizeSettingsPayload(payload);
-      const isServicesOnlyUpdate =
-        Object.keys(payload).length === 1 &&
-        Object.prototype.hasOwnProperty.call(payload, "services");
-
-      if (
-        !isServicesOnlyUpdate &&
-        !Object.prototype.hasOwnProperty.call(sanitizedPayload, "gstin")
-      ) {
-        sanitizedPayload.gstin = "";
-      }
 
       // Process base64 images and convert to short URL references
       const assetsCollection = db.collection(ASSETS_COLLECTION);

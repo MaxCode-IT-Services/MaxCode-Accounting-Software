@@ -1,6 +1,5 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
-import { google } from "googleapis";
 
 /**
  * Backup API Endpoint
@@ -11,7 +10,8 @@ import { google } from "googleapis";
  * - POST action=run-automated: Scheduled backup run via GitHub Actions (API Key required)
  */
 
-const BACKUP_COLLECTIONS = [
+const DEFAULT_BACKUP_COLLECTIONS = [
+  "users",
   "clients",
   "vendors",
   "staff",
@@ -20,9 +20,31 @@ const BACKUP_COLLECTIONS = [
   "rcm",
   "projects",
   "services",
-  "years",
+  "financialYears",
+  "company_expenses",
   "business_settings",
+  "business_assets",
+  "backup_runs",
 ];
+
+const getDynamicCollectionNames = async (db) => {
+  try {
+    const allCollections = await db
+      .listCollections({}, { nameOnly: true })
+      .toArray();
+
+    return allCollections
+      .map((item) => item?.name)
+      .filter(
+        (name) =>
+          typeof name === "string" &&
+          name.length > 0 &&
+          !name.startsWith("system."),
+      );
+  } catch {
+    return [...DEFAULT_BACKUP_COLLECTIONS];
+  }
+};
 
 const toTrimmedString = (value) => {
   if (value === undefined || value === null) return "";
@@ -54,23 +76,47 @@ const validateJwtAccess = (event) => {
 };
 
 const buildBackupPayload = async (db) => {
+  const collectionNames = await getDynamicCollectionNames(db);
+  const failedCollections = [];
+  const collectionStats = {};
+
   const backupData = {
     metadata: {
       timestamp: new Date().toISOString(),
-      version: "1.1",
+      version: "1.2",
       source: "MaxCode Invoice Software",
+      collectionNames,
+      strictMode: true,
     },
     collections: {},
   };
 
-  for (const collectionName of BACKUP_COLLECTIONS) {
+  for (const collectionName of collectionNames) {
     try {
       const collection = db.collection(collectionName);
       const data = await collection.find({}).toArray();
       backupData.collections[collectionName] = data;
+      collectionStats[collectionName] = Array.isArray(data) ? data.length : 0;
     } catch (error) {
+      failedCollections.push({
+        collection: collectionName,
+        error: error?.message || "Unknown error",
+      });
       backupData.collections[collectionName] = [];
+      collectionStats[collectionName] = 0;
     }
+  }
+
+  backupData.metadata.collectionStats = collectionStats;
+  backupData.metadata.failedCollections = failedCollections;
+
+  if (failedCollections.length > 0) {
+    const failedNames = failedCollections
+      .map((item) => item.collection)
+      .join(", ");
+    throw new Error(
+      `Backup incomplete. Failed collections: ${failedNames}. Please fix and retry.`,
+    );
   }
 
   return backupData;
@@ -86,11 +132,20 @@ const getBackupStats = (backupData) => {
     totalRecords,
     collections: Object.keys(backupData.collections || {}).length,
     timestamp: backupData?.metadata?.timestamp || new Date().toISOString(),
+    collectionStats: backupData?.metadata?.collectionStats || {},
+    failedCollections: backupData?.metadata?.failedCollections || [],
   };
 };
 
 const normalizeBackupCollections = (inputCollections = {}) => {
   const sourceCollections = { ...inputCollections };
+
+  if (
+    !sourceCollections.financialYears &&
+    Array.isArray(sourceCollections.years)
+  ) {
+    sourceCollections.financialYears = sourceCollections.years;
+  }
 
   if (
     !sourceCollections.business_settings &&
@@ -101,7 +156,21 @@ const normalizeBackupCollections = (inputCollections = {}) => {
 
   const normalized = {};
 
-  for (const collectionName of BACKUP_COLLECTIONS) {
+  const collectionNames = [
+    ...new Set([
+      ...Object.keys(sourceCollections),
+      ...DEFAULT_BACKUP_COLLECTIONS,
+      "financialYears",
+      "business_settings",
+    ]),
+  ].filter(
+    (name) =>
+      typeof name === "string" &&
+      name.length > 0 &&
+      !name.startsWith("system."),
+  );
+
+  for (const collectionName of collectionNames) {
     const value = sourceCollections[collectionName];
     normalized[collectionName] = Array.isArray(value) ? value : [];
   }
@@ -114,7 +183,9 @@ const restoreBackupData = async (db, backupData) => {
     backupData?.collections || {},
   );
 
-  for (const collectionName of BACKUP_COLLECTIONS) {
+  const collectionNames = Object.keys(normalizedCollections);
+
+  for (const collectionName of collectionNames) {
     const collection = db.collection(collectionName);
     const documents = normalizedCollections[collectionName].filter(
       (doc) => doc && typeof doc === "object",
@@ -174,6 +245,53 @@ const validateDriveConfigPayload = (config = {}) => {
 };
 
 /**
+ * Exchange refresh token for access token
+ * @param {Object} driveConfig
+ * @returns {Promise<string>}
+ */
+const getGoogleAccessToken = async (driveConfig) => {
+  try {
+    const params = new URLSearchParams({
+      client_id: toTrimmedString(driveConfig.clientId),
+      client_secret: toTrimmedString(driveConfig.clientSecret),
+      refresh_token: toTrimmedString(driveConfig.refreshToken),
+      grant_type: "refresh_token",
+    });
+
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    });
+
+    const responseText = await tokenResponse.text();
+    let tokenPayload;
+
+    try {
+      tokenPayload = JSON.parse(responseText);
+    } catch (parseError) {
+      throw new Error(
+        `Invalid JSON from token endpoint: ${responseText.substring(0, 200)}`,
+      );
+    }
+
+    if (!tokenResponse.ok || !tokenPayload?.access_token) {
+      throw new Error(
+        tokenPayload?.error_description ||
+          tokenPayload?.error ||
+          "Unable to fetch Google access token",
+      );
+    }
+
+    return tokenPayload.access_token;
+  } catch (error) {
+    throw new Error(`Token refresh failed: ${error.message}`);
+  }
+};
+
+/**
  * Upload backup data to Google Drive
  * @param {Object} driveConfig - Google Drive configuration
  * @param {Object} backupData - Backup data to upload
@@ -186,20 +304,7 @@ const uploadToGoogleDrive = async (
   trigger = "manual",
 ) => {
   try {
-    // Create OAuth2 client
-    const oauth2Client = new google.auth.OAuth2(
-      driveConfig.clientId,
-      driveConfig.clientSecret,
-      "https://developers.google.com/oauthplayground", // Redirect URI used during token generation
-    );
-
-    // Set credentials with refresh token
-    oauth2Client.setCredentials({
-      refresh_token: driveConfig.refreshToken,
-    });
-
-    // Initialize Drive API
-    const drive = google.drive({ version: "v3", auth: oauth2Client });
+    const accessToken = await getGoogleAccessToken(driveConfig);
 
     // Create backup file name with timestamp
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -208,7 +313,6 @@ const uploadToGoogleDrive = async (
     // Convert backup data to JSON string
     const backupJson = JSON.stringify(backupData, null, 2);
 
-    // Upload to Google Drive
     const fileMetadata = {
       name: fileName,
       mimeType: "application/json",
@@ -219,22 +323,54 @@ const uploadToGoogleDrive = async (
       fileMetadata.parents = [driveConfig.folderId];
     }
 
-    // Upload using multipart upload with Buffer
-    const response = await drive.files.create({
-      requestBody: fileMetadata,
-      media: {
-        mimeType: "application/json",
-        body: backupJson, // Send as string directly
+    const boundary = `maxcode_backup_boundary_${Date.now()}`;
+    const multipartBody =
+      `--${boundary}\r\n` +
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+      `${JSON.stringify(fileMetadata)}\r\n` +
+      `--${boundary}\r\n` +
+      "Content-Type: application/json\r\n\r\n" +
+      `${backupJson}\r\n` +
+      `--${boundary}--`;
+
+    const uploadResponse = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,size",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+        },
+        body: multipartBody,
       },
-      fields: "id, name, webViewLink, size",
-    });
+    );
+
+    // Check if response is OK before trying to parse JSON
+    const responseText = await uploadResponse.text();
+    let response;
+
+    try {
+      response = JSON.parse(responseText);
+    } catch (parseError) {
+      throw new Error(
+        `Invalid JSON response from Google Drive: ${responseText.substring(0, 200)}`,
+      );
+    }
+
+    if (!uploadResponse.ok || !response?.id) {
+      throw new Error(
+        response?.error?.message ||
+          response?.error_description ||
+          `Google Drive file upload failed with status ${uploadResponse.status}`,
+      );
+    }
 
     return {
       success: true,
-      fileId: response.data.id,
-      fileName: response.data.name,
-      fileUrl: response.data.webViewLink,
-      fileSize: response.data.size,
+      fileId: response.id,
+      fileName: response.name,
+      fileUrl: response.webViewLink,
+      fileSize: response.size,
     };
   } catch (error) {
     throw new Error(`Google Drive upload failed: ${error.message}`);
@@ -248,44 +384,49 @@ const uploadToGoogleDrive = async (
  */
 const testGoogleDriveConnection = async (driveConfig) => {
   try {
-    // Create OAuth2 client
-    const oauth2Client = new google.auth.OAuth2(
-      driveConfig.clientId,
-      driveConfig.clientSecret,
-      "https://developers.google.com/oauthplayground",
+    const accessToken = await getGoogleAccessToken(driveConfig);
+
+    const aboutResponse = await fetch(
+      "https://www.googleapis.com/drive/v3/about?fields=user(emailAddress,displayName),storageQuota",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
     );
 
-    // Set credentials with refresh token
-    oauth2Client.setCredentials({
-      refresh_token: driveConfig.refreshToken,
-    });
-
-    // Initialize Drive API
-    const drive = google.drive({ version: "v3", auth: oauth2Client });
-
-    // Test: Get user info
-    const about = await drive.about.get({
-      fields: "user(emailAddress, displayName), storageQuota",
-    });
+    const about = await aboutResponse.json().catch(() => ({}));
+    if (!aboutResponse.ok) {
+      throw new Error(
+        about?.error?.message || "Unable to fetch Drive user info",
+      );
+    }
 
     // If folderId is provided, verify it exists
     if (driveConfig.folderId && driveConfig.folderId.trim()) {
-      try {
-        await drive.files.get({
-          fileId: driveConfig.folderId,
-          fields: "id, name",
-        });
-      } catch (error) {
+      const folderResponse = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(driveConfig.folderId)}?fields=id,name`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      if (!folderResponse.ok) {
+        const folderError = await folderResponse.json().catch(() => ({}));
         throw new Error(
-          `Folder ID not found or not accessible: ${error.message}`,
+          `Folder ID not found or not accessible: ${folderError?.error?.message || folderResponse.statusText}`,
         );
       }
     }
 
     return {
       success: true,
-      user: about.data.user,
-      storageQuota: about.data.storageQuota,
+      user: about.user,
+      storageQuota: about.storageQuota,
     };
   } catch (error) {
     throw new Error(`Drive connection test failed: ${error.message}`);
