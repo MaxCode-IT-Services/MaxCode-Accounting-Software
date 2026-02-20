@@ -307,8 +307,6 @@ const saveImageAsset = async (db, base64DataUrl, userId, field, event) => {
   }
 };
 
-};
-
 const getAssetParams = (event) => {
   const query = event.queryStringParameters || {};
 

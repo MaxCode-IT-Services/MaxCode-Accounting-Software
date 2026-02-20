@@ -70,14 +70,9 @@ export async function handler(event) {
     const usersCollection = db.collection("users");
 
     if (event.httpMethod === "GET") {
-      console.log("🔍 GET request - userId from JWT:", user.userId);
-
       const userData = await usersCollection.findOne({
         _id: new ObjectId(user.userId),
       });
-
-      console.log("📊 User data from DB:", userData?.twoFactor);
-      console.log("✅ twoFactor.enabled:", userData?.twoFactor?.enabled);
 
       return createResponse(
         200,

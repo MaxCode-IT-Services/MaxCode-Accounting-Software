@@ -199,17 +199,9 @@ const Settings = () => {
   const load2FAStatus = async () => {
     try {
       const response = await apiGet(API_ENDPOINTS.TWO_FACTOR_AUTH.GET_STATUS);
-      console.log("📊 2FA Status Response:", response.data);
-      console.log(
-        "📱 twoFactorEnabled from API:",
-        response?.data?.twoFactorEnabled,
-      );
-
       if (response?.data?.twoFactorEnabled === true) {
-        console.log("✅ 2FA is enabled according to API");
         setTwoFAData((prev) => ({ ...prev, enabled: true }));
       } else {
-        console.log("⚠️ 2FA is NOT enabled according to API");
         setTwoFAData((prev) => ({ ...prev, enabled: false }));
       }
     } catch (error) {
@@ -241,7 +233,7 @@ const Settings = () => {
         });
       }
     } catch (error) {
-      console.error("Error loading Google Drive config:", error);
+      // Silently handle network errors - will use default values
     }
   };
 
@@ -265,7 +257,7 @@ const Settings = () => {
     };
   };
 
-  const loadProfileSettings = async () => {
+    try {
     let fallbackProfile = DEFAULT_PROFILE_FORM;
 
     const storedUserInfo = localStorage.getItem("user_info");
@@ -303,7 +295,7 @@ const Settings = () => {
         setInitialProfileData(mergedProfile);
       }
     } catch (error) {
-      console.error("Failed to fetch profile settings:", error);
+      // Silently handle network errors for profile settings
     }
   };
 
@@ -497,11 +489,7 @@ const Settings = () => {
         token: twoFAData.twoFACode,
       });
 
-      console.log("🔐 Enable 2FA Response:", response.data);
-      console.log("✅ success:", response?.data?.success);
-
       if (response?.data?.success) {
-        console.log("✅ 2FA enabled successfully!");
         setTwoFAData({ enabled: true, twoFACode: "" });
         setBackupCodes(response?.data?.backupCodes || []);
         setShowBackupCodes(true);
@@ -510,7 +498,6 @@ const Settings = () => {
         await load2FAStatus();
       }
     } catch (error) {
-      console.error("❌ Error enabling 2FA:", error.response?.data);
       showError(
         error?.response?.data?.error ||
           "Invalid authenticator code. Please try again.",
@@ -629,7 +616,7 @@ const Settings = () => {
       try {
         cachedSettings = JSON.parse(cached);
       } catch (error) {
-        console.error("Failed to parse cached business settings:", error);
+        // Ignore parse errors - will fetch from server
       }
     }
 
@@ -651,7 +638,7 @@ const Settings = () => {
         return;
       }
     } catch (error) {
-      console.error("Failed to fetch business settings:", error);
+      // Silently handle network errors - will use cached data if available
     } finally {
       setIsBusinessLoading(false);
     }
