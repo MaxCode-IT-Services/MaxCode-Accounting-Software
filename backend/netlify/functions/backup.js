@@ -1,7 +1,7 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
 import { google } from "googleapis";
-import { Readable } from "stream";
+import stream from "stream";
 
 /**
  * Backup API Endpoint
@@ -210,7 +210,8 @@ const uploadToGoogleDrive = async (
     const backupJson = JSON.stringify(backupData, null, 2);
 
     // Create a readable stream from the JSON string
-    const bufferStream = Readable.from([backupJson]);
+    const bufferStream = new stream.PassThrough();
+    bufferStream.end(Buffer.from(backupJson));
 
     // Upload to Google Drive
     const fileMetadata = {
