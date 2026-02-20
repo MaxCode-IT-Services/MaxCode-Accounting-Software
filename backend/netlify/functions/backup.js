@@ -320,26 +320,6 @@ const uploadToGoogleDrive = async (
     // Convert backup data to JSON string
     const backupJson = JSON.stringify(backupData, null, 2);
 
-    const fileMetadata = {
-      name: fileName,
-      mimeType: "application/json",
-    };
-
-    // Only specify parent folder if folderId is provided
-    if (driveConfig.folderId && driveConfig.folderId.trim()) {
-      fileMetadata.parents = [driveConfig.folderId];
-    }
-
-    const boundary = `maxcode_backup_boundary_${Date.now()}`;
-    const multipartBody =
-      `--${boundary}\r\n` +
-      "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
-      `${JSON.stringify(fileMetadata)}\r\n` +
-      `--${boundary}\r\n` +
-      "Content-Type: application/json\r\n\r\n" +
-      `${backupJson}\r\n` +
-      `--${boundary}--`;
-
     const escapedName = fileName.replace(/'/g, "\\'");
     const folderFilter =
       driveConfig.folderId && driveConfig.folderId.trim()
@@ -372,6 +352,29 @@ const uploadToGoogleDrive = async (
       : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,size";
 
     const uploadMethod = existingFileId ? "PATCH" : "POST";
+
+    const fileMetadata = {
+      name: fileName,
+      mimeType: "application/json",
+    };
+
+    if (
+      !existingFileId &&
+      driveConfig.folderId &&
+      driveConfig.folderId.trim()
+    ) {
+      fileMetadata.parents = [driveConfig.folderId.trim()];
+    }
+
+    const boundary = `maxcode_backup_boundary_${Date.now()}`;
+    const multipartBody =
+      `--${boundary}\r\n` +
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+      `${JSON.stringify(fileMetadata)}\r\n` +
+      `--${boundary}\r\n` +
+      "Content-Type: application/json\r\n\r\n" +
+      `${backupJson}\r\n` +
+      `--${boundary}--`;
 
     const uploadResponse = await fetch(uploadUrl, {
       method: uploadMethod,
