@@ -75,6 +75,15 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/purchases?id=${id}`,
   },
 
+  // Company Expense endpoints
+  COMPANY_EXPENSES: {
+    LIST: "/company-expenses",
+    CREATE: "/company-expenses",
+    GET: (id) => `/company-expenses?id=${id}`,
+    UPDATE: (id) => `/company-expenses?id=${id}`,
+    DELETE: (id) => `/company-expenses?id=${id}`,
+  },
+
   // RCM endpoints
   RCM: {
     LIST: "/rcm",

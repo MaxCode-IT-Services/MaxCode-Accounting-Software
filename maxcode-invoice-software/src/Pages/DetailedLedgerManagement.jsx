@@ -15,6 +15,7 @@ const DetailedLedgerManagement = () => {
   );
   const [salesRecords, setSalesRecords] = useState([]);
   const [purchaseRecords, setPurchaseRecords] = useState([]);
+  const [companyExpenseRecords, setCompanyExpenseRecords] = useState([]);
   const [rcmRecords, setRcmRecords] = useState([]);
   const [projectRecords, setProjectRecords] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -104,7 +105,7 @@ const DetailedLedgerManagement = () => {
   };
 
   const getTotalAmount = (record) =>
-    toNumber(record?.taxData?.totalAmount || 0);
+    toNumber(record?.taxData?.totalAmount || record?.amount || 0);
 
   const getReceivedAmount = (record, totalAmount) => {
     const explicitPaid = Math.max(
@@ -147,12 +148,14 @@ const DetailedLedgerManagement = () => {
         yearsResult,
         salesResult,
         purchaseResult,
+        companyExpenseResult,
         rcmResult,
         projectsResult,
       ] = await Promise.allSettled([
         apiGet(API_ENDPOINTS.YEARS.LIST),
         apiGet(API_ENDPOINTS.INVOICES.LIST),
         apiGet(API_ENDPOINTS.PURCHASES.LIST),
+        apiGet(API_ENDPOINTS.COMPANY_EXPENSES.LIST),
         apiGet(API_ENDPOINTS.RCM.LIST),
         apiGet(API_ENDPOINTS.PROJECTS.LIST),
       ]);
@@ -186,6 +189,15 @@ const DetailedLedgerManagement = () => {
             : purchaseResult.value.data?.purchases || []
           : [];
 
+      const companyExpensesData =
+        companyExpenseResult.status === "fulfilled"
+          ? Array.isArray(companyExpenseResult.value.data)
+            ? companyExpenseResult.value.data
+            : companyExpenseResult.value.data?.companyExpenses ||
+              companyExpenseResult.value.data?.expenses ||
+              []
+          : [];
+
       const rcmData =
         rcmResult.status === "fulfilled"
           ? Array.isArray(rcmResult.value.data)
@@ -213,6 +225,12 @@ const DetailedLedgerManagement = () => {
           id: record._id || record.id,
         })),
       );
+      setCompanyExpenseRecords(
+        companyExpensesData.map((record) => ({
+          ...record,
+          id: record._id || record.id,
+        })),
+      );
       setRcmRecords(
         rcmData.map((record) => ({
           ...record,
@@ -230,6 +248,7 @@ const DetailedLedgerManagement = () => {
         yearsResult.status === "rejected" ||
         salesResult.status === "rejected" ||
         purchaseResult.status === "rejected" ||
+        companyExpenseResult.status === "rejected" ||
         rcmResult.status === "rejected" ||
         projectsResult.status === "rejected"
       ) {
@@ -243,6 +262,7 @@ const DetailedLedgerManagement = () => {
       setFinancialYears([]);
       setSalesRecords([]);
       setPurchaseRecords([]);
+      setCompanyExpenseRecords([]);
       setRcmRecords([]);
       setProjectRecords([]);
     } finally {
@@ -289,6 +309,18 @@ const DetailedLedgerManagement = () => {
       invoiceNo: record.invoiceNumber || "-",
       partySecondary: record.businessName || "-",
       raw: record,
+    }));
+
+    const companyExpenses = companyExpenseRecords.map((record) => ({
+      sourceType: "companyExpense",
+      type: "Company Expense",
+      invoiceNo: record.expenseNumber || "-",
+      partySecondary:
+        record.partyName || record.businessName || record.vendorName || "-",
+      raw: {
+        ...record,
+        invoiceDate: record.expenseDate || record.invoiceDate,
+      },
     }));
 
     const rcm = rcmRecords.map((record) => ({
@@ -340,8 +372,14 @@ const DetailedLedgerManagement = () => {
       });
     });
 
-    return [...sales, ...purchases, ...rcm, ...project];
-  }, [salesRecords, purchaseRecords, rcmRecords, projectRecords]);
+    return [...sales, ...purchases, ...companyExpenses, ...rcm, ...project];
+  }, [
+    salesRecords,
+    purchaseRecords,
+    companyExpenseRecords,
+    rcmRecords,
+    projectRecords,
+  ]);
 
   const filteredLedgerRecords = useMemo(() => {
     const selectedRange = getSelectedYearRange();
@@ -376,6 +414,13 @@ const DetailedLedgerManagement = () => {
       }
 
       if (recordTypeMode === "purchase" && entry.sourceType !== "purchase") {
+        return false;
+      }
+
+      if (
+        recordTypeMode === "companyExpense" &&
+        entry.sourceType !== "companyExpense"
+      ) {
         return false;
       }
 
@@ -475,7 +520,14 @@ const DetailedLedgerManagement = () => {
     }
 
     if (cardKey === "recordType") {
-      const typeCycle = ["sales", "purchase", "rcm", "project", "all"];
+      const typeCycle = [
+        "sales",
+        "purchase",
+        "companyExpense",
+        "rcm",
+        "project",
+        "all",
+      ];
       setRecordTypeMode((prev) => {
         const currentIndex = typeCycle.indexOf(prev);
         if (currentIndex === -1) return "sales";
@@ -517,11 +569,13 @@ const DetailedLedgerManagement = () => {
           ? "Clients (Sales)"
           : recordTypeMode === "purchase"
             ? "Purchases (Vendor)"
-            : recordTypeMode === "rcm"
-              ? "RCM"
-              : recordTypeMode === "project"
-                ? "Developer Payout"
-                : "All",
+            : recordTypeMode === "companyExpense"
+              ? "Company Expense"
+              : recordTypeMode === "rcm"
+                ? "RCM"
+                : recordTypeMode === "project"
+                  ? "Developer Payout"
+                  : "All",
       icon: "fa-solid fa-layer-group",
     },
     {
@@ -631,7 +685,14 @@ const DetailedLedgerManagement = () => {
   const columnsWithDateFilter = ["date"];
 
   const filterOptions = {
-    type: ["All", "Sales", "Purchase", "RCM", "Developer Payout"],
+    type: [
+      "All",
+      "Sales",
+      "Purchase",
+      "Company Expense",
+      "RCM",
+      "Developer Payout",
+    ],
     paymentMode: [
       "All",
       "Cash",
@@ -653,7 +714,8 @@ const DetailedLedgerManagement = () => {
         <div className="flex-grow-1">
           <h4 className="fs-18 fw-semibold m-0">Detailed Ledger Register</h4>
           <small className="text-muted">
-            Combined Sales, Purchase, RCM and Developer payout ledger records
+            Combined Sales, Purchase, Company Expense, RCM and Developer payout
+            ledger records
           </small>
         </div>
       </div>

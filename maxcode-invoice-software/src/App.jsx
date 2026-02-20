@@ -20,6 +20,9 @@ const StaffManagement = lazy(() => import("../src/Pages/StaffManagement"));
 const PurchaseManagement = lazy(
   () => import("../src/Pages/PurchaseManagement"),
 );
+const CompanyExpenseManagement = lazy(
+  () => import("../src/Pages/CompanyExpenseManagement"),
+);
 const SalesManagement = lazy(() => import("../src/Pages/SalesManagement"));
 const ServicesManagement = lazy(
   () => import("../src/Pages/ServicesManagement"),
@@ -181,6 +184,17 @@ const App = () => {
               <PermissionRoute moduleKey="purchaseManagement">
                 <Suspense fallback={<Loading />}>
                   <PurchaseManagement />
+                </Suspense>
+              </PermissionRoute>
+            }
+          />
+
+          <Route
+            path="company-expense-management"
+            element={
+              <PermissionRoute moduleKey="companyExpenseManagement">
+                <Suspense fallback={<Loading />}>
+                  <CompanyExpenseManagement />
                 </Suspense>
               </PermissionRoute>
             }

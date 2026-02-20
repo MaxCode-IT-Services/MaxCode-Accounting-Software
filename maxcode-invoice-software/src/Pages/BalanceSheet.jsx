@@ -15,6 +15,7 @@ const BalanceSheet = () => {
   );
   const [salesRecords, setSalesRecords] = useState([]);
   const [purchaseRecords, setPurchaseRecords] = useState([]);
+  const [companyExpenseRecords, setCompanyExpenseRecords] = useState([]);
   const [rcmRecords, setRcmRecords] = useState([]);
   const [projectRecords, setProjectRecords] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -139,7 +140,7 @@ const BalanceSheet = () => {
   };
 
   const getTotalAmount = (record) => {
-    return toNumber(record?.taxData?.totalAmount || 0);
+    return toNumber(record?.taxData?.totalAmount || record?.amount || 0);
   };
 
   const getPaidAmount = (record, totalAmount) => {
@@ -191,12 +192,14 @@ const BalanceSheet = () => {
         yearsResult,
         salesResult,
         purchaseResult,
+        companyExpenseResult,
         rcmResult,
         projectsResult,
       ] = await Promise.allSettled([
         apiGet(API_ENDPOINTS.YEARS.LIST),
         apiGet(API_ENDPOINTS.INVOICES.LIST),
         apiGet(API_ENDPOINTS.PURCHASES.LIST),
+        apiGet(API_ENDPOINTS.COMPANY_EXPENSES.LIST),
         apiGet(API_ENDPOINTS.RCM.LIST),
         apiGet(API_ENDPOINTS.PROJECTS.LIST),
       ]);
@@ -230,6 +233,15 @@ const BalanceSheet = () => {
             : purchaseResult.value.data?.purchases || []
           : [];
 
+      const companyExpensesData =
+        companyExpenseResult.status === "fulfilled"
+          ? Array.isArray(companyExpenseResult.value.data)
+            ? companyExpenseResult.value.data
+            : companyExpenseResult.value.data?.companyExpenses ||
+              companyExpenseResult.value.data?.expenses ||
+              []
+          : [];
+
       const rcmData =
         rcmResult.status === "fulfilled"
           ? Array.isArray(rcmResult.value.data)
@@ -257,6 +269,12 @@ const BalanceSheet = () => {
           id: record._id || record.id,
         })),
       );
+      setCompanyExpenseRecords(
+        companyExpensesData.map((record) => ({
+          ...record,
+          id: record._id || record.id,
+        })),
+      );
       setRcmRecords(
         rcmData.map((record) => ({
           ...record,
@@ -274,6 +292,7 @@ const BalanceSheet = () => {
         yearsResult.status === "rejected" ||
         salesResult.status === "rejected" ||
         purchaseResult.status === "rejected" ||
+        companyExpenseResult.status === "rejected" ||
         rcmResult.status === "rejected" ||
         projectsResult.status === "rejected"
       ) {
@@ -285,6 +304,7 @@ const BalanceSheet = () => {
       setFinancialYears([]);
       setSalesRecords([]);
       setPurchaseRecords([]);
+      setCompanyExpenseRecords([]);
       setRcmRecords([]);
       setProjectRecords([]);
     } finally {
@@ -319,6 +339,7 @@ const BalanceSheet = () => {
   const balanceSummary = useMemo(() => {
     const sales = filterByFinancialYear(salesRecords);
     const purchases = filterByFinancialYear(purchaseRecords);
+    const companyExpenses = filterByFinancialYear(companyExpenseRecords);
     const rcm = filterByFinancialYear(rcmRecords);
     const selectedRange = getSelectedYearRange();
 
@@ -401,6 +422,19 @@ const BalanceSheet = () => {
 
       if (isPurchaseItcEligible(record.invoiceType)) {
         totals.gstInputDebit += taxAmount;
+      }
+    });
+
+    companyExpenses.forEach((record) => {
+      const totalAmount = getTotalAmount(record);
+      const paidAmount = getPaidAmount(record, totalAmount);
+
+      totals.sundryCreditorsCredit += Math.max(totalAmount - paidAmount, 0);
+
+      if (isCashPayment(record.paymentMethod)) {
+        totals.cashCredit += paidAmount;
+      } else if (isBankPayment(record.paymentMethod)) {
+        totals.bankCredit += paidAmount;
       }
     });
 
@@ -500,6 +534,7 @@ const BalanceSheet = () => {
   }, [
     salesRecords,
     purchaseRecords,
+    companyExpenseRecords,
     rcmRecords,
     projectRecords,
     selectedFinancialYear,

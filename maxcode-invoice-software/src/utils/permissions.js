@@ -34,6 +34,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "companyExpenseManagement",
+    label: "Company Expense",
+    description: "Manage company expenses",
+    icon: "fa-solid fa-money-bill-wave",
+    route: "/admin/company-expense-management",
+    detailed: true,
+  },
+  {
     key: "salesManagement",
     label: "Sales Management",
     description: "Manage sales",

@@ -15,6 +15,7 @@ const LedgerManagement = () => {
   );
   const [salesRecords, setSalesRecords] = useState([]);
   const [purchaseRecords, setPurchaseRecords] = useState([]);
+  const [companyExpenseRecords, setCompanyExpenseRecords] = useState([]);
   const [rcmRecords, setRcmRecords] = useState([]);
   const [projectRecords, setProjectRecords] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -24,6 +25,7 @@ const LedgerManagement = () => {
     years: "idle",
     invoices: "idle",
     purchases: "idle",
+    companyExpenses: "idle",
     rcm: "idle",
     projects: "idle",
   });
@@ -139,7 +141,7 @@ const LedgerManagement = () => {
   };
 
   const getTotalAmount = (record) => {
-    return toNumber(record?.taxData?.totalAmount || 0);
+    return toNumber(record?.taxData?.totalAmount || record?.amount || 0);
   };
 
   const getPaidAmount = (record, totalAmount) => {
@@ -190,6 +192,7 @@ const LedgerManagement = () => {
       years: "loading",
       invoices: "loading",
       purchases: "loading",
+      companyExpenses: "loading",
       rcm: "loading",
       projects: "loading",
     });
@@ -198,12 +201,14 @@ const LedgerManagement = () => {
         yearsResult,
         salesResult,
         purchaseResult,
+        companyExpenseResult,
         rcmResult,
         projectsResult,
       ] = await Promise.allSettled([
         apiGet(API_ENDPOINTS.YEARS.LIST),
         apiGet(API_ENDPOINTS.INVOICES.LIST),
         apiGet(API_ENDPOINTS.PURCHASES.LIST),
+        apiGet(API_ENDPOINTS.COMPANY_EXPENSES.LIST),
         apiGet(API_ENDPOINTS.RCM.LIST),
         apiGet(API_ENDPOINTS.PROJECTS.LIST),
       ]);
@@ -237,6 +242,15 @@ const LedgerManagement = () => {
             : purchaseResult.value.data?.purchases || []
           : [];
 
+      const companyExpensesData =
+        companyExpenseResult.status === "fulfilled"
+          ? Array.isArray(companyExpenseResult.value.data)
+            ? companyExpenseResult.value.data
+            : companyExpenseResult.value.data?.companyExpenses ||
+              companyExpenseResult.value.data?.expenses ||
+              []
+          : [];
+
       const rcmData =
         rcmResult.status === "fulfilled"
           ? Array.isArray(rcmResult.value.data)
@@ -260,6 +274,12 @@ const LedgerManagement = () => {
       if (purchaseResult.status === "rejected") {
         console.error("Failed to fetch purchases:", purchaseResult.reason);
       }
+      if (companyExpenseResult.status === "rejected") {
+        console.error(
+          "Failed to fetch company expenses:",
+          companyExpenseResult.reason,
+        );
+      }
       if (rcmResult.status === "rejected") {
         console.error("Failed to fetch RCM:", rcmResult.reason);
       }
@@ -280,6 +300,12 @@ const LedgerManagement = () => {
           id: purchase._id || purchase.id,
         })),
       );
+      setCompanyExpenseRecords(
+        companyExpensesData.map((expense) => ({
+          ...expense,
+          id: expense._id || expense.id,
+        })),
+      );
       setRcmRecords(
         rcmData.map((record) => ({
           ...record,
@@ -297,6 +323,8 @@ const LedgerManagement = () => {
         years: yearsResult.status === "fulfilled" ? "loaded" : "failed",
         invoices: salesResult.status === "fulfilled" ? "loaded" : "failed",
         purchases: purchaseResult.status === "fulfilled" ? "loaded" : "failed",
+        companyExpenses:
+          companyExpenseResult.status === "fulfilled" ? "loaded" : "failed",
         rcm: rcmResult.status === "fulfilled" ? "loaded" : "failed",
         projects: projectsResult.status === "fulfilled" ? "loaded" : "failed",
       });
@@ -305,6 +333,7 @@ const LedgerManagement = () => {
         yearsResult.status === "rejected" ||
         salesResult.status === "rejected" ||
         purchaseResult.status === "rejected" ||
+        companyExpenseResult.status === "rejected" ||
         rcmResult.status === "rejected" ||
         projectsResult.status === "rejected"
       ) {
@@ -316,12 +345,14 @@ const LedgerManagement = () => {
       setFinancialYears([]);
       setSalesRecords([]);
       setPurchaseRecords([]);
+      setCompanyExpenseRecords([]);
       setRcmRecords([]);
       setProjectRecords([]);
       setApiStatus({
         years: "failed",
         invoices: "failed",
         purchases: "failed",
+        companyExpenses: "failed",
         rcm: "failed",
         projects: "failed",
       });
@@ -408,6 +439,20 @@ const LedgerManagement = () => {
           purchasesData.map((purchase) => ({
             ...purchase,
             id: purchase._id || purchase.id,
+          })),
+        );
+      }
+
+      if (apiKey === "companyExpenses") {
+        const response = await apiGet(API_ENDPOINTS.COMPANY_EXPENSES.LIST);
+        const expensesData = Array.isArray(response.data)
+          ? response.data
+          : response.data?.companyExpenses || response.data?.expenses || [];
+
+        setCompanyExpenseRecords(
+          expensesData.map((expense) => ({
+            ...expense,
+            id: expense._id || expense.id,
           })),
         );
       }
@@ -533,6 +578,15 @@ const LedgerManagement = () => {
     financialPeriodMode,
   ]);
 
+  const filteredCompanyExpenses = useMemo(() => {
+    return filterByPeriodMode(filterByFinancialYear(companyExpenseRecords));
+  }, [
+    companyExpenseRecords,
+    selectedFinancialYear,
+    financialYears,
+    financialPeriodMode,
+  ]);
+
   const filteredRcm = useMemo(() => {
     return filterByPeriodMode(filterByFinancialYear(rcmRecords));
   }, [rcmRecords, selectedFinancialYear, financialYears, financialPeriodMode]);
@@ -603,6 +657,7 @@ const LedgerManagement = () => {
       bankCredit: 0,
       salesCredit: 0,
       purchaseDebit: 0,
+      companyExpenseDebit: 0,
       gstOutputCredit: 0,
       gstInputDebit: 0,
       sundryDebtorsDebit: 0,
@@ -631,6 +686,20 @@ const LedgerManagement = () => {
         totals.cashDebit += paidAmount;
       } else if (isBankPayment(record.paymentMethod)) {
         totals.bankDebit += paidAmount;
+      }
+    });
+
+    filteredCompanyExpenses.forEach((record) => {
+      const totalAmount = getTotalAmount(record);
+      const paidAmount = getPaidAmount(record, totalAmount);
+
+      totals.companyExpenseDebit += totalAmount;
+      totals.sundryCreditorsCredit += Math.max(totalAmount - paidAmount, 0);
+
+      if (isCashPayment(record.paymentMethod)) {
+        totals.cashCredit += paidAmount;
+      } else if (isBankPayment(record.paymentMethod)) {
+        totals.bankCredit += paidAmount;
       }
     });
 
@@ -689,6 +758,7 @@ const LedgerManagement = () => {
       totals.cashDebit +
       totals.bankDebit +
       totals.purchaseDebit +
+      totals.companyExpenseDebit +
       totals.projectPayoutDebit +
       totals.gstInputDebit +
       totals.sundryDebtorsDebit;
@@ -701,7 +771,13 @@ const LedgerManagement = () => {
       totals.sundryCreditorsCredit;
 
     return totals;
-  }, [filteredPurchases, filteredRcm, filteredSales, projectPayoutEntries]);
+  }, [
+    filteredPurchases,
+    filteredCompanyExpenses,
+    filteredRcm,
+    filteredSales,
+    projectPayoutEntries,
+  ]);
 
   const getBalanceMeta = (debit, credit) => {
     const diff = toNumber(debit) - toNumber(credit);
@@ -748,6 +824,10 @@ const LedgerManagement = () => {
 
     if (accountName === "Purchase Account") {
       return `Debit: purchase value book hoti hai. Credit: purchase return/adjustment hota hai (normally 0). ${balanceMeaning}`;
+    }
+
+    if (accountName === "Company Expense Account") {
+      return `Debit: bina GST ya bina invoice wale business expenses book hote hain. Credit: expense reversal/adjustment hota hai (normally 0). ${balanceMeaning}`;
     }
 
     if (accountName === "Project Cost Account") {
@@ -802,6 +882,12 @@ const LedgerManagement = () => {
         debit: ledgerSummary.purchaseDebit,
         credit: 0,
         notes: "Purchase and RCM taxable value debited",
+      },
+      {
+        accountName: "Company Expense Account",
+        debit: ledgerSummary.companyExpenseDebit,
+        credit: 0,
+        notes: "No-GST or bill-less business expenses debited",
       },
       {
         accountName: "Project Cost Account",

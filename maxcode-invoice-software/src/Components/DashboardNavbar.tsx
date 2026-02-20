@@ -353,6 +353,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "purchaseManagement",
     },
     {
+      to: "/admin/company-expense-management",
+      icon: "fa-solid fa-money-bill-wave",
+      label: "Company Expense",
+      permissionKey: "companyExpenseManagement",
+    },
+    {
       to: "/admin/sales-management",
       icon: "fa-brands fa-shopify",
       label: "Sales Management",
