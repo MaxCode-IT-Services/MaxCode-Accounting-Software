@@ -2,7 +2,11 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiGet, apiPost, clearAuth } from "../utils/api";
-import { hasModuleAccess } from "../utils/permissions";
+import {
+  hasModuleAccess,
+  getStoredUserInfo,
+  withRolePrefix,
+} from "../utils/permissions";
 
 interface DashboardNavbarProps {
   children: React.ReactNode;
@@ -38,7 +42,6 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1040);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [circleColor, setCircleColor] = useState("");
-  const [userRole, setUserRole] = useState("user");
   const [selectedFinancialYear, setSelectedFinancialYear] = useState("ALL");
   const [financialYears, setFinancialYears] = useState<FinancialYearOption[]>(
     [],
@@ -46,8 +49,9 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   const [financialYearDropdownOpen, setFinancialYearDropdownOpen] =
     useState(false);
   const [user, setUser] = useState({
-    name: "Vipin Khandelwal",
-    email: "comtact@maxcode.in",
+    name: "Guest User",
+    email: "guest@example.com",
+    role: "User",
   });
   const dropdownRef = useRef<HTMLLIElement | null>(null);
   const financialYearRef = useRef<HTMLLIElement | null>(null);
@@ -102,32 +106,14 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
 
   // Get user data from localStorage
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        const userData = JSON.parse(storedUser);
-        setUser({
-          name: userData.name || "Guest User",
-          email: userData.email || "guest@example.com",
-        });
-        if (userData.role) {
-          setUserRole(userData.role.toLowerCase());
-        }
-      } catch (error) {
-        console.error("Error parsing user data:", error);
-      }
-    }
-  }, []);
+    const userData = getStoredUserInfo();
 
-  // Check current path to determine role
-  useEffect(() => {
-    const path = location.pathname;
-    if (path.startsWith("/admin/")) {
-      setUserRole("admin");
-    } else if (path.startsWith("/super/")) {
-      setUserRole("super");
-    } else {
-      setUserRole("user");
+    if (userData) {
+      setUser({
+        name: userData.name || "Guest User",
+        email: userData.email || "guest@example.com",
+        role: userData.role || "User",
+      });
     }
   }, [location.pathname]);
 
@@ -440,55 +426,22 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     },
   ];
 
-  // Super Menu Items
-  const superMenuItems = [
-    { to: "/super/dashboard", icon: "fa-solid fa-house", label: "Dashboard" },
-    {
-      to: "/super/tenant-management",
-      icon: "fa-solid fa-building",
-      label: "Tenant Management",
-    },
-    {
-      to: "/super/user-management",
-      icon: "fa-solid fa-user-tie",
-      label: "User Management",
-    },
-    {
-      to: "/super/audit-logs",
-      icon: "fa-solid fa-clipboard-list",
-      label: "Audit Logs",
-    },
-    { to: "/super/settings", icon: "fa-solid fa-gear", label: "Setting" },
-  ];
-
   // Get current menu based on role
   const getCurrentMenuItems = () => {
-    switch (userRole) {
-      case "admin":
-        return adminMenuItems.filter((item: any) => {
-          if (!item.permissionKey) return true;
-          return hasModuleAccess(item.permissionKey);
-        });
-      case "super":
-        return superMenuItems;
-      default:
-        return adminMenuItems.filter((item: any) => {
-          if (!item.permissionKey) return true;
-          return hasModuleAccess(item.permissionKey);
-        });
-    }
+    return adminMenuItems
+      .filter((item: any) => {
+        if (!item.permissionKey) return true;
+        return hasModuleAccess(item.permissionKey);
+      })
+      .map((item: any) => ({
+        ...item,
+        to: withRolePrefix(item.to),
+      }));
   };
 
   // Get dashboard link based on role
   const getDashboardLink = () => {
-    switch (userRole) {
-      case "admin":
-        return "/admin/dashboard";
-      case "super":
-        return "/super/dashboard";
-      default:
-        return "/admin/dashboard";
-    }
+    return withRolePrefix("/admin/dashboard");
   };
 
   // Styles
@@ -754,8 +707,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                           className="text-primary d-block mt-1"
                           style={{ fontSize: "11px" }}
                         >
-                          Role:{" "}
-                          {userRole.charAt(0).toUpperCase() + userRole.slice(1)}
+                          Role: {user.role || "User"}
                         </small>
                       </div>
 

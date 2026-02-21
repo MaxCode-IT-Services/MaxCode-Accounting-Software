@@ -185,6 +185,79 @@ export const getStoredUserInfo = () => {
   }
 };
 
+const ADMIN_PREFIX = "/admin";
+const TEAM_PREFIX = "/team";
+const SUPER_PREFIX = "/super";
+
+const resolveNormalizedRole = (role = "") => {
+  const normalized = String(role || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "";
+
+  if (normalized.includes("super")) return "super";
+  if (normalized.includes("admin") || normalized === "master") return "admin";
+  if (normalized.includes("team") || normalized.includes("member"))
+    return "team";
+
+  return normalized;
+};
+
+export const getRoleRoutePrefix = (userInfo = null) => {
+  const resolvedUser = userInfo || getStoredUserInfo();
+
+  if (!resolvedUser) return ADMIN_PREFIX;
+
+  const normalizedRole = resolveNormalizedRole(resolvedUser.role);
+  const isTeamMember = resolvedUser.userType === "team-member";
+
+  if (normalizedRole === "super") return SUPER_PREFIX;
+  if (normalizedRole === "admin") return ADMIN_PREFIX;
+  if (normalizedRole === "team") return TEAM_PREFIX;
+
+  if (isTeamMember) return TEAM_PREFIX;
+
+  return ADMIN_PREFIX;
+};
+
+export const withRolePrefix = (route, userInfo = null) => {
+  if (!route || typeof route !== "string") {
+    return route;
+  }
+
+  const prefix = getRoleRoutePrefix(userInfo);
+  return route.replace(/^\/(admin|team|super)(?=\/|$)/i, prefix);
+};
+
+export const getDefaultDashboardRoute = (userInfo = null) => {
+  return `${getRoleRoutePrefix(userInfo)}/dashboard`;
+};
+
+export const getFirstAllowedRoute = (userInfo = null) => {
+  const resolvedUser = userInfo || getStoredUserInfo();
+
+  if (!resolvedUser) {
+    return getDefaultDashboardRoute(resolvedUser);
+  }
+
+  const isTeamMember = resolvedUser.userType === "team-member";
+
+  if (!isTeamMember) {
+    return getDefaultDashboardRoute(resolvedUser);
+  }
+
+  const permissions = resolvedUser.permissions || {};
+  const firstAllowedModule = PERMISSION_MODULES.find(
+    (module) => permissions[module.key]?.active === true,
+  );
+
+  if (!firstAllowedModule?.route) {
+    return "/login";
+  }
+
+  return withRolePrefix(firstAllowedModule.route, resolvedUser);
+};
+
 export const hasModuleAccess = (moduleKey, userInfo = null) => {
   const resolvedUser = userInfo || getStoredUserInfo();
 

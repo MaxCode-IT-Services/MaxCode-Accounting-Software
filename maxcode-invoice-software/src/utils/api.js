@@ -22,6 +22,15 @@ const api = axios.create({
   withCredentials: true, // Enable sending cookies and auth headers
 });
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("access_token");
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 // Response interceptor to handle errors globally
 api.interceptors.response.use(
   (response) => {
@@ -77,11 +86,18 @@ export const apiPatch = (url, data = {}, config = {}) =>
 export const apiDelete = (url, config = {}) => api.delete(url, config);
 
 // Compatibility helper retained for existing imports.
-export const setAuthToken = (_token) => {};
+export const setAuthToken = (token) => {
+  if (token) {
+    localStorage.setItem("access_token", token);
+    return;
+  }
+
+  localStorage.removeItem("access_token");
+};
 
 // Helper to get current token
 export const getAuthToken = () => {
-  return null;
+  return localStorage.getItem("access_token");
 };
 
 let verifySessionPromise = null;
@@ -89,10 +105,13 @@ let lastVerifiedAt = 0;
 let lastVerifiedResult = false;
 const VERIFY_CACHE_TTL_MS = 15000;
 
-export const markSessionAuthenticated = (user = null) => {
+export const markSessionAuthenticated = (user = null, token = null) => {
   localStorage.setItem("maxcode_auth", "true");
   if (user) {
     localStorage.setItem("user_info", JSON.stringify(user));
+  }
+  if (token) {
+    setAuthToken(token);
   }
 
   lastVerifiedResult = true;

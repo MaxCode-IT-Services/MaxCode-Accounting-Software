@@ -9,8 +9,12 @@ import {
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
+import { hasActionPermission } from "../utils/permissions";
 
 const RcmManagement = () => {
+  const moduleKey = "rcmManagement";
+  const canCreate = hasActionPermission(moduleKey, "create");
+
   useEffect(() => {
     document.title = "RCM Management | MaxCode IT Services";
   }, []);
@@ -551,6 +555,10 @@ const RcmManagement = () => {
 
   const handleCardClick = (cardKey) => {
     if (cardKey === "addNew") {
+      if (!canCreate) {
+        showError("You don't have permission to add RCM invoices");
+        return;
+      }
       setEditingRecord(null);
       setShowCreateRcmForm(true);
     } else {
@@ -853,6 +861,7 @@ const RcmManagement = () => {
             const cardIconBgClass = `card-icon-bg${cardNumber}`;
             const isActive =
               activeCardFilter === card.key && card.key !== "addNew";
+            const isAddNewDisabled = card.key === "addNew" && !canCreate;
 
             return (
               <div key={index} className="col-md-6 col-xl-2 mb-4">
@@ -860,7 +869,8 @@ const RcmManagement = () => {
                   className={`card border-0 shadow-sm overflow-hidden ${cardClass} ${isActive ? "border-primary" : ""}`}
                   style={{
                     transition: "all 0.3s ease",
-                    cursor: "pointer",
+                    cursor: isAddNewDisabled ? "not-allowed" : "pointer",
+                    opacity: isAddNewDisabled ? 0.6 : 1,
                     height: "100%",
                     borderRadius: "12px",
                     border: isActive
@@ -868,7 +878,7 @@ const RcmManagement = () => {
                       : "1px solid #dee2e6",
                   }}
                   onMouseEnter={(e) => {
-                    if (card.key === "addNew") {
+                    if (card.key === "addNew" && !isAddNewDisabled) {
                       e.currentTarget.style.transform = "translateY(-5px)";
                       e.currentTarget.style.boxShadow =
                         "0 10px 20px rgba(0,0,0,0.1)";
@@ -879,7 +889,7 @@ const RcmManagement = () => {
                     e.currentTarget.style.boxShadow =
                       "0 2px 4px rgba(0,0,0,0.1)";
                   }}
-                  onClick={() => handleCardClick(card.key)}
+                  onClick={() => !isAddNewDisabled && handleCardClick(card.key)}
                 >
                   <div className="card-body text-center p-2">
                     <div className="mb-3 mt-2 d-flex justify-content-center">
@@ -915,6 +925,7 @@ const RcmManagement = () => {
         </div>
 
         <ReusableTable
+          moduleKey={moduleKey}
           columns={columns}
           data={prepareTableData()}
           loading={loading}

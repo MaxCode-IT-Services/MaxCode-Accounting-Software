@@ -8,8 +8,12 @@ import {
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
+import { hasActionPermission } from "../utils/permissions";
 
 const PurchaseManagement = () => {
+  const moduleKey = "purchaseManagement";
+  const canCreate = hasActionPermission(moduleKey, "create");
+
   useEffect(() => {
     document.title = "Purchase Management | MaxCode IT Services";
   }, []);
@@ -625,6 +629,10 @@ const PurchaseManagement = () => {
   // Handle card click
   const handleCardClick = (cardKey) => {
     if (cardKey === "addNew") {
+      if (!canCreate) {
+        showError("You don't have permission to add purchases");
+        return;
+      }
       setEditingRecord(null);
       setShowCreatePurchaseForm(true);
     } else {
@@ -771,6 +779,7 @@ const PurchaseManagement = () => {
             const cardIconBgClass = `card-icon-bg${cardNumber}`;
             const isActive =
               activeCardFilter === card.key && card.key !== "addNew";
+            const isAddNewDisabled = card.key === "addNew" && !canCreate;
 
             return (
               <div key={index} className="col-md-6 col-xl-2 mb-4">
@@ -778,7 +787,8 @@ const PurchaseManagement = () => {
                   className={`card border-0 shadow-sm overflow-hidden ${cardClass} ${isActive ? "border-primary" : ""}`}
                   style={{
                     transition: "all 0.3s ease",
-                    cursor: "pointer",
+                    cursor: isAddNewDisabled ? "not-allowed" : "pointer",
+                    opacity: isAddNewDisabled ? 0.6 : 1,
                     height: "100%",
                     borderRadius: "12px",
                     border: isActive
@@ -786,7 +796,7 @@ const PurchaseManagement = () => {
                       : "1px solid #dee2e6",
                   }}
                   onMouseEnter={(e) => {
-                    if (card.key === "addNew") {
+                    if (card.key === "addNew" && !isAddNewDisabled) {
                       e.currentTarget.style.transform = "translateY(-5px)";
                       e.currentTarget.style.boxShadow =
                         "0 10px 20px rgba(0,0,0,0.1)";
@@ -797,7 +807,7 @@ const PurchaseManagement = () => {
                     e.currentTarget.style.boxShadow =
                       "0 2px 4px rgba(0,0,0,0.1)";
                   }}
-                  onClick={() => handleCardClick(card.key)}
+                  onClick={() => !isAddNewDisabled && handleCardClick(card.key)}
                 >
                   <div className="card-body text-center p-2">
                     <div className="mb-3 mt-2 d-flex justify-content-center">
@@ -834,6 +844,7 @@ const PurchaseManagement = () => {
 
         {/* Reusable Table */}
         <ReusableTable
+          moduleKey={moduleKey}
           columns={columns}
           data={prepareTableData()}
           loading={loading}

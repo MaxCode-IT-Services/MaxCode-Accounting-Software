@@ -6,6 +6,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { showSuccess, showError, showInfo } from "./ToastNotification";
+import { hasActionPermission } from "../utils/permissions";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 dayjs.extend(customParseFormat);
@@ -63,6 +64,7 @@ const ReusableTable = ({
   // Card filter
   activeCardFilter,
   cards,
+  moduleKey = null,
 }) => {
   // State management
   const [tableColumns, setTableColumns] = useState(columns);
@@ -160,6 +162,16 @@ const ReusableTable = ({
   const dropdownRefs = useRef({});
   const onFilteredDataChangeRef = useRef(onFilteredDataChange);
   const prevSortedDataRef = useRef(null);
+
+  const canRead = moduleKey ? hasActionPermission(moduleKey, "read") : true;
+  const canUpdate = moduleKey ? hasActionPermission(moduleKey, "update") : true;
+  const canDelete = moduleKey ? hasActionPermission(moduleKey, "delete") : true;
+  const canExport = moduleKey ? hasActionPermission(moduleKey, "export") : true;
+
+  const getDisabledActionStyle = (isAllowed) => ({
+    opacity: isAllowed ? 1 : 0.5,
+    cursor: isAllowed ? "pointer" : "not-allowed",
+  });
 
   // Update callback ref
   useEffect(() => {
@@ -1397,6 +1409,11 @@ const ReusableTable = ({
 
   // Handle export
   const handleExport = (type) => {
+    if (!canExport) {
+      showError("You don't have export permission for this module");
+      return;
+    }
+
     switch (type) {
       case "PDF":
         exportToPDF();
@@ -1417,7 +1434,11 @@ const ReusableTable = ({
 
     return extraExportItems.map((item, index) => (
       <li key={`extra-export-${index}`}>
-        <button className="dropdown-item" onClick={item.onClick}>
+        <button
+          className="dropdown-item"
+          onClick={item.onClick}
+          disabled={!canExport}
+        >
           {item.label}
         </button>
       </li>
@@ -1486,6 +1507,7 @@ const ReusableTable = ({
                         className="btn btn-sm btn-secondary w-100 dropdown-toggle"
                         type="button"
                         data-bs-toggle="dropdown"
+                        disabled={!canExport}
                       >
                         <i className="fas fa-download"></i>
                       </button>
@@ -1495,6 +1517,7 @@ const ReusableTable = ({
                           <button
                             className="dropdown-item"
                             onClick={() => handleExport("Excel")}
+                            disabled={!canExport}
                           >
                             Excel
                           </button>
@@ -1503,6 +1526,7 @@ const ReusableTable = ({
                           <button
                             className="dropdown-item"
                             onClick={() => handleExport("JSON")}
+                            disabled={!canExport}
                           >
                             JSON
                           </button>
@@ -1511,6 +1535,7 @@ const ReusableTable = ({
                           <button
                             className="dropdown-item"
                             onClick={() => handleExport("PDF")}
+                            disabled={!canExport}
                           >
                             PDF
                           </button>
@@ -1608,6 +1633,7 @@ const ReusableTable = ({
                       className="btn btn-md btn-warning dropdown-toggle"
                       type="button"
                       data-bs-toggle="dropdown"
+                      disabled={!canExport}
                     >
                       <i className="fas fa-download me-1"></i> Export
                     </button>
@@ -1617,6 +1643,7 @@ const ReusableTable = ({
                         <button
                           className="dropdown-item"
                           onClick={() => handleExport("Excel")}
+                          disabled={!canExport}
                         >
                           Excel
                         </button>
@@ -1625,6 +1652,7 @@ const ReusableTable = ({
                         <button
                           className="dropdown-item"
                           onClick={() => handleExport("JSON")}
+                          disabled={!canExport}
                         >
                           JSON
                         </button>
@@ -1633,6 +1661,7 @@ const ReusableTable = ({
                         <button
                           className="dropdown-item"
                           onClick={() => handleExport("PDF")}
+                          disabled={!canExport}
                         >
                           PDF
                         </button>
@@ -1896,8 +1925,10 @@ const ReusableTable = ({
                                     {actions.includes("view") && onView && (
                                       <button
                                         className="btn btn-sm btn-outline-info me-1"
-                                        onClick={() => onView(record)}
+                                        onClick={() => canRead && onView(record)}
                                         title="View"
+                                        disabled={!canRead}
+                                        style={getDisabledActionStyle(canRead)}
                                       >
                                         <i className="fa-solid fa-eye"></i>
                                       </button>
@@ -1905,8 +1936,10 @@ const ReusableTable = ({
                                     {actions.includes("edit") && onEdit && (
                                       <button
                                         className="btn btn-sm btn-outline-primary me-1"
-                                        onClick={() => onEdit(record)}
+                                        onClick={() => canUpdate && onEdit(record)}
                                         title="Edit"
+                                        disabled={!canUpdate}
+                                        style={getDisabledActionStyle(canUpdate)}
                                       >
                                         <i className="fas fa-edit"></i>
                                       </button>
@@ -1915,11 +1948,14 @@ const ReusableTable = ({
                                       <button
                                         className="btn btn-sm btn-outline-danger me-1"
                                         onClick={() =>
-                                          skipDeleteConfirmation
+                                          canDelete &&
+                                          (skipDeleteConfirmation
                                             ? onDelete(record._id || record.id)
-                                            : confirmDelete(record)
+                                            : confirmDelete(record))
                                         }
                                         title="Delete"
+                                        disabled={!canDelete}
+                                        style={getDisabledActionStyle(canDelete)}
                                       >
                                         <i className="fas fa-trash"></i>
                                       </button>
@@ -1939,8 +1975,9 @@ const ReusableTable = ({
                                         record.status === "Active" ||
                                         record.status === "active"
                                       }
-                                      onChange={() => onStatusToggle(record.id)}
-                                      style={{ cursor: "pointer" }}
+                                      onChange={() => canUpdate && onStatusToggle(record.id)}
+                                      style={getDisabledActionStyle(canUpdate)}
+                                      disabled={!canUpdate}
                                     />
                                     <label className="form-check-label">
                                       {record.status}

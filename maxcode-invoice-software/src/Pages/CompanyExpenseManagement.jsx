@@ -8,8 +8,12 @@ import {
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
+import { hasActionPermission } from "../utils/permissions";
 
 const CompanyExpenseManagement = () => {
+  const moduleKey = "companyExpenseManagement";
+  const canCreate = hasActionPermission(moduleKey, "create");
+
   useEffect(() => {
     document.title = "Company Expense Management | MaxCode IT Services";
   }, []);
@@ -539,6 +543,10 @@ const CompanyExpenseManagement = () => {
 
   const handleCardClick = (cardKey) => {
     if (cardKey === "addNew") {
+      if (!canCreate) {
+        showError("You don't have permission to add company expenses");
+        return;
+      }
       setEditingRecord(null);
       setShowCreateExpenseForm(true);
       return;
@@ -593,6 +601,7 @@ const CompanyExpenseManagement = () => {
           const cardIconBgClass = `card-icon-bg${cardNumber}`;
           const isActive =
             activeCardFilter === card.key && card.key !== "addNew";
+          const isAddNewDisabled = card.key === "addNew" && !canCreate;
 
           return (
             <div key={card.key} className="col-md-6 col-xl-2 mb-4">
@@ -600,12 +609,13 @@ const CompanyExpenseManagement = () => {
                 className={`card border-0 shadow-sm overflow-hidden ${cardClass} ${isActive ? "border-primary" : ""}`}
                 style={{
                   transition: "all 0.3s ease",
-                  cursor: "pointer",
+                  cursor: isAddNewDisabled ? "not-allowed" : "pointer",
+                  opacity: isAddNewDisabled ? 0.6 : 1,
                   height: "100%",
                   borderRadius: "12px",
                   border: isActive ? "2px solid #0d6efd" : "1px solid #dee2e6",
                 }}
-                onClick={() => handleCardClick(card.key)}
+                onClick={() => !isAddNewDisabled && handleCardClick(card.key)}
               >
                 <div className="card-body text-center p-2">
                   <div className="mb-3 mt-2 d-flex justify-content-center">
@@ -662,6 +672,7 @@ const CompanyExpenseManagement = () => {
       </div>
 
       <ReusableTable
+        moduleKey={moduleKey}
         columns={columns}
         data={prepareTableData}
         loading={loading}

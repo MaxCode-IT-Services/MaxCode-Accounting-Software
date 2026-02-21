@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost, markSessionAuthenticated } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { PERMISSION_MODULES } from "../utils/permissions";
+import { getFirstAllowedRoute } from "../utils/permissions";
 import {
   showSuccess,
   showError,
@@ -131,29 +131,20 @@ const Login = ({ settings }) => {
       });
 
       if (response.data.user) {
-        markSessionAuthenticated(response.data.user);
+        markSessionAuthenticated(response.data.user, response.data.token);
 
         showSuccess("✅ 2FA verified! Welcome back!");
 
         const loggedInUser = response.data.user || {};
-        const userPermissions = loggedInUser.permissions || {};
-        const isTeamMember = loggedInUser.userType === "team-member";
+        const nextRoute = getFirstAllowedRoute(loggedInUser);
 
-        if (isTeamMember) {
-          const firstAllowedModule = PERMISSION_MODULES.find(
-            (module) => userPermissions[module.key]?.active === true,
-          );
-
-          if (firstAllowedModule?.route) {
-            navigate(firstAllowedModule.route);
-          } else {
-            showError("No module permission assigned to this user");
-            localStorage.removeItem("maxcode_auth");
-            localStorage.removeItem("user_info");
-            setNeeds2FA(false);
-          }
+        if (nextRoute !== "/login") {
+          navigate(nextRoute);
         } else {
-          navigate("/admin/dashboard");
+          showError("No module permission assigned to this user");
+          localStorage.removeItem("maxcode_auth");
+          localStorage.removeItem("user_info");
+          setNeeds2FA(false);
         }
       } else {
         showError(response.data.message || "2FA verification failed");
@@ -215,30 +206,21 @@ const Login = ({ settings }) => {
 
       // If login successful, store the token
       if (response.data.user) {
-        markSessionAuthenticated(response.data.user);
+        markSessionAuthenticated(response.data.user, response.data.token);
 
         showSuccess(
           response.data.message || "Welcome back! Authentication successful",
         );
 
         const loggedInUser = response.data.user || {};
-        const userPermissions = loggedInUser.permissions || {};
-        const isTeamMember = loggedInUser.userType === "team-member";
+        const nextRoute = getFirstAllowedRoute(loggedInUser);
 
-        if (isTeamMember) {
-          const firstAllowedModule = PERMISSION_MODULES.find(
-            (module) => userPermissions[module.key]?.active === true,
-          );
-
-          if (firstAllowedModule?.route) {
-            navigate(firstAllowedModule.route);
-          } else {
-            showError("No module permission assigned to this user");
-            localStorage.removeItem("maxcode_auth");
-            localStorage.removeItem("user_info");
-          }
+        if (nextRoute !== "/login") {
+          navigate(nextRoute);
         } else {
-          navigate("/admin/dashboard");
+          showError("No module permission assigned to this user");
+          localStorage.removeItem("maxcode_auth");
+          localStorage.removeItem("user_info");
         }
       } else {
         showError(response.data.message || "Invalid credentials");
