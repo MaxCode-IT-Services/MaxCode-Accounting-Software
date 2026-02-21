@@ -1,9 +1,9 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.jsx'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
+import App from "./App.jsx";
 
-const root = createRoot(document.getElementById('root'));
+const root = createRoot(document.getElementById("root"));
 
 root.render(
   <StrictMode>
@@ -13,9 +13,9 @@ root.render(
 
 // Hide initial loader once React has mounted
 setTimeout(() => {
-  const loader = document.getElementById('initial-loader');
+  const loader = document.getElementById("initial-loader");
   if (loader) {
-    loader.classList.add('hidden');
+    loader.classList.add("hidden");
     setTimeout(() => {
       loader.remove();
     }, 300);
