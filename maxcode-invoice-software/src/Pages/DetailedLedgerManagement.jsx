@@ -78,6 +78,29 @@ const DetailedLedgerManagement = () => {
     return { startDate, endDate };
   };
 
+  const getSelectedYearRecord = () => {
+    if (!selectedFinancialYear || selectedFinancialYear === "ALL") {
+      return null;
+    }
+
+    return (
+      financialYears.find((year) => year.value === selectedFinancialYear) ||
+      null
+    );
+  };
+
+  const getOpeningBalance = (yearRecord, keys) => {
+    if (!yearRecord) return 0;
+
+    const value = keys.reduce((found, key) => {
+      if (found !== null) return found;
+      const candidate = yearRecord?.[key];
+      return candidate !== undefined && candidate !== null ? candidate : null;
+    }, null);
+
+    return value !== null ? toNumber(value) : 0;
+  };
+
   const getTaxAmount = (record) => {
     const taxData = record?.taxData || {};
     const cgst = toNumber(taxData.cgst || 0);
@@ -442,8 +465,46 @@ const DetailedLedgerManagement = () => {
     recordTypeMode,
   ]);
 
+  const openingItcData = useMemo(() => {
+    const selectedYear = getSelectedYearRecord();
+    if (!selectedYear) {
+      return {
+        cgst: 0,
+        sgst: 0,
+        igst: 0,
+        total: 0,
+        date: null,
+      };
+    }
+
+    const cgst = getOpeningBalance(selectedYear, [
+      "openingCgstItc",
+      "openingItcCgst",
+    ]);
+    const sgst = getOpeningBalance(selectedYear, [
+      "openingSgstItc",
+      "openingItcSgst",
+    ]);
+    const igst = getOpeningBalance(selectedYear, [
+      "openingIgstItc",
+      "openingItcIgst",
+    ]);
+    const extra = getOpeningBalance(selectedYear, [
+      "openingItc",
+      "openingGstInput",
+    ]);
+
+    return {
+      cgst,
+      sgst,
+      igst,
+      total: cgst + sgst + igst + extra,
+      date: selectedYear.startDate || selectedYear.createdAt || null,
+    };
+  }, [selectedFinancialYear, financialYears]);
+
   const tableData = useMemo(() => {
-    return filteredLedgerRecords.map((entry, index) => {
+    const mappedRows = filteredLedgerRecords.map((entry, index) => {
       const record = entry.raw;
       const totalAmount = getTotalAmount(record);
       const taxableAmount = getTaxableAmount(record);
@@ -453,7 +514,6 @@ const DetailedLedgerManagement = () => {
 
       return {
         id: `${entry.sourceType}-${record.id || record._id || index}`,
-        sn: index + 1,
         type: entry.type,
         period: getPeriodDisplay(record.invoiceDate, financialPeriodMode),
         date: formatDateForDisplay(record.invoiceDate),
@@ -474,11 +534,51 @@ const DetailedLedgerManagement = () => {
         paid: record.paymentStatus || "-",
       };
     });
-  }, [filteredLedgerRecords, financialPeriodMode]);
+
+    const shouldAddOpeningRow =
+      selectedFinancialYear !== "ALL" &&
+      openingItcData.total > 0 &&
+      ["all", "purchase", "rcm"].includes(recordTypeMode);
+
+    if (shouldAddOpeningRow) {
+      mappedRows.unshift({
+        id: `opening-itc-${selectedFinancialYear}`,
+        type: "Opening ITC",
+        period: getPeriodDisplay(openingItcData.date, "yearly"),
+        date: formatDateForDisplay(openingItcData.date),
+        invoiceNo: "Opening Balance",
+        clientSecondary: "Brought Forward from Previous FY",
+        gstin: "-",
+        gstPercent: "-",
+        taxable: 0,
+        gstAmount: openingItcData.total,
+        cgst: openingItcData.cgst,
+        sgct: openingItcData.sgst,
+        igst: openingItcData.igst,
+        total: openingItcData.total,
+        invoiceType: "Opening ITC",
+        paymentMode: "-",
+        received: 0,
+        pending: 0,
+        paid: "Paid",
+      });
+    }
+
+    return mappedRows.map((row, index) => ({
+      ...row,
+      sn: index + 1,
+    }));
+  }, [
+    filteredLedgerRecords,
+    financialPeriodMode,
+    selectedFinancialYear,
+    openingItcData,
+    recordTypeMode,
+  ]);
 
   const gstSummary = useMemo(() => {
     let salesOutput = 0;
-    let purchaseInput = 0;
+    let purchaseInput = openingItcData.total;
     let rcmTax = 0;
 
     filteredLedgerRecords.forEach((entry) => {
@@ -502,7 +602,7 @@ const DetailedLedgerManagement = () => {
       rcmTax,
       totalPayable: outputGst - inputGst,
     };
-  }, [filteredLedgerRecords]);
+  }, [filteredLedgerRecords, openingItcData]);
 
   const getCardNumber = (index) => {
     return (index % 8) + 1;

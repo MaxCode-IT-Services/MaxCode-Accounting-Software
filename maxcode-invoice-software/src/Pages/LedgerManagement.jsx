@@ -69,6 +69,28 @@ const LedgerManagement = () => {
     return { startDate, endDate };
   };
 
+  const getSelectedYearRecord = () => {
+    if (!selectedFinancialYear || selectedFinancialYear === "ALL") {
+      return null;
+    }
+
+    return (
+      financialYears.find((year) => year.value === selectedFinancialYear) ||
+      null
+    );
+  };
+
+  const getOpeningBalance = (yearRecord, keys) => {
+    if (!yearRecord) return 0;
+    const value = keys.reduce((found, key) => {
+      if (found !== null) return found;
+      const candidate = yearRecord?.[key];
+      return candidate !== undefined && candidate !== null ? candidate : null;
+    }, null);
+
+    return value !== null ? toNumber(value) : 0;
+  };
+
   const filterByFinancialYear = (records) => {
     if (!Array.isArray(records)) return [];
 
@@ -667,9 +689,21 @@ const LedgerManagement = () => {
       rcmTaxOutput: 0,
       rcmTaxInput: 0,
       projectPayoutDebit: 0,
+      openingGstInput: 0,
       totalDebit: 0,
       totalCredit: 0,
     };
+
+    const selectedYear = getSelectedYearRecord();
+    const openingGstInput =
+      getOpeningBalance(selectedYear, ["openingCgstItc", "openingItcCgst"]) +
+      getOpeningBalance(selectedYear, ["openingSgstItc", "openingItcSgst"]) +
+      getOpeningBalance(selectedYear, ["openingIgstItc", "openingItcIgst"]) +
+      getOpeningBalance(selectedYear, ["openingItc", "openingGstInput"]);
+
+    totals.openingGstInput = openingGstInput;
+    totals.gstInputDebit += openingGstInput;
+    totals.purchaseItcInput += openingGstInput;
 
     filteredSales.forEach((record) => {
       const totalAmount = getTotalAmount(record);
@@ -905,7 +939,7 @@ const LedgerManagement = () => {
         accountName: "GST Input Account",
         debit: ledgerSummary.gstInputDebit,
         credit: 0,
-        notes: "Purchase ITC tax + RCM tax reclaimable",
+        notes: "Opening ITC + Purchase ITC tax + RCM tax reclaimable",
       },
       {
         accountName: "Sundry Debtors Account",
@@ -918,6 +952,8 @@ const LedgerManagement = () => {
         debit: 0,
         credit: ledgerSummary.sundryCreditorsCredit,
         notes: "Purchase/RCM invoices not yet fully paid",
+        selectedFinancialYear,
+        financialYears,
       },
       {
         accountName: "GST Payable/(Receivable)",

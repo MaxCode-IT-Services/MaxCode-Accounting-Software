@@ -22,6 +22,9 @@ const CreateYear = ({
     status: "Active",
     openingCash: "",
     openingBank: "",
+    openingCgstItc: "",
+    openingSgstItc: "",
+    openingIgstItc: "",
   });
 
   const [errors, setErrors] = useState({});
@@ -55,6 +58,12 @@ const CreateYear = ({
         status: editingRecord.status || "Active",
         openingCash: editingRecord.openingCash || "",
         openingBank: editingRecord.openingBank || "",
+        openingCgstItc:
+          editingRecord.openingCgstItc || editingRecord.openingItcCgst || "",
+        openingSgstItc:
+          editingRecord.openingSgstItc || editingRecord.openingItcSgst || "",
+        openingIgstItc:
+          editingRecord.openingIgstItc || editingRecord.openingItcIgst || "",
       });
     } else {
       // Reset form with empty values for new year
@@ -70,6 +79,9 @@ const CreateYear = ({
         status: "Active",
         openingCash: "",
         openingBank: "",
+        openingCgstItc: "",
+        openingSgstItc: "",
+        openingIgstItc: "",
       });
       setErrors({});
     }
@@ -122,6 +134,9 @@ const CreateYear = ({
     status: "Status",
     openingCash: "Opening Cash Balance",
     openingBank: "Opening Bank Balance",
+    openingCgstItc: "Opening CGST ITC",
+    openingSgstItc: "Opening SGST ITC",
+    openingIgstItc: "Opening IGST ITC",
   };
 
   const handleInputChange = (e) => {
@@ -139,7 +154,15 @@ const CreateYear = ({
         ...prev,
         [name]: numericValue === "" ? "" : parseFloat(numericValue) || 0,
       }));
-    } else if (name === "openingCash" || name === "openingBank") {
+    } else if (
+      [
+        "openingCash",
+        "openingBank",
+        "openingCgstItc",
+        "openingSgstItc",
+        "openingIgstItc",
+      ].includes(name)
+    ) {
       // Allow only numbers and decimal point for balance fields
       const numericValue = value.replace(/[^0-9.]/g, "");
       setFormData((prev) => ({
@@ -372,7 +395,7 @@ const CreateYear = ({
       role="dialog"
       style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
     >
-      <div className="modal-dialog modal-lg" role="document">
+      <div className="modal-dialog modal-fullscreen" role="document">
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title">{modalTitle}</h5>
@@ -387,7 +410,7 @@ const CreateYear = ({
             <form id="yearForm" onSubmit={handleSubmit} noValidate>
               <div className="row">
                 {/* Financial Year */}
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
                   <label htmlFor="financialYear" className="form-label">
                     <i className="fas fa-calendar-alt me-2 text-primary"></i>
                     Financial Year <RequiredStar />
@@ -418,7 +441,7 @@ const CreateYear = ({
                 </div>
 
                 {/* Status */}
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
                   <label htmlFor="status" className="form-label">
                     <i className="fas fa-toggle-on me-2 text-primary"></i>
                     Status
@@ -437,7 +460,7 @@ const CreateYear = ({
                 </div>
 
                 {/* Start Date */}
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
                   <label htmlFor="startDate" className="form-label">
                     <i className="fas fa-play me-2 text-primary"></i>
                     Start Date <RequiredStar />
@@ -459,7 +482,7 @@ const CreateYear = ({
                 </div>
 
                 {/* End Date */}
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
                   <label htmlFor="endDate" className="form-label">
                     <i className="fas fa-stop me-2 text-primary"></i>
                     End Date <RequiredStar />
@@ -481,7 +504,7 @@ const CreateYear = ({
                 </div>
 
                 {/* Tax Percentage - Input Field */}
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
                   <label htmlFor="taxPercentage" className="form-label">
                     <i className="fas fa-percent me-2 text-primary"></i>
                     Tax Percentage (%) <RequiredStar />
@@ -507,7 +530,7 @@ const CreateYear = ({
                 </div>
 
                 {/* Invoice Format - Input Field */}
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
                   <label htmlFor="invoiceFormat" className="form-label">
                     <i className="fas fa-file-invoice me-2 text-primary"></i>
                     Invoice Format <RequiredStar />
@@ -530,7 +553,7 @@ const CreateYear = ({
                 </div>
 
                 {/* Self Invoice Format - Input Field */}
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
                   <label htmlFor="selfInvoiceFormat" className="form-label">
                     <i className="fas fa-file-invoice me-2 text-primary"></i>
                     Self Invoice Format <RequiredStar />
@@ -553,7 +576,7 @@ const CreateYear = ({
                 </div>
 
                 {/* Opening Cash Balance */}
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
                   <label htmlFor="openingCash" className="form-label">
                     <i className="fas fa-hand-holding-usd me-2 text-success"></i>
                     Opening Cash Balance
@@ -579,7 +602,7 @@ const CreateYear = ({
                 </div>
 
                 {/* Opening Bank Balance */}
-                <div className="col-md-6 mb-3">
+                <div className="col-md-4 mb-3">
                   <label htmlFor="openingBank" className="form-label">
                     <i className="fas fa-building-columns me-2 text-primary"></i>
                     Opening Bank Balance
@@ -600,6 +623,72 @@ const CreateYear = ({
                   {errors.openingBank && (
                     <div className="invalid-feedback d-block">
                       {errors.openingBank}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="openingCgstItc" className="form-label">
+                    <i className="fas fa-receipt me-2 text-success"></i>
+                    Opening CGST ITC
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.openingCgstItc ? "is-invalid" : ""}`}
+                    id="openingCgstItc"
+                    name="openingCgstItc"
+                    value={formData.openingCgstItc}
+                    onChange={handleInputChange}
+                    placeholder="Enter opening CGST ITC (optional)"
+                    readOnly={isViewMode}
+                  />
+                  {errors.openingCgstItc && (
+                    <div className="invalid-feedback d-block">
+                      {errors.openingCgstItc}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="openingSgstItc" className="form-label">
+                    <i className="fas fa-receipt me-2 text-primary"></i>
+                    Opening SGST ITC
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.openingSgstItc ? "is-invalid" : ""}`}
+                    id="openingSgstItc"
+                    name="openingSgstItc"
+                    value={formData.openingSgstItc}
+                    onChange={handleInputChange}
+                    placeholder="Enter opening SGST ITC (optional)"
+                    readOnly={isViewMode}
+                  />
+                  {errors.openingSgstItc && (
+                    <div className="invalid-feedback d-block">
+                      {errors.openingSgstItc}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="openingIgstItc" className="form-label">
+                    <i className="fas fa-receipt me-2 text-warning"></i>
+                    Opening IGST ITC
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.openingIgstItc ? "is-invalid" : ""}`}
+                    id="openingIgstItc"
+                    name="openingIgstItc"
+                    value={formData.openingIgstItc}
+                    onChange={handleInputChange}
+                    placeholder="Enter opening IGST ITC (optional)"
+                    readOnly={isViewMode}
+                  />
+                  {errors.openingIgstItc && (
+                    <div className="invalid-feedback d-block">
+                      {errors.openingIgstItc}
                     </div>
                   )}
                 </div>

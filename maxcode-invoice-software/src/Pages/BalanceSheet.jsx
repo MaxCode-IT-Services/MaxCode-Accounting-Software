@@ -479,6 +479,13 @@ const BalanceSheet = () => {
       "capitalAmount",
       "ownerCapital",
     ]);
+    const openingGstInput =
+      getOpeningBalance(selectedYear, ["openingCgstItc", "openingItcCgst"]) +
+      getOpeningBalance(selectedYear, ["openingSgstItc", "openingItcSgst"]) +
+      getOpeningBalance(selectedYear, ["openingIgstItc", "openingItcIgst"]) +
+      getOpeningBalance(selectedYear, ["openingItc", "openingGstInput"]);
+
+    totals.gstInputDebit += openingGstInput;
 
     const cashBalance = totals.cashDebit - totals.cashCredit;
     const bankBalance = totals.bankDebit - totals.bankCredit;
@@ -507,6 +514,7 @@ const BalanceSheet = () => {
       receivables: totals.sundryDebtorsDebit,
       gstReceivable: Math.max(-gstNet, 0),
       inventory: inventoryValue,
+      openingGstInput,
     };
 
     const liabilities = {

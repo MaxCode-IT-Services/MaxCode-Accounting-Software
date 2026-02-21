@@ -115,6 +115,20 @@ const FinancialYearManagement = () => {
       maximumFractionDigits: 2,
     })}`;
   };
+
+  const getOpeningItcTotal = (record) => {
+    const toNumber = (input) => {
+      const value = parseFloat(input);
+      return Number.isNaN(value) ? 0 : value;
+    };
+
+    return (
+      toNumber(record?.openingCgstItc || record?.openingItcCgst || 0) +
+      toNumber(record?.openingSgstItc || record?.openingItcSgst || 0) +
+      toNumber(record?.openingIgstItc || record?.openingItcIgst || 0) +
+      toNumber(record?.openingItc || record?.openingGstInput || 0)
+    );
+  };
   const formatDateForDisplay = (dateString) => {
     if (!dateString) return "";
 
@@ -229,6 +243,7 @@ const FinancialYearManagement = () => {
       isUpcoming: isUpcomingFinancialYear(record.financialYear),
       openingCashFormatted: formatCurrency(record.openingCash),
       openingBankFormatted: formatCurrency(record.openingBank),
+      openingItcFormatted: formatCurrency(getOpeningItcTotal(record)),
     }));
   };
 
@@ -258,6 +273,14 @@ const FinancialYearManagement = () => {
       width: 130,
       render: (value) => (
         <span className="fw-semibold text-primary">{value}</span>
+      ),
+    },
+    {
+      key: "openingItcFormatted",
+      label: "Opening ITC",
+      width: 130,
+      render: (value) => (
+        <span className="fw-semibold text-warning">{value}</span>
       ),
     },
     {
@@ -301,6 +324,7 @@ const FinancialYearManagement = () => {
     "taxPercentage",
     "openingCashFormatted",
     "openingBankFormatted",
+    "openingItcFormatted",
     "invoiceFormat",
     "selfInvoiceFormat",
     "status",
