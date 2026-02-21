@@ -10,6 +10,28 @@ const normalizePermissions = (permissions = {}) => {
   return permissions;
 };
 
+const ROLE_VALUES = new Set(["Team", "Admin", "Super Admin"]);
+
+const normalizeRole = (role = "") => {
+  const normalized = String(role || "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) return "";
+  if (normalized === "team") return "Team";
+  if (normalized === "admin") return "Admin";
+  if (
+    normalized === "super admin" ||
+    normalized === "superadmin" ||
+    normalized === "master admin" ||
+    normalized === "masteradmin"
+  ) {
+    return "Super Admin";
+  }
+
+  return "";
+};
+
 /**
  * Team Members Management API
  * Handles CRUD operations for permission-based users
@@ -135,13 +157,22 @@ export async function handler(event) {
 
       const hashedPin = await hashPassword(payload.pin);
       const status = payload.status === "Inactive" ? "Inactive" : "Active";
+      const role = normalizeRole(payload.role);
+
+      if (!ROLE_VALUES.has(role)) {
+        return createResponse(
+          400,
+          { error: "Role must be one of: Team, Admin, Super Admin" },
+          origin,
+        );
+      }
 
       const newTeamMember = {
         name: payload.name,
         phone: payload.phone,
         email: payload.email,
         address: payload.address,
-        role: payload.role,
+        role,
         pin: hashedPin,
         status,
         sendEmail: payload.sendEmail === true,
@@ -220,6 +251,18 @@ export async function handler(event) {
         ...payload,
         updatedAt: new Date(),
       };
+
+      if (payload.role !== undefined) {
+        const role = normalizeRole(payload.role);
+        if (!ROLE_VALUES.has(role)) {
+          return createResponse(
+            400,
+            { error: "Role must be one of: Team, Admin, Super Admin" },
+            origin,
+          );
+        }
+        updateData.role = role;
+      }
 
       if (payload.permissions !== undefined) {
         updateData.permissions = normalizePermissions(payload.permissions);

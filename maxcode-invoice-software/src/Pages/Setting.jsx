@@ -1602,67 +1602,80 @@ const Settings = () => {
                     <div className="row mb-4">
                       <div className="col-12">
                         <div className="card bg-light">
-                          <div className="card-body d-flex justify-content-between align-items-center">
-                            <div className="d-flex align-items-center gap-3">
-                              <div>
-                                <h6 className="mb-1">
-                                  {twoFAData.enabled
-                                    ? "2FA is Active"
-                                    : "2FA is Inactive"}
-                                </h6>
-                                <small className="text-muted">
-                                  {twoFAData.enabled
-                                    ? "Your account is protected with two-factor authentication"
-                                    : "Enable 2FA to secure your account"}
-                                </small>
-                              </div>
+                          <div className="card-body">
+                            {/* Top Content */}
+                            <div className="mb-3">
+                              <h6 className="mb-1">
+                                {twoFAData.enabled
+                                  ? "2FA is Active"
+                                  : "2FA is Inactive"}
+                              </h6>
+
+                              <small className="text-muted d-block">
+                                {twoFAData.enabled
+                                  ? "Your account is protected with two-factor authentication"
+                                  : "Enable 2FA to secure your account"}
+                              </small>
+                            </div>
+
+                            {/* Bottom Row (Badge Left - Toggle Right) */}
+                            <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                              {/* Badge */}
                               <div
-                                className={`badge badge-pill ${twoFAData.enabled ? "bg-success" : "bg-danger"}`}
+                                className={`badge badge-pill ${
+                                  twoFAData.enabled ? "bg-success" : "bg-danger"
+                                }`}
                                 style={{ padding: "10px 15px" }}
                               >
                                 <i
-                                  className={`fas ${twoFAData.enabled ? "fa-check-circle" : "fa-times-circle"} me-2`}
+                                  className={`fas ${
+                                    twoFAData.enabled
+                                      ? "fa-check-circle"
+                                      : "fa-times-circle"
+                                  } me-2`}
                                 ></i>
                                 {twoFAData.enabled ? "ENABLED" : "DISABLED"}
                               </div>
-                            </div>
 
-                            <div
-                              className="form-check form-switch"
-                              style={{
-                                transform: "scale(1.5)",
-                                transformOrigin: "right",
-                              }}
-                            >
-                              <input
-                                className="form-check-input"
-                                type="checkbox"
-                                id="twoFAToggle"
-                                checked={twoFAData.enabled}
-                                onChange={(e) => {
-                                  if (e.target.checked && !twoFAData.enabled) {
-                                    // Enabling 2FA
-                                    handleGenerate2FA();
-                                  } else if (
-                                    !e.target.checked &&
-                                    twoFAData.enabled
-                                  ) {
-                                    // Disabling 2FA
-                                    setShow2FAVerification(true);
-                                  }
-                                }}
-                                disabled={is2FALoading}
+                              {/* Toggle */}
+                              <div
+                                className="form-check form-switch"
                                 style={{
-                                  cursor: "pointer",
-                                  width: "50px",
-                                  height: "28px",
+                                  transform: "scale(1.3)",
+                                  transformOrigin: "right",
                                 }}
-                              />
-                              <label
-                                className="form-check-label"
-                                htmlFor="twoFAToggle"
-                                style={{ cursor: "pointer", marginTop: "6px" }}
-                              ></label>
+                              >
+                                <input
+                                  className="form-check-input"
+                                  type="checkbox"
+                                  id="twoFAToggle"
+                                  checked={twoFAData.enabled}
+                                  onChange={(e) => {
+                                    if (
+                                      e.target.checked &&
+                                      !twoFAData.enabled
+                                    ) {
+                                      handleGenerate2FA();
+                                    } else if (
+                                      !e.target.checked &&
+                                      twoFAData.enabled
+                                    ) {
+                                      setShow2FAVerification(true);
+                                    }
+                                  }}
+                                  disabled={is2FALoading}
+                                  style={{
+                                    cursor: "pointer",
+                                    width: "50px",
+                                    height: "28px",
+                                  }}
+                                />
+                                <label
+                                  className="form-check-label"
+                                  htmlFor="twoFAToggle"
+                                  style={{ cursor: "pointer" }}
+                                ></label>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1839,42 +1852,50 @@ const Settings = () => {
                 <div className="business-details-container">
                   {/* Header with Save Button */}
                   <div className="card modern-card mb-4">
-                    <div className="card-body d-flex justify-content-between align-items-center">
-                      <div className="d-flex align-items-center gap-3">
-                        <div className="p-3 rounded-4 bg-success bg-opacity-10">
-                          <i
-                            className="fas fa-building text-white"
-                            style={{ fontSize: "2rem" }}
-                          ></i>
+                    <div className="card-body">
+                      <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+                        {/* Left Section */}
+                        <div className="d-flex align-items-start align-items-md-center gap-3">
+                          {/* Icon */}
+                          <div className="p-3 rounded-4 bg-success bg-opacity-10">
+                            <i
+                              className="fas fa-building text-white"
+                              style={{ fontSize: "2rem" }}
+                            ></i>
+                          </div>
+
+                          {/* Text */}
+                          <div>
+                            <h4 className="mb-1 fw-bold">Account & Branding</h4>
+                            <p className="text-muted mb-0">
+                              Business Profile Settings
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <h4 className="mb-1 fw-bold">Account & Branding</h4>
-                          <p className="text-muted mb-0">
-                            Business Profile Settings
-                          </p>
-                        </div>
+
+                        {/* Button */}
+                        <button
+                          onClick={handleSaveAll}
+                          disabled={isSaving || isBusinessLoading}
+                          className="btn btn-success px-4 px-md-5 py-2 py-md-3 rounded-4 fw-bold d-flex align-items-center justify-content-center gap-2 w-100 w-md-auto"
+                        >
+                          {isSaving || isBusinessLoading ? (
+                            <>
+                              <span
+                                className="spinner-border spinner-border-sm"
+                                role="status"
+                                aria-hidden="true"
+                              ></span>
+                              {isBusinessLoading ? "LOADING..." : "SYNCING..."}
+                            </>
+                          ) : (
+                            <>
+                              <i className="fas fa-save"></i>
+                              SAVE CHANGES
+                            </>
+                          )}
+                        </button>
                       </div>
-                      <button
-                        onClick={handleSaveAll}
-                        disabled={isSaving || isBusinessLoading}
-                        className="btn btn-success px-5 py-3 rounded-4 fw-bold d-flex align-items-center gap-2"
-                      >
-                        {isSaving || isBusinessLoading ? (
-                          <>
-                            <span
-                              className="spinner-border spinner-border-sm me-2"
-                              role="status"
-                              aria-hidden="true"
-                            ></span>
-                            {isBusinessLoading ? "LOADING..." : "SYNCING..."}
-                          </>
-                        ) : (
-                          <>
-                            <i className="fas fa-save me-2"></i>
-                            SAVE CHANGES
-                          </>
-                        )}
-                      </button>
                     </div>
                   </div>
 
@@ -2279,44 +2300,50 @@ const Settings = () => {
               {activeTab === "terms" && (
                 <div className="business-details-container">
                   <div className="card modern-card mb-4">
-                    <div className="card-body d-flex justify-content-between align-items-center">
-                      <div>
-                        <h5 className="mb-1 fw-bold">Terms & Conditions</h5>
-                        <p className="text-muted mb-0">
-                          Manage default terms and conditions for invoice
-                          previews
-                        </p>
-                      </div>
-                      <div className="d-flex gap-2">
-                        <button
-                          onClick={() => setShowResetTermsConfirm(true)}
-                          disabled={isSaving || isBusinessLoading}
-                          className="btn btn-outline-secondary px-4 py-2 fw-bold"
-                        >
-                          <i className="fas fa-rotate-left me-2"></i>
-                          Reset to Default
-                        </button>
-                        <button
-                          onClick={handleSaveAll}
-                          disabled={isSaving || isBusinessLoading}
-                          className="btn btn-success px-4 py-2 fw-bold"
-                        >
-                          {isSaving || isBusinessLoading ? (
-                            <>
-                              <span
-                                className="spinner-border spinner-border-sm me-2"
-                                role="status"
-                                aria-hidden="true"
-                              ></span>
-                              Saving...
-                            </>
-                          ) : (
-                            <>
-                              <i className="fas fa-save me-2"></i>
-                              Save Terms
-                            </>
-                          )}
-                        </button>
+                    <div className="card-body">
+                      <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+                        {/* Left Content */}
+                        <div>
+                          <h5 className="mb-1 fw-bold">Terms & Conditions</h5>
+                          <p className="text-muted mb-0">
+                            Manage default terms and conditions for invoice
+                            previews
+                          </p>
+                        </div>
+
+                        {/* Buttons */}
+                        <div className="d-flex flex-column flex-sm-row gap-2 w-100 w-md-auto">
+                          <button
+                            onClick={() => setShowResetTermsConfirm(true)}
+                            disabled={isSaving || isBusinessLoading}
+                            className="btn btn-outline-secondary px-4 py-2 fw-bold w-100 w-sm-auto"
+                          >
+                            <i className="fas fa-rotate-left me-2"></i>
+                            Reset to Default
+                          </button>
+
+                          <button
+                            onClick={handleSaveAll}
+                            disabled={isSaving || isBusinessLoading}
+                            className="btn btn-success px-4 py-2 fw-bold w-100 w-sm-auto d-flex align-items-center justify-content-center gap-2"
+                          >
+                            {isSaving || isBusinessLoading ? (
+                              <>
+                                <span
+                                  className="spinner-border spinner-border-sm"
+                                  role="status"
+                                  aria-hidden="true"
+                                ></span>
+                                Saving...
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-save"></i>
+                                Save Terms
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2912,15 +2939,21 @@ const Settings = () => {
 
                           {driveConfig.enabled && (
                             <>
-                              <div className="alert alert-info mb-4 border-info">
-                                <div className="d-flex align-items-start">
-                                  <i className="fas fa-info-circle text-info me-3 mt-1"></i>
-                                  <div className="flex-grow-1">
+                              <div className="alert alert-info mb-4 border-info overflow-hidden">
+                                <div className="d-flex align-items-start gap-2 flex-nowrap">
+                                  {/* Icon */}
+                                  <div className="flex-shrink-0">
+                                    <i className="fas fa-info-circle text-info mt-1"></i>
+                                  </div>
+
+                                  {/* Content */}
+                                  <div className="flex-grow-1 min-w-0">
                                     <h6 className="mb-2">
                                       <strong>
                                         🔐 Refresh Token Setup (One-Time Only)
                                       </strong>
                                     </h6>
+
                                     <p className="mb-2">
                                       <strong>
                                         ✅ Generate refresh token once from
@@ -2932,66 +2965,77 @@ const Settings = () => {
                                       access in background. No need to
                                       regenerate unless manually revoked!
                                     </p>
+
                                     <p className="mb-2">
                                       <strong>📝 Setup Steps:</strong>
                                     </p>
-                                    <ol className="mb-2 small">
-                                      <li>
+
+                                    <ol className="mb-2 small ps-3">
+                                      <li className="text-break">
                                         Visit:{" "}
                                         <a
                                           href="https://developers.google.com/oauthplayground"
                                           target="_blank"
                                           rel="noopener noreferrer"
-                                          className="text-primary"
+                                          className="text-primary text-break"
                                         >
                                           <strong>
                                             Google OAuth Playground
                                           </strong>
                                         </a>
                                       </li>
-                                      <li>
+
+                                      <li className="text-break">
                                         Click <strong>Settings (⚙️)</strong> →
                                         Enable{" "}
                                         <strong>
                                           "Use your own OAuth credentials"
                                         </strong>
                                       </li>
-                                      <li>
+
+                                      <li className="text-break">
                                         Enter your <strong>Client ID</strong>{" "}
-                                        and <strong>Client Secret</strong> (get
-                                        from Google Cloud Console)
+                                        and <strong>Client Secret</strong> (from
+                                        Google Cloud Console)
                                       </li>
-                                      <li>
+
+                                      <li className="text-break">
                                         In <strong>Step 1</strong>: Select{" "}
                                         <strong>Drive API v3</strong> →{" "}
-                                        <code>
+                                        <code className="text-break d-block small">
                                           https://www.googleapis.com/auth/drive.file
                                         </code>
                                       </li>
-                                      <li>
+
+                                      <li className="text-break">
                                         Click <strong>"Authorize APIs"</strong>{" "}
                                         → Login with your Google account
                                       </li>
-                                      <li>
+
+                                      <li className="text-break">
                                         In <strong>Step 2</strong>: Click{" "}
                                         <strong>
                                           "Exchange authorization code for
                                           tokens"
                                         </strong>
                                       </li>
-                                      <li>
+
+                                      <li className="text-break">
                                         Copy the{" "}
                                         <strong>"Refresh token"</strong> and
                                         paste below ⬇️
                                       </li>
-                                      <li className="text-success fw-bold">
+
+                                      <li className="text-success fw-bold text-break">
                                         <i className="fas fa-check-circle me-1"></i>
                                         That's it! Token will auto-renew forever
                                         (unless manually revoked)
                                       </li>
                                     </ol>
-                                    <div className="alert alert-info mb-0 py-2">
-                                      <small>
+
+                                    {/* Nested Tip Alert */}
+                                    <div className="alert alert-info mb-0 py-2 px-3">
+                                      <small className="text-break">
                                         💡 <strong>Tip:</strong> Save
                                         credentials here first with toggle OFF,
                                         then enable toggle after setup is
@@ -3404,39 +3448,46 @@ const Settings = () => {
                               </div>
 
                               <div className="mt-4">
-                                <button
-                                  className="btn btn-success btn-lg"
-                                  onClick={handleSaveDriveConfig}
-                                  disabled={isDriveSaving}
-                                >
-                                  {isDriveSaving ? (
-                                    <>
-                                      <i className="fas fa-spinner fa-spin me-2"></i>
-                                      Saving...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <i className="fas fa-save me-2"></i>
-                                      Save Drive Configuration
-                                    </>
-                                  )}
-                                </button>
-                                <button
-                                  className="btn btn-primary btn-lg ms-2"
-                                  onClick={handleRunBackupNow}
-                                  disabled={isDriveSaving}
-                                >
-                                  <i className="fas fa-play me-2"></i>
-                                  Run Backup Now
-                                </button>
-                                <button
-                                  className="btn btn-info btn-lg ms-2"
-                                  onClick={handleTestDriveConnection}
-                                  disabled={isDriveSaving}
-                                >
-                                  <i className="fas fa-plug me-2"></i>
-                                  Test Connection
-                                </button>
+                                <div className="d-flex flex-column flex-md-row gap-2">
+                                  {/* Save Button */}
+                                  <button
+                                    className="btn btn-success btn-lg w-100 w-md-auto d-flex align-items-center justify-content-center gap-2"
+                                    onClick={handleSaveDriveConfig}
+                                    disabled={isDriveSaving}
+                                  >
+                                    {isDriveSaving ? (
+                                      <>
+                                        <i className="fas fa-spinner fa-spin"></i>
+                                        Saving...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <i className="fas fa-save"></i>
+                                        Save Drive Configuration
+                                      </>
+                                    )}
+                                  </button>
+
+                                  {/* Run Backup */}
+                                  <button
+                                    className="btn btn-primary btn-lg w-100 w-md-auto d-flex align-items-center justify-content-center gap-2"
+                                    onClick={handleRunBackupNow}
+                                    disabled={isDriveSaving}
+                                  >
+                                    <i className="fas fa-play"></i>
+                                    Run Backup Now
+                                  </button>
+
+                                  {/* Test Connection */}
+                                  <button
+                                    className="btn btn-info btn-lg w-100 w-md-auto d-flex align-items-center justify-content-center gap-2"
+                                    onClick={handleTestDriveConnection}
+                                    disabled={isDriveSaving}
+                                  >
+                                    <i className="fas fa-plug"></i>
+                                    Test Connection
+                                  </button>
+                                </div>
                               </div>
 
                               {driveConfig.enabled && (

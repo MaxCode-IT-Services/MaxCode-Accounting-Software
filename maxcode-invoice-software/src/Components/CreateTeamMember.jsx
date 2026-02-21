@@ -8,6 +8,26 @@ import {
   createDefaultPermissions,
 } from "../utils/permissions";
 
+const normalizeRoleValue = (role = "") => {
+  const normalized = String(role || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "master admin" || normalized === "masteradmin") {
+    return "Super Admin";
+  }
+  if (normalized === "super admin" || normalized === "superadmin") {
+    return "Super Admin";
+  }
+  if (normalized === "admin") {
+    return "Admin";
+  }
+  if (normalized === "team") {
+    return "Team";
+  }
+  return role;
+};
+
 const CreateTeamMember = ({
   show,
   onClose,
@@ -50,7 +70,7 @@ const CreateTeamMember = ({
         phone: editingRecord.phone || editingRecord.phoneNumber || "",
         email: editingRecord.email || "",
         address: editingRecord.address || "",
-        role: editingRecord.role || "",
+        role: normalizeRoleValue(editingRecord.role),
         pin: "",
         sendEmail: editingRecord.sendEmail === true,
         status: editingRecord.status === "Inactive" ? "Inactive" : "Active",
@@ -268,6 +288,7 @@ const CreateTeamMember = ({
     try {
       const payload = {
         ...formData,
+        role: normalizeRoleValue(formData.role),
         permissions,
       };
 
@@ -459,7 +480,7 @@ const CreateTeamMember = ({
                         <option value="">Select Role</option>
                         <option value="Team">Team</option>
                         <option value="Admin">Admin</option>
-                        <option value="Master Admin">Master Admin</option>
+                        <option value="Super Admin">Super Admin</option>
                       </select>
                       {errors.role && (
                         <div className="invalid-feedback">{errors.role}</div>

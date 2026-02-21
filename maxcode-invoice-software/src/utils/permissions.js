@@ -195,7 +195,8 @@ const resolveNormalizedRole = (role = "") => {
     .toLowerCase();
   if (!normalized) return "";
 
-  if (normalized.includes("super")) return "super";
+  if (normalized.includes("super") || normalized.includes("master"))
+    return "super";
   if (normalized.includes("admin") || normalized === "master") return "admin";
   if (normalized.includes("team") || normalized.includes("member"))
     return "team";

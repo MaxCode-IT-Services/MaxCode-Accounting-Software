@@ -72,7 +72,7 @@ const TeamManagement = () => {
       inactive: activeRecords.filter((record) => record.status === "Inactive")
         .length,
       admins: activeRecords.filter((record) =>
-        ["Admin", "Master Admin"].includes(record.role),
+        ["Admin", "Super Admin", "Master Admin"].includes(record.role),
       ).length,
       teams: activeRecords.filter((record) => record.role === "Team").length,
     });
@@ -181,7 +181,7 @@ const TeamManagement = () => {
 
   const filterOptions = {
     status: ["All", "Active", "Inactive"],
-    role: ["All", "Team", "Admin", "Master Admin"],
+    role: ["All", "Team", "Admin", "Super Admin"],
   };
 
   const handleCardClick = (cardKey) => {
