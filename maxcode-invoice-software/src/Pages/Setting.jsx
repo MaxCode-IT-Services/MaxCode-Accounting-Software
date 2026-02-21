@@ -1066,6 +1066,13 @@ const Settings = () => {
       showSuccess("✅ Google Drive backup configuration saved successfully!");
 
       if (driveConfig.enabled) {
+        const maskSecret = (value = "") => {
+          const normalized = String(value || "");
+          if (!normalized) return "(not set)";
+          if (normalized.length <= 8) return "••••••••";
+          return `${normalized.slice(0, 4)}••••••${normalized.slice(-4)}`;
+        };
+
         showInfo(
           "📌 Next: Add these credentials as GitHub Secrets to activate automation. Check console for details.",
         );
@@ -1081,15 +1088,15 @@ const Settings = () => {
         );
         console.log("Add these 7 secrets:\n");
         console.log("1. GOOGLE_CLIENT_ID");
-        console.log(`   Value: ${driveConfig.clientId}\n`);
+        console.log(`   Value: ${maskSecret(driveConfig.clientId)}\n`);
         console.log("2. GOOGLE_CLIENT_SECRET");
-        console.log(`   Value: ${driveConfig.clientSecret}\n`);
+        console.log(`   Value: ${maskSecret(driveConfig.clientSecret)}\n`);
         console.log("3. GOOGLE_REFRESH_TOKEN");
-        console.log(`   Value: ${driveConfig.refreshToken}\n`);
+        console.log(`   Value: ${maskSecret(driveConfig.refreshToken)}\n`);
         console.log("4. GOOGLE_DRIVE_FOLDER_ID");
-        console.log(`   Value: ${driveConfig.folderId}\n`);
+        console.log(`   Value: ${maskSecret(driveConfig.folderId)}\n`);
         console.log("5. BACKUP_API_KEY");
-        console.log(`   Value: ${driveConfig.backupApiKey}\n`);
+        console.log(`   Value: ${maskSecret(driveConfig.backupApiKey)}\n`);
         console.log("6. NETLIFY_API_URL");
         console.log(`   Value: https://billing.maxcode.in/api\n`);
         console.log("7. MONGODB_URI");
