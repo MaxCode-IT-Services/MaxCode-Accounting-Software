@@ -1877,7 +1877,7 @@ const Settings = () => {
                         <button
                           onClick={handleSaveAll}
                           disabled={isSaving || isBusinessLoading}
-                          className="btn btn-success px-4 px-md-5 py-2 py-md-3 rounded-4 fw-bold d-flex align-items-center justify-content-center gap-2 w-100 w-md-auto"
+                          className="btn btn-success px-4 px-md-5 py-2 py-md-3 rounded-4 fw-bold d-flex align-items-center justify-content-center gap-2 settings-responsive-btn"
                         >
                           {isSaving || isBusinessLoading ? (
                             <>
@@ -2312,11 +2312,11 @@ const Settings = () => {
                         </div>
 
                         {/* Buttons */}
-                        <div className="d-flex flex-column flex-sm-row gap-2 w-100 w-md-auto">
+                        <div className="d-flex flex-column flex-sm-row gap-2 settings-action-group">
                           <button
                             onClick={() => setShowResetTermsConfirm(true)}
                             disabled={isSaving || isBusinessLoading}
-                            className="btn btn-outline-secondary px-4 py-2 fw-bold w-100 w-sm-auto"
+                            className="btn btn-outline-secondary px-4 py-2 fw-bold settings-responsive-btn"
                           >
                             <i className="fas fa-rotate-left me-2"></i>
                             Reset to Default
@@ -2325,7 +2325,7 @@ const Settings = () => {
                           <button
                             onClick={handleSaveAll}
                             disabled={isSaving || isBusinessLoading}
-                            className="btn btn-success px-4 py-2 fw-bold w-100 w-sm-auto d-flex align-items-center justify-content-center gap-2"
+                            className="btn btn-success px-4 py-2 fw-bold settings-responsive-btn d-flex align-items-center justify-content-center gap-2"
                           >
                             {isSaving || isBusinessLoading ? (
                               <>
@@ -3879,6 +3879,24 @@ const Settings = () => {
         .btn-update:hover {
           transform: translateY(-2px);
           box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .settings-responsive-btn {
+          width: 100% !important;
+        }
+
+        .settings-action-group {
+          width: 100%;
+        }
+
+        @media (min-width: 768px) {
+          .settings-responsive-btn {
+            width: auto !important;
+          }
+
+          .settings-action-group {
+            width: auto;
+          }
         }
 
         @media (max-width: 768px) {
