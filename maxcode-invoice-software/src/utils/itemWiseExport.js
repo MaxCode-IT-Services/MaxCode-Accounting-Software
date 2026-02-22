@@ -282,8 +282,8 @@ export const exportItemWiseExcel = ({
     { width: 16 },
     { width: 14 },
     { width: 24 },
-    { width: 18 },
-    { width: 26 },
+    { width: 24 },
+    { width: 30 },
     { width: 16 },
     { width: 24 },
     { width: 12 },
@@ -378,6 +378,66 @@ export const exportItemWisePDF = ({
     format: "a4",
   });
 
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const formattedDateTime = new Date().toLocaleString();
+
+  // Helper to clean up whitespace (but allow wrapping)
+  const cleanText = (val) => {
+    if (!val) return "";
+    return String(val)
+      .replace(/\r?\n|\r/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
+  const tableBody = rows.map((row) => [
+    row.sn,
+    cleanText(row.invoiceNumber),
+    cleanText(row.invoiceDate),
+    cleanText(row.partyName),
+    cleanText(row.gstin),
+    cleanText(row.address),
+    cleanText(row.placeOfSupply),
+    cleanText(row.itemName),
+    cleanText(row.hsnCode),
+    row.quantity,
+    row.price,
+    row.amount,
+    row.taxPercent,
+    row.cgst,
+    row.sgst,
+    row.igst,
+    row.tax,
+    row.rounding,
+    row.totalAmount,
+  ]);
+
+  // Title
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  const titleText = `${reportTitle} - Item Wise`;
+  const titleWidth =
+    (doc.getStringUnitWidth(titleText) * doc.internal.getFontSize()) /
+    doc.internal.scaleFactor;
+  doc.text(titleText, (pageWidth - titleWidth) / 2, 12);
+
+  // Yellow separator line
+  doc.setDrawColor(255, 204, 0);
+  doc.setLineWidth(1);
+  doc.line(8, 17, pageWidth - 8, 17);
+
+  // Date/Time and Total Records (unique invoice count)
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Generated on: ${formattedDateTime}`, 8, 25);
+  // Count unique invoice numbers (ignore empty)
+  const uniqueInvoices = Array.from(
+    new Set(rows.map((r) => r.invoiceNumber).filter(Boolean)),
+  );
+  doc.text(`Total Invoices: ${uniqueInvoices.length}`, pageWidth - 8, 25, {
+    align: "right",
+  });
+
   const tableHead = [
     "S.No",
     "Invoice No",
@@ -400,50 +460,51 @@ export const exportItemWisePDF = ({
     "Total Amount",
   ];
 
-  const tableBody = rows.map((row) => [
-    row.sn,
-    row.invoiceNumber,
-    row.invoiceDate,
-    row.partyName,
-    row.gstin,
-    row.address,
-    row.placeOfSupply,
-    row.itemName,
-    row.hsnCode,
-    row.quantity,
-    row.price,
-    row.amount,
-    row.taxPercent,
-    row.cgst,
-    row.sgst,
-    row.igst,
-    row.tax,
-    row.rounding,
-    row.totalAmount,
-  ]);
-
-  const pageWidth = doc.internal.pageSize.getWidth();
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
-  const titleText = `${reportTitle} - Item Wise`;
-  const titleWidth =
-    (doc.getStringUnitWidth(titleText) * doc.internal.getFontSize()) /
-    doc.internal.scaleFactor;
-  doc.text(titleText, (pageWidth - titleWidth) / 2, 12);
-
   autoTable(doc, {
     head: [tableHead],
     body: tableBody,
-    startY: 18,
+    startY: 30,
     styles: {
-      fontSize: 8,
-      cellPadding: 2,
+      fontSize: 7,
+      cellPadding: 1.5,
       overflow: "linebreak",
+      lineWidth: 0.1,
+      lineColor: [200, 200, 200],
+      textColor: [0, 0, 0],
+      halign: "center",
+      valign: "middle",
+      minCellHeight: 7,
+      cellWidth: "wrap",
     },
     headStyles: {
       fillColor: [255, 204, 0],
       textColor: [0, 0, 0],
       fontStyle: "bold",
+      fontSize: 8,
+      halign: "center",
+      valign: "middle",
+      minCellHeight: 8,
+    },
+    columnStyles: {
+      0: { cellWidth: 10, halign: "center", minCellHeight: 7 }, // S.No
+      1: { cellWidth: 22, halign: "center", minCellHeight: 7 }, // Invoice No
+      2: { cellWidth: 20, halign: "center", minCellHeight: 7 }, // Invoice Date
+      3: { cellWidth: 32, halign: "left", minCellHeight: 7 }, // Party Name
+      4: { cellWidth: 26, halign: "center", minCellHeight: 7 }, // GSTIN
+      5: { cellWidth: 36, halign: "left", minCellHeight: 7 }, // Address
+      6: { cellWidth: 26, halign: "left", minCellHeight: 7 }, // Place Of Supply
+      7: { cellWidth: 32, halign: "left", minCellHeight: 7 }, // Item Name
+      8: { cellWidth: 18, halign: "center", minCellHeight: 7 }, // HSN/SAC
+      9: { cellWidth: 13, halign: "right", minCellHeight: 7 }, // Qty
+      10: { cellWidth: 16, halign: "right", minCellHeight: 7 }, // Price
+      11: { cellWidth: 18, halign: "right", minCellHeight: 7 }, // Amount
+      12: { cellWidth: 13, halign: "center", minCellHeight: 7 }, // Tax %
+      13: { cellWidth: 15, halign: "right", minCellHeight: 7 }, // CGST
+      14: { cellWidth: 15, halign: "right", minCellHeight: 7 }, // SGST
+      15: { cellWidth: 15, halign: "right", minCellHeight: 7 }, // IGST
+      16: { cellWidth: 15, halign: "right", minCellHeight: 7 }, // Tax
+      17: { cellWidth: 15, halign: "right", minCellHeight: 7 }, // Round Off
+      18: { cellWidth: 20, halign: "right", minCellHeight: 7 }, // Total Amount
     },
     didParseCell: (hookData) => {
       if (hookData.section !== "body") return;
@@ -451,10 +512,23 @@ export const exportItemWisePDF = ({
       const row = rows[hookData.row.index];
       if (row?.rowType === "total" || row?.rowType === "grand-total") {
         hookData.cell.styles.fontStyle = "bold";
+        hookData.cell.styles.fillColor = [255, 250, 205];
       }
     },
+    alternateRowStyles: {
+      fillColor: [245, 245, 245],
+    },
+    margin: {
+      top: 30,
+      bottom: 8,
+      left: 8,
+      right: 8,
+    },
+    tableWidth: "auto",
+    horizontalPageBreak: true,
     theme: "grid",
     showHead: "everyPage",
+    pageBreak: "auto",
   });
 
   doc.save(
