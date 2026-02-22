@@ -610,8 +610,6 @@ const SalesManagement = () => {
 
   const handleDeleteInvoice = async (id) => {
     try {
-  const handleDeleteInvoice = async (id) => {
-    try {
       // Soft delete: set isDeleted true
       await apiPut(API_ENDPOINTS.INVOICES.UPDATE(id), {
         isDeleted: true,
@@ -1044,6 +1042,6 @@ const SalesManagement = () => {
       </div>
     </>
   );
-}
+};
 
 export default SalesManagement;
