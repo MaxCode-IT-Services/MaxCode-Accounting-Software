@@ -59,6 +59,7 @@ const ClientManagement = () => {
           ...client,
           id: client._id || client.id,
           createdDate,
+          gstStatus: client.hasGSTIN ? "Registered" : "Unregistered",
         };
       });
       setRecords(mappedData);
