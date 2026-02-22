@@ -10,6 +10,10 @@ import {
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
+import {
+  exportItemWiseExcel,
+  exportItemWisePDF,
+} from "../utils/itemWiseExport";
 
 const SalesManagement = () => {
   const moduleKey = "salesManagement";
@@ -701,6 +705,63 @@ const SalesManagement = () => {
     }
   };
 
+  const handleExportItemWiseExcel = () => {
+    if (!filteredRecords.length) {
+      showError("No sales invoices found for the selected filters.");
+      return;
+    }
+
+    try {
+      exportItemWiseExcel({
+        records: filteredRecords,
+        exportFileName: "Sales_Management",
+        sheetName: "Sales Item Wise",
+        reportTitle: "Sales_Item_Wise",
+        invoiceNumberKey: "invoiceNumber",
+        partyNameKey: ["clientName", "businessName"],
+        partyLabel: "Client Name",
+        dateKey: "invoiceDate",
+        partyDetails: {
+          gstinKey: "gstin",
+          addressKey: "address",
+          placeOfSupplyKey: "placeOfSupply",
+        },
+      });
+      showSuccess("Sales item-wise Excel exported successfully!");
+    } catch (error) {
+      console.error("Sales item-wise Excel export error:", error);
+      showError("Failed to export Sales item-wise Excel.");
+    }
+  };
+
+  const handleExportItemWisePDF = () => {
+    if (!filteredRecords.length) {
+      showError("No sales invoices found for the selected filters.");
+      return;
+    }
+
+    try {
+      exportItemWisePDF({
+        records: filteredRecords,
+        exportFileName: "Sales_Management",
+        reportTitle: "Sales Report",
+        invoiceNumberKey: "invoiceNumber",
+        partyNameKey: ["clientName", "businessName"],
+        partyLabel: "Client Name",
+        dateKey: "invoiceDate",
+        partyDetails: {
+          gstinKey: "gstin",
+          addressKey: "address",
+          placeOfSupplyKey: "placeOfSupply",
+        },
+      });
+      showSuccess("Sales item-wise PDF exported successfully!");
+    } catch (error) {
+      console.error("Sales item-wise PDF export error:", error);
+      showError("Failed to export Sales item-wise PDF.");
+    }
+  };
+
   const getStatusLabel = (status) => {
     if (status === "Paid") return "PAID";
     if (status === "Partial") return "PARTIAL";
@@ -899,6 +960,14 @@ const SalesManagement = () => {
           exportFileName="Sales_Management"
           exportTitle="Sales Management Report"
           extraExportItems={[
+            {
+              label: "Export Excel with Item",
+              onClick: handleExportItemWiseExcel,
+            },
+            {
+              label: "PDF with Item",
+              onClick: handleExportItemWisePDF,
+            },
             {
               label: exportingInvoices
                 ? "Generating Invoices PDF..."

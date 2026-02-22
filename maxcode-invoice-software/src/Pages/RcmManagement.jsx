@@ -10,6 +10,10 @@ import {
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
+import {
+  exportItemWiseExcel,
+  exportItemWisePDF,
+} from "../utils/itemWiseExport";
 
 const RcmManagement = () => {
   const moduleKey = "rcmManagement";
@@ -751,6 +755,63 @@ const RcmManagement = () => {
     }
   };
 
+  const handleExportItemWiseExcel = () => {
+    if (!filteredRecords.length) {
+      showError("No RCM invoices found for the selected filters.");
+      return;
+    }
+
+    try {
+      exportItemWiseExcel({
+        records: filteredRecords,
+        exportFileName: "RCM_Management",
+        sheetName: "RCM Item Wise",
+        reportTitle: "RCM_Item_Wise",
+        invoiceNumberKey: "selfInvoiceNumber",
+        partyNameKey: "serviceProviderBusinessName",
+        partyLabel: "Service Provider",
+        dateKey: "invoiceDate",
+        partyDetails: {
+          gstinKey: "gstin",
+          addressKey: "address",
+          placeOfSupplyKey: "placeOfSupply",
+        },
+      });
+      showSuccess("RCM item-wise Excel exported successfully!");
+    } catch (error) {
+      console.error("RCM item-wise Excel export error:", error);
+      showError("Failed to export RCM item-wise Excel.");
+    }
+  };
+
+  const handleExportItemWisePDF = () => {
+    if (!filteredRecords.length) {
+      showError("No RCM invoices found for the selected filters.");
+      return;
+    }
+
+    try {
+      exportItemWisePDF({
+        records: filteredRecords,
+        exportFileName: "RCM_Management",
+        reportTitle: "RCM Report",
+        invoiceNumberKey: "selfInvoiceNumber",
+        partyNameKey: "serviceProviderBusinessName",
+        partyLabel: "Service Provider",
+        dateKey: "invoiceDate",
+        partyDetails: {
+          gstinKey: "gstin",
+          addressKey: "address",
+          placeOfSupplyKey: "placeOfSupply",
+        },
+      });
+      showSuccess("RCM item-wise PDF exported successfully!");
+    } catch (error) {
+      console.error("RCM item-wise PDF export error:", error);
+      showError("Failed to export RCM item-wise PDF.");
+    }
+  };
+
   const getStatusLabel = (status) => {
     if (status === "Paid") return "PAID";
     if (status === "Partial") return "PARTIAL";
@@ -950,6 +1011,14 @@ const RcmManagement = () => {
           exportFileName="RCM_Management"
           exportTitle="RCM Management Report"
           extraExportItems={[
+            {
+              label: "Export Excel with Item",
+              onClick: handleExportItemWiseExcel,
+            },
+            {
+              label: "PDF with Item",
+              onClick: handleExportItemWisePDF,
+            },
             {
               label: exportingInvoices
                 ? "Generating Self Invoices PDF..."

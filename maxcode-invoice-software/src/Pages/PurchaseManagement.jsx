@@ -9,6 +9,10 @@ import {
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
+import {
+  exportItemWiseExcel,
+  exportItemWisePDF,
+} from "../utils/itemWiseExport";
 
 const PurchaseManagement = () => {
   const moduleKey = "purchaseManagement";
@@ -30,6 +34,7 @@ const PurchaseManagement = () => {
   const [showCreatePurchaseForm, setShowCreatePurchaseForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
+  const [filteredRecords, setFilteredRecords] = useState([]);
 
   // Statistics state
   const [statistics, setStatistics] = useState({
@@ -759,6 +764,63 @@ const PurchaseManagement = () => {
     showInfo("Data refreshed!");
   };
 
+  const handleExportItemWiseExcel = () => {
+    if (!filteredRecords.length) {
+      showError("No purchase invoices found for the selected filters.");
+      return;
+    }
+
+    try {
+      exportItemWiseExcel({
+        records: filteredRecords,
+        exportFileName: "Purchase_Management",
+        sheetName: "Purchase Item Wise",
+        reportTitle: "Purchase_Item_Wise",
+        invoiceNumberKey: "invoiceNumber",
+        partyNameKey: "vendorName",
+        partyLabel: "Vendor Name",
+        dateKey: "invoiceDate",
+        partyDetails: {
+          gstinKey: "gstin",
+          addressKey: "address",
+          placeOfSupplyKey: "placeOfSupply",
+        },
+      });
+      showSuccess("Purchase item-wise Excel exported successfully!");
+    } catch (error) {
+      console.error("Purchase item-wise Excel export error:", error);
+      showError("Failed to export Purchase item-wise Excel.");
+    }
+  };
+
+  const handleExportItemWisePDF = () => {
+    if (!filteredRecords.length) {
+      showError("No purchase invoices found for the selected filters.");
+      return;
+    }
+
+    try {
+      exportItemWisePDF({
+        records: filteredRecords,
+        exportFileName: "Purchase_Management",
+        reportTitle: "Purchase Report",
+        invoiceNumberKey: "invoiceNumber",
+        partyNameKey: "vendorName",
+        partyLabel: "Vendor Name",
+        dateKey: "invoiceDate",
+        partyDetails: {
+          gstinKey: "gstin",
+          addressKey: "address",
+          placeOfSupplyKey: "placeOfSupply",
+        },
+      });
+      showSuccess("Purchase item-wise PDF exported successfully!");
+    } catch (error) {
+      console.error("Purchase item-wise PDF export error:", error);
+      showError("Failed to export Purchase item-wise PDF.");
+    }
+  };
+
   return (
     <>
       <div className="container-fluid">
@@ -848,6 +910,7 @@ const PurchaseManagement = () => {
           columns={columns}
           data={prepareTableData()}
           loading={loading}
+          onFilteredDataChange={setFilteredRecords}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onView={handleView}
@@ -867,6 +930,16 @@ const PurchaseManagement = () => {
           showSearch={true}
           exportFileName="Purchase_Management"
           exportTitle="Purchase Management Report"
+          extraExportItems={[
+            {
+              label: "Export Excel with Item",
+              onClick: handleExportItemWiseExcel,
+            },
+            {
+              label: "PDF with Item",
+              onClick: handleExportItemWisePDF,
+            },
+          ]}
           activeCardFilter={activeCardFilter}
           cards={cards}
           getBadgeClass={(value) => {
