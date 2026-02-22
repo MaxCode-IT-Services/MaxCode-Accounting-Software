@@ -610,7 +610,13 @@ const SalesManagement = () => {
 
   const handleDeleteInvoice = async (id) => {
     try {
-      await apiDelete(API_ENDPOINTS.INVOICES.DELETE(id));
+  const handleDeleteInvoice = async (id) => {
+    try {
+      // Soft delete: set isDeleted true
+      await apiPut(API_ENDPOINTS.INVOICES.UPDATE(id), {
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+      });
       await fetchSales();
       showSuccess("Sales deleted successfully!");
     } catch (error) {
@@ -618,7 +624,7 @@ const SalesManagement = () => {
       showError(
         error.response?.data?.message ||
           error.response?.data?.error ||
-          "Failed to delete sales",
+          "Failed to delete invoice",
       );
     }
   };
@@ -1038,6 +1044,6 @@ const SalesManagement = () => {
       </div>
     </>
   );
-};
+}
 
 export default SalesManagement;
