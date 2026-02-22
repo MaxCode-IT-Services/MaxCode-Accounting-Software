@@ -431,7 +431,7 @@ const FinancialYearManagement = () => {
 
       setRecords(updatedRecords);
       updateStatistics(updatedRecords);
-      showSuccess("Financial Year marked as deleted successfully!");
+      showSuccess("Financial Year deleted successfully!");
       setShowDeleteConfirm(false);
       setYearToDelete(null);
     } catch (error) {

@@ -354,7 +354,7 @@ const StaffManagement = () => {
       );
       setRecords(updatedRecords);
       updateStatistics(updatedRecords);
-      showSuccess("Staff marked as deleted successfully!");
+      showSuccess("Staff deleted successfully!");
       setShowDeleteConfirm(false);
       setStaffToDelete(null);
     } catch (error) {

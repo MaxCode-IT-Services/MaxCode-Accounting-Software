@@ -632,7 +632,11 @@ const ServicesManagement = () => {
 
   const handleDelete = async (id) => {
     try {
-      await apiDelete(API_ENDPOINTS.SERVICES.DELETE(id));
+      // Soft delete: set isDeleted true
+      await apiPut(API_ENDPOINTS.SERVICES.UPDATE(id), {
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+      });
       await fetchServices();
       showSuccess("Service deleted successfully!");
     } catch (error) {

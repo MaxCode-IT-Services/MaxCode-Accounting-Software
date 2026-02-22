@@ -625,7 +625,11 @@ const ProjectManagement = () => {
 
   const handleDelete = async (id) => {
     try {
-      await apiDelete(API_ENDPOINTS.PROJECTS.DELETE(id));
+      // Soft delete: set isDeleted true
+      await apiPut(API_ENDPOINTS.PROJECTS.UPDATE(id), {
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+      });
       await fetchProjects();
       showSuccess("Project deleted successfully!");
     } catch (error) {

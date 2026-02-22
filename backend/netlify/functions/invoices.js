@@ -197,7 +197,7 @@ export async function handler(event) {
       );
     }
 
-    // DELETE - Remove invoice
+    // DELETE - Soft delete invoice (set isDeleted: true)
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
@@ -208,11 +208,17 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid invoice ID" }, origin);
       }
 
-      const result = await invoicesCollection.deleteOne({
-        _id: new ObjectId(id),
-      });
+      const result = await invoicesCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: new Date(),
+          },
+        },
+      );
 
-      if (result.deletedCount === 0) {
+      if (result.matchedCount === 0) {
         return createResponse(404, { error: "Invoice not found" }, origin);
       }
 

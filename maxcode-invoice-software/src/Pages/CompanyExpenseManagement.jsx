@@ -400,7 +400,11 @@ const CompanyExpenseManagement = () => {
 
   const handleDelete = async (id) => {
     try {
-      await apiDelete(API_ENDPOINTS.COMPANY_EXPENSES.DELETE(id));
+      // Soft delete: set isDeleted true
+      await apiPut(API_ENDPOINTS.COMPANY_EXPENSES.UPDATE(id), {
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+      });
       await fetchCompanyExpenses();
       showSuccess("Company expense deleted successfully!");
     } catch (error) {

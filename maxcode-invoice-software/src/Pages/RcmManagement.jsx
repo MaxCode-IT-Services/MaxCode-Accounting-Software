@@ -661,7 +661,11 @@ const RcmManagement = () => {
 
   const handleDelete = async (id) => {
     try {
-      await apiDelete(API_ENDPOINTS.RCM.DELETE(id));
+      // Soft delete: set isDeleted true
+      await apiPut(API_ENDPOINTS.RCM.UPDATE(id), {
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+      });
       await fetchRcm();
       showSuccess("RCM deleted successfully!");
     } catch (error) {

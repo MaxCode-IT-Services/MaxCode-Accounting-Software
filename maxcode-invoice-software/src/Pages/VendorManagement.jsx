@@ -308,7 +308,7 @@ const VendorManagement = () => {
       );
       setRecords(updatedRecords);
       updateStatistics(updatedRecords);
-      showSuccess("Vendor marked as deleted successfully!");
+      showSuccess("Vendor deleted successfully!");
       setShowDeleteConfirm(false);
       setVendorToDelete(null);
     } catch (error) {

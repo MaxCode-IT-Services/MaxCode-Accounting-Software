@@ -321,7 +321,7 @@ const ClientManagement = () => {
       );
       setRecords(updatedRecords);
       updateStatistics(updatedRecords);
-      showSuccess("Client marked as deleted successfully!");
+      showSuccess("Client deleted successfully!");
       setShowDeleteConfirm(false);
       setClientToDelete(null);
     } catch (error) {

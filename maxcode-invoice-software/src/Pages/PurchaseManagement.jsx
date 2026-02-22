@@ -742,7 +742,11 @@ const PurchaseManagement = () => {
   // Handle delete
   const handleDelete = async (id) => {
     try {
-      await apiDelete(API_ENDPOINTS.PURCHASES.DELETE(id));
+      // Soft delete: set isDeleted true
+      await apiPut(API_ENDPOINTS.PURCHASES.UPDATE(id), {
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+      });
       await fetchPurchases();
       showSuccess("Purchase deleted successfully!");
     } catch (error) {
