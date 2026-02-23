@@ -2382,31 +2382,70 @@ const Settings = () => {
                                       e.target.value,
                                     )
                                   }
-                                  placeholder="mongodb+srv://..."
-                                  disabled={isTesting}
+                                  placeholder="mongodb+srv://username:password@cluster.mongodb.net/database"
                                 />
-
-                                <button
-                                  className="btn btn-outline-success px-4 py-2 fw-bold"
-                                  disabled={isTesting}
-                                  onClick={handleTestConnection}
-                                >
-                                  {isTesting ? (
-                                    <>
-                                      <span
-                                        className="spinner-border spinner-border-sm me-2"
-                                        role="status"
-                                      ></span>
-                                      Verifying Connection...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <i className="fas fa-plug me-2"></i>
-                                      Test MongoDB Connection
-                                    </>
-                                  )}
-                                </button>
                               </div>
+
+                              <small className="text-muted mt-1 d-block">
+                                <i className="fas fa-info-circle me-1"></i>
+                                Enter your MongoDB connection string
+                              </small>
+                            </div>
+
+                            <div className="col-lg-6">
+                              <label className="form-label fw-bold text-muted small text-uppercase mb-2">
+                                Netlify Bridge API URL
+                              </label>
+
+                              <div
+                                className="input-group"
+                                style={{ maxWidth: "100%" }}
+                              >
+                                <span className="input-group-text bg-light border-2">
+                                  <i className="fas fa-link"></i>
+                                </span>
+
+                                <input
+                                  type="url"
+                                  className="form-control modern-input border-2"
+                                  value={businessSettings.mongoApiUrl}
+                                  onChange={(e) =>
+                                    handleBusinessChange(
+                                      "mongoApiUrl",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="https://your-app.netlify.app/.netlify/functions/sync"
+                                />
+                              </div>
+
+                              <small className="text-muted mt-1 d-block">
+                                <i className="fas fa-info-circle me-1"></i>
+                                Your Netlify function endpoint
+                              </small>
+                            </div>
+
+                            <div className="col-12">
+                              <button
+                                onClick={handleTestConnection}
+                                disabled={isTesting}
+                                className="btn btn-outline-success px-4 py-2 fw-bold"
+                              >
+                                {isTesting ? (
+                                  <>
+                                    <span
+                                      className="spinner-border spinner-border-sm me-2"
+                                      role="status"
+                                    ></span>
+                                    Verifying Connection...
+                                  </>
+                                ) : (
+                                  <>
+                                    <i className="fas fa-plug me-2"></i>
+                                    Test MongoDB Connection
+                                  </>
+                                )}
+                              </button>
                             </div>
                           </div>
                         </div>
