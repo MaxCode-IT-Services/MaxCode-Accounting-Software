@@ -986,13 +986,14 @@ const Settings = () => {
   };
 
   // Import Backup Handler
+  // Import Backup Handler
+  // Import Backup Handler - Direct File Upload Version
   const handleImportBackup = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.name.toLowerCase().endsWith(".bson")) {
-      showError("Please select a valid JSON backup file");
+      showError("Please select a valid BSON backup file (.bson)");
       return;
     }
 
@@ -1000,36 +1001,34 @@ const Settings = () => {
       setIsImporting(true);
       setBackupProgress("Reading backup file...");
 
-      // Read file content
-      const fileContent = await file.text();
-      const backupData = JSON.parse(fileContent);
+      // Read file as ArrayBuffer
+      const arrayBuffer = await file.arrayBuffer();
 
-      // Validate backup structure
-      if (
-        !backupData.collections ||
-        (!backupData.metadata && !backupData.exportDate)
-      ) {
-        showError("Invalid backup file format");
-        setIsImporting(false);
-        setBackupProgress("");
-        return;
-      }
+      // Convert directly to base64 using FileReader
+      const base64Data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          // reader.result contains base64 string with data:application/octet-stream;base64, prefix
+          const base64 = reader.result.split(",")[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
 
       setBackupProgress("Restoring data from secure server...");
 
+      // Send to backend
       await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
         action: "restore",
-        backupData,
+        backupData: `base64:${base64Data}`,
       });
 
       showSuccess("Backup restored successfully!");
-
       setBackupProgress("");
     } catch (error) {
-      console.error("Backup import error:", error);
-      showError(
-        "Failed to import backup. Please check the file and try again.",
-      );
+      console.error("Import error:", error);
+      showError(error?.response?.data?.error || "Failed to import backup");
       setBackupProgress("");
     } finally {
       setIsImporting(false);
