@@ -2805,8 +2805,8 @@ const Settings = () => {
                             </div>
                             <h4 className="fw-bold mb-2">Export Backup</h4>
                             <p className="text-muted">
-                              Download all your data as a secure JSON backup for
-                              safekeeping
+                              Download all your data as a secure BSON & JSON
+                              backup for safekeeping
                             </p>
                           </div>
 
@@ -2815,42 +2815,54 @@ const Settings = () => {
                               <i className="fas fa-info-circle text-info me-2"></i>
                               <strong>What will be exported?</strong>
                             </div>
-                            <ul className="backup-list">
-                              <li>
+                            <ul className="backup-list row list-unstyled">
+                              <li className="col-md-6 mb-2">
                                 <i className="fas fa-check-circle text-success me-2"></i>
                                 All Clients Data
                               </li>
-                              <li>
+                              <li className="col-md-6 mb-2">
                                 <i className="fas fa-check-circle text-success me-2"></i>
                                 All Vendors Data
                               </li>
-                              <li>
-                                <i className="fas fa-check-circle text-success me-2"></i>
-                                All Staff Records
-                              </li>
-                              <li>
+                              <li className="col-md-6 mb-2">
                                 <i className="fas fa-check-circle text-success me-2"></i>
                                 All Invoices & Sales
                               </li>
-                              <li>
+                              <li className="col-md-6 mb-2">
                                 <i className="fas fa-check-circle text-success me-2"></i>
                                 All Purchases
                               </li>
-                              <li>
+                              <li className="col-md-6 mb-2">
                                 <i className="fas fa-check-circle text-success me-2"></i>
                                 All RCM Records
                               </li>
-                              <li>
+                              <li className="col-md-6 mb-2">
+                                <i className="fas fa-check-circle text-success me-2"></i>
+                                All Company Expense
+                              </li>
+                              <li className="col-md-6 mb-2">
+                                <i className="fas fa-check-circle text-success me-2"></i>
+                                All Services Management
+                              </li>
+                              <li className="col-md-6 mb-2">
                                 <i className="fas fa-check-circle text-success me-2"></i>
                                 All Projects Data
                               </li>
-                              <li>
+                              <li className="col-md-6 mb-2">
                                 <i className="fas fa-check-circle text-success me-2"></i>
-                                Business Settings
+                                All Staff Records
                               </li>
-                              <li>
+                              <li className="col-md-6 mb-2">
+                                <i className="fas fa-check-circle text-success me-2"></i>
+                                All Users & Team
+                              </li>
+                              <li className="col-md-6 mb-2">
                                 <i className="fas fa-check-circle text-success me-2"></i>
                                 Financial Years
+                              </li>
+                              <li className="col-md-6 mb-2">
+                                <i className="fas fa-check-circle text-success me-2"></i>
+                                Business Settings
                               </li>
                             </ul>
                           </div>
@@ -2918,7 +2930,7 @@ const Settings = () => {
                             <h4 className="fw-bold mb-2">Restore Backup</h4>
                             <p className="text-muted">
                               Import and restore data from a previously exported
-                              JSON backup file
+                              BSON & JSON backup file
                             </p>
                           </div>
 
@@ -2931,9 +2943,8 @@ const Settings = () => {
                                 </strong>
                                 <p className="mb-0 mt-1 small">
                                   Importing a backup will{" "}
-                                  <strong>replace all existing data</strong>{" "}
-                                  with the data from the backup file. This
-                                  action cannot be undone. Please export a
+                                  <strong>replace all existing data.</strong>{" "}
+                                  This action cannot be undone. Please export a
                                   current backup before proceeding.
                                 </p>
                               </div>
@@ -2942,19 +2953,19 @@ const Settings = () => {
 
                           <div className="backup-info-card mb-3">
                             <div className="d-flex align-items-center mb-2">
-                              <i className="fas fa-list-check text-primary me-2"></i>
+                              <i className="fas fa-list-check text-primary me-2 ps-2"></i>
                               <strong>Before you restore:</strong>
                             </div>
                             <ul className="backup-list">
-                              <li>
+                              <li className="mb-2">
                                 <i className="fas fa-arrow-right text-primary me-2"></i>
                                 Export current data as backup
                               </li>
-                              <li>
+                              <li className="mb-2">
                                 <i className="fas fa-arrow-right text-primary me-2"></i>
-                                Verify the JSON file is not corrupted
+                                Verify the BSON & JSON file is not corrupted
                               </li>
-                              <li>
+                              <li className="mb-2">
                                 <i className="fas fa-arrow-right text-primary me-2"></i>
                                 Ensure file is from this system
                               </li>
@@ -3386,7 +3397,7 @@ const Settings = () => {
                                   </small>
                                 </div>
 
-                                <div className="col-md-6">
+                                <div className="col-md-4">
                                   <label className="form-label fw-bold">
                                     <i className="fas fa-folder me-2"></i>
                                     Google Drive Folder ID
@@ -3409,7 +3420,7 @@ const Settings = () => {
                                   </small>
                                 </div>
 
-                                <div className="col-md-6">
+                                <div className="col-md-4">
                                   <label className="form-label fw-bold">
                                     <i className="fas fa-calendar-alt me-2"></i>
                                     Backup Frequency
@@ -3435,7 +3446,7 @@ const Settings = () => {
                                   </select>
                                 </div>
 
-                                <div className="col-md-6">
+                                <div className="col-md-4">
                                   <label className="form-label fw-bold">
                                     <i className="fas fa-clock me-2"></i>
                                     Backup Time (24-hour format)
@@ -4287,7 +4298,7 @@ const Settings = () => {
           width: 80px;
           height: 80px;
           border-radius: 50%;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: var(--header-gradient);
           box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
         }
 
@@ -4297,7 +4308,7 @@ const Settings = () => {
 
         .backup-info-card {
           background: #f8f9fa;
-          border-left: 4px solid #0d6efd;
+          border-left: 4px solid #007230;
           padding: 15px;
           border-radius: 8px;
         }
@@ -4316,7 +4327,7 @@ const Settings = () => {
         }
 
         .backup-list li {
-          padding: 6px 0;
+          padding: 0px 10px;
           font-size: 0.95rem;
         }
 
