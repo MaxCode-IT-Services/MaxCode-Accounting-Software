@@ -1,10 +1,11 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
+import { serialize, deserialize } from "bson";
 
 /**
  * Backup API Endpoint
- * - GET: Export backup data (supports JWT auth or X-API-Key auth)
- * - POST action=restore: Restore backup data (JWT required)
+ * - GET: Export backup data in BSON format (supports JWT auth or X-API-Key auth)
+ * - POST action=restore: Restore backup data from BSON (JWT required)
  * - POST action=test-drive-config: Test Google Drive connection (JWT required)
  * - POST action=run-now: Create a backup snapshot and upload to Drive (JWT required)
  * - POST action=run-automated: Scheduled backup run via GitHub Actions (API Key required)
@@ -90,7 +91,7 @@ const buildBackupPayload = async (db) => {
 
   const backupData = {
     metadata: {
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       version: "1.2",
       source: "MaxCode Invoice Software",
       collectionNames,
@@ -300,7 +301,7 @@ const getGoogleAccessToken = async (driveConfig) => {
 };
 
 /**
- * Upload backup data to Google Drive
+ * Upload backup data to Google Drive as BSON
  * @param {Object} driveConfig - Google Drive configuration
  * @param {Object} backupData - Backup data to upload
  * @param {string} trigger - Trigger type (manual/automated)
@@ -315,10 +316,10 @@ const uploadToGoogleDrive = async (
     const accessToken = await getGoogleAccessToken(driveConfig);
 
     // Keep a single rolling backup file (overwrite on each run)
-    const fileName = "maxcode-backup-latest.json";
+    const fileName = "maxcode-backup-latest.bson";
 
-    // Convert backup data to JSON string
-    const backupJson = JSON.stringify(backupData, null, 2);
+    // Convert backup data to BSON buffer
+    const bsonBuffer = serialize(backupData);
 
     const escapedName = fileName.replace(/'/g, "\\'");
     const folderFilter =
@@ -355,7 +356,7 @@ const uploadToGoogleDrive = async (
 
     const fileMetadata = {
       name: fileName,
-      mimeType: "application/json",
+      mimeType: "application/octet-stream", // BSON files use octet-stream
     };
 
     if (
@@ -372,9 +373,17 @@ const uploadToGoogleDrive = async (
       "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
       `${JSON.stringify(fileMetadata)}\r\n` +
       `--${boundary}\r\n` +
-      "Content-Type: application/json\r\n\r\n" +
-      `${backupJson}\r\n` +
-      `--${boundary}--`;
+      "Content-Type: application/octet-stream\r\n\r\n";
+
+    // Combine metadata and BSON data
+    const metadataPart = Buffer.from(multipartBody, "utf-8");
+    const closingBoundary = Buffer.from(`\r\n--${boundary}--`);
+
+    const uploadBody = Buffer.concat([
+      metadataPart,
+      bsonBuffer,
+      closingBoundary,
+    ]);
 
     const uploadResponse = await fetch(uploadUrl, {
       method: uploadMethod,
@@ -382,7 +391,7 @@ const uploadToGoogleDrive = async (
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": `multipart/related; boundary=${boundary}`,
       },
-      body: multipartBody,
+      body: uploadBody,
     });
 
     // Check if response is OK before trying to parse JSON
@@ -543,15 +552,20 @@ export async function handler(event) {
       const backupData = await buildBackupPayload(db);
       const stats = getBackupStats(backupData);
 
-      return createResponse(
-        200,
-        {
-          success: true,
-          data: backupData,
-          stats,
+      // Convert to BSON for binary response
+      const bsonBuffer = serialize(backupData);
+
+      return {
+        statusCode: 200,
+        headers: {
+          "Access-Control-Allow-Origin": origin,
+          "Access-Control-Allow-Credentials": true,
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": `attachment; filename="maxcode-backup-${new Date().toISOString().split("T")[0]}.bson"`,
         },
-        origin,
-      );
+        body: bsonBuffer.toString("base64"),
+        isBase64Encoded: true,
+      };
     }
 
     if (method === "POST") {
@@ -566,23 +580,42 @@ export async function handler(event) {
       const { db } = await connectToDatabase();
 
       if (action === "restore") {
-        const backupData = body.backupData;
+        // Check if file is BSON (base64 encoded)
+        let backupData;
 
-        if (!backupData || typeof backupData !== "object") {
+        if (body.backupData && body.backupData._bsontype) {
+          // Already parsed BSON object
+          backupData = body.backupData;
+        } else if (
+          body.backupData &&
+          typeof body.backupData === "string" &&
+          body.backupData.startsWith("base64:")
+        ) {
+          // Handle base64 encoded BSON
+          const base64Data = body.backupData.replace("base64:", "");
+          const buffer = Buffer.from(base64Data, "base64");
+          backupData = deserialize(buffer);
+        } else if (body.backupData && typeof body.backupData === "object") {
+          // Try JSON format as fallback
+          backupData = body.backupData;
+        } else {
           return createResponse(
             400,
-            { error: "backupData object is required" },
+            {
+              error:
+                "Invalid backup file format. Please provide a valid BSON backup file.",
+            },
             origin,
           );
         }
 
         if (
-          !backupData.collections ||
+          !backupData?.collections ||
           typeof backupData.collections !== "object"
         ) {
           return createResponse(
             400,
-            { error: "Invalid backup file format" },
+            { error: "Invalid backup file structure" },
             origin,
           );
         }
@@ -661,9 +694,10 @@ export async function handler(event) {
 
         // Check if Google Drive backup is enabled
         if (!driveConfig || !driveConfig.enabled) {
-          // If Drive is not enabled, just create local backup
+          // If Drive is not enabled, just create local backup (BSON format)
           const backupData = await buildBackupPayload(db);
           const stats = getBackupStats(backupData);
+          const bsonBuffer = serialize(backupData);
 
           await db.collection("backup_runs").insertOne({
             userId: user.userId,
@@ -673,23 +707,24 @@ export async function handler(event) {
             status: "completed-local-only",
           });
 
-          return createResponse(
-            200,
-            {
-              success: true,
-              message:
-                "Manual backup completed (local only - Google Drive not enabled)",
-              stats,
+          return {
+            statusCode: 200,
+            headers: {
+              "Access-Control-Allow-Origin": origin,
+              "Access-Control-Allow-Credentials": true,
+              "Content-Type": "application/octet-stream",
+              "Content-Disposition": `attachment; filename="maxcode-backup-${new Date().toISOString().split("T")[0]}.bson"`,
             },
-            origin,
-          );
+            body: bsonBuffer.toString("base64"),
+            isBase64Encoded: true,
+          };
         }
 
         // Create backup data
         const backupData = await buildBackupPayload(db);
         const stats = getBackupStats(backupData);
 
-        // Upload to Google Drive
+        // Upload to Google Drive (BSON format)
         try {
           const uploadResult = await uploadToGoogleDrive(
             driveConfig,

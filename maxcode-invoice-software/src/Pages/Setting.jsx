@@ -8,6 +8,7 @@ import {
 import ConfirmationModal from "../Components/ConfirmationModal";
 import { apiGet, apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import { serialize, deserialize } from "bson";
 
 const Settings = () => {
   useEffect(() => {
@@ -941,42 +942,40 @@ const Settings = () => {
   };
 
   // Export Backup Handler
+  // Export Backup Handler - BSON Format
   const handleExportBackup = async () => {
     try {
       setIsExporting(true);
       setBackupProgress("Creating secure backup from server...");
 
-      const response = await apiGet(API_ENDPOINTS.BACKUP.EXPORT);
-      const backupData = response?.data?.data;
+      const response = await apiGet(API_ENDPOINTS.BACKUP.EXPORT, {
+        responseType: "arraybuffer", // Important: Get binary data
+        headers: {
+          Accept: "application/octet-stream",
+        },
+      });
 
-      if (!backupData?.collections) {
-        throw new Error("Invalid backup response from server");
-      }
+      // response should be ArrayBuffer
+      const buffer = response.data;
 
-      setBackupProgress("Creating backup file...");
+      setBackupProgress("Processing backup file...");
 
-      // Create JSON string
-      const jsonString = JSON.stringify(backupData, null, 2);
-      const blob = new Blob([jsonString], { type: "application/json" });
+      // Create BSON blob
+      const blob = new Blob([buffer], { type: "application/octet-stream" });
 
       // Create download link
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      const exportDate =
-        backupData?.metadata?.timestamp || new Date().toISOString();
-      const timestamp = new Date(exportDate)
-        .toISOString()
-        .replace(/[:.]/g, "-")
-        .split("T")[0];
+      const timestamp = new Date().toISOString().split("T")[0];
       link.href = url;
-      link.download = `maxcode-backup-${timestamp}.json`;
+      link.download = `maxcode-backup-${timestamp}.bson`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
       setBackupProgress("");
-      showSuccess("Backup exported successfully!");
+      showSuccess("Backup exported successfully in BSON format!");
     } catch (error) {
       console.error("Backup export error:", error);
       showError("Failed to export backup. Please try again.");
@@ -992,7 +991,7 @@ const Settings = () => {
     if (!file) return;
 
     // Validate file type
-    if (!file.name.toLowerCase().endsWith(".json")) {
+    if (!file.name.toLowerCase().endsWith(".bson")) {
       showError("Please select a valid JSON backup file");
       return;
     }
@@ -2831,7 +2830,7 @@ const Settings = () => {
                           <input
                             type="file"
                             ref={backupFileInputRef}
-                            accept=".json"
+                            accept=".bson"
                             style={{ display: "none" }}
                             onChange={handleImportBackup}
                           />

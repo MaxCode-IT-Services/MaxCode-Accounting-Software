@@ -12,6 +12,7 @@
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
     "axios": "^1.13.5",
+    "bson": "^7.2.0",
     "dayjs": "^1.11.19",
     "jspdf": "^4.1.0",
     "jspdf-autotable": "^5.0.7",
