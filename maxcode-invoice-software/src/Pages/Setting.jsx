@@ -943,42 +943,93 @@ const Settings = () => {
 
   // Export Backup Handler
   // Export Backup Handler - BSON Format
+  // Update the Export Backup Handler in your Settings component
+  // Export Backup Handler
   const handleExportBackup = async () => {
     try {
       setIsExporting(true);
       setBackupProgress("Creating secure backup from server...");
 
-      const response = await apiGet(API_ENDPOINTS.BACKUP.EXPORT, {
-        responseType: "arraybuffer", // Important: Get binary data
-        headers: {
-          Accept: "application/octet-stream",
-        },
-      });
+      // Get selected format from radio buttons
+      const selectedFormat =
+        document.querySelector('input[name="exportFormat"]:checked')?.value ||
+        "bson";
 
-      // response should be ArrayBuffer
-      const buffer = response.data;
+      // Set appropriate Accept header based on format
+      const headers = {};
+      if (selectedFormat === "json") {
+        headers["Accept"] = "application/json";
+      } else {
+        headers["Accept"] = "application/octet-stream";
+      }
+
+      const response = await apiGet(API_ENDPOINTS.BACKUP.EXPORT, {
+        headers: headers,
+        // Don't specify responseType for JSON, let axios handle it
+        responseType: selectedFormat === "bson" ? "arraybuffer" : "json",
+      });
 
       setBackupProgress("Processing backup file...");
 
-      // Create BSON blob
-      const blob = new Blob([buffer], { type: "application/octet-stream" });
-
-      // Create download link
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
       const timestamp = new Date().toISOString().split("T")[0];
-      link.href = url;
-      link.download = `maxcode-backup-${timestamp}.bson`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+
+      if (selectedFormat === "json") {
+        // Handle JSON format - response.data should already be parsed JSON
+        const jsonData = response.data;
+
+        // Accept any object as valid backup data
+        let backupObject = null;
+        if (jsonData && typeof jsonData === "object") {
+          if (jsonData.success === true && jsonData.data) {
+            // If wrapped in success object
+            backupObject = jsonData.data;
+          } else if (jsonData.collections) {
+            // Direct backup data
+            backupObject = jsonData;
+          } else {
+            // Fallback: treat the whole object as backup
+            backupObject = jsonData;
+          }
+        }
+
+        if (backupObject) {
+          const jsonString = JSON.stringify(backupObject, null, 2);
+          const blob = new Blob([jsonString], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `maxcode-backup-${timestamp}.json`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          showSuccess("Backup exported successfully in JSON format!");
+        } else {
+          throw new Error("Unexpected JSON response format");
+        }
+      } else {
+        // Handle BSON format - response.data should be ArrayBuffer
+        const buffer = response.data;
+        const blob = new Blob([buffer], { type: "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `maxcode-backup-${timestamp}.bson`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showSuccess("Backup exported successfully in BSON format!");
+      }
 
       setBackupProgress("");
-      showSuccess("Backup exported successfully in BSON format!");
     } catch (error) {
       console.error("Backup export error:", error);
-      showError("Failed to export backup. Please try again.");
+      console.error("Error details:", error.response?.data || error.message);
+      showError(
+        error.response?.data?.error ||
+          "Failed to export backup. Please try again.",
+      );
       setBackupProgress("");
     } finally {
       setIsExporting(false);
@@ -2769,6 +2820,30 @@ const Settings = () => {
                                 Financial Years
                               </li>
                             </ul>
+                          </div>
+
+                          {/* Export Format Radio Buttons */}
+                          {/* Export Format Radio Buttons */}
+                          <div className="mb-3 text-center">
+                            <label className="me-3">
+                              <input
+                                type="radio"
+                                name="exportFormat"
+                                value="bson"
+                                defaultChecked={true}
+                                className="me-1"
+                              />
+                              BSON (Recommended for backup/restore)
+                            </label>
+                            <label>
+                              <input
+                                type="radio"
+                                name="exportFormat"
+                                value="json"
+                                className="me-1"
+                              />
+                              JSON (Human readable)
+                            </label>
                           </div>
 
                           {backupProgress && (

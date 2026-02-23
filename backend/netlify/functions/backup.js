@@ -4,8 +4,9 @@ import { serialize, deserialize } from "bson";
 
 /**
  * Backup API Endpoint
- * - GET: Export backup data in BSON format (supports JWT auth or X-API-Key auth)
- * - POST action=restore: Restore backup data from BSON (JWT required)
+ * - GET: Export backup data (supports JWT auth or X-API-Key auth)
+ *   - Supports both JSON and BSON formats based on Accept header
+ * - POST action=restore: Restore backup data (JWT required)
  * - POST action=test-drive-config: Test Google Drive connection (JWT required)
  * - POST action=run-now: Create a backup snapshot and upload to Drive (JWT required)
  * - POST action=run-automated: Scheduled backup run via GitHub Actions (API Key required)
@@ -91,7 +92,7 @@ const buildBackupPayload = async (db) => {
 
   const backupData = {
     metadata: {
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       version: "1.2",
       source: "MaxCode Invoice Software",
       collectionNames,
@@ -301,7 +302,7 @@ const getGoogleAccessToken = async (driveConfig) => {
 };
 
 /**
- * Upload backup data to Google Drive as BSON
+ * Upload backup data to Google Drive
  * @param {Object} driveConfig - Google Drive configuration
  * @param {Object} backupData - Backup data to upload
  * @param {string} trigger - Trigger type (manual/automated)
@@ -356,7 +357,7 @@ const uploadToGoogleDrive = async (
 
     const fileMetadata = {
       name: fileName,
-      mimeType: "application/octet-stream", // BSON files use octet-stream
+      mimeType: "application/octet-stream",
     };
 
     if (
@@ -552,20 +553,36 @@ export async function handler(event) {
       const backupData = await buildBackupPayload(db);
       const stats = getBackupStats(backupData);
 
-      // Convert to BSON for binary response
-      const bsonBuffer = serialize(backupData);
+      // Check Accept header to determine response format
+      const acceptHeader = event.headers.accept || event.headers.Accept || "";
 
-      return {
-        statusCode: 200,
-        headers: {
-          "Access-Control-Allow-Origin": origin,
-          "Access-Control-Allow-Credentials": true,
-          "Content-Type": "application/octet-stream",
-          "Content-Disposition": `attachment; filename="maxcode-backup-${new Date().toISOString().split("T")[0]}.bson"`,
-        },
-        body: bsonBuffer.toString("base64"),
-        isBase64Encoded: true,
-      };
+      if (acceptHeader.includes("application/json")) {
+        // Return JSON format using createResponse (which handles CORS)
+        return createResponse(
+          200,
+          {
+            success: true,
+            data: backupData,
+            stats,
+          },
+          origin,
+        );
+      } else {
+        // Return BSON format
+        const bsonBuffer = serialize(backupData);
+
+        return {
+          statusCode: 200,
+          headers: {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": true,
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": `attachment; filename="maxcode-backup-${new Date().toISOString().split("T")[0]}.bson"`,
+          },
+          body: bsonBuffer.toString("base64"),
+          isBase64Encoded: true,
+        };
+      }
     }
 
     if (method === "POST") {
@@ -580,7 +597,7 @@ export async function handler(event) {
       const { db } = await connectToDatabase();
 
       if (action === "restore") {
-        // Check if file is BSON (base64 encoded)
+        // Handle restore for both JSON and BSON formats
         let backupData;
 
         if (body.backupData && body.backupData._bsontype) {
@@ -596,14 +613,14 @@ export async function handler(event) {
           const buffer = Buffer.from(base64Data, "base64");
           backupData = deserialize(buffer);
         } else if (body.backupData && typeof body.backupData === "object") {
-          // Try JSON format as fallback
+          // Handle JSON format
           backupData = body.backupData;
         } else {
           return createResponse(
             400,
             {
               error:
-                "Invalid backup file format. Please provide a valid BSON backup file.",
+                "Invalid backup file format. Please provide a valid backup file.",
             },
             origin,
           );
@@ -694,10 +711,9 @@ export async function handler(event) {
 
         // Check if Google Drive backup is enabled
         if (!driveConfig || !driveConfig.enabled) {
-          // If Drive is not enabled, just create local backup (BSON format)
+          // If Drive is not enabled, just create local backup
           const backupData = await buildBackupPayload(db);
           const stats = getBackupStats(backupData);
-          const bsonBuffer = serialize(backupData);
 
           await db.collection("backup_runs").insertOne({
             userId: user.userId,
@@ -707,24 +723,23 @@ export async function handler(event) {
             status: "completed-local-only",
           });
 
-          return {
-            statusCode: 200,
-            headers: {
-              "Access-Control-Allow-Origin": origin,
-              "Access-Control-Allow-Credentials": true,
-              "Content-Type": "application/octet-stream",
-              "Content-Disposition": `attachment; filename="maxcode-backup-${new Date().toISOString().split("T")[0]}.bson"`,
+          return createResponse(
+            200,
+            {
+              success: true,
+              message:
+                "Manual backup completed (local only - Google Drive not enabled)",
+              stats,
             },
-            body: bsonBuffer.toString("base64"),
-            isBase64Encoded: true,
-          };
+            origin,
+          );
         }
 
         // Create backup data
         const backupData = await buildBackupPayload(db);
         const stats = getBackupStats(backupData);
 
-        // Upload to Google Drive (BSON format)
+        // Upload to Google Drive
         try {
           const uploadResult = await uploadToGoogleDrive(
             driveConfig,
