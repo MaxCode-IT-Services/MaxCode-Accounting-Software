@@ -189,7 +189,7 @@ const normalizeBackupCollections = (inputCollections = {}) => {
 };
 
 const UNDO_BACKUP_COLLECTION = "undo_import_backup";
-const UNDO_BACKUP_EXPIRY_HOURS = 12;
+const UNDO_BACKUP_EXPIRY_HOURS = 30 * 24; // 30 days
 
 const restoreBackupData = async (db, backupData, userId) => {
   // 1. Take a snapshot of current data for undo (before restore)
