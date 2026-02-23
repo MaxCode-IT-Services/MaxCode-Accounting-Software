@@ -167,6 +167,11 @@ const Settings = () => {
   const [backupProgress, setBackupProgress] = useState("");
   const backupFileInputRef = useRef(null);
 
+  // Undo Import State
+  const [undoAvailable, setUndoAvailable] = useState(false);
+  const [undoExpiry, setUndoExpiry] = useState(null);
+  const [isUndoing, setIsUndoing] = useState(false);
+
   // Google Drive Auto Backup State
   const [driveConfig, setDriveConfig] = useState({
     enabled: false,
@@ -1297,6 +1302,50 @@ const Settings = () => {
     }
   };
 
+  // Check Undo Import availability on mount and after import
+  const checkUndoImport = async () => {
+    try {
+      const response = await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
+        action: "check-undo-import",
+      });
+      if (response?.data?.available) {
+        setUndoAvailable(true);
+        setUndoExpiry(response.data.expiresAt);
+      } else {
+        setUndoAvailable(false);
+        setUndoExpiry(null);
+      }
+    } catch {
+      setUndoAvailable(false);
+      setUndoExpiry(null);
+    }
+  };
+
+  useEffect(() => {
+    checkUndoImport();
+  }, []);
+
+  const handleUndoImport = async () => {
+    if (!undoAvailable) return;
+    setIsUndoing(true);
+    try {
+      const response = await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
+        action: "undo-import",
+      });
+      if (response?.data?.success) {
+        showSuccess("Import undone. Data restored to pre-import state.");
+        setUndoAvailable(false);
+        setUndoExpiry(null);
+      } else {
+        showError(response?.data?.error || "Failed to undo import.");
+      }
+    } catch (err) {
+      showError(err?.response?.data?.error || "Failed to undo import.");
+    } finally {
+      setIsUndoing(false);
+    }
+  };
+
   return (
     <div className="container-fluid">
       <div
@@ -2333,70 +2382,31 @@ const Settings = () => {
                                       e.target.value,
                                     )
                                   }
-                                  placeholder="mongodb+srv://username:password@cluster.mongodb.net/database"
+                                  placeholder="mongodb+srv://..."
+                                  disabled={isTesting}
                                 />
+
+                                <button
+                                  className="btn btn-outline-success px-4 py-2 fw-bold"
+                                  disabled={isTesting}
+                                  onClick={handleTestConnection}
+                                >
+                                  {isTesting ? (
+                                    <>
+                                      <span
+                                        className="spinner-border spinner-border-sm me-2"
+                                        role="status"
+                                      ></span>
+                                      Verifying Connection...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <i className="fas fa-plug me-2"></i>
+                                      Test MongoDB Connection
+                                    </>
+                                  )}
+                                </button>
                               </div>
-
-                              <small className="text-muted mt-1 d-block">
-                                <i className="fas fa-info-circle me-1"></i>
-                                Enter your MongoDB connection string
-                              </small>
-                            </div>
-
-                            <div className="col-lg-6">
-                              <label className="form-label fw-bold text-muted small text-uppercase mb-2">
-                                Netlify Bridge API URL
-                              </label>
-
-                              <div
-                                className="input-group"
-                                style={{ maxWidth: "100%" }}
-                              >
-                                <span className="input-group-text bg-light border-2">
-                                  <i className="fas fa-link"></i>
-                                </span>
-
-                                <input
-                                  type="url"
-                                  className="form-control modern-input border-2"
-                                  value={businessSettings.mongoApiUrl}
-                                  onChange={(e) =>
-                                    handleBusinessChange(
-                                      "mongoApiUrl",
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="https://your-app.netlify.app/.netlify/functions/sync"
-                                />
-                              </div>
-
-                              <small className="text-muted mt-1 d-block">
-                                <i className="fas fa-info-circle me-1"></i>
-                                Your Netlify function endpoint
-                              </small>
-                            </div>
-
-                            <div className="col-12">
-                              <button
-                                onClick={handleTestConnection}
-                                disabled={isTesting}
-                                className="btn btn-outline-success px-4 py-2 fw-bold"
-                              >
-                                {isTesting ? (
-                                  <>
-                                    <span
-                                      className="spinner-border spinner-border-sm me-2"
-                                      role="status"
-                                    ></span>
-                                    Verifying Connection...
-                                  </>
-                                ) : (
-                                  <>
-                                    <i className="fas fa-plug me-2"></i>
-                                    Test MongoDB Connection
-                                  </>
-                                )}
-                              </button>
                             </div>
                           </div>
                         </div>
@@ -2794,6 +2804,35 @@ const Settings = () => {
               {/* Backup & Restore Tab */}
               {activeTab === "backup" && (
                 <div className="business-details-container">
+                  {/* Undo Import Alert */}
+                  {undoAvailable && (
+                    <div className="alert alert-warning d-flex align-items-center justify-content-between mb-4">
+                      <div>
+                        <i className="fas fa-undo me-2"></i>
+                        <b>Undo Import:</b> You can undo the last import within
+                        12 hours.
+                        <br />
+                        <small>
+                          Expires:{" "}
+                          {undoExpiry
+                            ? new Date(undoExpiry).toLocaleString()
+                            : "-"}
+                        </small>
+                      </div>
+                      <button
+                        className="btn btn-danger ms-3"
+                        onClick={handleUndoImport}
+                        disabled={isUndoing}
+                      >
+                        {isUndoing ? (
+                          <span className="spinner-border spinner-border-sm me-2"></span>
+                        ) : (
+                          <i className="fas fa-undo me-2"></i>
+                        )}
+                        Undo Import
+                      </button>
+                    </div>
+                  )}
                   <div className="row g-4">
                     {/* Export Backup Section */}
                     <div className="col-lg-6">

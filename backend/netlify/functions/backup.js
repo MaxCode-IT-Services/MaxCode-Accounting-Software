@@ -188,26 +188,36 @@ const normalizeBackupCollections = (inputCollections = {}) => {
   return normalized;
 };
 
-const restoreBackupData = async (db, backupData) => {
+const UNDO_BACKUP_COLLECTION = "undo_import_backup";
+const UNDO_BACKUP_EXPIRY_HOURS = 12;
+
+const restoreBackupData = async (db, backupData, userId) => {
+  // 1. Take a snapshot of current data for undo (before restore)
+  const currentData = await buildBackupPayload(db);
+  const undoBackup = {
+    createdAt: new Date(),
+    userId: userId || null,
+    data: currentData,
+  };
+  // Remove any previous undo backup for this user
+  await db.collection(UNDO_BACKUP_COLLECTION).deleteMany({ userId });
+  await db.collection(UNDO_BACKUP_COLLECTION).insertOne(undoBackup);
+
+  // 2. Restore the new backup
   const normalizedCollections = normalizeBackupCollections(
     backupData?.collections || {},
   );
-
   const collectionNames = Object.keys(normalizedCollections);
-
   for (const collectionName of collectionNames) {
     const collection = db.collection(collectionName);
     const documents = normalizedCollections[collectionName].filter(
       (doc) => doc && typeof doc === "object",
     );
-
     await collection.deleteMany({});
-
     if (documents.length > 0) {
       await collection.insertMany(documents, { ordered: false });
     }
   }
-
   return {
     metadata: {
       timestamp: new Date().toISOString(),
@@ -596,10 +606,78 @@ export async function handler(event) {
 
       const { db } = await connectToDatabase();
 
+      // --- Undo Import ---
+      if (action === "undo-import") {
+        // Find undo backup for this user (within 12 hours)
+        const undoDoc = await db
+          .collection(UNDO_BACKUP_COLLECTION)
+          .findOne({ userId: user.userId });
+        if (!undoDoc) {
+          return createResponse(
+            400,
+            { error: "No undo backup available." },
+            origin,
+          );
+        }
+        const createdAt = new Date(undoDoc.createdAt);
+        const now = new Date();
+        const diffHours = (now - createdAt) / (1000 * 60 * 60);
+        if (diffHours > UNDO_BACKUP_EXPIRY_HOURS) {
+          // Expired, remove it
+          await db
+            .collection(UNDO_BACKUP_COLLECTION)
+            .deleteOne({ _id: undoDoc._id });
+          return createResponse(400, { error: "Undo period expired." }, origin);
+        }
+        // Restore the undo backup
+        await restoreBackupData(db, undoDoc.data, user.userId);
+        // Remove the undo backup after use
+        await db
+          .collection(UNDO_BACKUP_COLLECTION)
+          .deleteOne({ _id: undoDoc._id });
+        return createResponse(
+          200,
+          {
+            success: true,
+            message: "Import undone. Data restored to pre-import state.",
+          },
+          origin,
+        );
+      }
+
+      // --- Check Undo Import Availability ---
+      if (action === "check-undo-import") {
+        const undoDoc = await db
+          .collection(UNDO_BACKUP_COLLECTION)
+          .findOne({ userId: user.userId });
+        if (!undoDoc) {
+          return createResponse(200, { available: false }, origin);
+        }
+        const createdAt = new Date(undoDoc.createdAt);
+        const now = new Date();
+        const diffHours = (now - createdAt) / (1000 * 60 * 60);
+        if (diffHours > UNDO_BACKUP_EXPIRY_HOURS) {
+          // Expired, remove it
+          await db
+            .collection(UNDO_BACKUP_COLLECTION)
+            .deleteOne({ _id: undoDoc._id });
+          return createResponse(200, { available: false }, origin);
+        }
+        return createResponse(
+          200,
+          {
+            available: true,
+            expiresAt: new Date(
+              createdAt.getTime() + UNDO_BACKUP_EXPIRY_HOURS * 60 * 60 * 1000,
+            ).toISOString(),
+          },
+          origin,
+        );
+      }
+
       if (action === "restore") {
         // Handle restore for both JSON and BSON formats
         let backupData;
-
         if (body.backupData && body.backupData._bsontype) {
           // Already parsed BSON object
           backupData = body.backupData;
@@ -625,7 +703,6 @@ export async function handler(event) {
             origin,
           );
         }
-
         if (
           !backupData?.collections ||
           typeof backupData.collections !== "object"
@@ -636,7 +713,6 @@ export async function handler(event) {
             origin,
           );
         }
-
         const restorePayload = {
           ...backupData,
           collections: {
@@ -647,10 +723,12 @@ export async function handler(event) {
               undefined,
           },
         };
-
-        const restored = await restoreBackupData(db, restorePayload);
+        const restored = await restoreBackupData(
+          db,
+          restorePayload,
+          user.userId,
+        );
         const stats = getBackupStats(restored);
-
         return createResponse(
           200,
           {
