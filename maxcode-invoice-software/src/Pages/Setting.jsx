@@ -999,11 +999,30 @@ const Settings = () => {
 
     try {
       setIsImporting(true);
-      setBackupProgress("Reading backup file...");
+      setBackupProgress("Step 1: Reading backup file...");
 
       // Read file as ArrayBuffer
       const arrayBuffer = await file.arrayBuffer();
 
+      setBackupProgress("Step 2: Validating file size...");
+      if (arrayBuffer.byteLength < 100) {
+        showError("Backup file is too small or corrupted.");
+        setIsImporting(false);
+        return;
+      }
+
+      setBackupProgress("Step 3: Validating file header...");
+      // Advanced validation: check BSON header (first bytes)
+      const uint8 = new Uint8Array(arrayBuffer);
+      // BSON files usually start with length (int32), so check for plausible length
+      const fileLength = new DataView(arrayBuffer).getInt32(0, true);
+      if (fileLength !== arrayBuffer.byteLength) {
+        showError("Backup file header mismatch. File may be corrupted.");
+        setIsImporting(false);
+        return;
+      }
+
+      setBackupProgress("Step 4: Encoding file for upload...");
       // Convert directly to base64 using FileReader
       const base64Data = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -1016,7 +1035,7 @@ const Settings = () => {
         reader.readAsDataURL(file);
       });
 
-      setBackupProgress("Restoring data from secure server...");
+      setBackupProgress("Step 5: Sending data to server for restore...");
 
       // Send to backend
       await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
@@ -1024,11 +1043,19 @@ const Settings = () => {
         backupData: `base64:${base64Data}`,
       });
 
+      setBackupProgress("Step 6: Finalizing restore...");
       showSuccess("Backup restored successfully!");
       setBackupProgress("");
     } catch (error) {
       console.error("Import error:", error);
-      showError(error?.response?.data?.error || "Failed to import backup");
+      let errMsg =
+        error?.response?.data?.error ||
+        error?.message ||
+        "Failed to import backup";
+      if (errMsg.includes("timeout") || errMsg.includes("server")) {
+        errMsg += "\nRestore may have timed out. Try again or contact support.";
+      }
+      showError(errMsg);
       setBackupProgress("");
     } finally {
       setIsImporting(false);
