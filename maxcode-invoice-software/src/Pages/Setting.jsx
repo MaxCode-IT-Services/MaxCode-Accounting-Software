@@ -1041,61 +1041,94 @@ const Settings = () => {
   // Import Backup Handler - Direct File Upload Version
   const handleImportBackup = async (event) => {
     const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.name.toLowerCase().endsWith(".bson")) {
-      showError("Please select a valid BSON backup file (.bson)");
+    if (!file) {
+      showError("No file selected for import.");
       return;
     }
 
+    const fileName = file.name.toLowerCase();
+    const isBson = fileName.endsWith(".bson");
+    const isJson = fileName.endsWith(".json");
+
+    if (!isBson && !isJson) {
+      showError(
+        "Invalid file format. Please select a .bson or .json backup file.",
+      );
+      return;
+    }
+
+    setIsImporting(true);
+    setBackupProgress("Importing backup file...");
+
     try {
-      setIsImporting(true);
-      setBackupProgress("Step 1: Reading backup file...");
-
-      // Read file as ArrayBuffer
-      const arrayBuffer = await file.arrayBuffer();
-
-      setBackupProgress("Step 2: Validating file size...");
-      if (arrayBuffer.byteLength < 100) {
-        showError("Backup file is too small or corrupted.");
-        setIsImporting(false);
-        return;
-      }
-
-      setBackupProgress("Step 3: Validating file header...");
-      // Advanced validation: check BSON header (first bytes)
-      const uint8 = new Uint8Array(arrayBuffer);
-      // BSON files usually start with length (int32), so check for plausible length
-      const fileLength = new DataView(arrayBuffer).getInt32(0, true);
-      if (fileLength !== arrayBuffer.byteLength) {
-        showError("Backup file header mismatch. File may be corrupted.");
-        setIsImporting(false);
-        return;
-      }
-
-      setBackupProgress("Step 4: Encoding file for upload...");
-      // Convert directly to base64 using FileReader
-      const base64Data = await new Promise((resolve, reject) => {
+      if (isJson) {
+        // Read JSON file
         const reader = new FileReader();
-        reader.onload = () => {
-          // reader.result contains base64 string with data:application/octet-stream;base64, prefix
-          const base64 = reader.result.split(",")[1];
-          resolve(base64);
+        reader.onload = async (e) => {
+          try {
+            const jsonText = e.target.result;
+            const backupData = JSON.parse(jsonText);
+            await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
+              action: "restore",
+              backupData,
+            });
+            showSuccess("Backup imported successfully from JSON file!");
+          } catch (err) {
+            showError("Failed to parse JSON backup file.");
+          } finally {
+            setIsImporting(false);
+            setBackupProgress("");
+            if (backupFileInputRef.current) {
+              backupFileInputRef.current.value = "";
+            }
+          }
         };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+        reader.readAsText(file);
+        return;
+      } else if (isBson) {
+        setBackupProgress("Step 1: Reading backup file...");
+        // Read file as ArrayBuffer
+        const arrayBuffer = await file.arrayBuffer();
 
-      setBackupProgress("Step 5: Sending data to server for restore...");
+        setBackupProgress("Step 2: Validating file size...");
+        if (arrayBuffer.byteLength < 100) {
+          showError("Backup file is too small or corrupted.");
+          setIsImporting(false);
+          return;
+        }
 
-      // Send to backend
-      await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
-        action: "restore",
-        backupData: `base64:${base64Data}`,
-      });
+        setBackupProgress("Step 3: Validating file header...");
+        // Advanced validation: check BSON header (first bytes)
+        const fileLength = new DataView(arrayBuffer).getInt32(0, true);
+        if (fileLength !== arrayBuffer.byteLength) {
+          showError("Backup file header mismatch. File may be corrupted.");
+          setIsImporting(false);
+          return;
+        }
 
-      setBackupProgress("Step 6: Finalizing restore...");
-      showSuccess("Backup restored successfully!");
+        setBackupProgress("Step 4: Encoding file for upload...");
+        // Convert directly to base64 using FileReader
+        const base64Data = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const base64 = reader.result.split(",")[1];
+            resolve(base64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        setBackupProgress("Step 5: Sending data to server for restore...");
+
+        // Send to backend
+        await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
+          action: "restore",
+          backupData: `base64:${base64Data}`,
+        });
+
+        setBackupProgress("Step 6: Finalizing restore...");
+        showSuccess("Backup restored successfully!");
+      }
       setBackupProgress("");
     } catch (error) {
       console.error("Import error:", error);
@@ -2931,7 +2964,7 @@ const Settings = () => {
                           <input
                             type="file"
                             ref={backupFileInputRef}
-                            accept=".bson"
+                            accept=".bson,.json"
                             style={{ display: "none" }}
                             onChange={handleImportBackup}
                           />
