@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost, markSessionAuthenticated } from "../utils/api";
-import API_ENDPOINTS from "../utils/apiEndpoints";
+import API_ENPOINTS from "../utils/apiEndpoints";
 import { getFirstAllowedRoute } from "../utils/permissions";
 import {
   showSuccess,
@@ -22,10 +22,22 @@ const Login = ({ settings }) => {
   const [needs2FA, setNeeds2FA] = useState(false);
   const [tempToken, setTempToken] = useState(null);
   const [twoFACode, setTwoFACode] = useState(["", "", "", "", "", ""]);
+  const [backupCode, setBackupCode] = useState([
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+  ]); // 8-digit backup code
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
+  const [showBackupOption, setShowBackupOption] = useState(false); // Toggle between 2FA and backup code
 
   const pinRefs = useRef([]);
   const twoFACodeRefs = useRef([]);
+  const backupCodeRefs = useRef([]);
 
   // Remove auto-focus completely - user must click to focus
   useEffect(() => {
@@ -111,29 +123,89 @@ const Login = ({ settings }) => {
     }
   };
 
+  // Backup Code handlers
+  const handleBackupCodeChange = (index, value) => {
+    if (value.length > 1) value = value[value.length - 1];
+    if (!/^[A-Za-z0-9]?$/.test(value)) return; // Allow alphanumeric for backup codes
+
+    const newCode = [...backupCode];
+    newCode[index] = value.toUpperCase(); // Convert to uppercase for consistency
+    setBackupCode(newCode);
+
+    // Clear error if exists
+    if (errors.backupCode) {
+      setErrors((prev) => ({ ...prev, backupCode: null }));
+    }
+
+    // Auto focus next input
+    if (value && index < 7) {
+      backupCodeRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleBackupKeyDown = (index, e) => {
+    if (e.key === "Backspace" && !backupCode[index] && index > 0) {
+      backupCodeRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleBackupPaste = (e) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData
+      .getData("text")
+      .replace(/[^A-Za-z0-9]/g, "");
+    if (pastedData.length === 8) {
+      const newCode = pastedData.toUpperCase().split("");
+      setBackupCode(newCode);
+      backupCodeRefs.current[7]?.focus();
+    }
+  };
+
   const handle2FASubmit = async (e) => {
     e.preventDefault();
-    const code = twoFACode.join("");
 
-    if (code.length !== 6 || !/^\d+$/.test(code)) {
-      setErrors({ twoFACode: "Please enter a valid 6-digit code" });
-      return;
+    let code;
+    let verificationType;
+
+    if (!showBackupOption) {
+      // Using 2FA code
+      code = twoFACode.join("");
+      verificationType = "2fa";
+
+      if (code.length !== 6 || !/^\d+$/.test(code)) {
+        setErrors({ twoFACode: "Please enter a valid 6-digit code" });
+        return;
+      }
+    } else {
+      // Using backup code
+      code = backupCode.join("");
+      verificationType = "backup";
+
+      if (code.length !== 8) {
+        setErrors({ backupCode: "Please enter a valid 8-digit backup code" });
+        return;
+      }
     }
 
     setIsVerifying2FA(true);
 
     try {
-      // Send 2FA code along with temp token
-      const response = await apiPost(API_ENDPOINTS.AUTH.LOGIN, {
+      // Send verification code along with temp token
+      const response = await apiPost(API_ENPOINTS.AUTH.LOGIN, {
         action: "verify-2fa",
         tempToken,
         twoFACode: code,
+        verificationType, // Send the type to help server identify
       });
 
       if (response.data.user) {
         markSessionAuthenticated(response.data.user, response.data.token);
 
-        showSuccess("✅ 2FA verified! Welcome back!");
+        showSuccess(
+          verificationType === "backup"
+            ? "✅ Backup code verified! Please set up a new 2FA device."
+            : "✅ 2FA verified! Welcome back!",
+        );
 
         const loggedInUser = response.data.user || {};
         const nextRoute = getFirstAllowedRoute(loggedInUser);
@@ -147,19 +219,30 @@ const Login = ({ settings }) => {
           setNeeds2FA(false);
         }
       } else {
-        showError(response.data.message || "2FA verification failed");
-        setTwoFACode(["", "", "", "", "", ""]);
-        setErrors({ twoFACode: "Invalid 2FA code" });
+        showError(response.data.message || "Verification failed");
+        if (!showBackupOption) {
+          setTwoFACode(["", "", "", "", "", ""]);
+          setErrors({ twoFACode: "Invalid code" });
+        } else {
+          setBackupCode(["", "", "", "", "", "", "", ""]);
+          setErrors({ backupCode: "Invalid backup code" });
+        }
       }
     } catch (error) {
-      console.error("2FA verification error:", error);
+      console.error("Verification error:", error);
       const errorMessage =
         error.response?.data?.message ||
         error.response?.data?.error ||
-        "2FA verification failed";
+        "Verification failed";
       showError(errorMessage);
-      setTwoFACode(["", "", "", "", "", ""]);
-      setErrors({ twoFACode: "Verification failed" });
+
+      if (!showBackupOption) {
+        setTwoFACode(["", "", "", "", "", ""]);
+        setErrors({ twoFACode: "Verification failed" });
+      } else {
+        setBackupCode(["", "", "", "", "", "", "", ""]);
+        setErrors({ backupCode: "Verification failed" });
+      }
     } finally {
       setIsVerifying2FA(false);
     }
@@ -187,7 +270,7 @@ const Login = ({ settings }) => {
 
     try {
       // Call the actual API endpoint
-      const response = await apiPost(API_ENDPOINTS.AUTH.LOGIN, {
+      const response = await apiPost(API_ENPOINTS.AUTH.LOGIN, {
         action: "login",
         phone: mobile,
         pin: enteredPin,
@@ -197,6 +280,7 @@ const Login = ({ settings }) => {
       if (response.data.needs2FA && response.data.tempToken) {
         setTempToken(response.data.tempToken);
         setNeeds2FA(true);
+        setShowBackupOption(false); // Reset to 2FA mode
         showInfo(
           "✓ PIN verified! Please enter your 2FA code from your authenticator app",
         );
@@ -226,7 +310,6 @@ const Login = ({ settings }) => {
         showError(response.data.message || "Invalid credentials");
         setPin(["", "", "", "", "", ""]);
         setErrors({ pin: "Invalid PIN" });
-        // Don't auto-focus on error - let user click where they want
       }
     } catch (error) {
       console.log(error);
@@ -244,7 +327,18 @@ const Login = ({ settings }) => {
     }
   };
 
+  const toggleBackupOption = () => {
+    setShowBackupOption(!showBackupOption);
+    // Clear fields when switching
+    setTwoFACode(["", "", "", "", "", ""]);
+    setBackupCode(["", "", "", "", "", "", "", ""]);
+    setErrors({});
+  };
+
   const isPinComplete = pin.every((digit) => digit !== "");
+  const isCodeComplete = showBackupOption
+    ? backupCode.every((digit) => digit !== "")
+    : twoFACode.every((digit) => digit !== "");
 
   return (
     <div className="min-vh-100 d-flex align-items-center justify-content-center bg-gradient-to-br from-slate-50 to-slate-100 p-3">
@@ -560,82 +654,143 @@ const Login = ({ settings }) => {
                   </>
                 ) : (
                   <>
-                    {/* 2FA Verification Screen */}
+                    {/* 2FA/Backup Verification Screen */}
                     <div className="mb-4 text-center">
                       <h4 className="fw-semibold mb-2">
-                        Two-Factor Authentication
+                        {!showBackupOption
+                          ? "Two-Factor Authentication"
+                          : "Backup Code"}
                       </h4>
                       <p className="text-muted small">
-                        Enter the 6-digit code from your authenticator app
+                        {!showBackupOption
+                          ? "Enter the 6-digit code from your authenticator app"
+                          : "Enter an 8-digit backup code from your recovery list"}
                       </p>
                     </div>
 
-                    {/* 2FA Code Input */}
+                    {/* Code Input */}
                     <div className="mb-4">
                       <label className="form-label fw-semibold text-secondary mb-2">
                         <i
-                          className="fas fa-qrcode me-2"
+                          className={`fas ${!showBackupOption ? "fa-qrcode" : "fa-key"} me-2`}
                           style={{ color: "var(--primary-color)" }}
                         ></i>
-                        Authenticator Code
+                        {!showBackupOption
+                          ? "Authenticator Code"
+                          : "Backup Code"}
                       </label>
 
-                      <div className="pin-container mb-2">
-                        {twoFACode.map((digit, i) => (
-                          <div key={i} className="pin-box fw-bold">
-                            <input
-                              ref={(el) => (twoFACodeRefs.current[i] = el)}
-                              type="text"
-                              className={`pin-input ${digit ? "filled" : ""} ${errors.twoFACode ? "error" : ""}`}
-                              value={digit}
-                              onChange={(e) =>
-                                handleTwoFACodeChange(i, e.target.value)
-                              }
-                              onKeyDown={(e) => handleTwoFAKeyDown(i, e)}
-                              onFocus={() => setFocusedField(`2fa-${i}`)}
-                              onBlur={() => setFocusedField(null)}
-                              onPaste={i === 0 ? handleTwoFAPaste : undefined}
-                              inputMode="numeric"
-                              autoComplete="off"
-                              maxLength={1}
-                            />
-                          </div>
-                        ))}
+                      <div
+                        className={`pin-container mb-2 ${showBackupOption ? "backup-code-container" : ""}`}
+                      >
+                        {!showBackupOption
+                          ? // 2FA 6-digit input
+                            twoFACode.map((digit, i) => (
+                              <div key={i} className="pin-box fw-bold">
+                                <input
+                                  ref={(el) => (twoFACodeRefs.current[i] = el)}
+                                  type="text"
+                                  className={`pin-input ${digit ? "filled" : ""} ${errors.twoFACode ? "error" : ""}`}
+                                  value={digit}
+                                  onChange={(e) =>
+                                    handleTwoFACodeChange(i, e.target.value)
+                                  }
+                                  onKeyDown={(e) => handleTwoFAKeyDown(i, e)}
+                                  onFocus={() => setFocusedField(`2fa-${i}`)}
+                                  onBlur={() => setFocusedField(null)}
+                                  onPaste={
+                                    i === 0 ? handleTwoFAPaste : undefined
+                                  }
+                                  inputMode="numeric"
+                                  autoComplete="off"
+                                  maxLength={1}
+                                />
+                              </div>
+                            ))
+                          : // Backup Code 8-digit input
+                            backupCode.map((digit, i) => (
+                              <div key={i} className="pin-box fw-bold">
+                                <input
+                                  ref={(el) => (backupCodeRefs.current[i] = el)}
+                                  type="text"
+                                  className={`pin-input backup-pin-input ${digit ? "filled" : ""} ${errors.backupCode ? "error" : ""}`}
+                                  value={digit}
+                                  onChange={(e) =>
+                                    handleBackupCodeChange(i, e.target.value)
+                                  }
+                                  onKeyDown={(e) => handleBackupKeyDown(i, e)}
+                                  onFocus={() => setFocusedField(`backup-${i}`)}
+                                  onBlur={() => setFocusedField(null)}
+                                  onPaste={
+                                    i === 0 ? handleBackupPaste : undefined
+                                  }
+                                  inputMode="text"
+                                  autoComplete="off"
+                                  maxLength={1}
+                                  style={{ textTransform: "uppercase" }}
+                                />
+                              </div>
+                            ))}
                       </div>
 
-                      {/* 2FA Status */}
-                      <div className="pin-status">
+                      {/* Status and "Try Other Option" Link */}
+                      <div className="d-flex justify-content-between align-items-center">
                         <span className="text-muted small">
                           <i
                             className="fas fa-info-circle me-1"
                             style={{ color: "var(--primary-color)" }}
                           ></i>
-                          {twoFACode.every((d) => d)
+                          {isCodeComplete
                             ? "Code ready to verify"
-                            : `${6 - twoFACode.filter((d) => d).length} digits remaining`}
+                            : `${
+                                (!showBackupOption ? 6 : 8) -
+                                (showBackupOption
+                                  ? backupCode.filter((d) => d).length
+                                  : twoFACode.filter((d) => d).length)
+                              } digits remaining`}
                         </span>
+
+                        {/* Try Other Option Link */}
+                        <button
+                          type="button"
+                          onClick={toggleBackupOption}
+                          className="btn btn-link p-0 text-decoration-none"
+                          style={{
+                            color: "var(--primary-color)",
+                            fontSize: "0.875rem",
+                          }}
+                        >
+                          <i className="fas fa-exchange-alt me-1"></i>
+                          {showBackupOption
+                            ? "Try 2FA Code"
+                            : "Try Other Option"}
+                        </button>
                       </div>
 
-                      {errors.twoFACode && (
+                      {!showBackupOption && errors.twoFACode && (
                         <div className="error-message mt-2">
                           <i className="fas fa-exclamation-circle me-1"></i>
                           {errors.twoFACode}
                         </div>
                       )}
+
+                      {showBackupOption && errors.backupCode && (
+                        <div className="error-message mt-2">
+                          <i className="fas fa-exclamation-circle me-1"></i>
+                          {errors.backupCode}
+                        </div>
+                      )}
                     </div>
 
-                    {/* 2FA Submit Button */}
+                    {/* Verify Button */}
                     <button
                       type="submit"
-                      disabled={isVerifying2FA || !twoFACode.every((d) => d)}
+                      disabled={isVerifying2FA || !isCodeComplete}
                       className="btn btn-lg w-100 py-3 rounded-3 fw-semibold text-white position-relative overflow-hidden"
                       style={{
                         background: "var(--header-gradient)",
                         border: "none",
-                        opacity:
-                          isVerifying2FA || !twoFACode.every((d) => d)
-                            ? 0.8
-                            : 1,
+                        opacity: isVerifying2FA || !isCodeComplete ? 0.8 : 1,
                         transition: "all 0.3s ease",
                       }}
                     >
@@ -662,6 +817,8 @@ const Login = ({ settings }) => {
                         setNeeds2FA(false);
                         setTempToken(null);
                         setTwoFACode(["", "", "", "", "", ""]);
+                        setBackupCode(["", "", "", "", "", "", "", ""]);
+                        setShowBackupOption(false);
                         setErrors({});
                       }}
                       className="btn btn-link w-100 mt-3 text-muted"
@@ -773,6 +930,10 @@ const Login = ({ settings }) => {
           margin-bottom: 8px;
         }
 
+        .backup-code-container {
+          grid-template-columns: repeat(8, 1fr);
+        }
+
         .pin-box {
           aspect-ratio: 1;
         }
@@ -787,6 +948,11 @@ const Login = ({ settings }) => {
           font-weight: 700;
           background: #f8f9fa;
           transition: all 0.3s ease;
+        }
+
+        .backup-pin-input {
+          font-size: 1.2rem;
+          text-transform: uppercase;
         }
 
         .pin-input:focus {
@@ -827,6 +993,9 @@ const Login = ({ settings }) => {
         @media (max-width: 768px) {
           .pin-container {
             gap: 4px;
+          }
+          .backup-pin-input {
+            font-size: 1rem;
           }
         }
       `}</style>
