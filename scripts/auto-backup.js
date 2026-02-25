@@ -2,17 +2,40 @@
  * Auto Backup Script for MaxCode Invoice Software
  *
  * This script:
- * 1. Connects to MongoDB
+ * 1. Connects to MongoDB via API
  * 2. Fetches all collections data
- * 3. Creates a backup JSON file
- * 4. Uploads to Google Drive
- * 5. Overwrites existing backup file to keep only latest version
+ * 3. Creates backup files in JSON and BSON format
+ * 4. Uploads both files to Google Drive
+ * 5. Overwrites existing files to keep only latest version
  */
 
 const axios = require("axios");
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
+
+// Try to load BSON, install if not available
+let BSON;
+try {
+  BSON = require("bson");
+  console.log("✅ BSON package loaded successfully");
+} catch (error) {
+  console.log("⚠️  BSON package not found. Installing...");
+  const installResult = spawnSync("npm", ["install", "bson"], {
+    stdio: "inherit",
+    shell: true,
+  });
+
+  if (installResult.status === 0) {
+    console.log("✅ BSON package installed successfully");
+    BSON = require("bson");
+  } else {
+    console.error("❌ Failed to install BSON package");
+    console.log("⚠️  Will use Buffer fallback for BSON format");
+    BSON = null;
+  }
+}
 
 // Configuration from environment variables
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -110,7 +133,7 @@ async function validateBackupSettings() {
       console.log(
         "\n🔧 FIX: Make sure your BACKUP_API_KEY environment variable is set correctly",
       );
-      return false; // Changed from true to false for safety!
+      return false;
     }
 
     console.log(
@@ -155,7 +178,7 @@ async function validateBackupSettings() {
     console.log("   3. Check MongoDB connection");
     console.log("   4. Review GitHub Actions logs for more details");
 
-    return false; // Changed from true - NEVER proceed if settings check fails!
+    return false;
   }
 }
 
@@ -286,74 +309,97 @@ async function fetchAllData() {
 }
 
 /**
- * Save backup data to local JSON file
+ * Convert JavaScript object to BSON format
  */
-function saveBackupToFile(backupData) {
-  const timestamp = new Date().toISOString().split("T")[0];
-  const filename = `backup-maxcode-${timestamp}.json`;
-  const filepath = path.join(process.cwd(), filename);
-
-  console.log(`💾 Saving backup to ${filename}...`);
-  fs.writeFileSync(filepath, JSON.stringify(backupData, null, 2));
-  console.log(`✅ Backup saved locally`);
-
-  return { filename, filepath };
+function convertToBSON(data) {
+  try {
+    if (BSON) {
+      // Use official BSON package
+      return BSON.serialize(data);
+    } else {
+      // Fallback: Create a buffer from JSON string
+      console.log("   ⚠️  Using Buffer fallback for BSON format");
+      const jsonString = JSON.stringify(data);
+      return Buffer.from(jsonString, "utf8");
+    }
+  } catch (error) {
+    console.error("   ❌ Error converting to BSON:", error.message);
+    // Fallback to JSON in buffer
+    const jsonString = JSON.stringify(data);
+    return Buffer.from(jsonString, "utf8");
+  }
 }
 
 /**
- * Upload backup to Google Drive
+ * Save backup data to local files (JSON and BSON)
+ */
+function saveBackupToFiles(backupData) {
+  const timestamp = new Date().toISOString().split("T")[0];
+
+  // JSON file
+  const jsonFilename = `backup-maxcode-${timestamp}.json`;
+  const jsonFilepath = path.join(process.cwd(), jsonFilename);
+
+  // BSON file
+  const bsonFilename = `backup-maxcode-${timestamp}.bson`;
+  const bsonFilepath = path.join(process.cwd(), bsonFilename);
+
+  console.log(`\n💾 Saving JSON backup to ${jsonFilename}...`);
+  fs.writeFileSync(jsonFilepath, JSON.stringify(backupData, null, 2));
+  const jsonSize = (fs.statSync(jsonFilepath).size / 1024).toFixed(2);
+  console.log(`   ✅ JSON backup saved (${jsonSize} KB)`);
+
+  console.log(`💾 Saving BSON backup to ${bsonFilename}...`);
+  const bsonData = convertToBSON(backupData);
+  fs.writeFileSync(bsonFilepath, bsonData);
+  const bsonSize = (fs.statSync(bsonFilepath).size / 1024).toFixed(2);
+  console.log(`   ✅ BSON backup saved (${bsonSize} KB)`);
+
+  // Compare sizes
+  const sizeDiff = (((jsonSize - bsonSize) / jsonSize) * 100).toFixed(2);
+  console.log(`   📊 BSON is ${sizeDiff}% smaller than JSON`);
+
+  return [
+    {
+      filename: jsonFilename,
+      filepath: jsonFilepath,
+      type: "json",
+      driveName: "maxcode-backup-latest.json",
+      mimeType: "application/json",
+      size: jsonSize,
+    },
+    {
+      filename: bsonFilename,
+      filepath: bsonFilepath,
+      type: "bson",
+      driveName: "maxcode-backup-latest.bson",
+      mimeType: "application/octet-stream",
+      size: bsonSize,
+    },
+  ];
+}
+
+/**
+ * Upload file to Google Drive
  * If file exists, it will be updated; otherwise, it will be created
  */
-async function uploadToGoogleDrive(filepath, filename) {
-  console.log("☁️  Uploading to Google Drive...");
-
-  let drive;
-  try {
-    drive = getGoogleDriveClient();
-  } catch (error) {
-    if (error.message.includes("invalid_grant")) {
-      console.error("\n❌ GOOGLE OAUTH ERROR: invalid_grant");
-      console.error("   Your GOOGLE_REFRESH_TOKEN has expired or is invalid.");
-      console.error("\n💡 How to fix:");
-      console.error(
-        "   1. Go to: https://developers.google.com/oauthplayground",
-      );
-      console.error(
-        '   2. Click Settings (⚙️) → Check "Use your own OAuth credentials"',
-      );
-      console.error(
-        "   3. Enter your GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET",
-      );
-      console.error(
-        '   4. In Step 1: Select "Drive API v3" → https://www.googleapis.com/auth/drive.file',
-      );
-      console.error(
-        '   5. Click "Authorize APIs" and login with your Google account',
-      );
-      console.error(
-        '   6. In Step 2: Click "Exchange authorization code for tokens"',
-      );
-      console.error(
-        '   7. Copy the "Refresh token" and update GOOGLE_REFRESH_TOKEN secret in GitHub',
-      );
-    }
-    throw error;
-  }
+async function uploadFileToDrive(drive, fileInfo) {
+  console.log(`\n   📤 Processing ${fileInfo.driveName}...`);
 
   // Check if file already exists in the folder
   const existingFiles = await drive.files.list({
-    q: `name='maxcode-backup-latest.json' and '${GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed=false`,
-    fields: "files(id, name)",
+    q: `name='${fileInfo.driveName}' and '${GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed=false`,
+    fields: "files(id, name, webViewLink)",
   });
 
   const fileMetadata = {
-    name: "maxcode-backup-latest.json",
+    name: fileInfo.driveName,
     parents: [GOOGLE_DRIVE_FOLDER_ID],
   };
 
   const media = {
-    mimeType: "application/json",
-    body: fs.createReadStream(filepath),
+    mimeType: fileInfo.mimeType,
+    body: fs.createReadStream(fileInfo.filepath),
   };
 
   let result;
@@ -361,113 +407,270 @@ async function uploadToGoogleDrive(filepath, filename) {
   if (existingFiles.data.files && existingFiles.data.files.length > 0) {
     // Update existing file
     const fileId = existingFiles.data.files[0].id;
-    console.log(`  → Updating existing file (ID: ${fileId})...`);
+    console.log(
+      `      → Updating existing ${fileInfo.type} file (ID: ${fileId})...`,
+    );
 
     result = await drive.files.update({
       fileId: fileId,
       media: media,
-      fields: "id, name, webViewLink",
+      fields: "id, name, webViewLink, size",
     });
 
-    console.log(`✅ Backup updated in Google Drive`);
+    console.log(
+      `      ✅ ${fileInfo.type.toUpperCase()} backup updated in Google Drive`,
+    );
   } else {
     // Create new file
-    console.log(`  → Creating new file...`);
+    console.log(`      → Creating new ${fileInfo.type} file...`);
 
     result = await drive.files.create({
       requestBody: fileMetadata,
       media: media,
-      fields: "id, name, webViewLink",
+      fields: "id, name, webViewLink, size",
     });
 
-    console.log(`✅ Backup uploaded to Google Drive`);
+    console.log(
+      `      ✅ ${fileInfo.type.toUpperCase()} backup uploaded to Google Drive`,
+    );
   }
 
-  console.log(`📂 File ID: ${result.data.id}`);
-  console.log(`🔗 View Link: ${result.data.webViewLink}`);
+  console.log(`      📂 File ID: ${result.data.id}`);
+  if (result.data.webViewLink) {
+    console.log(`      🔗 View Link: ${result.data.webViewLink}`);
+  }
 
   return result.data;
+}
+
+/**
+ * Upload both files to Google Drive
+ */
+async function uploadBothToGoogleDrive(files) {
+  console.log("\n☁️  Uploading files to Google Drive...");
+
+  let drive;
+  try {
+    drive = getGoogleDriveClient();
+  } catch (error) {
+    handleGoogleAuthError(error);
+    throw error;
+  }
+
+  const results = [];
+
+  for (const file of files) {
+    try {
+      const result = await uploadFileToDrive(drive, file);
+      results.push({
+        type: file.type,
+        driveName: file.driveName,
+        fileId: result.id,
+        webViewLink: result.webViewLink,
+        size: file.size,
+      });
+    } catch (error) {
+      console.error(`   ❌ Failed to upload ${file.type} file:`, error.message);
+      throw error;
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Handle Google OAuth errors
+ */
+function handleGoogleAuthError(error) {
+  if (error.message.includes("invalid_grant")) {
+    console.error("\n❌ GOOGLE OAUTH ERROR: invalid_grant");
+    console.error("   Your GOOGLE_REFRESH_TOKEN has expired or is invalid.");
+    console.error("\n💡 How to fix:");
+    console.error("   1. Go to: https://developers.google.com/oauthplayground");
+    console.error(
+      '   2. Click Settings (⚙️) → Check "Use your own OAuth credentials"',
+    );
+    console.error("   3. Enter your GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET");
+    console.error(
+      '   4. In Step 1: Select "Drive API v3" → https://www.googleapis.com/auth/drive.file',
+    );
+    console.error(
+      '   5. Click "Authorize APIs" and login with your Google account',
+    );
+    console.error(
+      '   6. In Step 2: Click "Exchange authorization code for tokens"',
+    );
+    console.error(
+      '   7. Copy the "Refresh token" and update GOOGLE_REFRESH_TOKEN secret in GitHub',
+    );
+  } else {
+    console.error("\n❌ GOOGLE DRIVE ERROR:", error.message);
+  }
+}
+
+/**
+ * Clean up local files (optional)
+ */
+function cleanupLocalFiles(files) {
+  console.log("\n🧹 Cleaning up local files...");
+
+  for (const file of files) {
+    try {
+      if (fs.existsSync(file.filepath)) {
+        fs.unlinkSync(file.filepath);
+        console.log(`   🗑️  Deleted: ${file.filename}`);
+      }
+    } catch (error) {
+      console.log(`   ⚠️  Failed to delete ${file.filename}:`, error.message);
+    }
+  }
 }
 
 /**
  * Main backup function
  */
 async function runBackup() {
-  console.log("🚀 Starting MaxCode Invoice Software Auto Backup...");
+  console.log("\n" + "=".repeat(70));
+  console.log("🚀 MaxCode Invoice Software - Auto Backup System");
+  console.log("=".repeat(70));
   console.log(
     `📅 Date: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`,
   );
   console.log(`🔄 Frequency: ${BACKUP_FREQUENCY.toUpperCase()}`);
-  console.log("─".repeat(60));
+  console.log(`📦 Backup Format: JSON + BSON (Dual Format)`);
+  console.log("─".repeat(70));
 
   try {
-    // Validate environment variables
+    // Step 1: Validate environment variables
+    console.log("\n🔧 STEP 1: Environment Validation");
     if (!validateEnvironmentVariables()) {
       throw new Error("Environment validation failed");
     }
+    console.log("   ✅ All environment variables are set");
 
-    console.log("✅ Environment variables validated");
-    console.log("─".repeat(60));
-
-    // Validate backup settings from backend
+    // Step 2: Validate backup settings from backend
+    console.log("\n🔧 STEP 2: Backup Settings Validation");
     const shouldProceed = await validateBackupSettings();
     if (!shouldProceed) {
-      console.log("─".repeat(60));
+      console.log("\n" + "─".repeat(70));
       console.log("🛑 Backup cancelled based on settings validation");
-      process.exit(0); // Exit gracefully without error
+      console.log("=".repeat(70));
+      process.exit(0);
     }
 
-    console.log("─".repeat(60));
-    console.log(`📡 Backup Endpoint: ${BACKUP_ENDPOINT}`);
-
-    // Step 1: Fetch all data
+    // Step 3: Fetch data from API
+    console.log("\n🔧 STEP 3: Data Fetching");
+    console.log(`   📡 Endpoint: ${BACKUP_ENDPOINT}`);
     const backupData = await fetchAllData();
 
-    // Step 2: Save to local file
-    const { filename, filepath } = saveBackupToFile(backupData);
+    // Step 4: Save to local files (JSON and BSON)
+    console.log("\n🔧 STEP 4: Local File Creation");
+    const files = saveBackupToFiles(backupData);
 
-    // Step 3: Upload to Google Drive
-    const driveFile = await uploadToGoogleDrive(filepath, filename);
+    // Step 5: Upload to Google Drive
+    console.log("\n🔧 STEP 5: Google Drive Upload");
+    const driveResults = await uploadBothToGoogleDrive(files);
 
-    // Step 4: Calculate statistics
-    const totalRecords = Object.values(backupData.collections).reduce(
+    // Step 6: Calculate final statistics
+    console.log("\n" + "=".repeat(70));
+    console.log("📊 FINAL BACKUP SUMMARY");
+    console.log("=".repeat(70));
+
+    // Data statistics
+    const totalCollections = Object.keys(backupData.collections || {}).length;
+    const totalRecords = Object.values(backupData.collections || {}).reduce(
       (sum, collection) =>
         sum + (Array.isArray(collection) ? collection.length : 0),
       0,
     );
 
-    console.log("─".repeat(60));
-    console.log("📊 Backup Summary:");
-    console.log(
-      `  • Total Collections: ${Object.keys(backupData.collections).length}`,
-    );
-    console.log(`  • Total Records: ${totalRecords}`);
-    console.log(
-      `  • File Size: ${(fs.statSync(filepath).size / 1024).toFixed(2)} KB`,
-    );
-    console.log(`  • Status: ✅ SUCCESS`);
-    console.log("─".repeat(60));
+    console.log(`\n📁 Data Statistics:`);
+    console.log(`   • Total Collections: ${totalCollections}`);
+    console.log(`   • Total Records: ${totalRecords}`);
 
-    // Cleanup local file (optional)
-    // fs.unlinkSync(filepath);
-    // console.log('🗑️  Local backup file cleaned up');
+    // File statistics
+    console.log(`\n💾 File Statistics:`);
+    for (const file of files) {
+      console.log(`   • ${file.type.toUpperCase()}: ${file.filename}`);
+      console.log(`     Size: ${file.size} KB`);
+      console.log(`     Drive Name: ${file.driveName}`);
+    }
+
+    // Drive upload results
+    console.log(`\n☁️  Google Drive Status:`);
+    for (const result of driveResults) {
+      console.log(`   • ${result.type.toUpperCase()}: ✅ Uploaded`);
+      console.log(`     File ID: ${result.fileId}`);
+      if (result.webViewLink) {
+        console.log(`     Link: ${result.webViewLink}`);
+      }
+    }
+
+    // Compression ratio
+    const jsonFile = files.find((f) => f.type === "json");
+    const bsonFile = files.find((f) => f.type === "bson");
+    if (jsonFile && bsonFile) {
+      const jsonSize = parseFloat(jsonFile.size);
+      const bsonSize = parseFloat(bsonFile.size);
+      const savings = (((jsonSize - bsonSize) / jsonSize) * 100).toFixed(2);
+      console.log(`\n📈 Compression: BSON is ${savings}% smaller than JSON`);
+    }
+
+    console.log("\n" + "─".repeat(70));
+    console.log("✅ BACKUP COMPLETED SUCCESSFULLY");
+    console.log("✨ All operations completed");
+    console.log("=".repeat(70));
+
+    // Optional: Cleanup local files (uncomment if you want to delete local files)
+    // cleanupLocalFiles(files);
   } catch (error) {
-    console.error("─".repeat(60));
+    console.error("\n" + "❌".repeat(35));
     console.error("❌ BACKUP FAILED");
-    console.error("Error:", error.message);
-    console.error("Stack:", error.stack);
-    console.error("─".repeat(60));
+    console.error("❌".repeat(35));
+    console.error("\nError Details:");
+    console.error(`   • Message: ${error.message}`);
+    console.error(`   • Stack: ${error.stack}`);
+
+    if (error.response) {
+      console.error(`   • API Status: ${error.response.status}`);
+      console.error(`   • API Data:`, error.response.data);
+    }
+
+    console.error("\n" + "─".repeat(70));
+    console.error("🔧 TROUBLESHOOTING STEPS:");
+    console.error("   1. Check all environment variables are set correctly");
+    console.error("   2. Verify Google Drive OAuth credentials");
+    console.error("   3. Ensure BACKUP_API_KEY is valid");
+    console.error("   4. Check if backup endpoint is accessible");
+    console.error("   5. Review network connectivity");
+    console.error("=".repeat(70));
+
     process.exit(1);
   }
 }
 
+/**
+ * Handle process termination
+ */
+process.on("SIGINT", () => {
+  console.log("\n\n⚠️  Backup process interrupted by user");
+  process.exit(130);
+});
+
+process.on("unhandledRejection", (error) => {
+  console.error("\n💥 Unhandled Promise Rejection:", error);
+  process.exit(1);
+});
+
 // Run the backup
-runBackup()
-  .then(() => {
-    console.log("✨ Backup process completed successfully!");
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error("💥 Unexpected error:", error);
-    process.exit(1);
-  });
+if (require.main === module) {
+  runBackup()
+    .then(() => {
+      console.log("\n✨ Script execution finished");
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error("\n💥 Fatal error:", error);
+      process.exit(1);
+    });
+}
