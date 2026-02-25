@@ -21,20 +21,10 @@ try {
   BSON = require("bson");
   console.log("✅ BSON package loaded successfully");
 } catch (error) {
-  console.log("⚠️  BSON package not found. Installing...");
-  const installResult = spawnSync("npm", ["install", "bson"], {
-    stdio: "inherit",
-    shell: true,
-  });
-
-  if (installResult.status === 0) {
-    console.log("✅ BSON package installed successfully");
-    BSON = require("bson");
-  } else {
-    console.error("❌ Failed to install BSON package");
-    console.log("⚠️  Will use Buffer fallback for BSON format");
-    BSON = null;
-  }
+  console.log(
+    "⚠️  BSON package not found. Will use Buffer fallback for BSON format",
+  );
+  BSON = null;
 }
 
 // Configuration from environment variables
