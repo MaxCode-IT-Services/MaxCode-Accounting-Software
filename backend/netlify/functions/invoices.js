@@ -162,12 +162,11 @@ export async function handler(event) {
       const invoiceData = JSON.parse(event.body);
 
       if (invoiceData.invoiceNumber) {
+        // Only block if another invoice (not this one) has same invoiceNumber
         const existingInvoice = await invoicesCollection.findOne({
-          _id: { $ne: new ObjectId(id) },
           invoiceNumber: invoiceData.invoiceNumber,
         });
-
-        if (existingInvoice) {
+        if (existingInvoice && String(existingInvoice._id) !== String(id)) {
           return createResponse(
             409,
             { error: "Invoice number already exists" },

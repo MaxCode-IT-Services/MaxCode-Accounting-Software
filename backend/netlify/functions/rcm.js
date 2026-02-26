@@ -222,13 +222,12 @@ export async function handler(event) {
       const rcmObjectId = new ObjectId(id);
 
       if (payload.selfInvoiceNumber) {
+        // Only block if another RCM (not this one) has same selfInvoiceNumber
         const existingRecord = await rcmCollection.findOne({
-          _id: { $ne: rcmObjectId },
           selfInvoiceNumber: payload.selfInvoiceNumber,
           isDeleted: { $ne: true },
         });
-
-        if (existingRecord) {
+        if (existingRecord && String(existingRecord._id) !== String(id)) {
           return createResponse(
             409,
             { error: "Self invoice number already exists" },

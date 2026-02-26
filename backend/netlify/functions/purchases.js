@@ -114,13 +114,12 @@ export async function handler(event) {
       const purchaseObjectId = new ObjectId(id);
 
       if (purchaseData.invoiceNumber) {
+        // Only block if another purchase (not this one) has same invoiceNumber
         const existingInvoice = await purchasesCollection.findOne({
-          _id: { $ne: purchaseObjectId },
           invoiceNumber: purchaseData.invoiceNumber,
           isDeleted: { $ne: true },
         });
-
-        if (existingInvoice) {
+        if (existingInvoice && String(existingInvoice._id) !== String(id)) {
           return createResponse(
             409,
             { error: "Invoice number already exists" },
