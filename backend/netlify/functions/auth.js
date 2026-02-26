@@ -37,6 +37,7 @@ export async function handler(event) {
   // --- Rate limiting logic ---
   const ip = getClientIp(event);
   let userIdForRateLimit = null;
+  let userRoleForRateLimit = null;
   let decodedToken = null;
   // For authenticated endpoints (not login/register), check per-user rate limit
   const isAuthAction =
@@ -58,9 +59,13 @@ export async function handler(event) {
     try {
       decodedToken = verifyRequestToken(event);
       userIdForRateLimit = decodedToken.userId;
+      userRoleForRateLimit = decodedToken.role || "user";
     } catch {}
     if (userIdForRateLimit) {
-      const userLimit = await checkUserRateLimit(userIdForRateLimit);
+      const userLimit = await checkUserRateLimit(
+        userIdForRateLimit,
+        userRoleForRateLimit,
+      );
       if (userLimit.blocked) {
         return createResponse(
           429,
