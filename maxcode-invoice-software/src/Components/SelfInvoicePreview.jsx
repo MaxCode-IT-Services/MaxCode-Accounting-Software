@@ -749,13 +749,19 @@ const SelfInvoicePreview = ({
           role="document"
         >
           <div className="modal-content">
-            <div className="modal-header">
-              <h5 className="modal-title">
+            <div className="modal-header d-flex flex-column flex-md-row align-items-start align-items-md-center">
+              {/* Title */}
+              <h5 className="modal-title text-start text-nowrap mb-2 mb-md-0">
                 Self Invoice Preview - {selfInvoiceNumber}
               </h5>
 
-              <div className="d-flex align-items-center ms-auto gap-2">
-                <div className="modal-download-buttons">
+              {/* Button Section */}
+              <div
+                className="d-flex w-100 justify-content-between align-items-center
+               w-md-auto justify-content-md-end ms-md-auto"
+              >
+                {/* PDF + Image */}
+                <div className="d-flex gap-2">
                   <button
                     onClick={exportPDF}
                     disabled={loading.pdf || loading.image}
@@ -795,9 +801,10 @@ const SelfInvoicePreview = ({
                   </button>
                 </div>
 
+                {/* Close Button */}
                 <button
                   type="button"
-                  className="btn-close"
+                  className="btn-close ms-2"
                   onClick={onClose}
                 ></button>
               </div>

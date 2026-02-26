@@ -748,55 +748,40 @@ const InvoicePreview = ({
           role="document"
         >
           <div className="modal-content">
-            <div className="modal-header">
-              <h5 className="modal-title">
+            <div className="modal-header d-flex flex-column flex-md-row align-items-start align-items-md-center">
+              {/* Title */}
+              <h5 className="modal-title text-start text-nowrap mb-2 mb-md-0">
                 Invoice Preview - {invoiceData.invoiceNumber}
               </h5>
 
-              <div className="d-flex align-items-center ms-auto gap-2">
-                <div className="modal-download-buttons">
+              {/* Button Section */}
+              <div
+                className="d-flex w-100 justify-content-between align-items-center
+                  w-md-auto justify-content-md-end ms-md-auto"
+              >
+                {/* PDF + Image */}
+                <div className="d-flex gap-2">
                   <button
                     onClick={exportPDF}
                     disabled={loading.pdf || loading.image}
                     className="btn-download btn-pdf"
-                    title="Download as PDF"
                   >
-                    {loading.pdf ? (
-                      <>
-                        <span className="spinner"></span>
-                        <span>Generating...</span>
-                      </>
-                    ) : (
-                      <>
-                        <i className="bi bi-file-pdf"></i>
-                        <span>PDF</span>
-                      </>
-                    )}
+                    {loading.pdf ? "Generating..." : "PDF"}
                   </button>
 
                   <button
                     onClick={exportImage}
                     disabled={loading.pdf || loading.image}
                     className="btn-download btn-image"
-                    title="Download as Image"
                   >
-                    {loading.image ? (
-                      <>
-                        <span className="spinner"></span>
-                        <span>Generating...</span>
-                      </>
-                    ) : (
-                      <>
-                        <i className="bi bi-image"></i>
-                        <span>Image</span>
-                      </>
-                    )}
+                    {loading.image ? "Generating..." : "Image"}
                   </button>
                 </div>
 
+                {/* Close Button */}
                 <button
                   type="button"
-                  className="btn-close"
+                  className="btn-close ms-2"
                   onClick={onClose}
                 ></button>
               </div>
