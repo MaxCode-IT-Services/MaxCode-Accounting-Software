@@ -14,6 +14,12 @@ import {
   sanitizeUser,
 } from "./utils/auth.js";
 import speakeasy from "speakeasy";
+import {
+  getClientIp,
+  checkLoginRateLimit,
+  resetLoginRateLimit,
+  checkUserRateLimit,
+} from "./utils/rate-limit.js";
 
 /**
  * Authentication API
@@ -26,6 +32,45 @@ export async function handler(event) {
   // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
     return createResponse(200, {}, origin);
+  }
+
+  // --- Rate limiting logic ---
+  const ip = getClientIp(event);
+  let userIdForRateLimit = null;
+  let decodedToken = null;
+  // For authenticated endpoints (not login/register), check per-user rate limit
+  const isAuthAction =
+    event.httpMethod === "POST" &&
+    event.body &&
+    (() => {
+      try {
+        const b = JSON.parse(event.body);
+        return (
+          b.action !== "login" &&
+          b.action !== "register" &&
+          b.action !== "verify-2fa"
+        );
+      } catch {
+        return false;
+      }
+    })();
+  if (isAuthAction) {
+    try {
+      decodedToken = verifyRequestToken(event);
+      userIdForRateLimit = decodedToken.userId;
+    } catch {}
+    if (userIdForRateLimit) {
+      const userLimit = await checkUserRateLimit(userIdForRateLimit);
+      if (userLimit.blocked) {
+        return createResponse(
+          429,
+          {
+            error: `Too many requests. Try again after ${userLimit.retryAfter} seconds.`,
+          },
+          origin,
+        );
+      }
+    }
   }
 
   try {
@@ -93,6 +138,18 @@ export async function handler(event) {
     if (event.httpMethod === "POST") {
       // LOGIN
       if (action === "login") {
+        // --- Rate limit login attempts per IP ---
+        const loginLimit = await checkLoginRateLimit(ip);
+        if (loginLimit.blocked) {
+          return createResponse(
+            429,
+            {
+              error: `Too many login attempts. Try again after ${loginLimit.retryAfter} seconds.`,
+            },
+            origin,
+          );
+        }
+
         const { phone, pin } = body;
 
         // Validate required fields (either email or phone, and password or pin)
@@ -128,6 +185,9 @@ export async function handler(event) {
         if (!isValidCredential) {
           return createResponse(401, { error: "Invalid credentials" }, origin);
         }
+
+        // On successful login, reset rate limit for this IP
+        await resetLoginRateLimit(ip);
 
         // Check if 2FA is enabled
         if (user.twoFactor?.enabled === true) {
