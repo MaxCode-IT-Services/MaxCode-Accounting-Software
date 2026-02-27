@@ -17578,3 +17578,25 @@ input[type="radio"] {
     font-size: 13px;
   }
 }
+
+.head-cart-counter {
+  font-size: 10px;
+  background: #ff0080;
+  width: 16px;
+  height: 16px;
+  display: block;
+  position: absolute;
+  border-radius: 50%;
+  color: #fff;
+  font-style: normal;
+  text-align: center;
+  line-height: 16px;
+  right: 17px;
+  top: 2px;
+}
+
+.head-cart-counter,
+.head-cart-counter {
+  background: #ff0080;
+  color: #fff;
+}

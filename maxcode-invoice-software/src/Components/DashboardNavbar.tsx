@@ -7,6 +7,7 @@ import {
   getStoredUserInfo,
   withRolePrefix,
 } from "../utils/permissions";
+import Notification from "./Notification";
 
 interface DashboardNavbarProps {
   children: React.ReactNode;
@@ -48,6 +49,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   );
   const [financialYearDropdownOpen, setFinancialYearDropdownOpen] =
     useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [user, setUser] = useState({
     name: "Guest User",
     email: "guest@example.com",
@@ -313,6 +315,11 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     { id: ALL_YEARS_VALUE, label: "All Year", value: ALL_YEARS_VALUE },
     ...financialYears,
   ];
+
+  // Handle unread count change from Notification component
+  const handleUnreadCountChange = (count: number) => {
+    setUnreadCount(count);
+  };
 
   // Admin Menu Items
   const adminMenuItems = [
@@ -635,6 +642,24 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                   </div>
                 </li>
 
+                <li className="d-flex">
+                  <a
+                    href="#notificationSlider"
+                    className="cart-content"
+                    data-bs-toggle="offcanvas"
+                    role="button"
+                    aria-controls="notificationSlider"
+                  >
+                    <i
+                      className="fa-solid fa-bell fs-4"
+                      style={{ color: "#ffb200" }}
+                    ></i>
+                    {unreadCount > 0 && (
+                      <span className="head-cart-counter">{unreadCount}</span>
+                    )}
+                  </a>
+                </li>
+
                 {/* Fullscreen */}
                 <li className="d-flex">
                   <button
@@ -817,6 +842,9 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
         </div>
       </div>
 
+      {/* Notification Component */}
+      <Notification onUnreadCountChange={handleUnreadCountChange} />
+
       <style>{`
         @media (max-width: 768px) {
           .content {
@@ -871,6 +899,27 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
         .financial-year-select:hover {
           border-color: #007026;
           background-color: #fff;
+        }
+
+        .head-cart-counter {
+          position: absolute;
+          top: -5px;
+          right: -5px;
+          background-color: #ff4d4d;
+          color: white;
+          border-radius: 50%;
+          width: 18px;
+          height: 18px;
+          font-size: 11px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: bold;
+        }
+
+        .cart-content {
+          position: relative;
+          display: inline-block;
         }
 
         @keyframes fadeIn {

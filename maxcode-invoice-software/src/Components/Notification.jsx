@@ -1,0 +1,698 @@
+import React, { useState, useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
+
+// Audio files - you can replace these with your own sound files
+const newNotificationSound = "/Sound/Text.mp3";
+const newReadSound = "/Sound/Read.wav";
+const oldReadSound = "/Sound/Old.wav";
+const deleteNotificationSound = "/Sound/Delete.wav";
+
+const Notification = ({ onUnreadCountChange, userId }) => {
+  // Notification variables for expiry reminder
+  // Service Name
+  const serviceName = "GST Filing";
+  // Business Name
+  const businessName = "MaxCode Business";
+  // Days left for expiry
+  const daysLeft = 7;
+  // Expiry Date
+  const expiryDate = "2026-03-05";
+  // Price
+  const price = 1200;
+  // Tax %
+  const taxPercent = 18;
+  // Tax Amount
+  const taxAmount = Math.round((price * taxPercent) / 100);
+  // Total Amount
+  const totalAmount = price + taxAmount;
+
+  // Remove dummy notification, use empty array initially
+  const [allNotifications, setAllNotifications] = useState([]);
+
+  // Fetch notifications from backend on mount
+  useEffect(() => {
+    async function fetchNotifications() {
+      try {
+        // NOTE: Netlify local dev uses /.netlify/functions/notifications
+        // Change this path if you are running locally or on Netlify
+        const res = await fetch(
+          `/.netlify/functions/notifications?userId=testuser1`,
+        );
+        const data = await res.json();
+        console.log("Fetched notifications:", data); // Debug log
+        setAllNotifications(data);
+      } catch (err) {
+        console.error("Failed to fetch notifications", err);
+      }
+    }
+    fetchNotifications();
+  }, []); // Remove userId dependency for now
+
+  const [showAll, setShowAll] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [swipedId, setSwipedId] = useState(null);
+  const [touchStartX, setTouchStartX] = useState(null);
+  const [currentSwipeX, setCurrentSwipeX] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [notificationToDelete, setNotificationToDelete] = useState(null);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const [prevUnreadCount, setPrevUnreadCount] = useState(
+    allNotifications.filter((n) => !n.read).length,
+  );
+
+  // Audio refs
+  const newSoundRef = useRef(null);
+  const newReadSoundRef = useRef(null);
+  const oldReadSoundRef = useRef(null);
+  const deleteSoundRef = useRef(null);
+
+  // Calculate unread count whenever notifications change
+  useEffect(() => {
+    const currentUnreadCount = allNotifications.filter((n) => !n.read).length;
+    onUnreadCountChange(currentUnreadCount);
+
+    if (currentUnreadCount > prevUnreadCount) {
+      // New notification arrived
+      if (newSoundRef.current) {
+        newSoundRef.current.currentTime = 0;
+        newSoundRef.current
+          .play()
+          .catch((e) => console.log("Audio play failed:", e));
+      }
+    }
+
+    setPrevUnreadCount(currentUnreadCount);
+  }, [allNotifications, onUnreadCountChange, prevUnreadCount]);
+
+  // Get notifications to display (either first 4 or all)
+  const notifications = showAll
+    ? allNotifications
+    : allNotifications.slice(0, 3);
+
+  const toggleExpand = (id) => {
+    if (isSwiping) return;
+
+    setAllNotifications(
+      allNotifications.map((notification) => {
+        if (notification.id === id) {
+          // Play different sound based on whether it's a new or old notification
+          if (!notification.read) {
+            // New notification being read
+            if (newReadSoundRef.current) {
+              newReadSoundRef.current.currentTime = 0;
+              newReadSoundRef.current
+                .play()
+                .catch((e) => console.log("Audio play failed:", e));
+            }
+          } else {
+            // Old notification being read
+            if (oldReadSoundRef.current) {
+              oldReadSoundRef.current.currentTime = 0;
+              oldReadSoundRef.current
+                .play()
+                .catch((e) => console.log("Audio play failed:", e));
+            }
+          }
+
+          return {
+            ...notification,
+            expanded: !notification.expanded,
+            read: true,
+          };
+        } else {
+          return { ...notification, expanded: false };
+        }
+      }),
+    );
+  };
+
+  const markAsRead = async (id, e) => {
+    e?.stopPropagation();
+    setAllNotifications((prev) =>
+      prev.map((notification) =>
+        notification._id === id
+          ? { ...notification, read: true }
+          : notification,
+      ),
+    );
+    try {
+      await fetch(`/api/notifications?id=${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ read: true }),
+      });
+    } catch (err) {
+      // Optionally show error
+    }
+  };
+
+  const markAllAsRead = async () => {
+    const unread = allNotifications.filter((n) => !n.read);
+    setAllNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    await Promise.all(
+      unread.map((n) =>
+        fetch(`/api/notifications?id=${n._id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ read: true }),
+        }),
+      ),
+    );
+  };
+
+  const handleDeleteClick = (id, e) => {
+    e?.stopPropagation();
+    setNotificationToDelete(id);
+    setShowDeleteModal(true);
+    setSwipedId(null);
+  };
+
+  const confirmDelete = async () => {
+    setAllNotifications((prev) =>
+      prev.filter((n) => n._id !== notificationToDelete),
+    );
+    try {
+      await fetch(`/api/notifications?id=${notificationToDelete}`, {
+        method: "DELETE",
+      });
+    } catch (err) {}
+    setShowDeleteModal(false);
+    setNotificationToDelete(null);
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteModal(false);
+    setNotificationToDelete(null);
+  };
+
+  const openImagePopup = (imageUrl, e) => {
+    e.stopPropagation();
+    setSelectedImage(imageUrl);
+  };
+
+  const closeImagePopup = () => {
+    setSelectedImage(null);
+  };
+
+  const handleTouchStart = (e, id) => {
+    setTouchStartX(e.targetTouches[0].clientX);
+    setCurrentSwipeX(e.targetTouches[0].clientX);
+    setSwipedId(id);
+    setIsSwiping(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (touchStartX === null) return;
+    setCurrentSwipeX(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchEnd = (id) => {
+    if (touchStartX === null || currentSwipeX === null) return;
+
+    const distance = touchStartX - currentSwipeX;
+    const isLeftSwipe = distance > 50;
+
+    if (isLeftSwipe) {
+      setSwipedId(id);
+    } else {
+      setSwipedId(null);
+    }
+
+    setTouchStartX(null);
+    setCurrentSwipeX(null);
+    setIsSwiping(false);
+  };
+
+  const handleMouseDown = (e, id) => {
+    setTouchStartX(e.clientX);
+    setCurrentSwipeX(e.clientX);
+    setSwipedId(id);
+    setIsSwiping(true);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isSwiping || touchStartX === null) return;
+    setCurrentSwipeX(e.clientX);
+  };
+
+  const handleMouseUp = (id) => {
+    if (!isSwiping || touchStartX === null || currentSwipeX === null) {
+      setIsSwiping(false);
+      return;
+    }
+
+    const distance = touchStartX - currentSwipeX;
+    const isLeftSwipe = distance > 50;
+
+    if (isLeftSwipe) {
+      setSwipedId(id);
+    } else {
+      setSwipedId(null);
+    }
+
+    setTouchStartX(null);
+    setCurrentSwipeX(null);
+    setIsSwiping(false);
+  };
+
+  const getTransformStyle = (id) => {
+    if (touchStartX === null || currentSwipeX === null || swipedId !== id) {
+      return swipedId === id ? "translateX(-50px)" : "translateX(0)";
+    }
+
+    const distance = touchStartX - currentSwipeX;
+    if (distance <= 0) return "translateX(0)";
+    if (distance > 50) return "translateX(-50px)";
+    return `translateX(-${distance}px)`;
+  };
+
+  const getTypeColor = (type) => {
+    switch (type) {
+      case "success":
+        return "text-success";
+      case "danger":
+        return "text-danger";
+      case "warning":
+        return "text-warning";
+      case "info":
+        return "text-info";
+      case "primary":
+        return "text-primary";
+      default:
+        return "text-primary";
+    }
+  };
+
+  const truncateText = (text, maxLines = 2, maxLength = 100) => {
+    if (text.length <= maxLength) return text;
+
+    // First truncate by length
+    const truncated = text.substring(0, maxLength) + "...";
+
+    // Then ensure it fits in maxLines
+    const lines = truncated.split("\n");
+    if (lines.length <= maxLines) return truncated;
+
+    return lines.slice(0, maxLines).join("\n") + "...";
+  };
+
+  const handleLinkClick = (e, url) => {
+    e.stopPropagation();
+    console.log("Navigating to:", url);
+  };
+
+  // Format date to DD/MM/YYYY
+  function formatDateToDDMMYYYY(dateString) {
+    const date = new Date(dateString);
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  return (
+    <>
+      {/* Audio elements */}
+      <audio ref={newSoundRef} src={newNotificationSound} preload="auto" />
+      <audio ref={newReadSoundRef} src={newReadSound} preload="auto" />
+      <audio ref={oldReadSoundRef} src={oldReadSound} preload="auto" />
+      <audio
+        ref={deleteSoundRef}
+        src={deleteNotificationSound}
+        preload="auto"
+      />
+
+      {/* Notification Panel */}
+      <div
+        className="offcanvas offcanvas-end"
+        tabIndex="-1"
+        id="notificationSlider"
+        aria-labelledby="notificationSliderLabel"
+        style={{ width: "420px" }}
+      >
+        {/* Header */}
+        <div className="offcanvas-header border-bottom px-3 py-2">
+          <div className="d-flex justify-content-between w-100 align-items-center">
+            <div className="d-flex align-items-center">
+              <i className="bi bi-bell-fill me-2 fs-5 text-primary"></i>
+              <h5
+                className="offcanvas-title fw-bold mb-0"
+                id="notificationSliderLabel"
+              >
+                Notifications
+                {/* {allNotifications.filter(n => !n.read).length > 0 && (
+                  <span className="ms-2 badge bg-primary rounded-pill">
+                    {allNotifications.filter(n => !n.read).length} New
+                  </span>
+                )} */}
+              </h5>
+            </div>
+            <div>
+              {allNotifications.length > 0 && (
+                <button
+                  onClick={markAllAsRead}
+                  className="btn btn-sm btn-outline-success me-2"
+                  disabled={
+                    allNotifications.filter((n) => !n.read).length === 0
+                  }
+                >
+                  <i class="fa-regular fa-circle-check me-1"></i> Mark all read
+                </button>
+              )}
+              <button
+                className="btn-close"
+                data-bs-dismiss="offcanvas"
+                aria-label="Close"
+              ></button>
+            </div>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="offcanvas-body p-0">
+          {allNotifications.length === 0 ? (
+            <div className="text-center py-5">
+              <i className="fa-solid fa-bell-slash fs-1 text-muted mb-3"></i>
+              <h5 className="text-muted">No notifications</h5>
+              <p className="text-muted small">You're all caught up!</p>
+            </div>
+          ) : (
+            <div
+              className="list-group list-group-flush"
+              onMouseMove={handleMouseMove}
+              onMouseUp={() => setIsSwiping(false)}
+              onMouseLeave={() => setIsSwiping(false)}
+            >
+              {notifications.map((notification, index) => (
+                <React.Fragment key={notification.id}>
+                  <div
+                    className={`position-relative ${swipedId === notification.id ? "swiped" : ""}`}
+                  >
+                    {/* Notification Item */}
+                    <div
+                      className={`list-group-item list-group-item-action p-0 mb-0
+                        ${!notification.read ? "bg-light" : ""}
+                        ${notification.expanded ? "bg-light" : ""}`}
+                      onClick={() => toggleExpand(notification.id)}
+                      onTouchStart={(e) => handleTouchStart(e, notification.id)}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={() => handleTouchEnd(notification.id)}
+                      onMouseDown={(e) => handleMouseDown(e, notification.id)}
+                      onMouseUp={() => handleMouseUp(notification.id)}
+                      style={{
+                        cursor: "pointer",
+                        transition: isSwiping ? "none" : "transform 0.2s ease",
+                        transform: getTransformStyle(notification.id),
+                        position: "relative",
+                        zIndex: 1,
+                      }}
+                    >
+                      <div className="px-3 py-2">
+                        {/* Notification Header */}
+                        <div className="d-flex justify-content-between align-items-start mb-2">
+                          <div className="d-flex align-items-center">
+                            <i
+                              className={`${notification.icon} me-2 fs-5 ${getTypeColor(notification.type)}`}
+                            ></i>
+                            <h6
+                              className={`mb-0 ${!notification.read ? "fw-bold" : "fw-semibold"}`}
+                            >
+                              {notification.title}
+                            </h6>
+                          </div>
+                          <div className="d-flex align-items-center">
+                            {!notification.read && (
+                              <span
+                                className="badge bg-success rounded-pill me-2 py-1 px-2"
+                                style={{ fontSize: "0.7rem" }}
+                              >
+                                New
+                              </span>
+                            )}
+                            <small className="text-muted">
+                              {notification.time}
+                            </small>
+                          </div>
+                        </div>
+
+                        {/* Notification Content */}
+                        <div className="d-flex gap-3">
+                          {/* Thumbnail Image with click handler */}
+                          <div className="flex-shrink-0">
+                            <div
+                              className="position-relative"
+                              onClick={(e) =>
+                                openImagePopup(notification.image, e)
+                              }
+                              style={{ cursor: "zoom-in" }}
+                            >
+                              <img
+                                src={notification.image}
+                                className="rounded-2"
+                                width="60"
+                                height="60"
+                                alt="Notification"
+                                style={{
+                                  objectFit: "cover",
+                                  transition: "transform 0.2s",
+                                }}
+                                onMouseOver={(e) =>
+                                  (e.currentTarget.style.transform =
+                                    "scale(1.05)")
+                                }
+                                onMouseOut={(e) =>
+                                  (e.currentTarget.style.transform = "scale(1)")
+                                }
+                              />
+                              <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-dark bg-opacity-25 rounded-2 opacity-0 hover-opacity-100 transition-all">
+                                <i className="bi bi-zoom-in text-white fs-5"></i>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Text Content */}
+                          <div className="flex-grow-1">
+                            <div
+                              className="notification-description mb-2 text-muted"
+                              style={{
+                                display: "-webkit-box",
+                                WebkitLineClamp: notification.expanded
+                                  ? "unset"
+                                  : 2,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                                textOverflow: notification.expanded
+                                  ? "clip"
+                                  : "ellipsis",
+                                lineHeight: "1.4",
+                                maxHeight: notification.expanded
+                                  ? "none"
+                                  : "2.8em",
+                              }}
+                              dangerouslySetInnerHTML={{
+                                __html: notification.expanded
+                                  ? notification.description
+                                  : truncateText(notification.description),
+                              }}
+                            />
+
+                            {/* Additional Date & Time Below Description */}
+                            <small className="text-muted d-block mb-2">
+                              <i className="bi bi-clock me-1"></i>{" "}
+                              {formatDateToDDMMYYYY(notification.date)}
+                            </small>
+
+                            {/* Notification Links - Only visible when expanded */}
+                            {notification.expanded &&
+                              notification.links.length > 0 && (
+                                <div
+                                  className={`d-flex gap-2 ${notification.links.length === 1 ? "flex-column" : ""}`}
+                                >
+                                  {notification.links.map((link, idx) => (
+                                    <Link
+                                      key={idx}
+                                      to={link.url}
+                                      onClick={(e) =>
+                                        handleLinkClick(e, link.url)
+                                      }
+                                      className={`btn btn-sm btn-outline-primary ${notification.links.length === 1 ? "w-100" : "flex-grow-1"}`}
+                                    >
+                                      {link.text}
+                                    </Link>
+                                  ))}
+                                </div>
+                              )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Delete Button (hidden until swiped) */}
+                    <div
+                      className="position-absolute top-0 end-0 h-100 d-flex align-items-center pe-3"
+                      style={{
+                        width: "50px",
+                        zIndex: 0,
+                        right: "-50px",
+                      }}
+                    >
+                      <button
+                        className="btn btn-primary rounded-0 h-100 d-flex align-items-center justify-content-center"
+                        onClick={(e) => handleDeleteClick(notification.id, e)}
+                        style={{
+                          opacity: swipedId === notification.id ? 1 : 0,
+                          transition: "opacity 0.2s",
+                          width: "50px",
+                          borderLeft: "1px solid rgba(255,255,255,0.2)",
+                          borderRadius: "0",
+                        }}
+                      >
+                        <i
+                          className="fa-solid fa-trash-can fs-5"
+                          style={{ marginRight: "0px" }}
+                        ></i>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Divider between notifications */}
+                  {index < notifications.length - 1 && <hr className="m-0" />}
+                </React.Fragment>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {allNotifications.length > 0 && (
+          <div className="offcanvas-footer border-top px-3 py-2">
+            {!showAll && allNotifications.length > 4 ? (
+              <button
+                className="btn btn-lg btn-primary w-100 rounded-pill"
+                onClick={() => setShowAll(true)}
+              >
+                <i className="fa-regular fa-circle-down me-2"></i> View all
+                notifications
+              </button>
+            ) : showAll ? (
+              <button
+                className="btn btn-lg btn-primary w-100 rounded-pill"
+                disabled={true}
+              >
+                <i className="fa-regular fa-circle-check me-2"></i> All
+                notifications loaded
+              </button>
+            ) : (
+              <Link
+                to="/notifications"
+                className="btn btn-lg btn-primary w-100 rounded-pill"
+              >
+                <i className="fa-solid fa-eye me-2"></i> View notifications page
+              </Link>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Image Popup Modal */}
+      {selectedImage && (
+        <div
+          className="modal fade show d-block"
+          tabIndex="-1"
+          style={{ backgroundColor: "rgba(0,0,0,0.8)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered modal-lg">
+            <div className="modal-content border-0 bg-transparent">
+              <div className="modal-header border-0">
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={closeImagePopup}
+                  aria-label="Close"
+                ></button>
+              </div>
+              <div className="modal-body text-center">
+                <img
+                  src={selectedImage}
+                  className="img-fluid rounded-3 shadow-lg"
+                  style={{ maxHeight: "80vh" }}
+                  alt="Notification Preview"
+                />
+              </div>
+              <div className="modal-footer border-0 justify-content-center">
+                <button
+                  className="btn btn-outline-light rounded-pill"
+                  onClick={closeImagePopup}
+                >
+                  <i className="bi bi-x-lg me-1"></i> Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div
+          className="modal fade show d-block"
+          tabIndex="-1"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Delete Notification</h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={cancelDelete}
+                  aria-label="Close"
+                ></button>
+              </div>
+              <div className="modal-body">
+                <p>
+                  Are you sure you want to delete this notification? This action
+                  cannot be undone.
+                </p>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={cancelDelete}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={confirmDelete}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom CSS */}
+      <style jsx>{`
+        .list-group-item {
+          transition:
+            transform 0.3s ease,
+            background-color 0.2s ease;
+        }
+        .swiped {
+          overflow: hidden;
+        }
+        hr {
+          transition: all 0.3s ease;
+        }
+      `}</style>
+    </>
+  );
+};
+
+export default Notification;
