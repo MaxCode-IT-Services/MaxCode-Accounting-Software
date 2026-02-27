@@ -48,10 +48,10 @@ const PurchaseManagement = () => {
   // Card data array
   const cards = [
     {
-      icon: "fa-solid fa-shopping-cart",
-      title: "Total Purchases",
-      key: "total",
-      color: "primary",
+      icon: "fas fa-rupee-sign",
+      title: "Total Amount",
+      key: "totalAmount",
+      color: "info",
     },
     {
       icon: "fas fa-check-circle",
@@ -72,10 +72,10 @@ const PurchaseManagement = () => {
       color: "warning",
     },
     {
-      icon: "fas fa-rupee-sign",
-      title: "Total Amount",
-      key: "totalAmount",
-      color: "info",
+      icon: "fa-solid fa-shopping-cart",
+      title: "Total Purchases",
+      key: "total",
+      color: "primary",
     },
     {
       icon: "fas fa-plus-circle",
@@ -470,14 +470,35 @@ const PurchaseManagement = () => {
 
   // Update statistics
   const updateStatistics = (data) => {
+    // Calculate total purchase amount, total paid amount, and unpaid amount
+    const totalAmount = data.reduce(
+      (sum, r) => sum + parseFloat(r.taxData?.totalAmount || 0),
+      0,
+    );
+    // Paid amount: sum of paid and partial records' paid amount (if available, else fallback to totalAmount for paid)
+    const paidAmount = data
+      .filter(
+        (r) => r.paymentStatus === "Paid" || r.paymentStatus === "Partial",
+      )
+      .reduce((sum, r) => {
+        // If amountReceived exists, use it, else for Paid use totalAmount, for Partial use half of totalAmount as fallback
+        if (r.amountReceived !== undefined && r.amountReceived !== null) {
+          return sum + parseFloat(r.amountReceived || 0);
+        } else if (r.paymentStatus === "Paid") {
+          return sum + parseFloat(r.taxData?.totalAmount || 0);
+        } else if (r.paymentStatus === "Partial") {
+          return sum + parseFloat(r.taxData?.totalAmount || 0) / 2;
+        }
+        return sum;
+      }, 0);
+    const unpaidAmount = totalAmount - paidAmount;
+
     const stats = {
       total: data.length,
-      paid: data.filter((r) => r.paymentStatus === "Paid").length,
-      unpaid: data.filter((r) => r.paymentStatus === "Unpaid").length,
+      paid: paidAmount.toFixed(2),
+      unpaid: unpaidAmount.toFixed(2),
       partial: data.filter((r) => r.paymentStatus === "Partial").length,
-      totalAmount: data
-        .reduce((sum, r) => sum + parseFloat(r.taxData?.totalAmount || 0), 0)
-        .toFixed(2),
+      totalAmount: totalAmount.toFixed(2),
     };
     setStatistics(stats);
   };

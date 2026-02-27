@@ -39,10 +39,10 @@ const CompanyExpenseManagement = () => {
 
   const cards = [
     {
-      icon: "fa-solid fa-receipt",
-      title: "Total Expenses",
-      key: "total",
-      color: "primary",
+      icon: "fas fa-rupee-sign",
+      title: "Total Amount",
+      key: "totalAmount",
+      color: "info",
     },
     {
       icon: "fas fa-check-circle",
@@ -57,10 +57,10 @@ const CompanyExpenseManagement = () => {
       color: "danger",
     },
     {
-      icon: "fas fa-rupee-sign",
-      title: "Total Amount",
-      key: "totalAmount",
-      color: "info",
+      icon: "fa-solid fa-receipt",
+      title: "Total Expenses",
+      key: "total",
+      color: "primary",
     },
     {
       icon: "fa-regular fa-calendar-days",
@@ -129,17 +129,44 @@ const CompanyExpenseManagement = () => {
   };
 
   const updateStatistics = (data) => {
+    // Calculate total expense amount, total paid amount, and unpaid amount
     const totalAmount = data.reduce(
       (sum, record) =>
         sum + parseFloat(record?.taxData?.totalAmount || record?.amount || 0),
       0,
     );
+    // Paid amount: sum of paid and partial records' amountReceived (if available, else for Paid use totalAmount, for Partial use half of totalAmount as fallback)
+    const paidAmount = data
+      .filter(
+        (record) =>
+          record.paymentStatus === "Paid" || record.paymentStatus === "Partial",
+      )
+      .reduce((sum, record) => {
+        if (
+          record.amountReceived !== undefined &&
+          record.amountReceived !== null
+        ) {
+          return sum + parseFloat(record.amountReceived || 0);
+        } else if (record.paymentStatus === "Paid") {
+          return (
+            sum +
+            parseFloat(record?.taxData?.totalAmount || record?.amount || 0)
+          );
+        } else if (record.paymentStatus === "Partial") {
+          return (
+            sum +
+            parseFloat(record?.taxData?.totalAmount || record?.amount || 0) / 2
+          );
+        }
+        return sum;
+      }, 0);
+    const unpaidAmount = totalAmount - paidAmount;
 
     setStatistics({
       total: data.length,
-      paid: data.filter((record) => record.paymentStatus === "Paid").length,
-      unpaid: data.filter((record) => record.paymentStatus === "Unpaid").length,
-      totalAmount,
+      paid: paidAmount.toFixed(2),
+      unpaid: unpaidAmount.toFixed(2),
+      totalAmount: totalAmount.toFixed(2),
     });
   };
 
