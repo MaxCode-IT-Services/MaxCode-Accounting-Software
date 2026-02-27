@@ -53,7 +53,6 @@ export async function handler(event) {
       if (clientData.clientId) {
         const existingClientId = await clientsCollection.findOne({
           clientId: clientData.clientId,
-          isDeleted: { $ne: true },
         });
         if (existingClientId) {
           return createResponse(
@@ -71,7 +70,6 @@ export async function handler(event) {
       if (clientData.phoneNumber) {
         const existingPhone = await clientsCollection.findOne({
           phoneNumber: clientData.phoneNumber,
-          isDeleted: { $ne: true },
         });
         if (existingPhone) {
           return createResponse(
@@ -89,7 +87,6 @@ export async function handler(event) {
       if (clientData.gstin && !clientData.noGSTIN) {
         const existingGSTIN = await clientsCollection.findOne({
           gstin: clientData.gstin,
-          isDeleted: { $ne: true },
         });
         if (existingGSTIN) {
           return createResponse(
@@ -101,6 +98,7 @@ export async function handler(event) {
       }
 
       const result = await clientsCollection.insertOne({
+        _id: new ObjectId(),
         ...clientData,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -129,11 +127,9 @@ export async function handler(event) {
       // Check for duplicate clientId (excluding current record)
       if (clientData.clientId) {
         const existingClientId = await clientsCollection.findOne({
-          _id: { $ne: clientObjectId },
           clientId: clientData.clientId,
-          isDeleted: { $ne: true },
         });
-        if (existingClientId) {
+        if (existingClientId && String(existingClientId._id) !== String(id)) {
           return createResponse(
             409,
             {
@@ -148,11 +144,9 @@ export async function handler(event) {
       // Check for duplicate phoneNumber (excluding current record)
       if (clientData.phoneNumber) {
         const existingPhone = await clientsCollection.findOne({
-          _id: { $ne: clientObjectId },
           phoneNumber: clientData.phoneNumber,
-          isDeleted: { $ne: true },
         });
-        if (existingPhone) {
+        if (existingPhone && String(existingPhone._id) !== String(id)) {
           return createResponse(
             409,
             { error: "Phone Number already registered with another client." },
@@ -164,11 +158,9 @@ export async function handler(event) {
       // Check for duplicate GSTIN (excluding current record)
       if (clientData.gstin && !clientData.noGSTIN) {
         const existingGSTIN = await clientsCollection.findOne({
-          _id: { $ne: clientObjectId },
           gstin: clientData.gstin,
-          isDeleted: { $ne: true },
         });
-        if (existingGSTIN) {
+        if (existingGSTIN && String(existingGSTIN._id) !== String(id)) {
           return createResponse(
             409,
             { error: "GSTIN already registered with another client." },

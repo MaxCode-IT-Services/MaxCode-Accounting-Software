@@ -24,10 +24,16 @@ export async function handler(event) {
       const { id } = event.queryStringParameters || {};
 
       if (id) {
+        if (!ObjectId.isValid(id)) {
+          return createResponse(
+            400,
+            { error: "Invalid Financial Year ID" },
+            origin,
+          );
+        }
         const yearRecord = await yearsCollection.findOne({
           _id: new ObjectId(id),
         });
-
         if (!yearRecord) {
           return createResponse(
             404,
@@ -35,7 +41,6 @@ export async function handler(event) {
             origin,
           );
         }
-
         return createResponse(200, yearRecord, origin);
       }
 
@@ -68,6 +73,16 @@ export async function handler(event) {
           message:
             "Self Invoice Format already exists. Please use a unique format.",
         },
+        {
+          field: "startDate",
+          value: payload.startDate,
+          message: "Start Date already exists. Please use a unique start date.",
+        },
+        {
+          field: "endDate",
+          value: payload.endDate,
+          message: "End Date already exists. Please use a unique end date.",
+        },
       ];
 
       for (const check of duplicateChecks) {
@@ -76,7 +91,6 @@ export async function handler(event) {
           [check.field]: check.value,
           isDeleted: { $ne: true },
         });
-
         if (existing) {
           return createResponse(409, { error: check.message }, origin);
         }
@@ -94,12 +108,15 @@ export async function handler(event) {
         );
       }
 
-      const result = await yearsCollection.insertOne({
+      // Always assign _id as ObjectId
+      const docToInsert = {
         ...payload,
+        _id: new ObjectId(),
         taxPercentage: Number(payload.taxPercentage),
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+      };
+      const result = await yearsCollection.insertOne(docToInsert);
 
       return createResponse(
         201,
@@ -120,7 +137,13 @@ export async function handler(event) {
           origin,
         );
       }
-
+      if (!ObjectId.isValid(id)) {
+        return createResponse(
+          400,
+          { error: "Invalid Financial Year ID" },
+          origin,
+        );
+      }
       const payload = JSON.parse(event.body || "{}");
       const yearObjectId = new ObjectId(id);
 
@@ -142,6 +165,16 @@ export async function handler(event) {
           message:
             "Self Invoice Format already exists. Please use a unique format.",
         },
+        {
+          field: "startDate",
+          value: payload.startDate,
+          message: "Start Date already exists. Please use a unique start date.",
+        },
+        {
+          field: "endDate",
+          value: payload.endDate,
+          message: "End Date already exists. Please use a unique end date.",
+        },
       ];
 
       for (const check of duplicateChecks) {
@@ -151,7 +184,6 @@ export async function handler(event) {
           [check.field]: check.value,
           isDeleted: { $ne: true },
         });
-
         if (existing) {
           return createResponse(409, { error: check.message }, origin);
         }
@@ -213,7 +245,13 @@ export async function handler(event) {
           origin,
         );
       }
-
+      if (!ObjectId.isValid(id)) {
+        return createResponse(
+          400,
+          { error: "Invalid Financial Year ID" },
+          origin,
+        );
+      }
       const result = await yearsCollection.updateOne(
         { _id: new ObjectId(id) },
         {

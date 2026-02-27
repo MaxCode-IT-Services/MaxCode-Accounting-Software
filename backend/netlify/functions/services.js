@@ -75,7 +75,6 @@ export async function handler(event) {
 
       const existing = await servicesCollection.findOne({
         serviceNumber: serviceData.serviceNumber,
-        isDeleted: { $ne: true },
       });
 
       if (existing) {
@@ -86,11 +85,14 @@ export async function handler(event) {
         );
       }
 
-      const result = await servicesCollection.insertOne({
+      // Always assign _id as ObjectId
+      const docToInsert = {
         ...serviceData,
+        _id: new ObjectId(),
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+      };
+      const result = await servicesCollection.insertOne(docToInsert);
 
       return createResponse(
         201,
@@ -117,12 +119,10 @@ export async function handler(event) {
 
       if (serviceData.serviceNumber) {
         const existing = await servicesCollection.findOne({
-          _id: { $ne: serviceObjectId },
           serviceNumber: serviceData.serviceNumber,
-          isDeleted: { $ne: true },
         });
 
-        if (existing) {
+        if (existing && String(existing._id) !== String(id)) {
           return createResponse(
             409,
             { error: "Service number already exists" },

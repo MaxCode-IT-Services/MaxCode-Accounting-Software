@@ -95,11 +95,12 @@ export async function handler(event) {
         if (!IMAGE_FIELDS.includes(asset)) {
           return createResponse(400, { error: "Invalid asset field" }, origin);
         }
-
+        if (!ObjectId.isValid(id)) {
+          return createResponse(400, { error: "Invalid staff ID" }, origin);
+        }
         const staff = await staffCollection.findOne({
           _id: new ObjectId(id),
         });
-
         if (!staff) {
           return createResponse(404, { error: "Staff not found" }, origin);
         }
@@ -152,6 +153,9 @@ export async function handler(event) {
       verifyRequestToken(event);
 
       if (id) {
+        if (!ObjectId.isValid(id)) {
+          return createResponse(400, { error: "Invalid staff ID" }, origin);
+        }
         const staff = await staffCollection.findOne({
           _id: new ObjectId(id),
         });
@@ -248,12 +252,15 @@ export async function handler(event) {
         }
       }
 
-      const result = await staffCollection.insertOne({
+      // Always assign _id as ObjectId
+      const docToInsert = {
         ...staffData,
+        _id: new ObjectId(),
         status: staffData.status || "Active",
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+      };
+      const result = await staffCollection.insertOne(docToInsert);
 
       return createResponse(
         201,
@@ -270,7 +277,9 @@ export async function handler(event) {
       if (!id) {
         return createResponse(400, { error: "Staff ID is required" }, origin);
       }
-
+      if (!ObjectId.isValid(id)) {
+        return createResponse(400, { error: "Invalid staff ID" }, origin);
+      }
       const staffData = JSON.parse(event.body);
       const staffObjectId = new ObjectId(id);
 
@@ -375,6 +384,9 @@ export async function handler(event) {
         return createResponse(400, { error: "Staff ID is required" }, origin);
       }
 
+      if (!ObjectId.isValid(id)) {
+        return createResponse(400, { error: "Invalid staff ID" }, origin);
+      }
       const result = await staffCollection.updateOne(
         { _id: new ObjectId(id) },
         {

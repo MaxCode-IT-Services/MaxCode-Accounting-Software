@@ -28,6 +28,9 @@ export async function handler(event) {
       const { id } = event.queryStringParameters || {};
 
       if (id) {
+        if (!ObjectId.isValid(id)) {
+          return createResponse(400, { error: "Invalid vendor ID" }, origin);
+        }
         const vendor = await vendorsCollection.findOne({
           _id: new ObjectId(id),
         });
@@ -52,7 +55,6 @@ export async function handler(event) {
       if (vendorData.phoneNumber) {
         const existingPhone = await vendorsCollection.findOne({
           phoneNumber: vendorData.phoneNumber,
-          isDeleted: { $ne: true },
         });
         if (existingPhone) {
           return createResponse(
@@ -99,11 +101,14 @@ export async function handler(event) {
         }
       }
 
-      const result = await vendorsCollection.insertOne({
+      // Always assign _id as ObjectId
+      const docToInsert = {
         ...vendorData,
+        _id: new ObjectId(),
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+      };
+      const result = await vendorsCollection.insertOne(docToInsert);
 
       return createResponse(
         201,
@@ -121,18 +126,18 @@ export async function handler(event) {
       if (!id) {
         return createResponse(400, { error: "Vendor ID is required" }, origin);
       }
-
+      if (!ObjectId.isValid(id)) {
+        return createResponse(400, { error: "Invalid vendor ID" }, origin);
+      }
       const vendorData = JSON.parse(event.body);
       const vendorObjectId = new ObjectId(id);
 
       // Check for duplicate phoneNumber (excluding current record)
       if (vendorData.phoneNumber) {
         const existingPhone = await vendorsCollection.findOne({
-          _id: { $ne: vendorObjectId },
           phoneNumber: vendorData.phoneNumber,
-          isDeleted: { $ne: true },
         });
-        if (existingPhone) {
+        if (existingPhone && String(existingPhone._id) !== String(id)) {
           return createResponse(
             409,
             { error: "Phone Number already registered with another vendor." },
@@ -200,7 +205,9 @@ export async function handler(event) {
       if (!id) {
         return createResponse(400, { error: "Vendor ID is required" }, origin);
       }
-
+      if (!ObjectId.isValid(id)) {
+        return createResponse(400, { error: "Invalid vendor ID" }, origin);
+      }
       const result = await vendorsCollection.updateOne(
         { _id: new ObjectId(id) },
         {

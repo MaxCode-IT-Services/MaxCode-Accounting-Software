@@ -85,7 +85,6 @@ export async function handler(event) {
 
       const existingExpense = await expensesCollection.findOne({
         expenseNumber: expenseData.expenseNumber,
-        isDeleted: { $ne: true },
       });
 
       if (existingExpense) {
@@ -96,8 +95,10 @@ export async function handler(event) {
         );
       }
 
+      // Always assign _id as ObjectId
       const normalizedExpense = {
         ...expenseData,
+        _id: new ObjectId(),
         amount,
         taxData: {
           taxableAmount: amount,
@@ -112,7 +113,6 @@ export async function handler(event) {
         updatedAt: new Date(),
         createdAt: new Date(),
       };
-
       const result = await expensesCollection.insertOne(normalizedExpense);
 
       return createResponse(
@@ -140,12 +140,10 @@ export async function handler(event) {
 
       if (expenseData.expenseNumber) {
         const existingExpense = await expensesCollection.findOne({
-          _id: { $ne: expenseObjectId },
           expenseNumber: expenseData.expenseNumber,
-          isDeleted: { $ne: true },
         });
 
-        if (existingExpense) {
+        if (existingExpense && String(existingExpense._id) !== String(id)) {
           return createResponse(
             409,
             { error: "Expense number already exists" },

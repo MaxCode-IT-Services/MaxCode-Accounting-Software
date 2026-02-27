@@ -54,12 +54,18 @@ export async function handler(event) {
       const { id } = event.queryStringParameters || {};
 
       if (id) {
+        if (!ObjectId.isValid(id)) {
+          return createResponse(
+            400,
+            { error: "Invalid team member ID" },
+            origin,
+          );
+        }
         const teamMember = await usersCollection.findOne({
           _id: new ObjectId(id),
           userType: "team-member",
           isDeleted: { $ne: true },
         });
-
         if (!teamMember) {
           return createResponse(
             404,
@@ -67,7 +73,6 @@ export async function handler(event) {
             origin,
           );
         }
-
         return createResponse(
           200,
           {
@@ -182,7 +187,12 @@ export async function handler(event) {
         updatedAt: new Date(),
       };
 
-      const result = await usersCollection.insertOne(newTeamMember);
+      // Always assign _id as ObjectId
+      const docToInsert = {
+        ...newTeamMember,
+        _id: new ObjectId(),
+      };
+      const result = await usersCollection.insertOne(docToInsert);
 
       return createResponse(
         201,
@@ -203,7 +213,9 @@ export async function handler(event) {
           origin,
         );
       }
-
+      if (!ObjectId.isValid(id)) {
+        return createResponse(400, { error: "Invalid team member ID" }, origin);
+      }
       const payload = JSON.parse(event.body || "{}");
       const memberObjectId = new ObjectId(id);
 
@@ -312,7 +324,9 @@ export async function handler(event) {
           origin,
         );
       }
-
+      if (!ObjectId.isValid(id)) {
+        return createResponse(400, { error: "Invalid team member ID" }, origin);
+      }
       const result = await usersCollection.updateOne(
         {
           _id: new ObjectId(id),

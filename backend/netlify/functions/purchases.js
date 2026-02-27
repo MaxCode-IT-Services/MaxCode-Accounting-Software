@@ -27,16 +27,13 @@ export async function handler(event) {
         if (!ObjectId.isValid(id)) {
           return createResponse(400, { error: "Invalid purchase ID" }, origin);
         }
-
         const purchase = await purchasesCollection.findOne({
           _id: new ObjectId(id),
           isDeleted: { $ne: true },
         });
-
         if (!purchase) {
           return createResponse(404, { error: "Purchase not found" }, origin);
         }
-
         return createResponse(200, purchase, origin);
       }
 
@@ -67,11 +64,10 @@ export async function handler(event) {
         );
       }
 
+      // Check for duplicates among all records (including deleted)
       const existingInvoice = await purchasesCollection.findOne({
         invoiceNumber: purchaseData.invoiceNumber,
-        isDeleted: { $ne: true },
       });
-
       if (existingInvoice) {
         return createResponse(
           409,
@@ -80,11 +76,13 @@ export async function handler(event) {
         );
       }
 
-      const result = await purchasesCollection.insertOne({
+      const docToInsert = {
         ...purchaseData,
+        _id: new ObjectId(),
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+      };
+      const result = await purchasesCollection.insertOne(docToInsert);
 
       return createResponse(
         201,
@@ -111,13 +109,13 @@ export async function handler(event) {
       }
 
       const purchaseData = JSON.parse(event.body || "{}");
-      const purchaseObjectId = new ObjectId(id);
-
+      if (!ObjectId.isValid(id)) {
+        return createResponse(400, { error: "Invalid purchase ID" }, origin);
+      }
+      // Check for duplicate invoiceNumber (excluding current record)
       if (purchaseData.invoiceNumber) {
-        // Only block if another purchase (not this one) has same invoiceNumber
         const existingInvoice = await purchasesCollection.findOne({
           invoiceNumber: purchaseData.invoiceNumber,
-          isDeleted: { $ne: true },
         });
         if (existingInvoice && String(existingInvoice._id) !== String(id)) {
           return createResponse(
@@ -127,9 +125,8 @@ export async function handler(event) {
           );
         }
       }
-
       const result = await purchasesCollection.updateOne(
-        { _id: purchaseObjectId, isDeleted: { $ne: true } },
+        { _id: new ObjectId(id), isDeleted: { $ne: true } },
         {
           $set: {
             ...purchaseData,
@@ -137,11 +134,9 @@ export async function handler(event) {
           },
         },
       );
-
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "Purchase not found" }, origin);
       }
-
       return createResponse(
         200,
         { message: "Purchase updated successfully" },
@@ -163,6 +158,9 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid purchase ID" }, origin);
       }
 
+      if (!ObjectId.isValid(id)) {
+        return createResponse(400, { error: "Invalid purchase ID" }, origin);
+      }
       const result = await purchasesCollection.updateOne(
         { _id: new ObjectId(id), isDeleted: { $ne: true } },
         {
@@ -173,11 +171,9 @@ export async function handler(event) {
           },
         },
       );
-
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "Purchase not found" }, origin);
       }
-
       return createResponse(
         200,
         { message: "Purchase deleted successfully" },

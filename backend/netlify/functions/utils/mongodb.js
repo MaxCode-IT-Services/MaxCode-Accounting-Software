@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+dotenv.config();
 import { MongoClient } from "mongodb";
 import { setupDb } from "./setupDb.js";
 
@@ -15,6 +17,7 @@ export async function connectToDatabase() {
   }
 
   const MONGODB_URI = process.env.MONGODB_URI;
+  console.log("ENV VALUE:", process.env.MONGODB_URI);
 
   if (!MONGODB_URI) {
     throw new Error(

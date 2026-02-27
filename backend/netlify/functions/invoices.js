@@ -124,7 +124,7 @@ export async function handler(event) {
         invoiceNumber: invoiceData.invoiceNumber,
       });
 
-      if (existingInvoice) {
+      if (existingInvoice && !existingInvoice.isDeleted) {
         return createResponse(
           409,
           { error: "Invoice number already exists" },
@@ -133,6 +133,7 @@ export async function handler(event) {
       }
 
       const result = await invoicesCollection.insertOne({
+        _id: new ObjectId(),
         ...invoiceData,
         createdAt: new Date(),
         updatedAt: new Date(),

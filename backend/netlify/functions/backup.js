@@ -200,8 +200,12 @@ const restoreBackupData = async (db, backupData, userId) => {
     data: currentData,
   };
   // Remove any previous undo backup for this user
+  // Always assign _id as ObjectId for undo backup
   await db.collection(UNDO_BACKUP_COLLECTION).deleteMany({ userId });
-  await db.collection(UNDO_BACKUP_COLLECTION).insertOne(undoBackup);
+  await db.collection(UNDO_BACKUP_COLLECTION).insertOne({
+    ...undoBackup,
+    _id: new (await import('mongodb')).ObjectId(),
+  });
 
   // 2. Restore the new backup
   const normalizedCollections = normalizeBackupCollections(
@@ -632,9 +636,11 @@ export async function handler(event) {
         // Restore the undo backup
         await restoreBackupData(db, undoDoc.data, user.userId);
         // Remove the undo backup after use
+        // Ensure _id is ObjectId for delete
+        const { ObjectId } = await import('mongodb');
         await db
           .collection(UNDO_BACKUP_COLLECTION)
-          .deleteOne({ _id: undoDoc._id });
+          .deleteOne({ _id: typeof undoDoc._id === 'string' ? new ObjectId(undoDoc._id) : undoDoc._id });
         return createResponse(
           200,
           {
@@ -658,9 +664,11 @@ export async function handler(event) {
         const diffHours = (now - createdAt) / (1000 * 60 * 60);
         if (diffHours > UNDO_BACKUP_EXPIRY_HOURS) {
           // Expired, remove it
+          // Ensure _id is ObjectId for delete
+          const { ObjectId } = await import('mongodb');
           await db
             .collection(UNDO_BACKUP_COLLECTION)
-            .deleteOne({ _id: undoDoc._id });
+            .deleteOne({ _id: typeof undoDoc._id === 'string' ? new ObjectId(undoDoc._id) : undoDoc._id });
           return createResponse(200, { available: false }, origin);
         }
         return createResponse(

@@ -102,16 +102,13 @@ export async function handler(event) {
         if (!ObjectId.isValid(id)) {
           return createResponse(400, { error: "Invalid RCM ID" }, origin);
         }
-
         const record = await rcmCollection.findOne({
           _id: new ObjectId(id),
           isDeleted: { $ne: true },
         });
-
         if (!record) {
           return createResponse(404, { error: "RCM not found" }, origin);
         }
-
         return createResponse(200, record, origin);
       }
 
@@ -173,7 +170,6 @@ export async function handler(event) {
 
       const existingRecord = await rcmCollection.findOne({
         selfInvoiceNumber: payload.selfInvoiceNumber,
-        isDeleted: { $ne: true },
       });
 
       if (existingRecord) {
@@ -189,14 +185,16 @@ export async function handler(event) {
         roundingAmount: payload.roundingAmount,
       });
 
-      const result = await rcmCollection.insertOne({
+      const docToInsert = {
         ...payload,
+        _id: new ObjectId(),
         placeOfSupply: "Rajasthan (08)",
         financialYear: defaultYear.financialYear || payload.financialYear || "",
         taxData: normalizedTaxData,
         createdAt: new Date(),
         updatedAt: new Date(),
-      });
+      };
+      const result = await rcmCollection.insertOne(docToInsert);
 
       return createResponse(
         201,
@@ -219,13 +217,13 @@ export async function handler(event) {
       }
 
       const payload = JSON.parse(event.body || "{}");
-      const rcmObjectId = new ObjectId(id);
-
+      if (!ObjectId.isValid(id)) {
+        return createResponse(400, { error: "Invalid RCM ID" }, origin);
+      }
       if (payload.selfInvoiceNumber) {
         // Only block if another RCM (not this one) has same selfInvoiceNumber
         const existingRecord = await rcmCollection.findOne({
           selfInvoiceNumber: payload.selfInvoiceNumber,
-          isDeleted: { $ne: true },
         });
         if (existingRecord && String(existingRecord._id) !== String(id)) {
           return createResponse(
@@ -235,12 +233,10 @@ export async function handler(event) {
           );
         }
       }
-
       const defaultYear = await yearsCollection.findOne({
         isDeleted: { $ne: true },
         isDefault: true,
       });
-
       if (
         defaultYear?.startDate &&
         defaultYear?.endDate &&
@@ -256,14 +252,12 @@ export async function handler(event) {
           );
         }
       }
-
       const normalizedTaxData = normalizeTaxData({
         ...payload.taxData,
         roundingAmount: payload.roundingAmount,
       });
-
       const result = await rcmCollection.updateOne(
-        { _id: rcmObjectId, isDeleted: { $ne: true } },
+        { _id: new ObjectId(id), isDeleted: { $ne: true } },
         {
           $set: {
             ...payload,
@@ -273,11 +267,9 @@ export async function handler(event) {
           },
         },
       );
-
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "RCM not found" }, origin);
       }
-
       return createResponse(
         200,
         { message: "RCM updated successfully" },
@@ -295,6 +287,9 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid RCM ID" }, origin);
       }
 
+      if (!ObjectId.isValid(id)) {
+        return createResponse(400, { error: "Invalid RCM ID" }, origin);
+      }
       const result = await rcmCollection.updateOne(
         { _id: new ObjectId(id), isDeleted: { $ne: true } },
         {
@@ -305,11 +300,9 @@ export async function handler(event) {
           },
         },
       );
-
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "RCM not found" }, origin);
       }
-
       return createResponse(
         200,
         { message: "RCM deleted successfully" },
