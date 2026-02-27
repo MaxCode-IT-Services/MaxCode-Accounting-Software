@@ -56,6 +56,7 @@ export async function handler(event) {
     if (event.httpMethod === "POST") {
       const expenseData = JSON.parse(event.body || "{}");
 
+      // Validate required fields
       if (!expenseData.expenseNumber) {
         return createResponse(
           400,
@@ -63,7 +64,6 @@ export async function handler(event) {
           origin,
         );
       }
-
       if (!expenseData.expenseDate) {
         return createResponse(
           400,
@@ -71,7 +71,28 @@ export async function handler(event) {
           origin,
         );
       }
+      if (!expenseData.financialYear) {
+        return createResponse(
+          400,
+          { error: "Financial year is required" },
+          origin,
+        );
+      }
 
+      // Validate expense number format: MC/CEXP/YY-YY/0001
+      const expenseNumberRegex = /^MC\/CEXP\/\d{2}-\d{2}\/\d{4}$/;
+      if (!expenseNumberRegex.test(expenseData.expenseNumber)) {
+        return createResponse(
+          400,
+          {
+            error:
+              "Expense number format is invalid. It should be MC/CEXP/YY-YY/0001.",
+          },
+          origin,
+        );
+      }
+
+      // Validate amount
       const amount = parseFloat(
         expenseData.amount || expenseData?.taxData?.totalAmount || 0,
       );
@@ -83,14 +104,45 @@ export async function handler(event) {
         );
       }
 
+      // Validate expense date is within selected financial year
+      const { db } = await connectToDatabase();
+      const yearsCollection = db.collection("financialYears");
+      const yearDoc = await yearsCollection.findOne({
+        value: expenseData.financialYear,
+        isDeleted: { $ne: true },
+      });
+      if (!yearDoc) {
+        return createResponse(
+          400,
+          { error: "Selected financial year does not exist." },
+          origin,
+        );
+      }
+      const expenseDateObj = new Date(expenseData.expenseDate);
+      if (
+        isNaN(expenseDateObj.getTime()) ||
+        expenseDateObj < new Date(yearDoc.startDate) ||
+        expenseDateObj > new Date(yearDoc.endDate)
+      ) {
+        return createResponse(
+          400,
+          {
+            error: `Expense date must be within the selected financial year (${yearDoc.startDate} to ${yearDoc.endDate}).`,
+          },
+          origin,
+        );
+      }
+
+      // Validate expense number uniqueness per financial year
       const existingExpense = await expensesCollection.findOne({
         expenseNumber: expenseData.expenseNumber,
+        financialYear: expenseData.financialYear,
+        isDeleted: { $ne: true },
       });
-
       if (existingExpense) {
         return createResponse(
           409,
-          { error: "Expense number already exists" },
+          { error: "Expense number already exists for this financial year." },
           origin,
         );
       }

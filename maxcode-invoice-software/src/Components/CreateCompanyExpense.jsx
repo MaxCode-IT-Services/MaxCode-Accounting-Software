@@ -45,15 +45,34 @@ const CreateCompanyExpense = ({
     };
   }, [show]);
 
+  // Generate expense number as MC/CEXP/YY-YY/0001 per financial year
   const getNextExpenseNumber = (records) => {
-    const maxNumber = (records || []).reduce((max, record) => {
-      const match = String(record?.expenseNumber || "").match(/CEXP(\d+)/i);
-      if (!match) return max;
-      const value = parseInt(match[1], 10);
-      return Number.isNaN(value) ? max : Math.max(max, value);
-    }, 0);
-
-    return `CEXP${String(maxNumber + 1).padStart(4, "0")}`;
+    // Get selected financial year from localStorage or form
+    const fy = localStorage.getItem("selectedFinancialYear") || "";
+    // Format: 2025-26 or 2024-25, want 25-26
+    let fyShort = "";
+    if (/^\d{4}-\d{2}$/.test(fy)) {
+      fyShort = fy.slice(2);
+    } else if (/^\d{2}-\d{2}$/.test(fy)) {
+      fyShort = fy;
+    }
+    // Filter records for this financial year
+    const yearRecords = (records || []).filter(
+      (r) => (r.financialYear || r.year || r.value) === fy,
+    );
+    // Find max serial for this year
+    let maxSerial = 0;
+    yearRecords.forEach((record) => {
+      const match = String(record?.expenseNumber || "").match(
+        /MC\/CEXP\/(\d{2}-\d{2})\/(\d{4})/i,
+      );
+      if (match && match[1] === fyShort) {
+        const serial = parseInt(match[2], 10);
+        if (!isNaN(serial)) maxSerial = Math.max(maxSerial, serial);
+      }
+    });
+    const nextSerial = String(maxSerial + 1).padStart(4, "0");
+    return `MC/CEXP/${fyShort}/${nextSerial}`;
   };
 
   const resetForm = () => {
@@ -326,8 +345,7 @@ const CreateCompanyExpense = ({
                     name="expenseNumber"
                     className={`form-control modern-input ${errors.expenseNumber ? "is-invalid" : ""}`}
                     value={formData.expenseNumber}
-                    onChange={handleInputChange}
-                    readOnly={isViewMode}
+                    readOnly
                   />
                   {errors.expenseNumber && (
                     <div className="invalid-feedback">
