@@ -2630,6 +2630,7 @@ const ClientManagement = () => {
   // Server-side mode state, fetched from backend user preferences
   const [serverSide, setServerSide] = useState(true);
   const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
 
   // Fetch user preference on mount
   useEffect(() => {
@@ -2786,6 +2787,9 @@ const ClientManagement = () => {
         // Update statistics from response if available
         if (response.data?.statistics) {
           setStatistics(response.data.statistics);
+        }
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
         }
       } else {
         // Client-side response format
@@ -3371,7 +3375,7 @@ const ClientManagement = () => {
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
-          filterOptions={getFilterOptions()}
+          filterOptions={serverSide ? dynamicFilterOptions : getFilterOptions()}
           tableTitle="Clients Record"
           showColumnSelector={true}
           showExport={true}
@@ -3447,6 +3451,7 @@ const ClientManagement = () => {
 };
 
 export default ClientManagement;
+
 
 
 
@@ -3654,12 +3659,24 @@ export async function handler(event) {
         .toArray();
 
       // Get distinct placeOfSupply values for dynamic filter options
+      // Get distinct values dynamically for dropdown filters
       const placeOfSupplyValues = await clientsCollection.distinct(
         "placeOfSupply",
-        {
-          isDeleted: { $ne: true },
-          placeOfSupply: { $exists: true, $ne: "" },
-        },
+        { isDeleted: { $ne: true }, placeOfSupply: { $exists: true, $ne: "" } },
+      );
+
+      const statusValues = await clientsCollection.distinct("status", {
+        isDeleted: { $ne: true },
+        status: { $exists: true, $ne: "" },
+      });
+
+      const gstStatusRaw = await clientsCollection.distinct("hasGSTIN", {
+        isDeleted: { $ne: true },
+        hasGSTIN: { $exists: true },
+      });
+
+      const gstStatusValues = gstStatusRaw.map((val) =>
+        val ? "Registered" : "Unregistered",
       );
 
       // Get statistics for dashboard cards
@@ -3703,8 +3720,8 @@ export async function handler(event) {
           },
           filterOptions: {
             placeOfSupply: ["All", ...placeOfSupplyValues.sort()],
-            status: ["All", "Active", "Inactive"],
-            gstStatus: ["All", "Registered", "Unregistered"],
+            status: ["All", ...statusValues.sort()],
+            gstStatus: ["All", ...gstStatusValues],
           },
           // Debug info for troubleshooting
           debug: {

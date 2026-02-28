@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateVendor from "../Components/CreateVendor";
 import ConfirmationModal from "../Components/ConfirmationModal";
@@ -8,25 +8,74 @@ import {
   showInfo,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet, apiDelete, apiPut } from "../utils/api";
+import { apiGet, apiDelete, apiPut, apiPost } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
 const VendorManagement = () => {
   const moduleKey = "vendorManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
+  // Server-side mode state, fetched from backend user preferences
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
+
+  // Fetch user preference on mount
   useEffect(() => {
     document.title = "Vendor Management | MaxCode IT Services";
+    const fetchPreference = async () => {
+      try {
+        const res = await apiGet("/user-preferences");
+        if (typeof res.data?.vendorManagementServerSide === "boolean") {
+          setServerSide(res.data.vendorManagementServerSide);
+        }
+      } catch (e) {
+        // fallback: do nothing, keep default
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+    fetchPreference();
   }, []);
+
+  // Save preference to backend when toggled
+  useEffect(() => {
+    if (prefLoading) return;
+    const savePreference = async () => {
+      try {
+        await apiPost("/user-preferences", {
+          vendorManagementServerSide: serverSide,
+        });
+      } catch (e) {
+        // ignore
+      }
+    };
+    savePreference();
+  }, [serverSide, prefLoading]);
 
   // State for records and loading
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [showCreateVendorForm, setShowCreateVendorForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [vendorToDelete, setVendorToDelete] = useState(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+
+  // Filter state for server-side
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
+
+  // Debounce refs
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
 
   // Statistics state
   const [statistics, setStatistics] = useState({
@@ -37,19 +86,109 @@ const VendorManagement = () => {
     withoutGST: 0,
   });
 
-  // Fetch vendors from API
-  useEffect(() => {
-    fetchVendors();
-  }, []);
-
+  // Fetch vendors from API with server-side parameters
   const fetchVendors = async () => {
+    if (prefLoading) return;
     setLoading(true);
     try {
-      const response = await apiGet(API_ENDPOINTS.VENDORS.LIST);
+      let url = API_ENDPOINTS.VENDORS.LIST;
+      const params = new URLSearchParams();
 
-      const vendorsData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.vendors || [];
+      if (serverSide) {
+        // Add pagination params
+        params.append("page", currentPage);
+        params.append("limit", recordsPerPage);
+
+        // Add search term
+        if (searchTerm) {
+          params.append("search", searchTerm);
+        }
+
+        // Only send valid filters (skip sn, action, empty, null, undefined, 'All')
+        Object.entries(filters).forEach(([key, value]) => {
+          if (["sn", "action"].includes(key)) return;
+          if (
+            value === undefined ||
+            value === null ||
+            value === "" ||
+            value === "All"
+          )
+            return;
+
+          // Handle date range filters for columnsWithDateFilter
+          if (columnsWithDateFilter.includes(key)) {
+            if (value && typeof value === "object") {
+              if (value.startDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_start`, value.startDate);
+              }
+              if (value.endDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_end`, value.endDate);
+              }
+            }
+          } else {
+            if (Array.isArray(value) && value.length > 0) {
+              params.append(key, value.join(","));
+            } else if (!Array.isArray(value)) {
+              params.append(key, value);
+            }
+          }
+        });
+
+        // Add sorting
+        if (sortField && sortDirection !== "normal") {
+          params.append("sortBy", sortField);
+          params.append(
+            "sortOrder",
+            sortDirection === "ascending" ? "asc" : "desc",
+          );
+        }
+
+        // Add card filter
+        if (
+          activeCardFilter &&
+          activeCardFilter !== "total" &&
+          activeCardFilter !== "addNew"
+        ) {
+          params.append("filter", activeCardFilter);
+        }
+
+        url = `${url}?${params.toString()}`;
+      }
+
+      const response = await apiGet(url);
+
+      let vendorsData;
+      let total;
+
+      if (serverSide) {
+        // Server-side response format with pagination
+        vendorsData = response.data?.data || response.data?.vendors || [];
+        total =
+          response.data?.pagination?.totalRecords ||
+          response.data?.total ||
+          vendorsData.length;
+
+        // Update statistics from response if available
+        if (response.data?.statistics) {
+          setStatistics(response.data.statistics);
+        }
+
+        // Update dynamic filter options from response
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
+        }
+      } else {
+        // Client-side response format
+        vendorsData =
+          response.data?.data ||
+          response.data?.vendors ||
+          (Array.isArray(response.data) ? response.data : []);
+        total = vendorsData.length;
+      }
 
       const mappedData = vendorsData.map((vendor) => {
         const createdDate =
@@ -59,23 +198,30 @@ const VendorManagement = () => {
           ...vendor,
           id: vendor._id || vendor.id,
           createdDate,
+          gstStatus: vendor.hasGSTIN ? "Registered" : "Unregistered",
         };
       });
+
       setRecords(mappedData);
-      updateStatistics(mappedData);
+      setTotalRecords(total);
+
+      // Update statistics for client-side mode
+      if (!serverSide) {
+        updateStatistics(mappedData);
+      }
     } catch (err) {
       console.error("Failed to fetch vendors:", err);
       showError("Failed to fetch vendors");
       setRecords([]);
+      setTotalRecords(0);
       updateStatistics([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Update statistics
+  // Update statistics (client-side)
   const updateStatistics = (data) => {
-    // Filter out deleted records from statistics
     const activeRecords = data.filter((r) => r.isDeleted !== true);
     const stats = {
       total: activeRecords.length,
@@ -86,6 +232,70 @@ const VendorManagement = () => {
     };
     setStatistics(stats);
   };
+
+  // Debounced fetch for server-side mode
+  useEffect(() => {
+    if (prefLoading) return;
+    if (serverSide) {
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      debounceTimeoutRef.current = setTimeout(() => {
+        fetchVendors();
+      }, 500); // 500ms debounce
+      return () => clearTimeout(debounceTimeoutRef.current);
+    }
+  }, [
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    serverSide,
+    prefLoading,
+  ]);
+
+  // Fetch for client-side mode and on serverSide toggle
+  useEffect(() => {
+    if (prefLoading) return;
+    if (!serverSide) {
+      fetchVendors();
+    }
+  }, [
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    serverSide,
+    prefLoading,
+  ]);
+
+  // Initial fetch only after prefLoading is false
+  useEffect(() => {
+    if (prefLoading) return;
+
+    const timer = setTimeout(
+      () => {
+        fetchVendors();
+      },
+      serverSide ? 500 : 0,
+    ); // debounce only in server mode
+
+    return () => clearTimeout(timer);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    prefLoading,
+  ]);
 
   // Format date for display (DD/MM/YYYY | HH:MM:SS AM/PM)
   const formatDateTimeForDisplay = (dateString) => {
@@ -116,37 +326,42 @@ const VendorManagement = () => {
     }
   };
 
-  // Card data array
+  // Card data array - WITH DYNAMIC COUNTS
   const cards = [
     {
       icon: "fa-solid fa-truck",
       title: "Total Vendors",
       key: "total",
       color: "primary",
+      count: statistics.total,
     },
     {
       icon: "fas fa-user-check",
       title: "Active Vendors",
       key: "active",
       color: "success",
+      count: statistics.active,
     },
     {
       icon: "fa-solid fa-user-slash",
       title: "Inactive Vendors",
       key: "inactive",
       color: "danger",
+      count: statistics.inactive,
     },
     {
       icon: "fas fa-file-invoice",
       title: "With GST",
       key: "withGST",
       color: "info",
+      count: statistics.withGST,
     },
     {
       icon: "fas fa-file-excel",
       title: "Without GST",
       key: "withoutGST",
       color: "warning",
+      count: statistics.withoutGST,
     },
     {
       icon: "fas fa-plus-circle",
@@ -156,15 +371,48 @@ const VendorManagement = () => {
     },
   ];
 
-  // Prepare data for table (add serial number and formatted dates)
+  // Prepare data for table
   const prepareTableData = () => {
     return records.map((record, index) => ({
       ...record,
-      sn: index + 1,
+      sn: (currentPage - 1) * recordsPerPage + index + 1,
       createdDateTime:
         record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
       createdDateFilter: record.createdDate,
     }));
+  };
+
+  // Client-side per-column filtering logic (useMemo)
+  const columnFilters = filters;
+  const filteredClientSideData = useMemo(() => {
+    if (serverSide)
+      return prepareTableData().filter((r) => r.isDeleted !== true);
+    let data = prepareTableData().filter((r) => r.isDeleted !== true);
+    Object.entries(columnFilters).forEach(([key, value]) => {
+      if (value && typeof value === "string" && value.trim() !== "") {
+        data = data.filter((row) =>
+          (row[key] || "")
+            .toString()
+            .toLowerCase()
+            .includes(value.toLowerCase()),
+        );
+      }
+    });
+    return data;
+  }, [records, currentPage, recordsPerPage, columnFilters, serverSide]);
+
+  // Debounced per-column filter change handler for server-side
+  const handleDebouncedColumnFilterChange = (key, value) => {
+    if (serverSide) {
+      if (debounceColumnTimeoutRef.current)
+        clearTimeout(debounceColumnTimeoutRef.current);
+      debounceColumnTimeoutRef.current = setTimeout(() => {
+        setFilters((prev) => ({ ...prev, [key]: value }));
+        setCurrentPage(1);
+      }, 500);
+    } else {
+      setFilters((prev) => ({ ...prev, [key]: value }));
+    }
   };
 
   // Columns configuration
@@ -217,15 +465,34 @@ const VendorManagement = () => {
   ];
 
   // Columns with dropdown filter
-  const columnsWithDropdownFilter = ["status", "gstStatus"];
+  const columnsWithDropdownFilter = ["status", "gstStatus", "placeOfSupply"];
 
   // Columns with date range filter
   const columnsWithDateFilter = ["createdDateTime"];
 
-  // Filter options
-  const filterOptions = {
-    status: ["All", "Active", "Inactive"],
-    gstStatus: ["All", "Registered", "Unregistered"],
+  // Filter options - Dynamic based on actual data
+  const getFilterOptions = () => {
+    const options = {
+      status: ["All", "Active", "Inactive"],
+      gstStatus: ["All", "Registered", "Unregistered"],
+    };
+
+    // Get unique placeOfSupply values from records
+    if (records.length > 0) {
+      const uniquePlaces = [
+        ...new Set(
+          records
+            .map((r) => r.placeOfSupply)
+            .filter((place) => place && place !== ""),
+        ),
+      ].sort();
+
+      options.placeOfSupply = ["All", ...uniquePlaces];
+    } else {
+      options.placeOfSupply = ["All"];
+    }
+
+    return options;
   };
 
   // Handle card click
@@ -239,6 +506,9 @@ const VendorManagement = () => {
       setShowCreateVendorForm(true);
     } else {
       setActiveCardFilter(cardKey);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     }
   };
 
@@ -249,12 +519,8 @@ const VendorManagement = () => {
 
   // Handle form submit
   const handleFormSubmit = (formData) => {
-    // Close the form and reset editing record
     setShowCreateVendorForm(false);
     setEditingRecord(null);
-
-    // Refresh data from API to get the latest updates
-    // This ensures any data saved to the database is reflected in the table
     fetchVendors();
   };
 
@@ -272,7 +538,7 @@ const VendorManagement = () => {
     showInfo(`Viewing vendor: ${record.vendorName}`);
   };
 
-  // Handle delete - Show confirmation modal
+  // Handle delete
   const handleDelete = (id) => {
     const record = records.find((r) => r.id === id || r._id === id);
     if (!record) return;
@@ -281,34 +547,14 @@ const VendorManagement = () => {
     setShowDeleteConfirm(true);
   };
 
-  // Confirm delete - Mark record as deleted by setting isDeleted: true
+  // Confirm delete
   const confirmDelete = async () => {
     if (!vendorToDelete) return;
 
     try {
-      const record = records.find(
-        (r) => r.id === vendorToDelete || r._id === vendorToDelete,
-      );
-      if (!record) return;
-
-      // Send only isDeleted flag, don't touch status or other fields
-      const updateData = {
-        isDeleted: true,
-        deletedAt: new Date().toISOString(),
-      };
-
-      // Mark as deleted by setting isDeleted flag
-      await apiPut(API_ENDPOINTS.VENDORS.UPDATE(vendorToDelete), updateData);
-
-      // Update local state - mark record as deleted
-      const updatedRecords = records.map((r) =>
-        r.id === vendorToDelete || r._id === vendorToDelete
-          ? { ...r, isDeleted: true, deletedAt: new Date().toISOString() }
-          : r,
-      );
-      setRecords(updatedRecords);
-      updateStatistics(updatedRecords);
+      await apiDelete(API_ENDPOINTS.VENDORS.DELETE(vendorToDelete));
       showSuccess("Vendor deleted successfully!");
+      await fetchVendors();
       setShowDeleteConfirm(false);
       setVendorToDelete(null);
     } catch (error) {
@@ -328,17 +574,12 @@ const VendorManagement = () => {
 
     const newStatus = record.status === "Active" ? "Inactive" : "Active";
     try {
-      // Extract fields excluding _id and id (immutable fields)
       const { _id, id: recordId, ...updateData } = record;
       updateData.status = newStatus;
 
       await apiPut(API_ENDPOINTS.VENDORS.UPDATE(id), updateData);
-      const updatedRecords = records.map((r) =>
-        r.id === id || r._id === id ? { ...r, status: newStatus } : r,
-      );
-      setRecords(updatedRecords);
-      updateStatistics(updatedRecords);
       showSuccess("Status updated successfully!");
+      await fetchVendors();
     } catch (error) {
       console.error("Error updating status:", error);
       showError(
@@ -351,19 +592,74 @@ const VendorManagement = () => {
 
   // Handle refresh
   const handleRefresh = () => {
+    if (serverSide) {
+      setFilters({});
+      setSearchTerm("");
+      setSortField(null);
+      setSortDirection("normal");
+      setCurrentPage(1);
+      setActiveCardFilter("total");
+    }
     fetchVendors();
     showInfo("Data refreshed!");
+  };
+
+  // Server-side handlers
+  const handleServerSideSearch = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideFilter = (filterParams) => {
+    setFilters(filterParams);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideSort = (field, direction) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
+  const handleServerSidePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleServerSideRecordsPerPageChange = (limit) => {
+    setRecordsPerPage(limit);
+    setCurrentPage(1);
   };
 
   return (
     <>
       <div className="container-fluid">
         <div
-          className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+          className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <div className="flex-grow-1">
-            <h4 className="fs-18 fw-semibold m-0">Vendor Management</h4>
+          {/* Left Side - Heading */}
+          <h4 className="fs-18 fw-semibold m-0">Vendor Management</h4>
+
+          {/* Right Side - Toggle */}
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+                setActiveCardFilter("total");
+              }}
+              id="serverSideToggle"
+            />
+            <label className="form-check-label ms-2" htmlFor="serverSideToggle">
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
           </div>
         </div>
 
@@ -426,7 +722,9 @@ const VendorManagement = () => {
                       >
                         {card.key === "addNew"
                           ? "+ Add New"
-                          : statistics[card.key]}
+                          : card.count !== undefined
+                            ? card.count
+                            : 0}
                       </h6>
                     </div>
                   </div>
@@ -436,12 +734,13 @@ const VendorManagement = () => {
           })}
         </div>
 
-        {/* Reusable Table - Now with API data */}
+        {/* Reusable Table */}
         <ReusableTable
           moduleKey={moduleKey}
           columns={columns}
-          data={prepareTableData().filter((r) => r.isDeleted !== true)}
+          data={filteredClientSideData}
           loading={loading}
+          totalRecords={totalRecords}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onView={handleView}
@@ -454,7 +753,7 @@ const VendorManagement = () => {
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
-          filterOptions={filterOptions}
+          filterOptions={serverSide ? dynamicFilterOptions : getFilterOptions()}
           tableTitle="Vendors Record"
           showColumnSelector={true}
           showExport={true}
@@ -472,6 +771,19 @@ const VendorManagement = () => {
             if (value === "Unregistered") return "bg-secondary";
             return "bg-primary";
           }}
+          serverSide={serverSide}
+          onServerSideSearch={handleServerSideSearch}
+          onServerSideFilter={handleServerSideFilter}
+          onServerSideSort={handleServerSideSort}
+          onServerSidePageChange={handleServerSidePageChange}
+          onServerSideRecordsPerPageChange={
+            handleServerSideRecordsPerPageChange
+          }
+          currentPage={currentPage}
+          recordsPerPage={recordsPerPage}
+          onPageChange={setCurrentPage}
+          onRecordsPerPageChange={setRecordsPerPage}
+          onColumnFilterChange={handleDebouncedColumnFilterChange}
         />
 
         {/* Create/Edit Vendor Modal */}

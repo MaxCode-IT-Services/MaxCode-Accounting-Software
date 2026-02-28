@@ -18,6 +18,7 @@ const ClientManagement = () => {
   // Server-side mode state, fetched from backend user preferences
   const [serverSide, setServerSide] = useState(true);
   const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
 
   // Fetch user preference on mount
   useEffect(() => {
@@ -174,6 +175,9 @@ const ClientManagement = () => {
         // Update statistics from response if available
         if (response.data?.statistics) {
           setStatistics(response.data.statistics);
+        }
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
         }
       } else {
         // Client-side response format
@@ -759,7 +763,7 @@ const ClientManagement = () => {
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
-          filterOptions={getFilterOptions()}
+          filterOptions={serverSide ? dynamicFilterOptions : getFilterOptions()}
           tableTitle="Clients Record"
           showColumnSelector={true}
           showExport={true}

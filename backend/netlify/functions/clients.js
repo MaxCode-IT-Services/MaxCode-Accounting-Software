@@ -190,12 +190,24 @@ export async function handler(event) {
         .toArray();
 
       // Get distinct placeOfSupply values for dynamic filter options
+      // Get distinct values dynamically for dropdown filters
       const placeOfSupplyValues = await clientsCollection.distinct(
         "placeOfSupply",
-        {
-          isDeleted: { $ne: true },
-          placeOfSupply: { $exists: true, $ne: "" },
-        },
+        { isDeleted: { $ne: true }, placeOfSupply: { $exists: true, $ne: "" } },
+      );
+
+      const statusValues = await clientsCollection.distinct("status", {
+        isDeleted: { $ne: true },
+        status: { $exists: true, $ne: "" },
+      });
+
+      const gstStatusRaw = await clientsCollection.distinct("hasGSTIN", {
+        isDeleted: { $ne: true },
+        hasGSTIN: { $exists: true },
+      });
+
+      const gstStatusValues = gstStatusRaw.map((val) =>
+        val ? "Registered" : "Unregistered",
       );
 
       // Get statistics for dashboard cards
@@ -239,8 +251,8 @@ export async function handler(event) {
           },
           filterOptions: {
             placeOfSupply: ["All", ...placeOfSupplyValues.sort()],
-            status: ["All", "Active", "Inactive"],
-            gstStatus: ["All", "Registered", "Unregistered"],
+            status: ["All", ...statusValues.sort()],
+            gstStatus: ["All", ...gstStatusValues],
           },
           // Debug info for troubleshooting
           debug: {

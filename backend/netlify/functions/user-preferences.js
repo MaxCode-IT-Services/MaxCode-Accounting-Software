@@ -34,17 +34,38 @@ export async function handler(event) {
     if (event.httpMethod === "POST" || event.httpMethod === "PUT") {
       // Save/update user preferences
       const body = JSON.parse(event.body || "{}");
-      const { clientManagementServerSide } = body;
-      if (typeof clientManagementServerSide !== "boolean") {
+      const { clientManagementServerSide, vendorManagementServerSide } = body;
+      // At least one of the preferences must be present and boolean
+      if (
+        (clientManagementServerSide !== undefined &&
+          typeof clientManagementServerSide !== "boolean") ||
+        (vendorManagementServerSide !== undefined &&
+          typeof vendorManagementServerSide !== "boolean")
+      ) {
         return createResponse(
           400,
-          { error: "Invalid value for clientManagementServerSide" },
+          {
+            error:
+              "Invalid value for clientManagementServerSide or vendorManagementServerSide",
+          },
+          origin,
+        );
+      }
+      const updateFields = {};
+      if (clientManagementServerSide !== undefined)
+        updateFields.clientManagementServerSide = clientManagementServerSide;
+      if (vendorManagementServerSide !== undefined)
+        updateFields.vendorManagementServerSide = vendorManagementServerSide;
+      if (Object.keys(updateFields).length === 0) {
+        return createResponse(
+          400,
+          { error: "No valid preference provided" },
           origin,
         );
       }
       await preferencesCollection.updateOne(
         { userId },
-        { $set: { clientManagementServerSide } },
+        { $set: updateFields },
         { upsert: true },
       );
       return createResponse(200, { message: "Preference updated" }, origin);
