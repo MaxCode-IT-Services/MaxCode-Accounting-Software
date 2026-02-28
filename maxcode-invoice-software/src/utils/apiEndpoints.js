@@ -1,4 +1,5 @@
-// API Endpoints Configuration
+// User Preferences endpoints
+// API Endpoints Configuratio
 // Centralized API endpoint definitions
 
 const API_ENDPOINTS = {
@@ -136,6 +137,11 @@ const API_ENDPOINTS = {
     VERIFY: "/two-factor-auth",
     ENABLE: "/two-factor-auth",
     DISABLE: "/two-factor-auth",
+  },
+
+  USER_PREFERENCES: {
+    GET: "/user-preferences",
+    UPDATE: "/user-preferences",
   },
 
   // Add more endpoints as needed

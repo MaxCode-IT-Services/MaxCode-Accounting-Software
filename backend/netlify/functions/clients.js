@@ -4,7 +4,7 @@ import { verifyRequestToken } from "./utils/auth.js";
 
 /**
  * Client Management API
- * Handles CRUD operations for clients
+ * Handles CRUD operations for clients with pagination support
  * Requires JWT authentication
  */
 export async function handler(event) {
@@ -23,14 +23,28 @@ export async function handler(event) {
     const { db } = await connectToDatabase();
     const clientsCollection = db.collection("clients");
 
-    // GET - Fetch all clients or specific client by ID
-
+    // GET - Fetch all clients or specific client by ID with pagination support
     if (event.httpMethod === "GET") {
-      const { id } = event.queryStringParameters || {};
+      const {
+        id,
+        page = 1,
+        limit = 10,
+        search,
+        status,
+        gstStatus,
+        placeOfSupply,
+        createdDateTime_start,
+        createdDateTime_end,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+        filter, // For card filters
+      } = event.queryStringParameters || {};
 
+      // If ID is provided, return single client
       if (id) {
         const client = await clientsCollection.findOne({
           _id: new ObjectId(id),
+          isDeleted: { $ne: true },
         });
         if (!client) {
           return createResponse(404, { error: "Client not found" }, origin);
@@ -38,11 +52,244 @@ export async function handler(event) {
         return createResponse(200, client, origin);
       }
 
-      // Filter out soft-deleted records
+      // Build filter query
+      const filterQuery = { isDeleted: { $ne: true } };
+      const params = event.queryStringParameters || {};
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value || value === "" || value === "All") return;
+        // Card filter (handled below)
+        if (key === "filter") return;
+        // Pagination/sort/search keys
+        if (
+          ["page", "limit", "sortBy", "sortOrder", "search", "id"].includes(key)
+        )
+          return;
+
+        // Handle date range filter: look for *_start and *_end
+        if (key.endsWith("_start") || key.endsWith("_end")) return;
+
+        // Special mapping for gstStatus dropdown
+        if (key === "gstStatus") {
+          if (value === "Registered") filterQuery.hasGSTIN = true;
+          else if (value === "Unregistered") filterQuery.hasGSTIN = false;
+          return;
+        }
+
+        // If value is comma-separated, treat as array
+        if (typeof value === "string" && value.includes(",")) {
+          filterQuery[key] = { $in: value.split(",") };
+        } else if (typeof value === "string") {
+          // For string filters, use regex for partial match (case-insensitive)
+          filterQuery[key] = { $regex: value, $options: "i" };
+        } else {
+          filterQuery[key] = value;
+        }
+      });
+
+      // Handle date range filters dynamically
+      // Process date ranges from query parameters
+      const dateRanges = {};
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value) return;
+
+        if (key.endsWith("_start")) {
+          let baseKey = key.replace(/_start$/, "");
+          // Map createdDateTime to createdAt for backend query
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          // Parse date from YYYY-MM-DD format
+          const dateParts = value.split("-");
+          if (dateParts.length === 3) {
+            const year = parseInt(dateParts[0]);
+            const month = parseInt(dateParts[1]) - 1; // Month is 0-indexed
+            const day = parseInt(dateParts[2]);
+            const startDate = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+            dateRanges[baseKey].$gte = startDate;
+          }
+        }
+
+        if (key.endsWith("_end")) {
+          let baseKey = key.replace(/_end$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          // Parse date from YYYY-MM-DD format
+          const dateParts = value.split("-");
+          if (dateParts.length === 3) {
+            const year = parseInt(dateParts[0]);
+            const month = parseInt(dateParts[1]) - 1; // Month is 0-indexed
+            const day = parseInt(dateParts[2]);
+            const endDate = new Date(
+              Date.UTC(year, month, day, 23, 59, 59, 999),
+            );
+            dateRanges[baseKey].$lte = endDate;
+          }
+        }
+      });
+
+      // Merge date ranges into filterQuery
+      Object.entries(dateRanges).forEach(([key, range]) => {
+        filterQuery[key] = range;
+      });
+
+      // Card filter (activeCardFilter)
+      if (filter) {
+        switch (filter) {
+          case "active":
+            filterQuery.status = "Active";
+            break;
+          case "inactive":
+            filterQuery.status = "Inactive";
+            break;
+          case "withGST":
+            filterQuery.hasGSTIN = true;
+            break;
+          case "withoutGST":
+            filterQuery.hasGSTIN = false;
+            break;
+          default:
+            break;
+        }
+      }
+
+      // Global search (multi-field)
+      if (search) {
+        filterQuery.$or = [
+          { clientName: { $regex: search, $options: "i" } },
+          { businessName: { $regex: search, $options: "i" } },
+          { clientId: { $regex: search, $options: "i" } },
+          { phoneNumber: { $regex: search, $options: "i" } },
+          { email: { $regex: search, $options: "i" } },
+          { gstin: { $regex: search, $options: "i" } },
+        ];
+      }
+
+      // Parse pagination parameters
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
+      const skip = (pageNum - 1) * limitNum;
+
+      // Build sort object
+      const sortObject = {};
+      sortObject[sortBy] = sortOrder === "asc" ? 1 : -1;
+
+      // Get total count for pagination
+      const totalRecords = await clientsCollection.countDocuments(filterQuery);
+
+      // Get paginated results
       const clients = await clientsCollection
-        .find({ isDeleted: { $ne: true } })
+        .find(filterQuery)
+        .sort(sortObject)
+        .skip(skip)
+        .limit(limitNum)
         .toArray();
-      return createResponse(200, clients, origin);
+
+      // Get distinct placeOfSupply values for dynamic filter options
+      const placeOfSupplyValues = await clientsCollection.distinct(
+        "placeOfSupply",
+        {
+          isDeleted: { $ne: true },
+          placeOfSupply: { $exists: true, $ne: "" },
+        },
+      );
+
+      // Get statistics for dashboard cards
+      const totalActive = await clientsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        status: "Active",
+      });
+
+      const totalInactive = await clientsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        status: "Inactive",
+      });
+
+      const totalWithGST = await clientsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        hasGSTIN: true,
+      });
+
+      const totalWithoutGST = await clientsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        hasGSTIN: false,
+      });
+
+      // Return paginated response with metadata
+      return createResponse(
+        200,
+        {
+          data: clients,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            totalRecords,
+            totalPages: Math.ceil(totalRecords / limitNum),
+          },
+          statistics: {
+            total: totalRecords,
+            active: totalActive,
+            inactive: totalInactive,
+            withGST: totalWithGST,
+            withoutGST: totalWithoutGST,
+          },
+          filterOptions: {
+            placeOfSupply: ["All", ...placeOfSupplyValues.sort()],
+            status: ["All", "Active", "Inactive"],
+            gstStatus: ["All", "Registered", "Unregistered"],
+          },
+          // Debug info for troubleshooting
+          debug: {
+            filterQuery,
+            params,
+            dateRanges,
+          },
+        },
+        origin,
+      );
+    }
+
+    // GET - Statistics endpoint
+    if (event.httpMethod === "GET" && event.path?.includes("/statistics")) {
+      const totalActive = await clientsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        status: "Active",
+      });
+
+      const totalInactive = await clientsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        status: "Inactive",
+      });
+
+      const totalWithGST = await clientsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        hasGSTIN: true,
+      });
+
+      const totalWithoutGST = await clientsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        hasGSTIN: false,
+      });
+
+      const totalRecords = await clientsCollection.countDocuments({
+        isDeleted: { $ne: true },
+      });
+
+      return createResponse(
+        200,
+        {
+          total: totalRecords,
+          active: totalActive,
+          inactive: totalInactive,
+          withGST: totalWithGST,
+          withoutGST: totalWithoutGST,
+        },
+        origin,
+      );
     }
 
     // POST - Create new client
@@ -53,6 +300,7 @@ export async function handler(event) {
       if (clientData.clientId) {
         const existingClientId = await clientsCollection.findOne({
           clientId: clientData.clientId,
+          isDeleted: { $ne: true },
         });
         if (existingClientId) {
           return createResponse(
@@ -70,6 +318,7 @@ export async function handler(event) {
       if (clientData.phoneNumber) {
         const existingPhone = await clientsCollection.findOne({
           phoneNumber: clientData.phoneNumber,
+          isDeleted: { $ne: true },
         });
         if (existingPhone) {
           return createResponse(
@@ -87,6 +336,7 @@ export async function handler(event) {
       if (clientData.gstin && !clientData.noGSTIN) {
         const existingGSTIN = await clientsCollection.findOne({
           gstin: clientData.gstin,
+          isDeleted: { $ne: true },
         });
         if (existingGSTIN) {
           return createResponse(
@@ -98,7 +348,6 @@ export async function handler(event) {
       }
 
       const result = await clientsCollection.insertOne({
-        _id: new ObjectId(),
         ...clientData,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -127,9 +376,11 @@ export async function handler(event) {
       // Check for duplicate clientId (excluding current record)
       if (clientData.clientId) {
         const existingClientId = await clientsCollection.findOne({
+          _id: { $ne: clientObjectId },
           clientId: clientData.clientId,
+          isDeleted: { $ne: true },
         });
-        if (existingClientId && String(existingClientId._id) !== String(id)) {
+        if (existingClientId) {
           return createResponse(
             409,
             {
@@ -144,9 +395,11 @@ export async function handler(event) {
       // Check for duplicate phoneNumber (excluding current record)
       if (clientData.phoneNumber) {
         const existingPhone = await clientsCollection.findOne({
+          _id: { $ne: clientObjectId },
           phoneNumber: clientData.phoneNumber,
+          isDeleted: { $ne: true },
         });
-        if (existingPhone && String(existingPhone._id) !== String(id)) {
+        if (existingPhone) {
           return createResponse(
             409,
             { error: "Phone Number already registered with another client." },
@@ -158,9 +411,11 @@ export async function handler(event) {
       // Check for duplicate GSTIN (excluding current record)
       if (clientData.gstin && !clientData.noGSTIN) {
         const existingGSTIN = await clientsCollection.findOne({
+          _id: { $ne: clientObjectId },
           gstin: clientData.gstin,
+          isDeleted: { $ne: true },
         });
-        if (existingGSTIN && String(existingGSTIN._id) !== String(id)) {
+        if (existingGSTIN) {
           return createResponse(
             409,
             { error: "GSTIN already registered with another client." },

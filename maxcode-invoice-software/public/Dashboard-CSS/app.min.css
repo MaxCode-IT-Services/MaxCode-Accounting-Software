@@ -2546,6 +2546,7 @@ textarea.form-control-lg {
   background-size: contain;
   border: var(--bs-border-width) solid var(--bs-border-color-translucent);
   print-color-adjust: exact;
+  cursor: pointer;
 }
 
 .form-check-input[type="checkbox"] {
@@ -2609,6 +2610,7 @@ textarea.form-control-lg {
   background-position: left center;
   border-radius: 2em;
   transition: background-position 0.15s ease-in-out;
+  cursor: pointer;
 }
 
 @media (prefers-reduced-motion: reduce) {

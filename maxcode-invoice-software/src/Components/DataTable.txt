@@ -98,7 +98,7 @@ const ReusableTable = ({
       if (onPageChange) onPageChange(1);
     }
   }, [columnFilters]);
-  
+
   const [tableColumns, setTableColumns] = useState(columns);
   const [allData, setAllData] = useState(data);
   const [visibleColumns, setVisibleColumns] = useState(() => {
@@ -353,13 +353,6 @@ const ReusableTable = ({
 
   // Apply global search and column filters (client-side)
   const filteredData = useMemo(() => {
-    console.log("[useMemo filteredData] running", {
-      serverSide,
-      getCardFilteredData,
-      searchTerm,
-      dateFilters,
-      columnFilters,
-    });
     if (serverSide) {
       return getCardFilteredData;
     }
@@ -538,11 +531,11 @@ const ReusableTable = ({
     Object.entries(dateFilters).forEach(([key, range]) => {
       if (range.startDate) {
         // Format date to YYYY-MM-DD for API
-        const formattedStartDate = range.startDate.split('T')[0];
+        const formattedStartDate = range.startDate.split("T")[0];
         filterParams[`${key}_start`] = formattedStartDate;
       }
       if (range.endDate) {
-        const formattedEndDate = range.endDate.split('T')[0];
+        const formattedEndDate = range.endDate.split("T")[0];
         filterParams[`${key}_end`] = formattedEndDate;
       }
     });
@@ -552,7 +545,7 @@ const ReusableTable = ({
       activeCardFilter !== "total" &&
       activeCardFilter !== "addNew"
     ) {
-      filterParams.cardFilter = activeCardFilter;
+      filterParams.filter = activeCardFilter;
     }
 
     onServerSideFilter(filterParams);
@@ -580,10 +573,10 @@ const ReusableTable = ({
 
     // Get the raw input value (already in YYYY-MM-DD format from date input)
     let dateValue = value;
-    
+
     // Ensure we're working with the correct format
-    if (dateValue && dateValue.includes('T')) {
-      dateValue = dateValue.split('T')[0];
+    if (dateValue && dateValue.includes("T")) {
+      dateValue = dateValue.split("T")[0];
     }
 
     const updatedDateFilters = {
@@ -2030,9 +2023,7 @@ const ReusableTable = ({
                               : "relative",
                             userSelect: "none",
                             left:
-                              isPinned(column.key) === "left"
-                                ? "0"
-                                : undefined,
+                              isPinned(column.key) === "left" ? "0" : undefined,
                             right:
                               isPinned(column.key) === "right"
                                 ? "0"
@@ -2616,6 +2607,7 @@ export default ReusableTable;
 
 
 
+
 ========================================================================
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
@@ -2628,27 +2620,49 @@ import {
   showInfo,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet, apiDelete, apiPut } from "../utils/api";
+import { apiGet, apiDelete, apiPut, apiPost } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
 const ClientManagement = () => {
   const moduleKey = "clientManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
-  // Toggle for server-side vs client-side mode - FIXED: Now stores in localStorage
-  const [serverSide, setServerSide] = useState(() => {
-    const saved = localStorage.getItem("clientManagementServerSide");
-    return saved !== null ? JSON.parse(saved) : true;
-  });
+  // Server-side mode state, fetched from backend user preferences
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
 
+  // Fetch user preference on mount
   useEffect(() => {
     document.title = "Client Management | MaxCode IT Services";
-    // Save serverSide mode to localStorage whenever it changes
-    localStorage.setItem(
-      "clientManagementServerSide",
-      JSON.stringify(serverSide),
-    );
-  }, [serverSide]);
+    const fetchPreference = async () => {
+      try {
+        const res = await apiGet("/user-preferences");
+        if (typeof res.data?.clientManagementServerSide === "boolean") {
+          setServerSide(res.data.clientManagementServerSide);
+        }
+      } catch (e) {
+        // fallback: do nothing, keep default
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+    fetchPreference();
+  }, []);
+
+  // Save preference to backend when toggled
+  useEffect(() => {
+    if (prefLoading) return;
+    const savePreference = async () => {
+      try {
+        await apiPost("/user-preferences", {
+          clientManagementServerSide: serverSide,
+        });
+      } catch (e) {
+        // ignore
+      }
+    };
+    savePreference();
+  }, [serverSide, prefLoading]);
 
   // State for records and loading
   const [records, setRecords] = useState([]);
@@ -2669,7 +2683,7 @@ const ClientManagement = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortField, setSortField] = useState(null);
   const [sortDirection, setSortDirection] = useState("normal");
-  
+
   // Debounce refs
   const debounceTimeoutRef = useRef(null);
   const debounceColumnTimeoutRef = useRef(null);
@@ -2685,6 +2699,7 @@ const ClientManagement = () => {
 
   // Fetch clients from API with server-side parameters
   const fetchClients = async () => {
+    if (prefLoading) return;
     setLoading(true);
     try {
       let url = API_ENDPOINTS.CLIENTS.LIST;
@@ -2774,9 +2789,10 @@ const ClientManagement = () => {
         }
       } else {
         // Client-side response format
-        clientsData = Array.isArray(response.data)
-          ? response.data
-          : response.data?.clients || [];
+        clientsData =
+          response.data?.data ||
+          response.data?.clients ||
+          (Array.isArray(response.data) ? response.data : []);
         total = clientsData.length;
       }
 
@@ -2825,6 +2841,7 @@ const ClientManagement = () => {
 
   // Debounced fetch for server-side mode
   useEffect(() => {
+    if (prefLoading) return;
     if (serverSide) {
       if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
       debounceTimeoutRef.current = setTimeout(() => {
@@ -2841,12 +2858,50 @@ const ClientManagement = () => {
     sortDirection,
     activeCardFilter,
     serverSide,
+    prefLoading,
   ]);
 
-  // Initial fetch for both modes
+  // Fetch for client-side mode and on serverSide toggle
   useEffect(() => {
-    fetchClients();
-  }, []);
+    if (prefLoading) return;
+    if (!serverSide) {
+      fetchClients();
+    }
+  }, [
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    serverSide,
+    prefLoading,
+  ]);
+
+  // Initial fetch only after prefLoading is false
+  useEffect(() => {
+    if (prefLoading) return;
+
+    const timer = setTimeout(
+      () => {
+        fetchClients();
+      },
+      serverSide ? 500 : 0,
+    ); // debounce only in server mode
+
+    return () => clearTimeout(timer);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    prefLoading,
+  ]);
 
   // Format date for display (DD/MM/YYYY | HH:MM:SS AM/PM)
   const formatDateTimeForDisplay = (dateString) => {
@@ -3197,27 +3252,32 @@ const ClientManagement = () => {
     <>
       <div className="container-fluid">
         <div
-          className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+          className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <div className="flex-grow-1">
-            <h4 className="fs-18 fw-semibold m-0">Client Management</h4>
-            <div className="form-check form-switch mt-2">
-              <input
-                className="form-check-input"
-                type="checkbox"
-                checked={serverSide}
-                onChange={(e) => {
-                  setServerSide(e.target.checked);
-                  setCurrentPage(1);
-                  fetchClients();
-                }}
-                id="serverSideToggle"
-              />
-              <label className="form-check-label" htmlFor="serverSideToggle">
-                Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
-              </label>
-            </div>
+          {/* Left Side - Heading */}
+          <h4 className="fs-18 fw-semibold m-0">Client Management</h4>
+
+          {/* Right Side - Toggle */}
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+                setActiveCardFilter("total");
+              }}
+              id="serverSideToggle"
+            />
+            <label className="form-check-label ms-2" htmlFor="serverSideToggle">
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
           </div>
         </div>
 
@@ -3398,6 +3458,8 @@ export default ClientManagement;
 
 
 
+
+
 =======================================================================
 
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
@@ -3457,7 +3519,7 @@ export async function handler(event) {
       // Build filter query
       const filterQuery = { isDeleted: { $ne: true } };
       const params = event.queryStringParameters || {};
-      
+
       Object.entries(params).forEach(([key, value]) => {
         if (!value || value === "" || value === "All") return;
         // Card filter (handled below)
@@ -3492,19 +3554,19 @@ export async function handler(event) {
       // Handle date range filters dynamically
       // Process date ranges from query parameters
       const dateRanges = {};
-      
+
       Object.entries(params).forEach(([key, value]) => {
         if (!value) return;
-        
+
         if (key.endsWith("_start")) {
           let baseKey = key.replace(/_start$/, "");
           // Map createdDateTime to createdAt for backend query
           if (baseKey === "createdDateTime") baseKey = "createdAt";
-          
+
           if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
-          
+
           // Parse date from YYYY-MM-DD format
-          const dateParts = value.split('-');
+          const dateParts = value.split("-");
           if (dateParts.length === 3) {
             const year = parseInt(dateParts[0]);
             const month = parseInt(dateParts[1]) - 1; // Month is 0-indexed
@@ -3513,20 +3575,22 @@ export async function handler(event) {
             dateRanges[baseKey].$gte = startDate;
           }
         }
-        
+
         if (key.endsWith("_end")) {
           let baseKey = key.replace(/_end$/, "");
           if (baseKey === "createdDateTime") baseKey = "createdAt";
-          
+
           if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
-          
+
           // Parse date from YYYY-MM-DD format
-          const dateParts = value.split('-');
+          const dateParts = value.split("-");
           if (dateParts.length === 3) {
             const year = parseInt(dateParts[0]);
             const month = parseInt(dateParts[1]) - 1; // Month is 0-indexed
             const day = parseInt(dateParts[2]);
-            const endDate = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
+            const endDate = new Date(
+              Date.UTC(year, month, day, 23, 59, 59, 999),
+            );
             dateRanges[baseKey].$lte = endDate;
           }
         }

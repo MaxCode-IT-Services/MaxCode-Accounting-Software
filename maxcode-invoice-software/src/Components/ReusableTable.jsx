@@ -12,11 +12,12 @@ import customParseFormat from "dayjs/plugin/customParseFormat";
 dayjs.extend(customParseFormat);
 
 const ReusableTable = ({
+  onColumnFilterChange,
   // Core props
   columns = [],
   data = [],
   loading = false,
-  totalRecords: propTotalRecords,
+  totalRecords: propTotalRecords = 0,
 
   // Actions
   onEdit,
@@ -25,6 +26,14 @@ const ReusableTable = ({
   onStatusToggle,
   onRefresh: propOnRefresh,
   onAddNew,
+
+  // Server-side props
+  serverSide = false,
+  onServerSideSearch,
+  onServerSideFilter,
+  onServerSideSort,
+  onServerSidePageChange,
+  onServerSideRecordsPerPageChange,
 
   // Configuration
   showActions = true,
@@ -49,7 +58,6 @@ const ReusableTable = ({
   recordsPerPage: propRecordsPerPage = 10,
   onPageChange,
   onRecordsPerPageChange,
-  serverSide = false,
 
   // Export options
   exportFileName = "export",
@@ -67,6 +75,30 @@ const ReusableTable = ({
   moduleKey = null,
 }) => {
   // State management
+
+  // Filtering state
+  const [columnFilters, setColumnFilters] = useState(() => {
+    const filters = {};
+    columns.forEach((col) => {
+      if (columnsWithDropdownFilter.includes(col.key)) {
+        filters[col.key] = ["All"];
+      } else {
+        filters[col.key] = "";
+      }
+    });
+    return filters;
+  });
+
+  // Ensure filter applies when columnFilters change (for AdvancedFilterOffcanvas)
+  useEffect(() => {
+    if (serverSide) {
+      triggerServerSideFilter(columnFilters);
+    } else {
+      setCurrentPage(1);
+      if (onPageChange) onPageChange(1);
+    }
+  }, [columnFilters]);
+
   const [tableColumns, setTableColumns] = useState(columns);
   const [allData, setAllData] = useState(data);
   const [visibleColumns, setVisibleColumns] = useState(() => {
@@ -83,19 +115,6 @@ const ReusableTable = ({
   const [sortConfig, setSortConfig] = useState({
     key: null,
     direction: "normal",
-  });
-
-  // Filtering state
-  const [columnFilters, setColumnFilters] = useState(() => {
-    const filters = {};
-    columns.forEach((col) => {
-      if (columnsWithDropdownFilter.includes(col.key)) {
-        filters[col.key] = ["All"];
-      } else {
-        filters[col.key] = "";
-      }
-    });
-    return filters;
   });
 
   // Date range filters
@@ -156,6 +175,9 @@ const ReusableTable = ({
     currentStatus: null,
   });
 
+  // Debounce timer for search
+  const searchDebounceTimer = useRef(null);
+
   const tableRef = useRef(null);
   const headerRowRef = useRef(null);
   const tableContainerRef = useRef(null);
@@ -195,10 +217,15 @@ const ReusableTable = ({
 
   // Dynamic filter options
   const [dynamicFilterOptions, setDynamicFilterOptions] = useState(() => {
+    if (serverSide) {
+      return propFilterOptions;
+    }
+
     const options = {};
     columnsWithDropdownFilter.forEach((key) => {
       options[key] = ["All"];
     });
+
     return { ...propFilterOptions, ...options };
   });
 
@@ -206,11 +233,16 @@ const ReusableTable = ({
   const parseDate = (dateStr) => {
     if (!dateStr) return null;
 
-    return dayjs(dateStr, "DD/MM/YYYY | hh:mm:ss A").isValid()
-      ? dayjs(dateStr, "DD/MM/YYYY | hh:mm:ss A").toDate()
-      : dayjs(dateStr, "DD/MM/YYYY").isValid()
-        ? dayjs(dateStr, "DD/MM/YYYY").toDate()
-        : new Date(dateStr);
+    if (dayjs(dateStr, "DD/MM/YYYY | hh:mm:ss A").isValid()) {
+      return dayjs(dateStr, "DD/MM/YYYY | hh:mm:ss A").toDate();
+    }
+    if (dayjs(dateStr, "DD/MM/YYYY").isValid()) {
+      return dayjs(dateStr, "DD/MM/YYYY").toDate();
+    }
+    if (dayjs(dateStr).isValid()) {
+      return dayjs(dateStr).toDate();
+    }
+    return null;
   };
 
   // Helper function to format date for display
@@ -239,23 +271,39 @@ const ReusableTable = ({
     }
   };
 
-  // Update filter options based on data
+  // Update filter options based on data (for client-side)
   useEffect(() => {
-    const newOptions = { ...propFilterOptions };
-    columnsWithDropdownFilter.forEach((key) => {
-      const uniqueValues = Array.from(
-        new Set(allData.map((r) => r[key])),
-      ).filter(Boolean);
-      newOptions[key] = ["All", ...uniqueValues];
-    });
+    if (serverSide) {
+      setDynamicFilterOptions((prevOptions) => {
+        const hasChanged =
+          JSON.stringify(prevOptions) !== JSON.stringify(propFilterOptions);
+        return hasChanged ? propFilterOptions : prevOptions;
+      });
+      return;
+    }
 
-    // Only update if options have actually changed
-    setDynamicFilterOptions((prevOptions) => {
-      const hasChanged =
-        JSON.stringify(prevOptions) !== JSON.stringify(newOptions);
-      return hasChanged ? newOptions : prevOptions;
-    });
-  }, [allData, columnsWithDropdownFilter]);
+    if (!serverSide && allData.length > 0) {
+      const newOptions = { ...propFilterOptions };
+
+      columnsWithDropdownFilter.forEach((key) => {
+        const uniqueValues = Array.from(
+          new Set(
+            allData
+              .map((r) => r[key])
+              .filter((val) => val !== null && val !== undefined && val !== ""),
+          ),
+        ).sort();
+
+        newOptions[key] = ["All", ...uniqueValues];
+      });
+
+      setDynamicFilterOptions((prevOptions) => {
+        const hasChanged =
+          JSON.stringify(prevOptions) !== JSON.stringify(newOptions);
+        return hasChanged ? newOptions : prevOptions;
+      });
+    }
+  }, [allData, columnsWithDropdownFilter, serverSide, propFilterOptions]);
 
   // Handle click outside dropdown
   useEffect(() => {
@@ -274,8 +322,12 @@ const ReusableTable = ({
     };
   }, []);
 
-  // Apply card filter
+  // Apply card filter (client-side)
   const getCardFilteredData = useMemo(() => {
+    if (serverSide) {
+      return allData;
+    }
+
     if (
       !activeCardFilter ||
       activeCardFilter === "total" ||
@@ -297,9 +349,9 @@ const ReusableTable = ({
     }
 
     return filtered;
-  }, [allData, activeCardFilter]);
+  }, [allData, activeCardFilter, serverSide]);
 
-  // Apply global search and column filters
+  // Apply global search and column filters (client-side)
   const filteredData = useMemo(() => {
     if (serverSide) {
       return getCardFilteredData;
@@ -353,7 +405,11 @@ const ReusableTable = ({
           if (filterValue.includes("All") || filterValue.length === 0) {
             continue;
           }
-          if (!filterValue.includes(recordValue)) {
+          if (Array.isArray(filterValue)) {
+            if (!filterValue.includes(recordValue)) {
+              return false;
+            }
+          } else if (filterValue !== recordValue) {
             return false;
           }
         }
@@ -381,8 +437,12 @@ const ReusableTable = ({
     serverSide,
   ]);
 
-  // Apply sorting
+  // Apply sorting (client-side)
   const sortedData = useMemo(() => {
+    if (serverSide) {
+      return filteredData;
+    }
+
     if (sortConfig.key && sortConfig.direction !== "normal") {
       return [...filteredData].sort((a, b) => {
         const aValue = a[sortConfig.key];
@@ -405,17 +465,24 @@ const ReusableTable = ({
             : bDate - aDate;
         }
 
+        // Handle number sorting
+        if (!isNaN(parseFloat(aValue)) && !isNaN(parseFloat(bValue))) {
+          return sortConfig.direction === "ascending"
+            ? parseFloat(aValue) - parseFloat(bValue)
+            : parseFloat(bValue) - parseFloat(aValue);
+        }
+
+        // Handle string sorting
         const comparison = String(aValue).localeCompare(String(bValue));
         return sortConfig.direction === "ascending" ? comparison : -comparison;
       });
     }
     return filteredData;
-  }, [filteredData, sortConfig, columnsWithDateFilter]);
+  }, [filteredData, sortConfig, columnsWithDateFilter, serverSide]);
 
-  // Call onFilteredDataChange only when sortedData actually changes
+  // Call onFilteredDataChange only when sortedData actually changes (client-side)
   useEffect(() => {
-    if (onFilteredDataChangeRef.current) {
-      // Only call if data has actually changed (deep comparison)
+    if (!serverSide && onFilteredDataChangeRef.current) {
       const hasChanged =
         JSON.stringify(prevSortedDataRef.current) !==
         JSON.stringify(sortedData);
@@ -424,7 +491,7 @@ const ReusableTable = ({
         onFilteredDataChangeRef.current(sortedData);
       }
     }
-  }, [sortedData]);
+  }, [sortedData, serverSide]);
 
   // Apply pagination
   const paginatedData = useMemo(() => {
@@ -440,20 +507,130 @@ const ReusableTable = ({
   // Calculate total records
   const totalRecords = serverSide ? propTotalRecords : filteredData.length;
 
+  // Server-side filter change handler
+  const triggerServerSideFilter = (updatedFilters) => {
+    if (!serverSide || !onServerSideFilter) return;
+
+    setCurrentPage(1);
+    if (onPageChange) onPageChange(1);
+
+    const filterParams = {};
+
+    Object.entries(updatedFilters || columnFilters).forEach(([key, value]) => {
+      if (columnsWithDropdownFilter.includes(key)) {
+        if (value && !value.includes("All") && value.length > 0) {
+          filterParams[key] = Array.isArray(value) ? value.join(",") : value;
+        }
+      } else {
+        if (value && value.trim() !== "") {
+          filterParams[key] = value;
+        }
+      }
+    });
+
+    Object.entries(dateFilters).forEach(([key, range]) => {
+      if (range.startDate) {
+        // Format date to YYYY-MM-DD for API
+        const formattedStartDate = range.startDate.split("T")[0];
+        filterParams[`${key}_start`] = formattedStartDate;
+      }
+      if (range.endDate) {
+        const formattedEndDate = range.endDate.split("T")[0];
+        filterParams[`${key}_end`] = formattedEndDate;
+      }
+    });
+
+    if (
+      activeCardFilter &&
+      activeCardFilter !== "total" &&
+      activeCardFilter !== "addNew"
+    ) {
+      filterParams.filter = activeCardFilter;
+    }
+
+    onServerSideFilter(filterParams);
+  };
+
+  // Debounced search handler for server-side
+  const handleServerSideSearch = (value) => {
+    if (!serverSide || !onServerSideSearch) return;
+
+    setCurrentPage(1);
+    if (onPageChange) onPageChange(1);
+
+    if (searchDebounceTimer.current) {
+      clearTimeout(searchDebounceTimer.current);
+    }
+
+    searchDebounceTimer.current = setTimeout(() => {
+      onServerSideSearch(value);
+    }, 500);
+  };
+
   // Handle date range filter change
   const handleDateFilterChange = (key, type, value, e) => {
     if (e) e.stopPropagation();
 
-    setDateFilters((prev) => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        [type]: value,
-      },
-    }));
+    // Get the raw input value (already in YYYY-MM-DD format from date input)
+    let dateValue = value;
 
-    // Reset to first page
-    if (!serverSide) {
+    // Ensure we're working with the correct format
+    if (dateValue && dateValue.includes("T")) {
+      dateValue = dateValue.split("T")[0];
+    }
+
+    const updatedDateFilters = {
+      ...dateFilters,
+      [key]: {
+        ...dateFilters[key],
+        [type]: dateValue,
+      },
+    };
+
+    setDateFilters(updatedDateFilters);
+
+    if (serverSide) {
+      // Build filter params with all current filters
+      const filterParams = {};
+
+      // Add column filters
+      Object.entries(columnFilters).forEach(([colKey, colValue]) => {
+        if (columnsWithDropdownFilter.includes(colKey)) {
+          if (colValue && !colValue.includes("All") && colValue.length > 0) {
+            filterParams[colKey] = Array.isArray(colValue)
+              ? colValue.join(",")
+              : colValue;
+          }
+        } else {
+          if (colValue && colValue.trim() !== "") {
+            filterParams[colKey] = colValue;
+          }
+        }
+      });
+
+      // Add date filters (using the updated ones)
+      Object.entries(updatedDateFilters).forEach(([dateKey, range]) => {
+        if (range.startDate) {
+          filterParams[`${dateKey}_start`] = range.startDate;
+        }
+        if (range.endDate) {
+          filterParams[`${dateKey}_end`] = range.endDate;
+        }
+      });
+
+      // Add card filter
+      if (
+        activeCardFilter &&
+        activeCardFilter !== "total" &&
+        activeCardFilter !== "addNew"
+      ) {
+        filterParams.cardFilter = activeCardFilter;
+      }
+
+      setCurrentPage(1);
+      if (onPageChange) onPageChange(1);
+      if (onServerSideFilter) onServerSideFilter(filterParams);
+    } else {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
     }
@@ -462,18 +639,19 @@ const ReusableTable = ({
   // Handle column filter change
   const handleColumnFilterChange = (key, value, e) => {
     if (e) e.stopPropagation();
-
-    const newFilters = {
-      ...columnFilters,
-      [key]: value,
-    };
-
-    setColumnFilters(newFilters);
-
-    // Reset to first page
-    if (!serverSide) {
-      setCurrentPage(1);
-      if (onPageChange) onPageChange(1);
+    console.log("[handleColumnFilterChange] key:", key, "value:", value);
+    setColumnFilters((prev) => {
+      const updated = { ...prev, [key]: value };
+      console.log("[handleColumnFilterChange] new columnFilters:", updated);
+      return updated;
+    });
+    if (onColumnFilterChange) {
+      onColumnFilterChange(key, value);
+    } else {
+      if (!serverSide) {
+        setCurrentPage(1);
+        if (onPageChange) onPageChange(1);
+      }
     }
   };
 
@@ -508,8 +686,61 @@ const ReusableTable = ({
       }
     });
 
-    // Reset to first page
-    if (!serverSide) {
+    if (serverSide) {
+      const filterParams = {};
+
+      Object.entries(columnFilters).forEach(([colKey, colValue]) => {
+        if (columnsWithDropdownFilter.includes(colKey)) {
+          if (colKey === key) {
+            const updatedValue = [...(columnFilters[key] || [])];
+            if (value === "All") {
+              // Handled in next state
+            } else {
+              if (isChecked) {
+                updatedValue.push(value);
+              } else {
+                const index = updatedValue.indexOf(value);
+                if (index > -1) updatedValue.splice(index, 1);
+              }
+            }
+            if (updatedValue.length > 0 && !updatedValue.includes("All")) {
+              filterParams[colKey] = updatedValue.join(",");
+            }
+          } else {
+            if (colValue && !colValue.includes("All") && colValue.length > 0) {
+              filterParams[colKey] = Array.isArray(colValue)
+                ? colValue.join(",")
+                : colValue;
+            }
+          }
+        } else {
+          if (colValue && colValue.trim() !== "") {
+            filterParams[colKey] = colValue;
+          }
+        }
+      });
+
+      Object.entries(dateFilters).forEach(([dateKey, range]) => {
+        if (range.startDate) {
+          filterParams[`${dateKey}_start`] = range.startDate;
+        }
+        if (range.endDate) {
+          filterParams[`${dateKey}_end`] = range.endDate;
+        }
+      });
+
+      if (
+        activeCardFilter &&
+        activeCardFilter !== "total" &&
+        activeCardFilter !== "addNew"
+      ) {
+        filterParams.cardFilter = activeCardFilter;
+      }
+
+      setCurrentPage(1);
+      if (onPageChange) onPageChange(1);
+      if (onServerSideFilter) onServerSideFilter(filterParams);
+    } else {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
     }
@@ -519,8 +750,9 @@ const ReusableTable = ({
   const handleGlobalSearch = (value) => {
     setSearchTerm(value);
 
-    // Reset to first page
-    if (!serverSide) {
+    if (serverSide) {
+      handleServerSideSearch(value);
+    } else {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
     }
@@ -551,12 +783,18 @@ const ReusableTable = ({
       }
     }
 
-    setSortConfig({ key, direction });
+    const newSortConfig = { key, direction };
+    setSortConfig(newSortConfig);
+
+    if (serverSide && onServerSideSort) {
+      setCurrentPage(1);
+      if (onPageChange) onPageChange(1);
+      onServerSideSort(key, direction);
+    }
   };
 
   // Handle refresh
   const handleRefresh = () => {
-    // Reset all filters
     const resetFilters = {};
     Object.keys(columnFilters).forEach((key) => {
       if (columnsWithDropdownFilter.includes(key)) {
@@ -579,15 +817,27 @@ const ReusableTable = ({
     setSearchTerm("");
     setSortConfig({ key: null, direction: "normal" });
 
-    // Reset to first page
-    if (!serverSide) {
+    if (serverSide) {
+      setCurrentPage(1);
+      if (onPageChange) onPageChange(1);
+
+      if (onServerSideFilter) {
+        onServerSideFilter({});
+      }
+
+      if (onServerSideSearch) {
+        onServerSideSearch("");
+      }
+
+      if (onServerSideSort) {
+        onServerSideSort(null, "normal");
+      }
+    } else {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
     }
 
-    // Call prop onRefresh if provided
     if (propOnRefresh) propOnRefresh();
-
     showInfo("Filters cleared and data refreshed!");
   };
 
@@ -614,8 +864,18 @@ const ReusableTable = ({
     setDateFilters(resetDateFilters);
     setSearchTerm("");
 
-    // Reset to first page
-    if (!serverSide) {
+    if (serverSide) {
+      setCurrentPage(1);
+      if (onPageChange) onPageChange(1);
+
+      if (onServerSideFilter) {
+        onServerSideFilter({});
+      }
+
+      if (onServerSideSearch) {
+        onServerSideSearch("");
+      }
+    } else {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
     }
@@ -626,6 +886,11 @@ const ReusableTable = ({
   // Handle page change
   const handlePageChange = (page) => {
     setCurrentPage(page);
+
+    if (serverSide && onServerSidePageChange) {
+      onServerSidePageChange(page);
+    }
+
     if (onPageChange) onPageChange(page);
   };
 
@@ -633,6 +898,11 @@ const ReusableTable = ({
   const handleRecordsPerPageChange = (value) => {
     setRecordsPerPage(value);
     setCurrentPage(1);
+
+    if (serverSide && onServerSideRecordsPerPageChange) {
+      onServerSideRecordsPerPageChange(value);
+    }
+
     if (onRecordsPerPageChange) onRecordsPerPageChange(value);
     if (onPageChange) onPageChange(1);
   };
@@ -677,18 +947,67 @@ const ReusableTable = ({
     e.stopPropagation();
 
     if (columnsWithDateFilter.includes(key)) {
-      setDateFilters((prev) => ({
-        ...prev,
+      const updatedDateFilters = {
+        ...dateFilters,
         [key]: {
           startDate: "",
           endDate: "",
         },
-      }));
+      };
+
+      setDateFilters(updatedDateFilters);
+
+      if (serverSide) {
+        const filterParams = {};
+
+        Object.entries(columnFilters).forEach(([colKey, colValue]) => {
+          if (columnsWithDropdownFilter.includes(colKey)) {
+            if (colValue && !colValue.includes("All") && colValue.length > 0) {
+              filterParams[colKey] = Array.isArray(colValue)
+                ? colValue.join(",")
+                : colValue;
+            }
+          } else {
+            if (colValue && colValue.trim() !== "") {
+              filterParams[colKey] = colValue;
+            }
+          }
+        });
+
+        Object.entries(updatedDateFilters).forEach(([dateKey, range]) => {
+          if (dateKey !== key) {
+            if (range.startDate) {
+              filterParams[`${dateKey}_start`] = range.startDate;
+            }
+            if (range.endDate) {
+              filterParams[`${dateKey}_end`] = range.endDate;
+            }
+          }
+        });
+
+        if (
+          activeCardFilter &&
+          activeCardFilter !== "total" &&
+          activeCardFilter !== "addNew"
+        ) {
+          filterParams.cardFilter = activeCardFilter;
+        }
+
+        setCurrentPage(1);
+        if (onPageChange) onPageChange(1);
+        if (onServerSideFilter) onServerSideFilter(filterParams);
+      }
     } else {
-      setColumnFilters((prev) => ({
-        ...prev,
+      const updatedFilters = {
+        ...columnFilters,
         [key]: columnsWithDropdownFilter.includes(key) ? ["All"] : "",
-      }));
+      };
+
+      setColumnFilters(updatedFilters);
+
+      if (serverSide) {
+        triggerServerSideFilter(updatedFilters);
+      }
     }
   };
 
@@ -753,16 +1072,12 @@ const ReusableTable = ({
   const togglePinColumn = (columnKey, position) => {
     setPinnedColumns((prev) => {
       const newPinned = { ...prev };
-
       newPinned.left = newPinned.left.filter((key) => key !== columnKey);
       newPinned.right = newPinned.right.filter((key) => key !== columnKey);
-
       const isCurrentlyPinned = prev[position].includes(columnKey);
-
       if (!isCurrentlyPinned) {
         newPinned[position] = [...newPinned[position], columnKey];
       }
-
       return newPinned;
     });
   };
@@ -783,10 +1098,8 @@ const ReusableTable = ({
   // Handle resize
   const handleResize = (e) => {
     if (!resizing.isResizing) return;
-
     const deltaX = e.clientX - resizing.startX;
     const newWidth = Math.max(50, resizing.startWidth + deltaX);
-
     setTableColumns((prevColumns) =>
       prevColumns.map((column) =>
         column.key === resizing.columnKey
@@ -822,17 +1135,14 @@ const ReusableTable = ({
   // Handle drag
   const handleDrag = (e) => {
     if (!dragging.isDragging) return;
-
     const thElements = headerRowRef.current.querySelectorAll("th");
     let targetIndex = -1;
-
     thElements.forEach((th, index) => {
       const rect = th.getBoundingClientRect();
       if (e.clientX >= rect.left && e.clientX <= rect.right) {
         targetIndex = index;
       }
     });
-
     if (targetIndex !== -1 && targetIndex !== dragging.startIndex) {
       setTableColumns((prevColumns) => {
         const newColumns = [...prevColumns];
@@ -840,7 +1150,6 @@ const ReusableTable = ({
         newColumns.splice(targetIndex, 0, movedColumn);
         return newColumns;
       });
-
       setDragging((prev) => ({
         ...prev,
         startIndex: targetIndex,
@@ -879,6 +1188,15 @@ const ReusableTable = ({
       };
     }
   }, [dragging.isDragging]);
+
+  // Cleanup debounce timer
+  useEffect(() => {
+    return () => {
+      if (searchDebounceTimer.current) {
+        clearTimeout(searchDebounceTimer.current);
+      }
+    };
+  }, []);
 
   // Handle auto resize all
   const handleAutoResizeAll = () => {
@@ -1004,7 +1322,6 @@ const ReusableTable = ({
       .replace(/management/gi, "")
       .trim();
 
-    // Map specific entity types to their display labels
     if (normalizedTitle === "RCM" || normalizedTitle === "Self") {
       return "Self Invoice (RCM)";
     }
@@ -1058,7 +1375,6 @@ const ReusableTable = ({
   // Handle confirm action
   const handleConfirmAction = () => {
     const { action, recordId } = modalConfig;
-
     if (action === "delete" && onDelete) {
       onDelete(recordId);
       setShowConfirmModal(false);
@@ -1078,7 +1394,6 @@ const ReusableTable = ({
         !pinnedColumns.left.includes(col.key) &&
         !pinnedColumns.right.includes(col.key),
     );
-
     return [...leftPinned, ...unpinned, ...rightPinned];
   };
 
@@ -1092,12 +1407,12 @@ const ReusableTable = ({
   // Get pagination info
   const paginationInfo = () => {
     const total = serverSide ? propTotalRecords : filteredData.length;
-    const startRecord = (currentPage - 1) * recordsPerPage + 1;
+    const startRecord = total > 0 ? (currentPage - 1) * recordsPerPage + 1 : 0;
     const endRecord = Math.min(currentPage * recordsPerPage, total);
 
     return {
-      startRecord: total > 0 ? startRecord : 0,
-      endRecord: total > 0 ? endRecord : 0,
+      startRecord,
+      endRecord,
       totalRecords: total,
       isPrevDisabled: currentPage === 1,
       isNextDisabled: currentPage * recordsPerPage >= total,
@@ -1166,16 +1481,12 @@ const ReusableTable = ({
   // Get status badge class
   const getStatusBadgeClass = (value) => {
     if (getBadgeClass) return getBadgeClass(value);
-
     if (!value) return "bg-secondary";
-
     const lowerValue = value.toLowerCase();
-
     if (lowerValue === "active") return "bg-success";
     if (lowerValue === "inactive" || lowerValue === "deactive")
       return "bg-danger";
     if (lowerValue === "pending") return "bg-warning";
-
     return "bg-primary";
   };
 
@@ -1185,7 +1496,6 @@ const ReusableTable = ({
     if (columnConfig && columnConfig.label) {
       return columnConfig.label;
     }
-
     const result = key.replace(/([A-Z])/g, " $1");
     return result.charAt(0).toUpperCase() + result.slice(1);
   };
@@ -1194,20 +1504,16 @@ const ReusableTable = ({
   const formatDateTime = (dateString) => {
     if (!dateString) return "";
     const date = new Date(dateString);
-
     const day = String(date.getDate()).padStart(2, "0");
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const year = date.getFullYear();
-
     let hours = date.getHours();
     const minutes = String(date.getMinutes()).padStart(2, "0");
     const seconds = String(date.getSeconds()).padStart(2, "0");
     const ampm = hours >= 12 ? "PM" : "AM";
-
     hours = hours % 12;
     hours = hours ? hours : 12;
     const formattedHours = String(hours).padStart(2, "0");
-
     return `${day}-${month}-${year} | ${formattedHours}.${minutes}.${seconds} ${ampm}`;
   };
 
@@ -1228,11 +1534,9 @@ const ReusableTable = ({
           if (key === "sn") {
             return (index + 1).toString();
           }
-
           if (columnsWithDateFilter.includes(key)) {
             return formatDateForDisplay(record[key]);
           }
-
           const value = record[key] || "";
           return typeof value === "string" ? value : String(value);
         });
@@ -1342,12 +1646,9 @@ const ReusableTable = ({
         const colLetter = XLSX.utils.encode_col(index);
         const columnConfig = tableColumns.find((col) => col.key === key);
         const width = columnConfig ? Math.min(columnConfig.width / 7, 50) : 15;
-
         ws["!cols"][index] = { width };
-
         const headerCell = XLSX.utils.encode_cell({ r: 0, c: index });
         if (!ws[headerCell]) return;
-
         ws[headerCell].s = {
           fill: { fgColor: { rgb: "FFFF00" } },
           font: { bold: true },
@@ -1413,7 +1714,6 @@ const ReusableTable = ({
       showError("You don't have export permission for this module");
       return;
     }
-
     switch (type) {
       case "PDF":
         exportToPDF();
@@ -1431,7 +1731,6 @@ const ReusableTable = ({
 
   const renderExtraExportItems = () => {
     if (!extraExportItems.length) return null;
-
     return extraExportItems.map((item, index) => (
       <li key={`extra-export-${index}`}>
         <button
@@ -1822,9 +2121,10 @@ const ReusableTable = ({
                                       <button
                                         className="btn btn-outline-secondary btn-sm dropdown-toggle1 rounded-end-1"
                                         type="button"
-                                        onClick={(e) =>
-                                          openAdvancedFilter(column.key, e)
-                                        }
+                                        onClick={(e) => {
+                                          setShowFilterOffcanvas(true);
+                                          setCurrentColumnFilter(column.key);
+                                        }}
                                         title="Advanced Filter"
                                       >
                                         <i className="fas fa-filter"></i>
@@ -1881,12 +2181,12 @@ const ReusableTable = ({
                       : (currentPage - 1) * recordsPerPage + index + 1;
 
                     return (
-                      <tr key={record.id || index}>
+                      <tr key={record.id || record._id || index}>
                         {getOrderedColumns().map(
                           (column) =>
                             visibleColumns[column.key] && (
                               <td
-                                key={`${record.id || index}-${column.key}`}
+                                key={`${record.id || record._id || index}-${column.key}`}
                                 style={{
                                   whiteSpace: "nowrap",
                                   width: column.width,
@@ -1925,7 +2225,9 @@ const ReusableTable = ({
                                     {actions.includes("view") && onView && (
                                       <button
                                         className="btn btn-sm btn-outline-info me-1"
-                                        onClick={() => canRead && onView(record)}
+                                        onClick={() =>
+                                          canRead && onView(record)
+                                        }
                                         title="View"
                                         disabled={!canRead}
                                         style={getDisabledActionStyle(canRead)}
@@ -1936,10 +2238,14 @@ const ReusableTable = ({
                                     {actions.includes("edit") && onEdit && (
                                       <button
                                         className="btn btn-sm btn-outline-primary me-1"
-                                        onClick={() => canUpdate && onEdit(record)}
+                                        onClick={() =>
+                                          canUpdate && onEdit(record)
+                                        }
                                         title="Edit"
                                         disabled={!canUpdate}
-                                        style={getDisabledActionStyle(canUpdate)}
+                                        style={getDisabledActionStyle(
+                                          canUpdate,
+                                        )}
                                       >
                                         <i className="fas fa-edit"></i>
                                       </button>
@@ -1955,7 +2261,9 @@ const ReusableTable = ({
                                         }
                                         title="Delete"
                                         disabled={!canDelete}
-                                        style={getDisabledActionStyle(canDelete)}
+                                        style={getDisabledActionStyle(
+                                          canDelete,
+                                        )}
                                       >
                                         <i className="fas fa-trash"></i>
                                       </button>
@@ -1975,7 +2283,10 @@ const ReusableTable = ({
                                         record.status === "Active" ||
                                         record.status === "active"
                                       }
-                                      onChange={() => canUpdate && onStatusToggle(record.id)}
+                                      onChange={() =>
+                                        canUpdate &&
+                                        onStatusToggle(record._id || record.id)
+                                      }
                                       style={getDisabledActionStyle(canUpdate)}
                                       disabled={!canUpdate}
                                     />
@@ -2113,7 +2424,7 @@ const ReusableTable = ({
                   padding: "0 20px",
                 }}
               >
-                {dynamicFilterOptions[openFilterDropdown]
+                {(dynamicFilterOptions[openFilterDropdown] || [])
                   .filter((opt) => opt !== "All")
                   .filter(
                     (opt) =>
@@ -2122,7 +2433,7 @@ const ReusableTable = ({
                         .toLowerCase()
                         .includes(filterSearchTerm.toLowerCase()),
                   ).length > 0 ? (
-                  dynamicFilterOptions[openFilterDropdown]
+                  (dynamicFilterOptions[openFilterDropdown] || [])
                     .filter((opt) => opt !== "All")
                     .filter(
                       (opt) =>
