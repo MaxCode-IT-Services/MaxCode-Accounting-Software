@@ -274,6 +274,9 @@ const Home = () => {
             <a className={navLinkClass("footer")} href="#footer">
               Contact
             </a>
+            <Link className={navLinkClass("privacy")} to="/privacy-policy">
+              Privacy Policy
+            </Link>
             <Link
               to={isLoggedIn ? "/admin/dashboard" : "/login"}
               className={`btn ${
@@ -342,6 +345,13 @@ const Home = () => {
           >
             Contact
           </a>
+          <Link
+            to="/privacy-policy"
+            className={mobileNavLinkClass("privacy")}
+            data-bs-dismiss="offcanvas"
+          >
+            Privacy Policy
+          </Link>
           <Link
             to={isLoggedIn ? "/admin/dashboard" : "/login"}
             className={`btn ${
@@ -711,6 +721,9 @@ const Home = () => {
             <div className="col-sm-6 col-lg-2">
               <h6 className="footer-title">Product</h6>
               <ul className="footer-links">
+                <li>
+                  <Link to="/privacy-policy">Privacy Policy</Link>
+                </li>
                 <li>
                   <a href="#features">Features</a>
                 </li>

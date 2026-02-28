@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 import AdminDashboardLayout from "../src/Components/DashboardLayout";
 import Home from "../src/Home";
+import PrivacyPolicy from "./PrivacyPolicy";
 import Login from "../src/Pages/Login";
 import {
   hasModuleAccess,
@@ -374,6 +375,7 @@ const App = () => {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
         <Route
           path="/login"
