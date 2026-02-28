@@ -30,6 +30,7 @@ const SalesManagement = () => {
   const [selectedFinancialYear, setSelectedFinancialYear] = useState(
     localStorage.getItem("selectedFinancialYear") || "ALL",
   );
+  const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly"); // Add this state
   const [loading, setLoading] = useState(false);
   const [showCreateSalesForm, setShowCreateSalesForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
@@ -57,6 +58,7 @@ const SalesManagement = () => {
     totalAmount: 0,
   });
 
+  // Updated cards array - replaced "Total Sales" with Financial Period card
   const cards = [
     {
       icon: "fas fa-rupee-sign",
@@ -83,10 +85,10 @@ const SalesManagement = () => {
       color: "warning",
     },
     {
-      icon: "fa-solid fa-file-invoice",
-      title: "Total Sales",
-      key: "total",
-      color: "primary",
+      icon: "fa-regular fa-calendar-days", // Changed icon to calendar
+      title: "Financial Period", // Changed title
+      key: "period", // Changed key to "period"
+      color: "warning",
     },
     {
       icon: "fas fa-plus-circle",
@@ -146,6 +148,55 @@ const SalesManagement = () => {
     }
   };
 
+  // Add this function from PurchaseManagement
+  const getDateOnly = (value) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  };
+
+  // Add this function from PurchaseManagement
+  const isWithinPeriodMode = (dateValue) => {
+    const dateOnly = getDateOnly(dateValue);
+    const today = getDateOnly(new Date());
+
+    if (!dateOnly || !today) return false;
+
+    if (financialPeriodMode === "daily") {
+      return dateOnly.getTime() === today.getTime();
+    }
+
+    if (financialPeriodMode === "monthly") {
+      return (
+        dateOnly.getFullYear() === today.getFullYear() &&
+        dateOnly.getMonth() === today.getMonth()
+      );
+    }
+
+    if (financialPeriodMode === "quarterly") {
+      const getQuarter = (date) => Math.floor(date.getMonth() / 3) + 1;
+      return (
+        dateOnly.getFullYear() === today.getFullYear() &&
+        getQuarter(dateOnly) === getQuarter(today)
+      );
+    }
+
+    if (financialPeriodMode === "halfYearly") {
+      const getHalf = (date) => (date.getMonth() < 6 ? 1 : 2);
+      return (
+        dateOnly.getFullYear() === today.getFullYear() &&
+        getHalf(dateOnly) === getHalf(today)
+      );
+    }
+
+    if (financialPeriodMode === "yearly") {
+      return dateOnly.getFullYear() === today.getFullYear();
+    }
+
+    return true;
+  };
+
   useEffect(() => {
     fetchFinancialYears();
     fetchSales();
@@ -177,6 +228,29 @@ const SalesManagement = () => {
     applySelectedFinancialYearFilter(allRecords, selectedFinancialYear);
   }, [allRecords, selectedFinancialYear, financialYears]);
 
+  // Add this useEffect from PurchaseManagement
+  useEffect(() => {
+    // Apply period filter when financialPeriodMode changes
+    if (records.length > 0) {
+      applyPeriodFilter(records);
+    }
+  }, [financialPeriodMode]);
+
+  // Add this function from PurchaseManagement
+  const applyPeriodFilter = (sourceRecords) => {
+    if (!Array.isArray(sourceRecords)) {
+      setFilteredRecords([]);
+      return;
+    }
+
+    const periodFiltered = sourceRecords.filter((record) => {
+      const recordDate = record.invoiceDate || record.createdDate;
+      return isWithinPeriodMode(recordDate);
+    });
+
+    setFilteredRecords(periodFiltered);
+  };
+
   const fetchFinancialYears = async () => {
     try {
       const response = await apiGet(API_ENDPOINTS.YEARS.LIST);
@@ -197,13 +271,6 @@ const SalesManagement = () => {
       console.error("Financial years API fetch error:", error);
       setFinancialYears([]);
     }
-  };
-
-  const getDateOnly = (value) => {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
   };
 
   const getDefaultFinancialYearRecord = () => {
@@ -228,6 +295,7 @@ const SalesManagement = () => {
   const applySelectedFinancialYearFilter = (sourceRecords, selectedYear) => {
     if (!Array.isArray(sourceRecords)) {
       setRecords([]);
+      setFilteredRecords([]); // Add this line
       updateStatistics([]);
       return;
     }
@@ -235,6 +303,7 @@ const SalesManagement = () => {
     if (!selectedYear || selectedYear === "ALL") {
       setRecords(sourceRecords);
       updateStatistics(sourceRecords);
+      applyPeriodFilter(sourceRecords); // Add this line
       return;
     }
 
@@ -245,6 +314,7 @@ const SalesManagement = () => {
     if (!matchedYear?.startDate || !matchedYear?.endDate) {
       setRecords(sourceRecords);
       updateStatistics(sourceRecords);
+      applyPeriodFilter(sourceRecords); // Add this line
       return;
     }
 
@@ -254,6 +324,7 @@ const SalesManagement = () => {
     if (!startDate || !endDate) {
       setRecords(sourceRecords);
       updateStatistics(sourceRecords);
+      applyPeriodFilter(sourceRecords); // Add this line
       return;
     }
 
@@ -265,6 +336,7 @@ const SalesManagement = () => {
 
     setRecords(filteredRecords);
     updateStatistics(filteredRecords);
+    applyPeriodFilter(filteredRecords); // Add this line
   };
 
   const fetchSales = async () => {
@@ -285,6 +357,7 @@ const SalesManagement = () => {
       showError("Failed to fetch sales");
       setAllRecords([]);
       setRecords([]);
+      setFilteredRecords([]); // Add this line
       updateStatistics([]);
     } finally {
       setLoading(false);
@@ -380,7 +453,7 @@ const SalesManagement = () => {
   };
 
   const prepareTableData = () => {
-    return records.map((record, index) => ({
+    return filteredRecords.map((record, index) => ({
       ...record,
       sn: index + 1,
       invoiceDateFormatted: formatDateForDisplay(record.invoiceDate),
@@ -497,6 +570,7 @@ const SalesManagement = () => {
     ],
   };
 
+  // Updated handleCardClick to include period logic
   const handleCardClick = (cardKey) => {
     if (cardKey === "addNew") {
       if (!canCreate) {
@@ -505,9 +579,37 @@ const SalesManagement = () => {
       }
       setEditingRecord(null);
       setShowCreateSalesForm(true);
+    } else if (cardKey === "period") {
+      // Add period cycle logic from PurchaseManagement
+      const periodCycle = [
+        "daily",
+        "monthly",
+        "quarterly",
+        "halfYearly",
+        "yearly",
+      ];
+
+      setFinancialPeriodMode((prev) => {
+        const currentIndex = periodCycle.indexOf(prev);
+        if (currentIndex === -1) return "daily";
+        return periodCycle[(currentIndex + 1) % periodCycle.length];
+      });
     } else {
       setActiveCardFilter(cardKey);
     }
+  };
+
+  // Add this function from PurchaseManagement
+  const getPeriodDisplayValue = () => {
+    return financialPeriodMode === "daily"
+      ? "Daily"
+      : financialPeriodMode === "monthly"
+        ? "Monthly"
+        : financialPeriodMode === "quarterly"
+          ? "Quarterly"
+          : financialPeriodMode === "halfYearly"
+            ? "Half Yearly"
+            : "Yearly";
   };
 
   const getCardNumber = (index) => {
@@ -643,6 +745,7 @@ const SalesManagement = () => {
     fetchClients();
     fetchBusinessSettings();
     setActiveCardFilter("total");
+    setFinancialPeriodMode("yearly"); // Add this line
     showInfo("Data refreshed!");
   };
 
@@ -884,8 +987,31 @@ const SalesManagement = () => {
             const cardClass = `card${cardNumber}`;
             const cardIconBgClass = `card-icon-bg${cardNumber}`;
             const isActive =
-              activeCardFilter === card.key && card.key !== "addNew";
+              activeCardFilter === card.key &&
+              card.key !== "addNew" &&
+              card.key !== "period"; // Update this line to exclude period from active filter
             const isAddNewDisabled = card.key === "addNew" && !canCreate;
+
+            // Determine the value to display (updated from PurchaseManagement)
+            let displayValue;
+            if (card.key === "addNew") {
+              displayValue = "+ Add New";
+            } else if (card.key === "period") {
+              displayValue = `${
+                selectedFinancialYear === "ALL"
+                  ? "All Year"
+                  : selectedFinancialYear
+              } • ${getPeriodDisplayValue()}`;
+            } else if (card.key === "totalAmount") {
+              displayValue = `₹ ${parseFloat(
+                statistics[card.key] || 0,
+              ).toLocaleString("en-IN", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`;
+            } else {
+              displayValue = statistics[card.key];
+            }
 
             return (
               <div key={index} className="col-md-6 col-xl-2 mb-4">
@@ -902,7 +1028,10 @@ const SalesManagement = () => {
                       : "1px solid #dee2e6",
                   }}
                   onMouseEnter={(e) => {
-                    if (card.key === "addNew" && !isAddNewDisabled) {
+                    if (
+                      (card.key === "addNew" && !isAddNewDisabled) ||
+                      card.key === "period" // Add period card hover effect
+                    ) {
                       e.currentTarget.style.transform = "translateY(-5px)";
                       e.currentTarget.style.boxShadow =
                         "0 10px 20px rgba(0,0,0,0.1)";
@@ -934,11 +1063,7 @@ const SalesManagement = () => {
                         className="mb-0 text-muted fs-6 fw-bold"
                         style={{ marginBottom: "-10px" }}
                       >
-                        {card.key === "addNew"
-                          ? "+ Add New"
-                          : card.key === "totalAmount"
-                            ? `₹ ${parseFloat(statistics[card.key]).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                            : statistics[card.key]}
+                        {displayValue}
                       </h6>
                     </div>
                   </div>

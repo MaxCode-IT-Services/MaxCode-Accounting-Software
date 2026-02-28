@@ -30,6 +30,7 @@ const PurchaseManagement = () => {
   const [selectedFinancialYear, setSelectedFinancialYear] = useState(
     localStorage.getItem("selectedFinancialYear") || "ALL",
   );
+  const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly");
   const [loading, setLoading] = useState(false);
   const [showCreatePurchaseForm, setShowCreatePurchaseForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
@@ -72,10 +73,10 @@ const PurchaseManagement = () => {
       color: "warning",
     },
     {
-      icon: "fa-solid fa-shopping-cart",
-      title: "Total Purchases",
-      key: "total",
-      color: "primary",
+      icon: "fa-regular fa-calendar-days",
+      title: "Financial Period",
+      key: "period",
+      color: "warning",
     },
     {
       icon: "fas fa-plus-circle",
@@ -132,175 +133,64 @@ const PurchaseManagement = () => {
     }
   };
 
-  // Dummy purchase data
-  const dummyPurchaseData = [
-    {
-      id: 1,
-      invoiceNumber: "PUR001",
-      invoiceDate: "2024-01-15",
-      vendorId: 1,
-      vendorName: "Rajesh Kumar",
-      businessName: "Rajesh Telecom Services",
-      gstin: "08ABCDE1234F1Z5",
-      phoneNumber: "9876543210",
-      email: "rajesh@example.com",
-      address: "123, Main Street, New Delhi - 110001",
-      placeOfSupply: "Rajasthan (08)",
-      items: [
-        {
-          id: 1,
-          itemName: "Fiber Cable",
-          itemDescription: "Single Mode Fiber Cable 2km",
-          hsnCode: "85447000",
-          qty: 10,
-          price: 5000,
-          amount: 50000,
-        },
-      ],
-      taxData: {
-        subtotal: 50000,
-        taxPercentage: 18,
-        cgst: 0,
-        sgst: 0,
-        igst: 9000,
-        totalAmount: 59000,
-      },
-      paymentStatus: "Paid",
-      paymentMethod: "Bank Transfer",
-      paymentDate: "2024-01-20",
-      invoiceURL: "",
-      invoiceType: "ITC",
-      createdDate: "2024-01-15T10:30:00",
-      createdDateTime: "15/01/2024 | 10:30:00 AM",
-    },
-    {
-      id: 2,
-      invoiceNumber: "PUR002",
-      invoiceDate: "2024-02-10",
-      vendorId: 2,
-      vendorName: "Priya Sharma",
-      businessName: "Sharma Enterprises",
-      gstin: "27FGHIJ5678K2Z9",
-      phoneNumber: "9988776655",
-      email: "priya@example.com",
-      address: "456, Park Avenue, Mumbai - 400001",
-      placeOfSupply: "Maharashtra (27)",
-      items: [
-        {
-          id: 1,
-          itemName: "Network Switch",
-          itemDescription: "24 Port Gigabit Switch",
-          hsnCode: "85176200",
-          qty: 5,
-          price: 12000,
-          amount: 60000,
-        },
-        {
-          id: 2,
-          itemName: "Router",
-          itemDescription: "Enterprise Router Dual Band",
-          hsnCode: "85176100",
-          qty: 3,
-          price: 8000,
-          amount: 24000,
-        },
-      ],
-      taxData: {
-        subtotal: 84000,
-        taxPercentage: 18,
-        cgst: 0,
-        sgst: 0,
-        igst: 15120,
-        totalAmount: 99120,
-      },
-      paymentStatus: "Unpaid",
-      paymentMethod: "",
-      paymentDate: "",
-      invoiceURL: "",
-      invoiceType: "Not ITC",
-      createdDate: "2024-02-10T14:45:00",
-      createdDateTime: "10/02/2024 | 02:45:00 PM",
-    },
-    {
-      id: 3,
-      invoiceNumber: "PUR003",
-      invoiceDate: "2024-03-05",
-      vendorId: 3,
-      vendorName: "Amit Patel",
-      businessName: "Patel Communications",
-      gstin: "",
-      phoneNumber: "9876512345",
-      email: "amit@example.com",
-      address: "789, Lake Road, Ahmedabad - 380001",
-      placeOfSupply: "Gujarat (24)",
-      items: [
-        {
-          id: 1,
-          itemName: "Modem",
-          itemDescription: "ADSL Modem",
-          hsnCode: "85176990",
-          qty: 20,
-          price: 1500,
-          amount: 30000,
-        },
-      ],
-      taxData: {
-        subtotal: 30000,
-        taxPercentage: 18,
-        cgst: 0,
-        sgst: 0,
-        igst: 5400,
-        totalAmount: 35400,
-      },
-      paymentStatus: "Partial",
-      paymentMethod: "Cash",
-      paymentDate: "2024-03-10",
-      invoiceURL: "",
-      invoiceType: "RCM",
-      createdDate: "2024-03-05T09:15:00",
-      createdDateTime: "05/03/2024 | 09:15:00 AM",
-    },
-  ];
+  const toNumber = (value) => {
+    const number = parseFloat(value);
+    return Number.isNaN(number) ? 0 : number;
+  };
 
-  // Dummy vendor data (matching VendorManagement)
-  const dummyVendorData = [
-    {
-      id: 1,
-      vendorName: "Rajesh Kumar",
-      businessName: "Rajesh Telecom Services",
-      address: "123, Main Street, New Delhi - 110001",
-      placeOfSupply: "Rajasthan (08)",
-      phoneNumber: "9876543210",
-      email: "rajesh@example.com",
-      gstin: "08ABCDE1234F1Z5",
-      hasGSTIN: true,
-      status: "Active",
-    },
-    {
-      id: 2,
-      vendorName: "Priya Sharma",
-      businessName: "Sharma Enterprises",
-      address: "456, Park Avenue, Mumbai - 400001",
-      placeOfSupply: "Maharashtra (27)",
-      phoneNumber: "9988776655",
-      email: "priya@example.com",
-      gstin: "27FGHIJ5678K2Z9",
-      hasGSTIN: true,
-      status: "Active",
-    },
-    {
-      id: 3,
-      vendorName: "Amit Patel",
-      businessName: "Patel Communications",
-      address: "789, Lake Road, Ahmedabad - 380001",
-      placeOfSupply: "Gujarat (24)",
-      phoneNumber: "9876512345",
-      email: "amit@example.com",
-      gstin: "",
-      hasGSTIN: false,
-      status: "Active",
-    },
-  ];
+  const formatCurrency = (value) => {
+    return `₹ ${toNumber(value).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  };
+
+  const getDateOnly = (value) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  };
+
+  const isWithinPeriodMode = (dateValue) => {
+    const dateOnly = getDateOnly(dateValue);
+    const today = getDateOnly(new Date());
+
+    if (!dateOnly || !today) return false;
+
+    if (financialPeriodMode === "daily") {
+      return dateOnly.getTime() === today.getTime();
+    }
+
+    if (financialPeriodMode === "monthly") {
+      return (
+        dateOnly.getFullYear() === today.getFullYear() &&
+        dateOnly.getMonth() === today.getMonth()
+      );
+    }
+
+    if (financialPeriodMode === "quarterly") {
+      const getQuarter = (date) => Math.floor(date.getMonth() / 3) + 1;
+      return (
+        dateOnly.getFullYear() === today.getFullYear() &&
+        getQuarter(dateOnly) === getQuarter(today)
+      );
+    }
+
+    if (financialPeriodMode === "halfYearly") {
+      const getHalf = (date) => (date.getMonth() < 6 ? 1 : 2);
+      return (
+        dateOnly.getFullYear() === today.getFullYear() &&
+        getHalf(dateOnly) === getHalf(today)
+      );
+    }
+
+    if (financialPeriodMode === "yearly") {
+      return dateOnly.getFullYear() === today.getFullYear();
+    }
+
+    return true;
+  };
 
   useEffect(() => {
     fetchFinancialYears();
@@ -332,6 +222,27 @@ const PurchaseManagement = () => {
     applySelectedFinancialYearFilter(allRecords, selectedFinancialYear);
   }, [allRecords, selectedFinancialYear, financialYears]);
 
+  useEffect(() => {
+    // Apply period filter when financialPeriodMode changes
+    if (records.length > 0) {
+      applyPeriodFilter(records);
+    }
+  }, [financialPeriodMode]);
+
+  const applyPeriodFilter = (sourceRecords) => {
+    if (!Array.isArray(sourceRecords)) {
+      setFilteredRecords([]);
+      return;
+    }
+
+    const periodFiltered = sourceRecords.filter((record) => {
+      const recordDate = record.invoiceDate || record.createdDate;
+      return isWithinPeriodMode(recordDate);
+    });
+
+    setFilteredRecords(periodFiltered);
+  };
+
   const fetchFinancialYears = async () => {
     try {
       const response = await apiGet(API_ENDPOINTS.YEARS.LIST);
@@ -352,13 +263,6 @@ const PurchaseManagement = () => {
       console.error("Financial years API fetch error:", error);
       setFinancialYears([]);
     }
-  };
-
-  const getDateOnly = (value) => {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
   };
 
   const getDefaultFinancialYearRecord = () => {
@@ -383,6 +287,7 @@ const PurchaseManagement = () => {
   const applySelectedFinancialYearFilter = (sourceRecords, selectedYear) => {
     if (!Array.isArray(sourceRecords)) {
       setRecords([]);
+      setFilteredRecords([]);
       updateStatistics([]);
       return;
     }
@@ -390,6 +295,7 @@ const PurchaseManagement = () => {
     if (!selectedYear || selectedYear === "ALL") {
       setRecords(sourceRecords);
       updateStatistics(sourceRecords);
+      applyPeriodFilter(sourceRecords);
       return;
     }
 
@@ -400,6 +306,7 @@ const PurchaseManagement = () => {
     if (!matchedYear?.startDate || !matchedYear?.endDate) {
       setRecords(sourceRecords);
       updateStatistics(sourceRecords);
+      applyPeriodFilter(sourceRecords);
       return;
     }
 
@@ -409,6 +316,7 @@ const PurchaseManagement = () => {
     if (!startDate || !endDate) {
       setRecords(sourceRecords);
       updateStatistics(sourceRecords);
+      applyPeriodFilter(sourceRecords);
       return;
     }
 
@@ -420,6 +328,7 @@ const PurchaseManagement = () => {
 
     setRecords(filteredRecords);
     updateStatistics(filteredRecords);
+    applyPeriodFilter(filteredRecords);
   };
 
   const fetchPurchases = async () => {
@@ -441,6 +350,7 @@ const PurchaseManagement = () => {
       showError("Failed to fetch purchases");
       setAllRecords([]);
       setRecords([]);
+      setFilteredRecords([]);
       updateStatistics([]);
     } finally {
       setLoading(false);
@@ -505,7 +415,7 @@ const PurchaseManagement = () => {
 
   // Prepare data for table (add serial number and formatted dates)
   const prepareTableData = () => {
-    return records.map((record, index) => ({
+    return filteredRecords.map((record, index) => ({
       ...record,
       sn: index + 1,
       invoiceDateFormatted: formatDateForDisplay(record.invoiceDate),
@@ -661,6 +571,20 @@ const PurchaseManagement = () => {
       }
       setEditingRecord(null);
       setShowCreatePurchaseForm(true);
+    } else if (cardKey === "period") {
+      const periodCycle = [
+        "daily",
+        "monthly",
+        "quarterly",
+        "halfYearly",
+        "yearly",
+      ];
+
+      setFinancialPeriodMode((prev) => {
+        const currentIndex = periodCycle.indexOf(prev);
+        if (currentIndex === -1) return "daily";
+        return periodCycle[(currentIndex + 1) % periodCycle.length];
+      });
     } else {
       setActiveCardFilter(cardKey);
     }
@@ -786,6 +710,7 @@ const PurchaseManagement = () => {
     fetchPurchases();
     fetchVendors();
     setActiveCardFilter("total");
+    setFinancialPeriodMode("yearly");
     showInfo("Data refreshed!");
   };
 
@@ -846,6 +771,19 @@ const PurchaseManagement = () => {
     }
   };
 
+  // Get the current period display value
+  const getPeriodDisplayValue = () => {
+    return financialPeriodMode === "daily"
+      ? "Daily"
+      : financialPeriodMode === "monthly"
+        ? "Monthly"
+        : financialPeriodMode === "quarterly"
+          ? "Quarterly"
+          : financialPeriodMode === "halfYearly"
+            ? "Half Yearly"
+            : "Yearly";
+  };
+
   return (
     <>
       <div className="container-fluid">
@@ -865,8 +803,31 @@ const PurchaseManagement = () => {
             const cardClass = `card${cardNumber}`;
             const cardIconBgClass = `card-icon-bg${cardNumber}`;
             const isActive =
-              activeCardFilter === card.key && card.key !== "addNew";
+              activeCardFilter === card.key &&
+              card.key !== "addNew" &&
+              card.key !== "period";
             const isAddNewDisabled = card.key === "addNew" && !canCreate;
+
+            // Determine the value to display
+            let displayValue;
+            if (card.key === "addNew") {
+              displayValue = "+ Add New";
+            } else if (card.key === "period") {
+              displayValue = `${
+                selectedFinancialYear === "ALL"
+                  ? "All Year"
+                  : selectedFinancialYear
+              } • ${getPeriodDisplayValue()}`;
+            } else if (card.key === "totalAmount") {
+              displayValue = `₹ ${parseFloat(
+                statistics[card.key] || 0,
+              ).toLocaleString("en-IN", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`;
+            } else {
+              displayValue = statistics[card.key];
+            }
 
             return (
               <div key={index} className="col-md-6 col-xl-2 mb-4">
@@ -883,7 +844,10 @@ const PurchaseManagement = () => {
                       : "1px solid #dee2e6",
                   }}
                   onMouseEnter={(e) => {
-                    if (card.key === "addNew" && !isAddNewDisabled) {
+                    if (
+                      (card.key === "addNew" && !isAddNewDisabled) ||
+                      card.key === "period"
+                    ) {
                       e.currentTarget.style.transform = "translateY(-5px)";
                       e.currentTarget.style.boxShadow =
                         "0 10px 20px rgba(0,0,0,0.1)";
@@ -915,11 +879,7 @@ const PurchaseManagement = () => {
                         className="mb-0 text-muted fs-6 fw-bold"
                         style={{ marginBottom: "-10px" }}
                       >
-                        {card.key === "addNew"
-                          ? "+ Add New"
-                          : card.key === "totalAmount"
-                            ? `₹ ${parseFloat(statistics[card.key]).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                            : statistics[card.key]}
+                        {displayValue}
                       </h6>
                     </div>
                   </div>
