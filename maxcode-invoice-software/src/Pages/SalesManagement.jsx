@@ -771,11 +771,15 @@ const SalesManagement = () => {
   ];
 
   // Columns with dropdown filter
-  const columnsWithDropdownFilter = ["paymentStatus", "paymentMethod"];
+  const columnsWithDropdownFilter = [
+    "paymentStatus",
+    "paymentMethod",
+    "placeOfSupply",
+  ];
 
-  // Filter options
+  // Filter options - dynamic for placeOfSupply
   const getFilterOptions = () => {
-    return {
+    const options = {
       paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
       paymentMethod: [
         "All",
@@ -787,6 +791,24 @@ const SalesManagement = () => {
         "Cheque",
       ],
     };
+
+    // Dynamic placeOfSupply options from records (client-side) or from dynamicFilterOptions (server-side)
+    if (serverSide && dynamicFilterOptions?.placeOfSupply) {
+      options.placeOfSupply = dynamicFilterOptions.placeOfSupply;
+    } else if (records.length > 0) {
+      const uniquePlaces = [
+        ...new Set(
+          records
+            .map((r) => r.placeOfSupply)
+            .filter((place) => place && place !== ""),
+        ),
+      ].sort();
+      options.placeOfSupply = ["All", ...uniquePlaces];
+    } else {
+      options.placeOfSupply = ["All"];
+    }
+
+    return options;
   };
 
   // Handle card click

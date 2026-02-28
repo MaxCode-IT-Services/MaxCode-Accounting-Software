@@ -78,10 +78,17 @@ export async function handler(event) {
 
         // If value is comma-separated, treat as array
         if (typeof value === "string" && value.includes(",")) {
-          filterQuery[key] = { $in: value.split(",") };
+          filterQuery[key] = {
+            $in: value.split(",").map((v) => v.trim()),
+          };
         } else if (typeof value === "string") {
-          // For string filters, use regex for partial match (case-insensitive)
-          filterQuery[key] = { $regex: value, $options: "i" };
+          // Exact match for dropdown columns
+          if (["status", "placeOfSupply"].includes(key)) {
+            filterQuery[key] = value.trim();
+          } else {
+            // Text search fields
+            filterQuery[key] = { $regex: value.trim(), $options: "i" };
+          }
         } else {
           filterQuery[key] = value;
         }

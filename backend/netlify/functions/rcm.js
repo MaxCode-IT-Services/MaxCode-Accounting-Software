@@ -318,11 +318,11 @@ export async function handler(event) {
 
       // Get distinct values for dynamic filter options
 
-      // Get distinct placeOfSupply values for dynamic filter options
-      const placeOfSupplyValues = await rcmCollection.distinct(
-        "placeOfSupply",
-        { isDeleted: { $ne: true }, placeOfSupply: { $exists: true, $ne: "" } },
-      );
+      // Get distinct GSTIN values for dynamic filter options
+      const gstinValues = await rcmCollection.distinct("gstin", {
+        isDeleted: { $ne: true },
+        gstin: { $exists: true, $ne: "" },
+      });
 
       const paymentStatusValues = await rcmCollection.distinct(
         "paymentStatus",
@@ -400,7 +400,7 @@ export async function handler(event) {
             totalAmount: Number(totalAmount || 0).toFixed(2),
           },
           filterOptions: {
-            placeOfSupply: ["All", ...placeOfSupplyValues.sort()],
+            gstin: ["All", ...gstinValues.sort()],
             paymentStatus: ["All", ...paymentStatusValues.sort()],
             paymentMethod: ["All", ...paymentMethodValues.sort()],
           },

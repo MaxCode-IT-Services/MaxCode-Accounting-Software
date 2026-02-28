@@ -739,11 +739,11 @@ const RcmManagement = () => {
   ];
 
   // Columns with dropdown filter
-  const columnsWithDropdownFilter = ["paymentStatus", "paymentMethod"];
+  const columnsWithDropdownFilter = ["paymentStatus", "paymentMethod", "gstin"];
 
-  // Filter options
+  // Filter options - dynamic for GSTIN
   const getFilterOptions = () => {
-    return {
+    const options = {
       paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
       paymentMethod: [
         "All",
@@ -755,6 +755,22 @@ const RcmManagement = () => {
         "Cheque",
       ],
     };
+
+    // Dynamic GSTIN options from records (client-side) or from dynamicFilterOptions (server-side)
+    if (serverSide && dynamicFilterOptions?.gstin) {
+      options.gstin = dynamicFilterOptions.gstin;
+    } else if (records.length > 0) {
+      const uniqueGstin = [
+        ...new Set(
+          records.map((r) => r.gstin).filter((gstin) => gstin && gstin !== ""),
+        ),
+      ].sort();
+      options.gstin = ["All", ...uniqueGstin];
+    } else {
+      options.gstin = ["All"];
+    }
+
+    return options;
   };
 
   // Handle card click

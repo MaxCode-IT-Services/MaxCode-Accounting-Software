@@ -35,14 +35,18 @@ export async function handler(event) {
       // Save/update user preferences
       const body = JSON.parse(event.body || "{}");
       const {
+        // Existing preferences
         clientManagementServerSide,
         vendorManagementServerSide,
         purchaseManagementServerSide,
         salesManagementServerSide,
-        rcmManagementServerSide, // Added RCM management preference
+        companyExpenseManagementServerSide,
+        rcmManagementServerSide,
+        // New preference for detailed ledger
+        detailedLedgerManagementServerSide,
       } = body;
 
-      // Validate preferences
+      // Validate preferences - check all boolean values
       const invalidPreference = [
         {
           name: "clientManagementServerSide",
@@ -57,7 +61,15 @@ export async function handler(event) {
           value: purchaseManagementServerSide,
         },
         { name: "salesManagementServerSide", value: salesManagementServerSide },
-        { name: "rcmManagementServerSide", value: rcmManagementServerSide }, // Added validation
+        {
+          name: "companyExpenseManagementServerSide",
+          value: companyExpenseManagementServerSide,
+        },
+        { name: "rcmManagementServerSide", value: rcmManagementServerSide },
+        {
+          name: "detailedLedgerManagementServerSide",
+          value: detailedLedgerManagementServerSide,
+        },
       ].some(
         ({ name, value }) => value !== undefined && typeof value !== "boolean",
       );
@@ -73,20 +85,36 @@ export async function handler(event) {
         );
       }
 
+      // Build update object with only provided fields
       const updateFields = {};
+
+      // Add existing preferences if provided
       if (clientManagementServerSide !== undefined)
         updateFields.clientManagementServerSide = clientManagementServerSide;
+
       if (vendorManagementServerSide !== undefined)
         updateFields.vendorManagementServerSide = vendorManagementServerSide;
+
       if (purchaseManagementServerSide !== undefined)
         updateFields.purchaseManagementServerSide =
           purchaseManagementServerSide;
+
       if (salesManagementServerSide !== undefined)
         updateFields.salesManagementServerSide = salesManagementServerSide;
+
+      if (companyExpenseManagementServerSide !== undefined)
+        updateFields.companyExpenseManagementServerSide =
+          companyExpenseManagementServerSide;
+
       if (rcmManagementServerSide !== undefined)
-        // Added RCM preference
         updateFields.rcmManagementServerSide = rcmManagementServerSide;
 
+      // Add new detailed ledger preference if provided
+      if (detailedLedgerManagementServerSide !== undefined)
+        updateFields.detailedLedgerManagementServerSide =
+          detailedLedgerManagementServerSide;
+
+      // Check if any valid preference was provided
       if (Object.keys(updateFields).length === 0) {
         return createResponse(
           400,
@@ -95,18 +123,52 @@ export async function handler(event) {
         );
       }
 
+      // Add timestamps
+      updateFields.updatedAt = new Date();
+
+      // Update or insert user preferences
       await preferencesCollection.updateOne(
         { userId },
-        { $set: updateFields },
+        {
+          $set: updateFields,
+          $setOnInsert: {
+            createdAt: new Date(),
+            userId,
+          },
+        },
         { upsert: true },
       );
 
-      return createResponse(200, { message: "Preference updated" }, origin);
+      return createResponse(
+        200,
+        {
+          message: "Preference updated successfully",
+          updated: updateFields,
+        },
+        origin,
+      );
     }
 
     return createResponse(405, { error: "Method not allowed" }, origin);
   } catch (error) {
     console.error("User Preferences API Error:", error);
-    return createResponse(500, { error: error.message }, origin);
+
+    // Handle JSON parse errors
+    if (error instanceof SyntaxError) {
+      return createResponse(
+        400,
+        { error: "Invalid JSON in request body" },
+        origin,
+      );
+    }
+
+    return createResponse(
+      500,
+      {
+        error: "Internal server error",
+        message: error.message,
+      },
+      origin,
+    );
   }
 }
