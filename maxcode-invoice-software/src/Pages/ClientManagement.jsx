@@ -76,6 +76,7 @@ const ClientManagement = () => {
   // Debounce refs
   const debounceTimeoutRef = useRef(null);
   const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Statistics state
   const [statistics, setStatistics] = useState({
@@ -86,8 +87,20 @@ const ClientManagement = () => {
     withoutGST: 0,
   });
 
+  // Columns with date range filter (move above fetchClients)
+  const columnsWithDateFilter = ["createdDateTime"];
+
   // Fetch clients from API with server-side parameters
   const fetchClients = async () => {
+    // 🔥 Cancel previous request if running
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new controller
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     if (prefLoading) return;
     setLoading(true);
     try {
@@ -159,7 +172,9 @@ const ClientManagement = () => {
         url = `${url}?${params.toString()}`;
       }
 
-      const response = await apiGet(url);
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
 
       let clientsData;
       let total;
@@ -208,6 +223,10 @@ const ClientManagement = () => {
         updateStatistics(mappedData);
       }
     } catch (err) {
+      if (err.name === "CanceledError" || err.name === "AbortError") {
+        return;
+      }
+
       console.error("Failed to fetch clients:", err);
       showError("Failed to fetch clients");
       setRecords([]);
@@ -231,58 +250,20 @@ const ClientManagement = () => {
     setStatistics(stats);
   };
 
-  // Debounced fetch for server-side mode
-  useEffect(() => {
-    if (prefLoading) return;
-    if (serverSide) {
-      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
-      debounceTimeoutRef.current = setTimeout(() => {
-        fetchClients();
-      }, 500); // 500ms debounce
-      return () => clearTimeout(debounceTimeoutRef.current);
-    }
-  }, [
-    currentPage,
-    recordsPerPage,
-    searchTerm,
-    filters,
-    sortField,
-    sortDirection,
-    activeCardFilter,
-    serverSide,
-    prefLoading,
-  ]);
-
-  // Fetch for client-side mode and on serverSide toggle
-  useEffect(() => {
-    if (prefLoading) return;
-    if (!serverSide) {
-      fetchClients();
-    }
-  }, [
-    currentPage,
-    recordsPerPage,
-    searchTerm,
-    filters,
-    sortField,
-    sortDirection,
-    activeCardFilter,
-    serverSide,
-    prefLoading,
-  ]);
-
-  // Initial fetch only after prefLoading is false
+  // Debounced fetch for server-side mode, Fetch for client-side mode and on serverSide toggle, Initial fetch only after prefLoading is false
   useEffect(() => {
     if (prefLoading) return;
 
-    const timer = setTimeout(
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+    debounceTimeoutRef.current = setTimeout(
       () => {
         fetchClients();
       },
       serverSide ? 500 : 0,
-    ); // debounce only in server mode
+    );
 
-    return () => clearTimeout(timer);
+    return () => clearTimeout(debounceTimeoutRef.current);
   }, [
     serverSide,
     currentPage,
@@ -370,23 +351,27 @@ const ClientManagement = () => {
   ];
 
   // Prepare data for table
-  const prepareTableData = () => {
+  const preparedData = useMemo(() => {
     return records.map((record, index) => ({
       ...record,
       sn: (currentPage - 1) * recordsPerPage + index + 1,
       createdDateTime:
         record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
-      createdDateFilter: record.createdDate,
     }));
-  };
+  }, [records, currentPage, recordsPerPage]);
 
   // Client-side per-column filtering logic (useMemo)
   const columnFilters = filters; // For clarity
   const filteredClientSideData = useMemo(() => {
-    if (serverSide)
-      return prepareTableData().filter((r) => r.isDeleted !== true);
-    let data = prepareTableData().filter((r) => r.isDeleted !== true);
-    Object.entries(columnFilters).forEach(([key, value]) => {
+    // 🔥 If server-side → don't re-process
+    if (serverSide) {
+      return preparedData.filter((r) => !r.isDeleted);
+    }
+
+    // Client-side processing
+    let data = preparedData.filter((r) => r.isDeleted !== true);
+
+    Object.entries(filters).forEach(([key, value]) => {
       if (value && typeof value === "string" && value.trim() !== "") {
         data = data.filter((row) =>
           (row[key] || "")
@@ -396,8 +381,9 @@ const ClientManagement = () => {
         );
       }
     });
+
     return data;
-  }, [records, currentPage, recordsPerPage, columnFilters, serverSide]);
+  }, [preparedData, filters, serverSide]);
 
   // Debounced per-column filter change handler for server-side
   const handleDebouncedColumnFilterChange = (key, value) => {
@@ -476,9 +462,6 @@ const ClientManagement = () => {
 
   // Columns with dropdown filter
   const columnsWithDropdownFilter = ["status", "gstStatus", "placeOfSupply"];
-
-  // Columns with date range filter
-  const columnsWithDateFilter = ["createdDateTime"];
 
   // Filter options - FIXED: Now dynamic based on actual data
   const getFilterOptions = () => {
@@ -794,6 +777,7 @@ const ClientManagement = () => {
           onPageChange={setCurrentPage}
           onRecordsPerPageChange={setRecordsPerPage}
           onColumnFilterChange={handleDebouncedColumnFilterChange}
+          exportApi={API_ENDPOINTS.CLIENTS.LIST}
         />
 
         {/* Create/Edit Client Modal */}

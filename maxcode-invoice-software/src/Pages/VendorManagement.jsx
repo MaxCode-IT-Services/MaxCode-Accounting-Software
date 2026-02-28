@@ -20,6 +20,43 @@ const VendorManagement = () => {
   const [prefLoading, setPrefLoading] = useState(true);
   const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
 
+  // State for records and loading
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [showCreateVendorForm, setShowCreateVendorForm] = useState(false);
+  const [editingRecord, setEditingRecord] = useState(null);
+  const [activeCardFilter, setActiveCardFilter] = useState("total");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [vendorToDelete, setVendorToDelete] = useState(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+
+  // Filter state for server-side
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
+
+  // Debounce refs
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
+
+  // Statistics state
+  const [statistics, setStatistics] = useState({
+    total: 0,
+    active: 0,
+    inactive: 0,
+    withGST: 0,
+    withoutGST: 0,
+  });
+
+  // Columns with date range filter
+  const columnsWithDateFilter = ["createdDateTime"];
+
   // Fetch user preference on mount
   useEffect(() => {
     document.title = "Vendor Management | MaxCode IT Services";
@@ -53,41 +90,17 @@ const VendorManagement = () => {
     savePreference();
   }, [serverSide, prefLoading]);
 
-  // State for records and loading
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [totalRecords, setTotalRecords] = useState(0);
-  const [showCreateVendorForm, setShowCreateVendorForm] = useState(false);
-  const [editingRecord, setEditingRecord] = useState(null);
-  const [activeCardFilter, setActiveCardFilter] = useState("total");
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [vendorToDelete, setVendorToDelete] = useState(null);
-
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [recordsPerPage, setRecordsPerPage] = useState(10);
-
-  // Filter state for server-side
-  const [filters, setFilters] = useState({});
-  const [searchTerm, setSearchTerm] = useState("");
-  const [sortField, setSortField] = useState(null);
-  const [sortDirection, setSortDirection] = useState("normal");
-
-  // Debounce refs
-  const debounceTimeoutRef = useRef(null);
-  const debounceColumnTimeoutRef = useRef(null);
-
-  // Statistics state
-  const [statistics, setStatistics] = useState({
-    total: 0,
-    active: 0,
-    inactive: 0,
-    withGST: 0,
-    withoutGST: 0,
-  });
-
   // Fetch vendors from API with server-side parameters
   const fetchVendors = async () => {
+    // 🔥 Cancel previous request if running
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new controller
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     if (prefLoading) return;
     setLoading(true);
     try {
@@ -159,7 +172,9 @@ const VendorManagement = () => {
         url = `${url}?${params.toString()}`;
       }
 
-      const response = await apiGet(url);
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
 
       let vendorsData;
       let total;
@@ -210,6 +225,10 @@ const VendorManagement = () => {
         updateStatistics(mappedData);
       }
     } catch (err) {
+      if (err.name === "CanceledError" || err.name === "AbortError") {
+        return;
+      }
+
       console.error("Failed to fetch vendors:", err);
       showError("Failed to fetch vendors");
       setRecords([]);
@@ -233,58 +252,20 @@ const VendorManagement = () => {
     setStatistics(stats);
   };
 
-  // Debounced fetch for server-side mode
-  useEffect(() => {
-    if (prefLoading) return;
-    if (serverSide) {
-      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
-      debounceTimeoutRef.current = setTimeout(() => {
-        fetchVendors();
-      }, 500); // 500ms debounce
-      return () => clearTimeout(debounceTimeoutRef.current);
-    }
-  }, [
-    currentPage,
-    recordsPerPage,
-    searchTerm,
-    filters,
-    sortField,
-    sortDirection,
-    activeCardFilter,
-    serverSide,
-    prefLoading,
-  ]);
-
-  // Fetch for client-side mode and on serverSide toggle
-  useEffect(() => {
-    if (prefLoading) return;
-    if (!serverSide) {
-      fetchVendors();
-    }
-  }, [
-    currentPage,
-    recordsPerPage,
-    searchTerm,
-    filters,
-    sortField,
-    sortDirection,
-    activeCardFilter,
-    serverSide,
-    prefLoading,
-  ]);
-
-  // Initial fetch only after prefLoading is false
+  // Debounced fetch for server-side mode, Fetch for client-side mode and on serverSide toggle, Initial fetch only after prefLoading is false
   useEffect(() => {
     if (prefLoading) return;
 
-    const timer = setTimeout(
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+    debounceTimeoutRef.current = setTimeout(
       () => {
         fetchVendors();
       },
       serverSide ? 500 : 0,
-    ); // debounce only in server mode
+    );
 
-    return () => clearTimeout(timer);
+    return () => clearTimeout(debounceTimeoutRef.current);
   }, [
     serverSide,
     currentPage,
@@ -372,23 +353,26 @@ const VendorManagement = () => {
   ];
 
   // Prepare data for table
-  const prepareTableData = () => {
+  const preparedData = useMemo(() => {
     return records.map((record, index) => ({
       ...record,
       sn: (currentPage - 1) * recordsPerPage + index + 1,
       createdDateTime:
         record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
-      createdDateFilter: record.createdDate,
     }));
-  };
+  }, [records, currentPage, recordsPerPage]);
 
   // Client-side per-column filtering logic (useMemo)
-  const columnFilters = filters;
   const filteredClientSideData = useMemo(() => {
-    if (serverSide)
-      return prepareTableData().filter((r) => r.isDeleted !== true);
-    let data = prepareTableData().filter((r) => r.isDeleted !== true);
-    Object.entries(columnFilters).forEach(([key, value]) => {
+    // 🔥 If server-side → don't re-process
+    if (serverSide) {
+      return preparedData.filter((r) => !r.isDeleted);
+    }
+
+    // Client-side processing
+    let data = preparedData.filter((r) => r.isDeleted !== true);
+
+    Object.entries(filters).forEach(([key, value]) => {
       if (value && typeof value === "string" && value.trim() !== "") {
         data = data.filter((row) =>
           (row[key] || "")
@@ -398,8 +382,9 @@ const VendorManagement = () => {
         );
       }
     });
+
     return data;
-  }, [records, currentPage, recordsPerPage, columnFilters, serverSide]);
+  }, [preparedData, filters, serverSide]);
 
   // Debounced per-column filter change handler for server-side
   const handleDebouncedColumnFilterChange = (key, value) => {
@@ -409,7 +394,7 @@ const VendorManagement = () => {
       debounceColumnTimeoutRef.current = setTimeout(() => {
         setFilters((prev) => ({ ...prev, [key]: value }));
         setCurrentPage(1);
-      }, 500);
+      }, 500); // 500ms debounce
     } else {
       setFilters((prev) => ({ ...prev, [key]: value }));
     }
@@ -466,9 +451,6 @@ const VendorManagement = () => {
 
   // Columns with dropdown filter
   const columnsWithDropdownFilter = ["status", "gstStatus", "placeOfSupply"];
-
-  // Columns with date range filter
-  const columnsWithDateFilter = ["createdDateTime"];
 
   // Filter options - Dynamic based on actual data
   const getFilterOptions = () => {
@@ -784,6 +766,7 @@ const VendorManagement = () => {
           onPageChange={setCurrentPage}
           onRecordsPerPageChange={setRecordsPerPage}
           onColumnFilterChange={handleDebouncedColumnFilterChange}
+          exportApi={API_ENDPOINTS.VENDORS.LIST}
         />
 
         {/* Create/Edit Vendor Modal */}

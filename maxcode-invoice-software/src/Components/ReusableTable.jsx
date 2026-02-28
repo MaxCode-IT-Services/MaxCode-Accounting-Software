@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import ColumnSelectorOffcanvas from "./ColumnSelectorOffcanvas";
 import AdvancedFilterOffcanvas from "./AdvancedFilterOffcanvas";
 import ConfirmationModal from "./ConfirmationModal";
+
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -10,6 +11,29 @@ import { hasActionPermission } from "../utils/permissions";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 dayjs.extend(customParseFormat);
+
+// Helper: fetch all filtered data for export (server-side)
+async function fetchAllServerDataForExport({
+  exportApi,
+  filterParams,
+  onExportStart,
+  onExportEnd,
+}) {
+  try {
+    if (onExportStart) onExportStart();
+    // You may need to adjust this API call as per your backend
+    const params = new URLSearchParams({ ...filterParams, export: 1 });
+    const res = await fetch(`${exportApi}?${params.toString()}`);
+    if (!res.ok) throw new Error("Export data fetch failed");
+    const json = await res.json();
+    if (onExportEnd) onExportEnd();
+    return json.data || json || [];
+  } catch (err) {
+    if (onExportEnd) onExportEnd();
+    showError("Failed to fetch all data for export");
+    throw err;
+  }
+}
 
 const ReusableTable = ({
   onColumnFilterChange,
@@ -639,10 +663,8 @@ const ReusableTable = ({
   // Handle column filter change
   const handleColumnFilterChange = (key, value, e) => {
     if (e) e.stopPropagation();
-    console.log("[handleColumnFilterChange] key:", key, "value:", value);
     setColumnFilters((prev) => {
       const updated = { ...prev, [key]: value };
-      console.log("[handleColumnFilterChange] new columnFilters:", updated);
       return updated;
     });
     if (onColumnFilterChange) {
@@ -1517,19 +1539,26 @@ const ReusableTable = ({
     return `${day}-${month}-${year} | ${formattedHours}.${minutes}.${seconds} ${ampm}`;
   };
 
-  // Export to PDF
-  const exportToPDF = () => {
+  // Export to PDF (supports server-side export)
+  const exportToPDF = async () => {
     try {
+      let exportRows = filteredData;
+      if (serverSide && typeof exportApi === "string") {
+        // Build filter params for export
+        const filterParams = buildServerFilterParams();
+        exportRows = await fetchAllServerDataForExport({
+          exportApi,
+          filterParams,
+        });
+      }
       const visibleColumnKeys = getOrderedColumns()
         .filter((col) => visibleColumns[col.key])
         .map((col) => col.key);
-
       const columnLabels = visibleColumnKeys.map((key) => {
         const column = tableColumns.find((col) => col.key === key);
         return column ? column.label : formatColumnName(key);
       });
-
-      const exportData = filteredData.map((record, index) => {
+      const exportData = exportRows.map((record, index) => {
         return visibleColumnKeys.map((key) => {
           if (key === "sn") {
             return (index + 1).toString();
@@ -1541,17 +1570,14 @@ const ReusableTable = ({
           return typeof value === "string" ? value : String(value);
         });
       });
-
       const doc = new jsPDF({
         orientation: visibleColumnKeys.length > 6 ? "landscape" : "portrait",
         unit: "mm",
         format: "a4",
       });
-
       const now = new Date();
       const formattedDate = formatDateTime(now.toISOString());
       const pageWidth = doc.internal.pageSize.getWidth();
-
       doc.setFontSize(18);
       doc.setFont("helvetica", "bold");
       const title = exportTitle;
@@ -1560,20 +1586,16 @@ const ReusableTable = ({
         doc.internal.scaleFactor;
       const titleX = (pageWidth - titleWidth) / 2;
       doc.text(title, titleX, 12);
-
       doc.setDrawColor(255, 204, 0);
       doc.setLineWidth(1);
       doc.line(8, 17, pageWidth - 8, 17);
-
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       doc.text(`Generated on: ${formattedDate}`, 8, 25);
-      doc.text(`Total Records: ${filteredData.length}`, pageWidth - 8, 25, {
+      doc.text(`Total Records: ${exportRows.length}`, pageWidth - 8, 25, {
         align: "right",
       });
-
       const dynamicFontSize = 8;
-
       autoTable(doc, {
         head: [columnLabels],
         body: exportData,
@@ -1607,23 +1629,28 @@ const ReusableTable = ({
         pageBreak: "auto",
         theme: "grid",
       });
-
       doc.save(`${exportFileName}_${now.toISOString().slice(0, 10)}.pdf`);
       showSuccess("PDF exported successfully!");
     } catch (error) {
-      console.error("PDF Export Error:", error);
       showError(`Failed to export PDF: ${error.message}`);
     }
   };
 
-  // Export to Excel
-  const exportToExcel = () => {
+  // Export to Excel (supports server-side export)
+  const exportToExcel = async () => {
     try {
+      let exportRows = filteredData;
+      if (serverSide && typeof exportApi === "string") {
+        const filterParams = buildServerFilterParams();
+        exportRows = await fetchAllServerDataForExport({
+          exportApi,
+          filterParams,
+        });
+      }
       const visibleColumnKeys = getOrderedColumns()
         .filter((col) => visibleColumns[col.key])
         .map((col) => col.key);
-
-      const exportData = filteredData.map((record, index) => {
+      const exportData = exportRows.map((record, index) => {
         const row = {};
         visibleColumnKeys.forEach((key) => {
           const columnName = formatColumnName(key);
@@ -1637,11 +1664,8 @@ const ReusableTable = ({
         });
         return row;
       });
-
       const ws = XLSX.utils.json_to_sheet(exportData);
-
       if (!ws["!cols"]) ws["!cols"] = [];
-
       visibleColumnKeys.forEach((key, index) => {
         const colLetter = XLSX.utils.encode_col(index);
         const columnConfig = tableColumns.find((col) => col.key === key);
@@ -1655,10 +1679,8 @@ const ReusableTable = ({
           alignment: { horizontal: "center" },
         };
       });
-
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-
       XLSX.writeFile(
         wb,
         `${exportFileName}_${new Date().toISOString().slice(0, 10)}.xlsx`,
@@ -1669,14 +1691,21 @@ const ReusableTable = ({
     }
   };
 
-  // Export to JSON
-  const exportToJSON = () => {
+  // Export to JSON (supports server-side export)
+  const exportToJSON = async () => {
     try {
+      let exportRows = filteredData;
+      if (serverSide && typeof exportApi === "string") {
+        const filterParams = buildServerFilterParams();
+        exportRows = await fetchAllServerDataForExport({
+          exportApi,
+          filterParams,
+        });
+      }
       const visibleColumnKeys = getOrderedColumns()
         .filter((col) => visibleColumns[col.key])
         .map((col) => col.key);
-
-      const exportData = filteredData.map((record, index) => {
+      const exportData = exportRows.map((record, index) => {
         const row = {};
         visibleColumnKeys.forEach((key) => {
           if (key === "sn") {
@@ -1689,11 +1718,9 @@ const ReusableTable = ({
         });
         return row;
       });
-
       const json = JSON.stringify(exportData, null, 2);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
-
       const a = document.createElement("a");
       a.href = url;
       a.download = `${exportFileName}_${new Date().toISOString().slice(0, 10)}.json`;
@@ -1701,28 +1728,59 @@ const ReusableTable = ({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
       showSuccess("JSON exported successfully!");
     } catch (error) {
       showError(`Failed to export JSON: ${error.message}`);
     }
   };
 
+  // Helper: build filter params for server-side export
+  function buildServerFilterParams() {
+    const filterParams = {};
+    Object.entries(columnFilters).forEach(([key, value]) => {
+      if (columnsWithDropdownFilter.includes(key)) {
+        if (value && !value.includes("All") && value.length > 0) {
+          filterParams[key] = Array.isArray(value) ? value.join(",") : value;
+        }
+      } else {
+        if (value && value.trim() !== "") {
+          filterParams[key] = value;
+        }
+      }
+    });
+    Object.entries(dateFilters || {}).forEach(([key, range]) => {
+      if (range.startDate) {
+        filterParams[`${key}_start`] = range.startDate.split("T")[0];
+      }
+      if (range.endDate) {
+        filterParams[`${key}_end`] = range.endDate.split("T")[0];
+      }
+    });
+    if (
+      activeCardFilter &&
+      activeCardFilter !== "total" &&
+      activeCardFilter !== "addNew"
+    ) {
+      filterParams.filter = activeCardFilter;
+    }
+    return filterParams;
+  }
+
   // Handle export
-  const handleExport = (type) => {
+  const handleExport = async (type) => {
     if (!canExport) {
       showError("You don't have export permission for this module");
       return;
     }
     switch (type) {
       case "PDF":
-        exportToPDF();
+        await exportToPDF();
         break;
       case "Excel":
-        exportToExcel();
+        await exportToExcel();
         break;
       case "JSON":
-        exportToJSON();
+        await exportToJSON();
         break;
       default:
         showError(`Export type ${type} not supported`);
