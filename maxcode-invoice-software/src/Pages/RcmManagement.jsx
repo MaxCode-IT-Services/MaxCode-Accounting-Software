@@ -739,10 +739,7 @@ const RcmManagement = () => {
   ];
 
   // Columns with dropdown filter
-  const columnsWithDropdownFilter = [
-    "paymentStatus",
-    "paymentMethod",
-  ];
+  const columnsWithDropdownFilter = ["paymentStatus", "paymentMethod"];
 
   // Filter options
   const getFilterOptions = () => {
