@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateRcm from "../Components/CreateRcm";
 import SelfInvoicePreview from "../Components/SelfInvoicePreview";
@@ -8,7 +8,7 @@ import {
   showInfo,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
+import { apiGet, apiDelete, apiPut, apiPost } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 import {
   exportItemWiseExcel,
@@ -19,24 +19,58 @@ const RcmManagement = () => {
   const moduleKey = "rcmManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
+  // Server-side mode state, fetched from backend user preferences
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
+
+  // Fetch user preference on mount
   useEffect(() => {
     document.title = "RCM Management | MaxCode IT Services";
+    const fetchPreference = async () => {
+      try {
+        const res = await apiGet("/user-preferences");
+        if (typeof res.data?.rcmManagementServerSide === "boolean") {
+          setServerSide(res.data.rcmManagementServerSide);
+        }
+      } catch (e) {
+        // fallback: do nothing, keep default
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+    fetchPreference();
   }, []);
 
-  const [allRecords, setAllRecords] = useState([]);
+  // Save preference to backend when toggled
+  useEffect(() => {
+    if (prefLoading) return;
+    const savePreference = async () => {
+      try {
+        await apiPost("/user-preferences", {
+          rcmManagementServerSide: serverSide,
+        });
+      } catch (e) {
+        // ignore
+      }
+    };
+    savePreference();
+  }, [serverSide, prefLoading]);
+
+  // State for records and loading
   const [records, setRecords] = useState([]);
   const [financialYears, setFinancialYears] = useState([]);
   const [selectedFinancialYear, setSelectedFinancialYear] = useState(
     localStorage.getItem("selectedFinancialYear") || "ALL",
   );
-  const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly"); // Add this state
+  const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly");
   const [loading, setLoading] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [showCreateRcmForm, setShowCreateRcmForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showSelfInvoicePreview, setShowSelfInvoicePreview] = useState(false);
   const [previewRecord, setPreviewRecord] = useState(null);
-  const [filteredRecords, setFilteredRecords] = useState([]);
   const [exportingInvoices, setExportingInvoices] = useState(false);
   const [businessSettings, setBusinessSettings] = useState({
     companyName: "",
@@ -52,6 +86,22 @@ const RcmManagement = () => {
     website: "",
   });
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+
+  // Filter state for server-side
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
+
+  // Debounce refs
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
+
+  // Statistics state
   const [statistics, setStatistics] = useState({
     total: 0,
     paid: 0,
@@ -60,36 +110,47 @@ const RcmManagement = () => {
     totalAmount: 0,
   });
 
-  // Updated cards array - replaced "Total RCM" with Financial Period card
+  // Columns with date range filter
+  const columnsWithDateFilter = [
+    "createdDateTime",
+    "invoiceDateFormatted",
+    "paymentDateFormatted",
+  ];
+
+  // Cards array
   const cards = [
     {
       icon: "fas fa-rupee-sign",
       title: "Total Amount",
       key: "totalAmount",
       color: "info",
+      count: statistics.totalAmount,
     },
     {
       icon: "fas fa-check-circle",
       title: "Paid",
       key: "paid",
       color: "success",
+      count: statistics.paid,
     },
     {
       icon: "fa-solid fa-times-circle",
       title: "Unpaid",
       key: "unpaid",
       color: "danger",
+      count: statistics.unpaid,
     },
     {
       icon: "fas fa-hourglass-half",
       title: "Partial",
       key: "partial",
       color: "warning",
+      count: statistics.partial,
     },
     {
-      icon: "fa-regular fa-calendar-days", // Changed icon to calendar
-      title: "Financial Period", // Changed title
-      key: "period", // Changed key to "period"
+      icon: "fa-regular fa-calendar-days",
+      title: "Financial Period",
+      key: "period",
       color: "warning",
     },
     {
@@ -99,180 +160,6 @@ const RcmManagement = () => {
       color: "success",
     },
   ];
-
-  const toNumber = (value) => {
-    const num = parseFloat(value);
-    return Number.isNaN(num) ? 0 : num;
-  };
-
-  const formatDateForDisplay = (dateString) => {
-    if (!dateString) return "";
-
-    try {
-      const date = new Date(dateString);
-      if (!isNaN(date.getTime())) {
-        const day = String(date.getDate()).padStart(2, "0");
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const year = date.getFullYear();
-        return `${day}/${month}/${year}`;
-      }
-      return dateString;
-    } catch (e) {
-      return dateString;
-    }
-  };
-
-  const formatDateTimeForDisplay = (dateString) => {
-    if (!dateString) return "";
-
-    try {
-      const date = new Date(dateString);
-      if (!isNaN(date.getTime())) {
-        const day = String(date.getDate()).padStart(2, "0");
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const year = date.getFullYear();
-
-        let hours = date.getHours();
-        const minutes = String(date.getMinutes()).padStart(2, "0");
-        const seconds = String(date.getSeconds()).padStart(2, "0");
-        const ampm = hours >= 12 ? "PM" : "AM";
-
-        hours = hours % 12;
-        hours = hours ? hours : 12;
-        const formattedHours = String(hours).padStart(2, "0");
-
-        return `${day}/${month}/${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
-      }
-
-      return dateString;
-    } catch (e) {
-      return dateString;
-    }
-  };
-
-  // Keep dummy data for now, but in production this will be replaced with actual API data
-  const dummyRcmData = [
-    {
-      id: 1,
-      selfInvoiceNumber: "RCM001",
-      invoiceDate: "2024-01-15",
-      originalRefNo: "ORIG-001",
-      serviceProviderBusinessName: "Tech Solutions Pvt Ltd",
-      gstin: "08ABCDE1234F1Z5",
-      noGSTIN: false,
-      address: "123 Business Park, Sitapura, Jaipur - 302022",
-      placeOfSupply: "Rajasthan (08)",
-      roundingAmount: "0",
-      items: [
-        {
-          id: 1,
-          itemName: "Consulting Service",
-          itemDescription: "Monthly IT consulting",
-          hsnCode: "998313",
-          qty: 1,
-          price: 30000,
-          amount: 30000,
-        },
-      ],
-      taxData: {
-        subtotal: 30000,
-        taxPercentage: 18,
-        cgst: 0,
-        sgst: 0,
-        igst: 5400,
-        totalAmount: 35400,
-      },
-      paymentStatus: "Paid",
-      paymentMethod: "Bank Transfer",
-      paymentDate: "2024-01-20",
-      paidAmount: "35400",
-      tdsPercent: "2",
-      tdsAmount: "708",
-      createdDate: "2024-01-15T10:30:00",
-      createdDateTime: "15/01/2024 | 10:30:00 AM",
-    },
-    {
-      id: 2,
-      selfInvoiceNumber: "RCM002",
-      invoiceDate: "2024-02-10",
-      originalRefNo: "ORIG-002",
-      serviceProviderBusinessName: "Bright Network Pvt Ltd",
-      gstin: "27FGHIJ5678K2Z9",
-      noGSTIN: false,
-      address: "456, Park Avenue, Mumbai - 400001",
-      placeOfSupply: "Rajasthan (08)",
-      roundingAmount: "-0.50",
-      items: [
-        {
-          id: 1,
-          itemName: "Network Maintenance",
-          itemDescription: "Quarterly support",
-          hsnCode: "998316",
-          qty: 2,
-          price: 12000,
-          amount: 24000,
-        },
-      ],
-      taxData: {
-        subtotal: 24000,
-        taxPercentage: 18,
-        cgst: 0,
-        sgst: 0,
-        igst: 4320,
-        totalAmount: 28319.5,
-      },
-      paymentStatus: "Paid",
-      paymentMethod: "",
-      paymentDate: "",
-      paidAmount: "",
-      tdsPercent: "0",
-      tdsAmount: "0",
-      createdDate: "2024-02-10T14:45:00",
-      createdDateTime: "10/02/2024 | 02:45:00 PM",
-    },
-  ];
-
-  useEffect(() => {
-    setAllRecords(dummyRcmData);
-    setRecords(dummyRcmData);
-    updateStatistics(dummyRcmData);
-
-    fetchFinancialYears();
-    fetchRcm();
-    fetchBusinessSettings();
-
-    const handleFinancialYearSelectionChanged = (event) => {
-      const selectedYear =
-        event?.detail?.selectedFinancialYear ||
-        localStorage.getItem("selectedFinancialYear") ||
-        "ALL";
-      setSelectedFinancialYear(selectedYear);
-    };
-
-    window.addEventListener(
-      "financialYearSelectionChanged",
-      handleFinancialYearSelectionChanged,
-    );
-
-    return () => {
-      window.removeEventListener(
-        "financialYearSelectionChanged",
-        handleFinancialYearSelectionChanged,
-      );
-    };
-  }, []);
-
-  useEffect(() => {
-    applySelectedFinancialYearFilter(allRecords, selectedFinancialYear);
-  }, [allRecords, selectedFinancialYear, financialYears]);
-
-  // Add this useEffect from PurchaseManagement
-  useEffect(() => {
-    // Apply period filter when financialPeriodMode changes
-    if (records.length > 0) {
-      applyPeriodFilter(records);
-    }
-  }, [financialPeriodMode]);
 
   const fetchFinancialYears = async () => {
     try {
@@ -296,6 +183,7 @@ const RcmManagement = () => {
     }
   };
 
+  // Fetch business settings
   const fetchBusinessSettings = async () => {
     const cached = localStorage.getItem("business_settings");
 
@@ -326,201 +214,224 @@ const RcmManagement = () => {
     }
   };
 
+  // Listen for financial year changes
   useEffect(() => {
-    if (!showSelfInvoicePreview || !previewRecord) return;
+    const handleFinancialYearSelectionChanged = (event) => {
+      const selectedYear =
+        event?.detail?.selectedFinancialYear ||
+        localStorage.getItem("selectedFinancialYear") ||
+        "ALL";
+      setSelectedFinancialYear(selectedYear);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
+    };
 
-    const previewId = previewRecord._id || previewRecord.id;
-    if (!previewId) return;
-
-    const latestRecord = allRecords.find(
-      (record) => (record._id || record.id) === previewId,
+    window.addEventListener(
+      "financialYearSelectionChanged",
+      handleFinancialYearSelectionChanged,
     );
 
-    if (latestRecord) {
-      setPreviewRecord(latestRecord);
-    }
-  }, [allRecords, showSelfInvoicePreview, previewRecord]);
-
-  const getDateOnly = (value) => {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  };
-
-  // Add this function from PurchaseManagement
-  const isWithinPeriodMode = (dateValue) => {
-    const dateOnly = getDateOnly(dateValue);
-    const today = getDateOnly(new Date());
-
-    if (!dateOnly || !today) return false;
-
-    if (financialPeriodMode === "daily") {
-      return dateOnly.getTime() === today.getTime();
-    }
-
-    if (financialPeriodMode === "monthly") {
-      return (
-        dateOnly.getFullYear() === today.getFullYear() &&
-        dateOnly.getMonth() === today.getMonth()
+    return () => {
+      window.removeEventListener(
+        "financialYearSelectionChanged",
+        handleFinancialYearSelectionChanged,
       );
-    }
+    };
+  }, [serverSide]);
 
-    if (financialPeriodMode === "quarterly") {
-      const getQuarter = (date) => Math.floor(date.getMonth() / 3) + 1;
-      return (
-        dateOnly.getFullYear() === today.getFullYear() &&
-        getQuarter(dateOnly) === getQuarter(today)
-      );
-    }
-
-    if (financialPeriodMode === "halfYearly") {
-      const getHalf = (date) => (date.getMonth() < 6 ? 1 : 2);
-      return (
-        dateOnly.getFullYear() === today.getFullYear() &&
-        getHalf(dateOnly) === getHalf(today)
-      );
-    }
-
-    if (financialPeriodMode === "yearly") {
-      return dateOnly.getFullYear() === today.getFullYear();
-    }
-
-    return true;
-  };
-
-  // Add this function from PurchaseManagement
-  const applyPeriodFilter = (sourceRecords) => {
-    if (!Array.isArray(sourceRecords)) {
-      setFilteredRecords([]);
-      return;
-    }
-
-    const periodFiltered = sourceRecords.filter((record) => {
-      const recordDate = record.invoiceDate || record.createdDate;
-      return isWithinPeriodMode(recordDate);
-    });
-
-    setFilteredRecords(periodFiltered);
-  };
-
-  const getDefaultFinancialYearRecord = () => {
-    return financialYears.find((year) => year?.isDefault === true) || null;
-  };
-
-  const isInvoiceDateWithinFinancialYear = (
-    invoiceDate,
-    financialYearRecord,
-  ) => {
-    const invoiceDateOnly = getDateOnly(invoiceDate);
-    const startDate = getDateOnly(financialYearRecord?.startDate);
-    const endDate = getDateOnly(financialYearRecord?.endDate);
-
-    if (!invoiceDateOnly || !startDate || !endDate) {
-      return false;
-    }
-
-    return invoiceDateOnly >= startDate && invoiceDateOnly <= endDate;
-  };
-
-  const applySelectedFinancialYearFilter = (sourceRecords, selectedYear) => {
-    if (!Array.isArray(sourceRecords)) {
-      setRecords([]);
-      setFilteredRecords([]); // Add this line
-      updateStatistics([]);
-      return;
-    }
-
-    if (!selectedYear || selectedYear === "ALL") {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      applyPeriodFilter(sourceRecords); // Add this line
-      return;
-    }
-
-    const matchedYear = financialYears.find(
-      (year) => year.value === selectedYear,
-    );
-
-    if (!matchedYear?.startDate || !matchedYear?.endDate) {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      applyPeriodFilter(sourceRecords); // Add this line
-      return;
-    }
-
-    const startDate = getDateOnly(matchedYear.startDate);
-    const endDate = getDateOnly(matchedYear.endDate);
-
-    if (!startDate || !endDate) {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      applyPeriodFilter(sourceRecords); // Add this line
-      return;
-    }
-
-    const filteredData = sourceRecords.filter((record) => {
-      const invoiceDate = getDateOnly(record.invoiceDate);
-      if (!invoiceDate) return false;
-      return invoiceDate >= startDate && invoiceDate <= endDate;
-    });
-
-    setRecords(filteredData);
-    updateStatistics(filteredData);
-    applyPeriodFilter(filteredData); // Add this line
-  };
-
+  // Fetch RCM from API with server-side parameters
   const fetchRcm = async () => {
+    // Cancel previous request if running
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new controller
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (prefLoading) return;
     setLoading(true);
+
     try {
-      const response = await apiGet(API_ENDPOINTS.RCM.LIST);
-      const rcmData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.records || response.data?.rcm || [];
+      let url = API_ENDPOINTS.RCM.LIST;
+      const params = new URLSearchParams();
 
-      const normalizedRecords = rcmData.map((record) => ({
-        ...record,
-        id: record._id || record.id,
-      }));
+      if (serverSide) {
+        // Add pagination params
+        params.append("page", currentPage);
+        params.append("limit", recordsPerPage);
 
-      setAllRecords(normalizedRecords);
+        // Add search term
+        if (searchTerm) {
+          params.append("search", searchTerm);
+        }
+
+        // Add financial year filter
+        if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+          params.append("financialYear", selectedFinancialYear);
+        }
+
+        // Add period filter
+        if (financialPeriodMode && financialPeriodMode !== "yearly") {
+          params.append("period", financialPeriodMode);
+        }
+
+        // Only send valid filters (skip sn, action, empty, null, undefined, 'All')
+        Object.entries(filters).forEach(([key, value]) => {
+          if (["sn", "action"].includes(key)) return;
+          if (
+            value === undefined ||
+            value === null ||
+            value === "" ||
+            value === "All"
+          )
+            return;
+
+          // Handle date range filters for columnsWithDateFilter
+          if (columnsWithDateFilter.includes(key)) {
+            if (value && typeof value === "object") {
+              if (value.startDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_start`, value.startDate);
+              }
+              if (value.endDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_end`, value.endDate);
+              }
+            }
+          } else {
+            // Only send if not 'All'
+            if (
+              Array.isArray(value) &&
+              value.length > 0 &&
+              !value.includes("All")
+            ) {
+              params.append(key, value.join(","));
+            } else if (!Array.isArray(value) && value !== "All") {
+              params.append(key, value);
+            }
+          }
+        });
+
+        // Add sorting
+        if (sortField && sortDirection !== "normal") {
+          params.append("sortBy", sortField);
+          params.append(
+            "sortOrder",
+            sortDirection === "ascending" ? "asc" : "desc",
+          );
+        }
+
+        // Add card filter
+        if (
+          activeCardFilter &&
+          activeCardFilter !== "total" &&
+          activeCardFilter !== "addNew" &&
+          activeCardFilter !== "period"
+        ) {
+          params.append("filter", activeCardFilter);
+        }
+
+        url = `${url}?${params.toString()}`;
+      }
+
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
+
+      let rcmData;
+      let total;
+
+      if (serverSide) {
+        // Server-side response format with pagination
+        rcmData = response.data?.data || response.data?.rcm || [];
+        total =
+          response.data?.pagination?.totalRecords ||
+          response.data?.total ||
+          rcmData.length;
+
+        // Update statistics from response if available
+        if (response.data?.statistics) {
+          setStatistics(response.data.statistics);
+        }
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
+        }
+      } else {
+        // Client-side response format
+        rcmData =
+          response.data?.data ||
+          response.data?.rcm ||
+          (Array.isArray(response.data) ? response.data : []);
+        total = rcmData.length;
+      }
+
+      const mappedData = rcmData.map((rcm) => {
+        const createdDate = rcm.createdDate || rcm.createdAt;
+
+        return {
+          ...rcm,
+          id: rcm._id || rcm.id,
+          createdDate,
+          invoiceDateFormatted: formatDateForDisplay(rcm.invoiceDate),
+          paymentDateFormatted: rcm.paymentDate
+            ? formatDateForDisplay(rcm.paymentDate)
+            : "-",
+          createdDateTime: formatDateTimeForDisplay(createdDate),
+          totalAmount: rcm.taxData?.totalAmount || 0,
+          roundingAmount: rcm.roundingAmount || 0,
+          itemCount: rcm.items?.length || 0,
+        };
+      });
+
+      setRecords(mappedData);
+      setTotalRecords(total);
+
+      // Update statistics for client-side mode
+      if (!serverSide) {
+        updateStatistics(mappedData);
+      }
     } catch (err) {
+      if (err.name === "CanceledError" || err.name === "AbortError") {
+        return;
+      }
+
+      console.error("Failed to fetch RCM:", err);
       showError("Failed to fetch RCM");
-      setAllRecords([]);
       setRecords([]);
-      setFilteredRecords([]); // Add this line
+      setTotalRecords(0);
       updateStatistics([]);
     } finally {
       setLoading(false);
     }
   };
 
+  // Update statistics (client-side)
   const updateStatistics = (data) => {
-    // Calculate total RCM amount, total paid amount, and unpaid amount
     const totalAmount = data.reduce(
-      (sum, r) => sum + toNumber(r.taxData?.totalAmount || 0),
+      (sum, r) => sum + parseFloat(r.taxData?.totalAmount || 0),
       0,
     );
-    // Paid amount: sum of paid and partial records' paidAmount (if available, else fallback to totalAmount for paid)
+
     const paidAmount = data
       .filter(
         (r) => r.paymentStatus === "Paid" || r.paymentStatus === "Partial",
       )
       .reduce((sum, r) => {
-        // If paidAmount exists, use it, else for Paid use totalAmount, for Partial use half of totalAmount as fallback
-        if (
-          r.paidAmount !== undefined &&
-          r.paidAmount !== null &&
-          r.paidAmount !== ""
-        ) {
-          return sum + toNumber(r.paidAmount || 0);
+        if (r.paidAmount !== undefined && r.paidAmount !== null) {
+          return sum + parseFloat(r.paidAmount || 0);
         } else if (r.paymentStatus === "Paid") {
-          return sum + toNumber(r.taxData?.totalAmount || 0);
+          return sum + parseFloat(r.taxData?.totalAmount || 0);
         } else if (r.paymentStatus === "Partial") {
-          return sum + toNumber(r.taxData?.totalAmount || 0) / 2;
+          return sum + parseFloat(r.taxData?.totalAmount || 0) / 2;
         }
         return sum;
       }, 0);
+
     const unpaidAmount = totalAmount - paidAmount;
 
     const stats = {
@@ -533,27 +444,216 @@ const RcmManagement = () => {
     setStatistics(stats);
   };
 
-  const prepareTableData = () => {
-    return filteredRecords.map((record, index) => ({
-      ...record,
-      sn: index + 1,
-      invoiceDateFormatted: formatDateForDisplay(record.invoiceDate),
-      paymentDateFormatted: record.paymentDate
-        ? formatDateForDisplay(record.paymentDate)
-        : "-",
-      createdDateTime:
-        record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
-      createdDateFilter: record.createdDate,
-      totalAmount: record.taxData?.totalAmount || 0,
-      roundingAmount: record.roundingAmount || 0,
-      itemCount: record.items?.length || 0,
-    }));
+  // Debounced fetch for server-side mode
+  useEffect(() => {
+    if (prefLoading) return;
+
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+    debounceTimeoutRef.current = setTimeout(
+      () => {
+        fetchRcm();
+      },
+      serverSide ? 500 : 0,
+    );
+
+    return () => clearTimeout(debounceTimeoutRef.current);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    selectedFinancialYear,
+    financialPeriodMode,
+    prefLoading,
+  ]);
+
+  // Fetch financial years and business settings on mount
+  useEffect(() => {
+    fetchFinancialYears();
+    fetchBusinessSettings();
+  }, []);
+
+  // Update preview record when records change
+  useEffect(() => {
+    if (!showSelfInvoicePreview || !previewRecord) return;
+
+    const previewId = previewRecord._id || previewRecord.id;
+    if (!previewId) return;
+
+    const latestRecord = records.find(
+      (record) => (record._id || record.id) === previewId,
+    );
+
+    if (latestRecord) {
+      setPreviewRecord(latestRecord);
+    }
+  }, [records, showSelfInvoicePreview, previewRecord]);
+
+  // Format date for display (DD/MM/YYYY)
+  const formatDateForDisplay = (dateString) => {
+    if (!dateString) return "";
+
+    try {
+      const date = new Date(dateString);
+      if (!isNaN(date.getTime())) {
+        const day = String(date.getDate()).padStart(2, "0");
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+      }
+      return dateString;
+    } catch (e) {
+      return dateString;
+    }
   };
 
+  // Format date for display (DD/MM/YYYY | HH:MM:SS AM/PM)
+  const formatDateTimeForDisplay = (dateString) => {
+    if (!dateString) return "";
+
+    try {
+      const date = new Date(dateString);
+      if (!isNaN(date.getTime())) {
+        const day = String(date.getDate()).padStart(2, "0");
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const year = date.getFullYear();
+
+        let hours = date.getHours();
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        const seconds = String(date.getSeconds()).padStart(2, "0");
+        const ampm = hours >= 12 ? "PM" : "AM";
+
+        hours = hours % 12;
+        hours = hours ? hours : 12;
+        const formattedHours = String(hours).padStart(2, "0");
+
+        return `${day}/${month}/${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
+      }
+
+      return dateString;
+    } catch (e) {
+      return dateString;
+    }
+  };
+
+  // Prepare data for table
+  const preparedData = useMemo(() => {
+    return records.map((record, index) => ({
+      ...record,
+      sn: (currentPage - 1) * recordsPerPage + index + 1,
+    }));
+  }, [records, currentPage, recordsPerPage]);
+
+  // Client-side per-column filtering logic
+  const filteredClientSideData = useMemo(() => {
+    if (serverSide) {
+      return preparedData;
+    }
+
+    let data = preparedData;
+
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value && typeof value === "string" && value.trim() !== "") {
+        data = data.filter((row) =>
+          (row[key] || "")
+            .toString()
+            .toLowerCase()
+            .includes(value.toLowerCase()),
+        );
+      }
+    });
+
+    // Apply financial year filter for client-side
+    if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+      const yearRecord = financialYears.find(
+        (y) => y.value === selectedFinancialYear,
+      );
+      if (yearRecord?.startDate && yearRecord?.endDate) {
+        const startDate = new Date(yearRecord.startDate);
+        const endDate = new Date(yearRecord.endDate);
+        data = data.filter((record) => {
+          const invoiceDate = new Date(record.invoiceDate);
+          return invoiceDate >= startDate && invoiceDate <= endDate;
+        });
+      }
+    }
+
+    // Apply period filter for client-side
+    if (financialPeriodMode !== "yearly") {
+      const today = new Date();
+      data = data.filter((record) => {
+        const invoiceDate = new Date(record.invoiceDate);
+        if (!invoiceDate) return false;
+
+        if (financialPeriodMode === "daily") {
+          return (
+            invoiceDate.getDate() === today.getDate() &&
+            invoiceDate.getMonth() === today.getMonth() &&
+            invoiceDate.getFullYear() === today.getFullYear()
+          );
+        }
+        if (financialPeriodMode === "monthly") {
+          return (
+            invoiceDate.getMonth() === today.getMonth() &&
+            invoiceDate.getFullYear() === today.getFullYear()
+          );
+        }
+        if (financialPeriodMode === "quarterly") {
+          const getQuarter = (date) => Math.floor(date.getMonth() / 3) + 1;
+          return (
+            invoiceDate.getFullYear() === today.getFullYear() &&
+            getQuarter(invoiceDate) === getQuarter(today)
+          );
+        }
+        if (financialPeriodMode === "halfYearly") {
+          const getHalf = (date) => (date.getMonth() < 6 ? 1 : 2);
+          return (
+            invoiceDate.getFullYear() === today.getFullYear() &&
+            getHalf(invoiceDate) === getHalf(today)
+          );
+        }
+        return true;
+      });
+    }
+
+    return data;
+  }, [
+    preparedData,
+    filters,
+    serverSide,
+    selectedFinancialYear,
+    financialYears,
+    financialPeriodMode,
+  ]);
+
+  // Debounced per-column filter change handler for server-side
+  const handleDebouncedColumnFilterChange = (key, value) => {
+    if (serverSide) {
+      if (debounceColumnTimeoutRef.current)
+        clearTimeout(debounceColumnTimeoutRef.current);
+      debounceColumnTimeoutRef.current = setTimeout(() => {
+        setFilters((prev) => ({ ...prev, [key]: value }));
+        setCurrentPage(1);
+      }, 500);
+    } else {
+      setFilters((prev) => ({ ...prev, [key]: value }));
+    }
+  };
+
+  // Columns configuration
   const columns = [
     { key: "sn", label: "S.No", width: 70 },
     { key: "selfInvoiceNumber", label: "Self Invoice No.", width: 150 },
-    { key: "invoiceDateFormatted", label: "Invoice Date", width: 130 },
+    {
+      key: "invoiceDateFormatted",
+      label: "Invoice Date",
+      width: 130,
+    },
     { key: "originalRefNo", label: "Original Ref. No", width: 150 },
     {
       key: "serviceProviderBusinessName",
@@ -561,7 +661,6 @@ const RcmManagement = () => {
       width: 200,
     },
     { key: "gstin", label: "GSTIN", width: 150 },
-    { key: "placeOfSupply", label: "Place of Supply", width: 180 },
     {
       key: "itemCount",
       label: "Items",
@@ -613,7 +712,11 @@ const RcmManagement = () => {
       },
     },
     { key: "paymentMethod", label: "Payment Method", width: 130 },
-    { key: "paymentDateFormatted", label: "Payment Date", width: 130 },
+    {
+      key: "paymentDateFormatted",
+      label: "Payment Date",
+      width: 130,
+    },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
     { key: "action", label: "Actions", width: 180 },
   ];
@@ -635,27 +738,29 @@ const RcmManagement = () => {
     "action",
   ];
 
-  const columnsWithDropdownFilter = ["paymentStatus", "paymentMethod"];
-  const columnsWithDateFilter = [
-    "createdDateTime",
-    "invoiceDateFormatted",
-    "paymentDateFormatted",
+  // Columns with dropdown filter
+  const columnsWithDropdownFilter = [
+    "paymentStatus",
+    "paymentMethod",
   ];
 
-  const filterOptions = {
-    paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
-    paymentMethod: [
-      "All",
-      "Cash",
-      "Bank Transfer",
-      "Credit Card",
-      "Debit Card",
-      "UPI",
-      "Cheque",
-    ],
+  // Filter options
+  const getFilterOptions = () => {
+    return {
+      paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
+      paymentMethod: [
+        "All",
+        "Cash",
+        "Bank Transfer",
+        "Credit Card",
+        "Debit Card",
+        "UPI",
+        "Cheque",
+      ],
+    };
   };
 
-  // Updated handleCardClick to include period logic
+  // Handle card click
   const handleCardClick = (cardKey) => {
     if (cardKey === "addNew") {
       if (!canCreate) {
@@ -665,7 +770,6 @@ const RcmManagement = () => {
       setEditingRecord(null);
       setShowCreateRcmForm(true);
     } else if (cardKey === "period") {
-      // Add period cycle logic from PurchaseManagement
       const periodCycle = [
         "daily",
         "monthly",
@@ -677,14 +781,51 @@ const RcmManagement = () => {
       setFinancialPeriodMode((prev) => {
         const currentIndex = periodCycle.indexOf(prev);
         if (currentIndex === -1) return "daily";
-        return periodCycle[(currentIndex + 1) % periodCycle.length];
+        const newMode = periodCycle[(currentIndex + 1) % periodCycle.length];
+        if (serverSide) {
+          setCurrentPage(1);
+        }
+        return newMode;
       });
     } else {
       setActiveCardFilter(cardKey);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     }
   };
 
-  // Add this function from PurchaseManagement
+  // Get card number for styling
+  const getCardNumber = (index) => {
+    return (index % 8) + 1;
+  };
+
+  // Get default financial year record
+  const getDefaultFinancialYearRecord = () => {
+    return financialYears.find((year) => year?.isDefault === true) || null;
+  };
+
+  // Check if invoice date is within financial year
+  const isInvoiceDateWithinFinancialYear = (
+    invoiceDate,
+    financialYearRecord,
+  ) => {
+    if (
+      !invoiceDate ||
+      !financialYearRecord?.startDate ||
+      !financialYearRecord?.endDate
+    ) {
+      return true;
+    }
+
+    const invoiceDateObj = new Date(invoiceDate);
+    const startDate = new Date(financialYearRecord.startDate);
+    const endDate = new Date(financialYearRecord.endDate);
+
+    return invoiceDateObj >= startDate && invoiceDateObj <= endDate;
+  };
+
+  // Get current period display value
   const getPeriodDisplayValue = () => {
     return financialPeriodMode === "daily"
       ? "Daily"
@@ -697,10 +838,7 @@ const RcmManagement = () => {
             : "Yearly";
   };
 
-  const getCardNumber = (index) => {
-    return (index % 8) + 1;
-  };
-
+  // Handle form submit
   const handleFormSubmit = async (formData) => {
     if (!editingRecord) {
       const defaultFinancialYear = getDefaultFinancialYearRecord();
@@ -730,34 +868,27 @@ const RcmManagement = () => {
         );
         return;
       }
-
-      const invoiceExists = allRecords.some(
-        (record) => record.selfInvoiceNumber === formData.selfInvoiceNumber,
-      );
-
-      if (invoiceExists) {
-        showError(
-          "Self invoice number already exists. Please refresh and try again.",
-        );
-        return;
-      }
     }
 
     try {
       if (editingRecord && !editingRecord.isViewMode) {
         const rcmId = editingRecord._id || editingRecord.id;
-        await apiPut(API_ENDPOINTS.RCM.UPDATE(rcmId), {
+        const payload = {
           ...formData,
           createdDate: editingRecord.createdDate,
           placeOfSupply: "Rajasthan (08)",
-        });
+        };
+
+        await apiPut(API_ENDPOINTS.RCM.UPDATE(rcmId), payload);
         showSuccess("RCM updated successfully!");
-      } else if (!editingRecord) {
-        await apiPost(API_ENDPOINTS.RCM.CREATE, {
+      } else {
+        const payload = {
           ...formData,
           createdDate: new Date().toISOString(),
           placeOfSupply: "Rajasthan (08)",
-        });
+        };
+
+        await apiPost(API_ENDPOINTS.RCM.CREATE, payload);
         showSuccess("RCM added successfully!");
       }
 
@@ -771,30 +902,34 @@ const RcmManagement = () => {
           error.response?.data?.error ||
           "Failed to save RCM",
       );
+      throw error;
     }
   };
 
+  // Handle edit
   const handleEdit = (record) => {
     setEditingRecord(record);
     setShowCreateRcmForm(true);
     showInfo(`Editing RCM: ${record.selfInvoiceNumber}`);
   };
 
+  // Handle view
   const handleView = (record) => {
     setEditingRecord({ ...record, isViewMode: true });
     setShowCreateRcmForm(true);
     showInfo(`Viewing RCM: ${record.selfInvoiceNumber}`);
   };
 
-  const handleDelete = async (id) => {
+  // Handle delete
+  const handleDelete = (id) => {
+    handleDeleteRcm(id);
+  };
+
+  const handleDeleteRcm = async (id) => {
     try {
-      // Soft delete: set isDeleted true
-      await apiPut(API_ENDPOINTS.RCM.UPDATE(id), {
-        isDeleted: true,
-        deletedAt: new Date().toISOString(),
-      });
-      await fetchRcm();
+      await apiDelete(API_ENDPOINTS.RCM.DELETE(id));
       showSuccess("RCM deleted successfully!");
+      await fetchRcm();
     } catch (error) {
       console.error("Error deleting RCM:", error);
       showError(
@@ -805,31 +940,44 @@ const RcmManagement = () => {
     }
   };
 
+  // Handle refresh
   const handleRefresh = () => {
     fetchFinancialYears();
-    fetchRcm();
     fetchBusinessSettings();
-    setActiveCardFilter("total");
-    setFinancialPeriodMode("yearly"); // Add this line
+    if (serverSide) {
+      setFilters({});
+      setSearchTerm("");
+      setSortField(null);
+      setSortDirection("normal");
+      setCurrentPage(1);
+      setActiveCardFilter("total");
+      setFinancialPeriodMode("yearly");
+    }
+    fetchRcm();
     showInfo("Data refreshed!");
   };
 
+  // Open self invoice preview
   const openSelfInvoicePreview = (record) => {
     setPreviewRecord(record);
     setShowSelfInvoicePreview(true);
   };
 
+  // Close self invoice preview
   const closeSelfInvoicePreview = () => {
     setShowSelfInvoicePreview(false);
     setPreviewRecord(null);
   };
 
+  // Get invoice element ID for printing
   const getSelfInvoiceElementId = (record, index) => {
     return `self-invoice-print-${record.id || record.selfInvoiceNumber || index}`;
   };
 
+  // Export multiple self invoices as PDF
   const exportSelfInvoicesPdf = async () => {
-    if (!filteredRecords.length) {
+    const dataToExport = serverSide ? records : filteredClientSideData;
+    if (!dataToExport.length) {
       showError("No self invoices found for the selected filters.");
       return;
     }
@@ -848,8 +996,8 @@ const RcmManagement = () => {
         compress: true,
       });
 
-      for (let i = 0; i < filteredRecords.length; i += 1) {
-        const record = filteredRecords[i];
+      for (let i = 0; i < dataToExport.length; i += 1) {
+        const record = dataToExport[i];
         const elementId = getSelfInvoiceElementId(record, i);
         const element = document.getElementById(elementId);
 
@@ -887,15 +1035,17 @@ const RcmManagement = () => {
     }
   };
 
+  // Handle export with items (Excel)
   const handleExportItemWiseExcel = () => {
-    if (!filteredRecords.length) {
+    const dataToExport = serverSide ? records : filteredClientSideData;
+    if (!dataToExport.length) {
       showError("No RCM invoices found for the selected filters.");
       return;
     }
 
     try {
       exportItemWiseExcel({
-        records: filteredRecords,
+        records: dataToExport,
         exportFileName: "RCM_Management",
         sheetName: "RCM Item Wise",
         reportTitle: "RCM_Item_Wise",
@@ -916,15 +1066,17 @@ const RcmManagement = () => {
     }
   };
 
+  // Handle export with items (PDF)
   const handleExportItemWisePDF = () => {
-    if (!filteredRecords.length) {
+    const dataToExport = serverSide ? records : filteredClientSideData;
+    if (!dataToExport.length) {
       showError("No RCM invoices found for the selected filters.");
       return;
     }
 
     try {
       exportItemWisePDF({
-        records: filteredRecords,
+        records: dataToExport,
         exportFileName: "RCM_Management",
         reportTitle: "RCM Report",
         invoiceNumberKey: "selfInvoiceNumber",
@@ -944,14 +1096,21 @@ const RcmManagement = () => {
     }
   };
 
+  // Get status label for self invoice
   const getStatusLabel = (status) => {
     if (status === "Paid") return "PAID";
     if (status === "Partial") return "PARTIAL";
     return "UNPAID";
   };
 
+  // Build self invoice data for preview
   const buildSelfInvoiceData = (record) => {
     if (!record) return null;
+
+    const toNumber = (value) => {
+      const num = parseFloat(value);
+      return Number.isNaN(num) ? 0 : num;
+    };
 
     const subtotal = toNumber(record.taxData?.subtotal || 0);
     const discountPercent = toNumber(record.discountPercent || 0);
@@ -996,7 +1155,7 @@ const RcmManagement = () => {
         record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
       originalRefNo: record.originalRefNo || "",
       orderNumber: record.originalRefNo || "",
-      placeOfSupply: "Rajasthan (08)",
+      placeOfSupply: record.placeOfSupply || "Rajasthan (08)",
       clientName: record.serviceProviderBusinessName || "",
       clientAddress: record.address || "",
       clientPhone: record.phoneNumber || "",
@@ -1035,18 +1194,67 @@ const RcmManagement = () => {
     };
   };
 
+  // Server-side handlers
+  const handleServerSideSearch = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideFilter = (filterParams) => {
+    setFilters(filterParams);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideSort = (field, direction) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
+  const handleServerSidePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleServerSideRecordsPerPageChange = (limit) => {
+    setRecordsPerPage(limit);
+    setCurrentPage(1);
+  };
+
   return (
     <>
       <div className="container-fluid">
         <div
-          className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+          className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <div className="flex-grow-1">
-            <h4 className="fs-18 fw-semibold m-0">RCM Management</h4>
+          {/* Left Side - Heading */}
+          <h4 className="fs-18 fw-semibold m-0">RCM Management</h4>
+
+          {/* Right Side - Toggle */}
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+                setActiveCardFilter("total");
+                setFinancialPeriodMode("yearly");
+              }}
+              id="serverSideToggle"
+            />
+            <label className="form-check-label ms-2" htmlFor="serverSideToggle">
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
           </div>
         </div>
 
+        {/* Statistics Cards */}
         <div className="row">
           {cards.map((card, index) => {
             const cardNumber = getCardNumber(index);
@@ -1055,10 +1263,9 @@ const RcmManagement = () => {
             const isActive =
               activeCardFilter === card.key &&
               card.key !== "addNew" &&
-              card.key !== "period"; // Update this line to exclude period from active filter
+              card.key !== "period";
             const isAddNewDisabled = card.key === "addNew" && !canCreate;
 
-            // Determine the value to display (updated from PurchaseManagement)
             let displayValue;
             if (card.key === "addNew") {
               displayValue = "+ Add New";
@@ -1068,15 +1275,20 @@ const RcmManagement = () => {
                   ? "All Year"
                   : selectedFinancialYear
               } • ${getPeriodDisplayValue()}`;
-            } else if (card.key === "totalAmount") {
-              displayValue = `₹ ${parseFloat(
-                statistics[card.key] || 0,
-              ).toLocaleString("en-IN", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}`;
+            } else if (
+              card.key === "totalAmount" ||
+              card.key === "paid" ||
+              card.key === "unpaid"
+            ) {
+              displayValue = `₹ ${parseFloat(card.count || 0).toLocaleString(
+                "en-IN",
+                {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                },
+              )}`;
             } else {
-              displayValue = statistics[card.key];
+              displayValue = card.count || 0;
             }
 
             return (
@@ -1096,7 +1308,7 @@ const RcmManagement = () => {
                   onMouseEnter={(e) => {
                     if (
                       (card.key === "addNew" && !isAddNewDisabled) ||
-                      card.key === "period" // Add period card hover effect
+                      card.key === "period"
                     ) {
                       e.currentTarget.style.transform = "translateY(-5px)";
                       e.currentTarget.style.boxShadow =
@@ -1139,23 +1351,25 @@ const RcmManagement = () => {
           })}
         </div>
 
+        {/* Reusable Table */}
         <ReusableTable
           moduleKey={moduleKey}
           columns={columns}
-          data={prepareTableData()}
+          data={serverSide ? preparedData : filteredClientSideData}
           loading={loading}
-          onFilteredDataChange={setFilteredRecords}
+          totalRecords={totalRecords}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onView={handleView}
           onRefresh={handleRefresh}
           showActions={true}
           actions={["view", "edit", "delete"]}
+          skipDeleteConfirmation={true}
           fixedColumns={fixedColumns}
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
-          filterOptions={filterOptions}
+          filterOptions={serverSide ? dynamicFilterOptions : getFilterOptions()}
           tableTitle="RCM Records"
           showColumnSelector={true}
           showExport={true}
@@ -1166,11 +1380,11 @@ const RcmManagement = () => {
           exportTitle="RCM Management Report"
           extraExportItems={[
             {
-              label: "Export Excel with Item",
+              label: "Export Excel with Items",
               onClick: handleExportItemWiseExcel,
             },
             {
-              label: "PDF with Item",
+              label: "Export PDF with Items",
               onClick: handleExportItemWisePDF,
             },
             {
@@ -1198,8 +1412,23 @@ const RcmManagement = () => {
               <i className="far fa-file-alt"></i>
             </button>
           )}
+          serverSide={serverSide}
+          onServerSideSearch={handleServerSideSearch}
+          onServerSideFilter={handleServerSideFilter}
+          onServerSideSort={handleServerSideSort}
+          onServerSidePageChange={handleServerSidePageChange}
+          onServerSideRecordsPerPageChange={
+            handleServerSideRecordsPerPageChange
+          }
+          currentPage={currentPage}
+          recordsPerPage={recordsPerPage}
+          onPageChange={setCurrentPage}
+          onRecordsPerPageChange={setRecordsPerPage}
+          onColumnFilterChange={handleDebouncedColumnFilterChange}
+          exportApi={API_ENDPOINTS.RCM.LIST}
         />
 
+        {/* Create/Edit RCM Modal */}
         <CreateRcm
           show={showCreateRcmForm}
           onClose={() => {
@@ -1209,7 +1438,7 @@ const RcmManagement = () => {
           onSubmit={handleFormSubmit}
           editingRecord={editingRecord}
           defaultFinancialYear={getDefaultFinancialYearRecord()}
-          existingInvoices={allRecords}
+          existingInvoices={records}
         />
       </div>
 
@@ -1220,6 +1449,7 @@ const RcmManagement = () => {
         invoiceData={buildSelfInvoiceData(previewRecord)}
       />
 
+      {/* Hidden divs for printing multiple self invoices */}
       <div
         style={{
           position: "absolute",
@@ -1230,15 +1460,17 @@ const RcmManagement = () => {
           overflow: "hidden",
         }}
       >
-        {filteredRecords.map((record, index) => (
-          <SelfInvoicePreview
-            key={record.id || record.selfInvoiceNumber || index}
-            id={getSelfInvoiceElementId(record, index)}
-            show={true}
-            renderMode="print"
-            invoiceData={buildSelfInvoiceData(record)}
-          />
-        ))}
+        {(serverSide ? records : filteredClientSideData).map(
+          (record, index) => (
+            <SelfInvoicePreview
+              key={record.id || record.selfInvoiceNumber || index}
+              id={getSelfInvoiceElementId(record, index)}
+              show={true}
+              renderMode="print"
+              invoiceData={buildSelfInvoiceData(record)}
+            />
+          ),
+        )}
       </div>
     </>
   );

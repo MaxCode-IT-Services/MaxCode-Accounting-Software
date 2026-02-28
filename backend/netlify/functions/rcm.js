@@ -2,40 +2,27 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+/**
+ * RCM Management API
+ * Handles CRUD operations for RCM (Reverse Charge Mechanism) self invoices with pagination support
+ * Requires JWT authentication
+ */
 export async function handler(event) {
+  // Extract origin for CORS
   const origin = event.headers.origin || event.headers.Origin;
 
+  // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
     return createResponse(200, {}, origin);
   }
 
   try {
-    verifyRequestToken(event);
+    // Verify JWT token
+    const user = verifyRequestToken(event);
 
     const { db } = await connectToDatabase();
     const rcmCollection = db.collection("rcm");
     const yearsCollection = db.collection("financialYears");
-
-    const toNumber = (value) => {
-      const parsed = parseFloat(value);
-      return Number.isNaN(parsed) ? 0 : parsed;
-    };
-
-    const getDateOnly = (value) => {
-      if (!value) return null;
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return null;
-      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    };
-
-    const isDateWithinFinancialYear = (invoiceDate, financialYearRecord) => {
-      const invoiceDateOnly = getDateOnly(invoiceDate);
-      const startDate = getDateOnly(financialYearRecord?.startDate);
-      const endDate = getDateOnly(financialYearRecord?.endDate);
-
-      if (!invoiceDateOnly || !startDate || !endDate) return false;
-      return invoiceDateOnly >= startDate && invoiceDateOnly <= endDate;
-    };
 
     const escapeRegExp = (value) => {
       return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -52,19 +39,16 @@ export async function handler(event) {
       const seedNumber = parseInt(seed, 10) || 1;
       const pattern = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
 
-      const existingRecords = await rcmCollection
+      const existingInvoices = await rcmCollection
         .find(
-          {
-            selfInvoiceNumber: { $regex: pattern },
-            isDeleted: { $ne: true },
-          },
+          { selfInvoiceNumber: { $regex: pattern } },
           { projection: { selfInvoiceNumber: 1 } },
         )
         .toArray();
 
       let maxNumber = 0;
-      existingRecords.forEach((record) => {
-        const invoiceNumber = String(record?.selfInvoiceNumber || "");
+      existingInvoices.forEach((invoice) => {
+        const invoiceNumber = String(invoice?.selfInvoiceNumber || "");
         const invoiceMatch = invoiceNumber.match(pattern);
         if (!invoiceMatch) return;
         const current = parseInt(invoiceMatch[1], 10);
@@ -77,81 +61,371 @@ export async function handler(event) {
       return `${prefix}${String(nextNumber).padStart(width, "0")}`;
     };
 
-    const normalizeTaxData = (taxData = {}) => {
-      const subtotal = toNumber(taxData.subtotal);
-      const taxPercentage = toNumber(taxData.taxPercentage);
-      const igst = (subtotal * taxPercentage) / 100;
-      const roundingAmount = toNumber(taxData.roundingAmount);
-      const totalAmount = subtotal + igst + roundingAmount;
-
-      return {
-        ...taxData,
-        subtotal: subtotal.toFixed(2),
-        taxPercentage,
-        cgst: "0.00",
-        sgst: "0.00",
-        igst: igst.toFixed(2),
-        totalAmount: toNumber(taxData.totalAmount || totalAmount).toFixed(2),
-      };
-    };
-
+    // GET - Fetch all RCM records or specific record by ID with pagination support
     if (event.httpMethod === "GET") {
-      const { id } = event.queryStringParameters || {};
+      const {
+        id,
+        page = 1,
+        limit = 10,
+        search,
+        paymentStatus,
+        paymentMethod,
+        financialYear,
+        period,
+        createdDateTime_start,
+        createdDateTime_end,
+        invoiceDateFormatted_start,
+        invoiceDateFormatted_end,
+        paymentDateFormatted_start,
+        paymentDateFormatted_end,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+        filter, // For card filters
+      } = event.queryStringParameters || {};
 
+      // If ID is provided, return single record
       if (id) {
         if (!ObjectId.isValid(id)) {
           return createResponse(400, { error: "Invalid RCM ID" }, origin);
         }
+
         const record = await rcmCollection.findOne({
           _id: new ObjectId(id),
           isDeleted: { $ne: true },
         });
+
         if (!record) {
-          return createResponse(404, { error: "RCM not found" }, origin);
+          return createResponse(404, { error: "RCM record not found" }, origin);
         }
+
         return createResponse(200, record, origin);
       }
 
-      const records = await rcmCollection
-        .find({ isDeleted: { $ne: true } })
-        .sort({ createdAt: -1 })
+      // Build filter query
+      const filterQuery = { isDeleted: { $ne: true } };
+      const params = event.queryStringParameters || {};
+
+      // Financial year filter
+      if (financialYear && financialYear !== "ALL") {
+        const yearRecord = await yearsCollection.findOne({
+          financialYear: financialYear,
+          isDeleted: { $ne: true },
+        });
+
+        if (yearRecord?.startDate && yearRecord?.endDate) {
+          filterQuery.invoiceDate = {
+            $gte: yearRecord.startDate,
+            $lte: yearRecord.endDate,
+          };
+        }
+      }
+
+      // Period filter (daily, monthly, quarterly, halfYearly, yearly)
+      if (period && period !== "yearly") {
+        const today = new Date();
+        let startDate, endDate;
+
+        if (period === "daily") {
+          startDate = new Date(today.setHours(0, 0, 0, 0));
+          endDate = new Date(today.setHours(23, 59, 59, 999));
+        } else if (period === "monthly") {
+          startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+          endDate = new Date(
+            today.getFullYear(),
+            today.getMonth() + 1,
+            0,
+            23,
+            59,
+            59,
+            999,
+          );
+        } else if (period === "quarterly") {
+          const quarter = Math.floor(today.getMonth() / 3);
+          startDate = new Date(today.getFullYear(), quarter * 3, 1);
+          endDate = new Date(
+            today.getFullYear(),
+            (quarter + 1) * 3,
+            0,
+            23,
+            59,
+            59,
+            999,
+          );
+        } else if (period === "halfYearly") {
+          const half = today.getMonth() < 6 ? 0 : 6;
+          startDate = new Date(today.getFullYear(), half, 1);
+          endDate = new Date(today.getFullYear(), half + 6, 0, 23, 59, 59, 999);
+        }
+
+        if (startDate && endDate) {
+          // If invoiceDate is string in DB, use YYYY-MM-DD string for range
+          const pad = (n) => String(n).padStart(2, "0");
+          const startStr = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`;
+          const endStr = `${endDate.getFullYear()}-${pad(endDate.getMonth() + 1)}-${pad(endDate.getDate())}`;
+          filterQuery.invoiceDate = {
+            $gte: startStr,
+            $lte: endStr,
+          };
+        }
+      }
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value || value === "" || value === "All") return;
+        if (key === "filter") return;
+        if (key === "financialYear" || key === "period") return;
+        if (
+          ["page", "limit", "sortBy", "sortOrder", "search", "id"].includes(key)
+        )
+          return;
+
+        if (key.endsWith("_start") || key.endsWith("_end")) return;
+
+        // Handle filter keys
+        if (key === "paymentStatus") {
+          filterQuery.paymentStatus = value;
+          return;
+        }
+
+        if (key === "paymentMethod") {
+          filterQuery.paymentMethod = value;
+          return;
+        }
+
+        // If value is comma-separated, treat as array
+        if (typeof value === "string" && value.includes(",")) {
+          filterQuery[key] = { $in: value.split(",") };
+        } else if (typeof value === "string") {
+          filterQuery[key] = { $regex: value, $options: "i" };
+        } else {
+          filterQuery[key] = value;
+        }
+      });
+
+      // Handle date range filters dynamically
+      const dateRanges = {};
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value) return;
+
+        if (key.endsWith("_start")) {
+          let baseKey = key.replace(/_start$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+          if (baseKey === "invoiceDateFormatted") baseKey = "invoiceDate";
+          if (baseKey === "paymentDateFormatted") baseKey = "paymentDate";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = value.split("-");
+          if (dateParts.length === 3) {
+            // For paymentDate and invoiceDate (string fields), use string comparison (YYYY-MM-DD)
+            if (baseKey === "paymentDate" || baseKey === "invoiceDate") {
+              const year = dateParts[0];
+              const month = dateParts[1].padStart(2, "0");
+              const day = dateParts[2].padStart(2, "0");
+              dateRanges[baseKey].$gte = `${year}-${month}-${day}`;
+            } else {
+              const year = parseInt(dateParts[0]);
+              const month = parseInt(dateParts[1]) - 1;
+              const day = parseInt(dateParts[2]);
+              const startDate = new Date(
+                Date.UTC(year, month, day, 0, 0, 0, 0),
+              );
+              dateRanges[baseKey].$gte = startDate;
+            }
+          }
+        }
+
+        if (key.endsWith("_end")) {
+          let baseKey = key.replace(/_end$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+          if (baseKey === "invoiceDateFormatted") baseKey = "invoiceDate";
+          if (baseKey === "paymentDateFormatted") baseKey = "paymentDate";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = value.split("-");
+          if (dateParts.length === 3) {
+            if (baseKey === "paymentDate" || baseKey === "invoiceDate") {
+              const year = dateParts[0];
+              const month = dateParts[1].padStart(2, "0");
+              const day = dateParts[2].padStart(2, "0");
+              dateRanges[baseKey].$lte = `${year}-${month}-${day}`;
+            } else {
+              const year = parseInt(dateParts[0]);
+              const month = parseInt(dateParts[1]) - 1;
+              const day = parseInt(dateParts[2]);
+              const endDate = new Date(
+                Date.UTC(year, month, day, 23, 59, 59, 999),
+              );
+              dateRanges[baseKey].$lte = endDate;
+            }
+          }
+        }
+      });
+
+      Object.entries(dateRanges).forEach(([key, range]) => {
+        filterQuery[key] = range;
+      });
+
+      // Card filter (activeCardFilter)
+      if (filter) {
+        switch (filter) {
+          case "paid":
+            filterQuery.paymentStatus = "Paid";
+            break;
+          case "unpaid":
+            filterQuery.paymentStatus = "Unpaid";
+            break;
+          case "partial":
+            filterQuery.paymentStatus = "Partial";
+            break;
+          default:
+            break;
+        }
+      }
+
+      // Global search (multi-field)
+      if (search) {
+        filterQuery.$or = [
+          { selfInvoiceNumber: { $regex: search, $options: "i" } },
+          { originalRefNo: { $regex: search, $options: "i" } },
+          { serviceProviderBusinessName: { $regex: search, $options: "i" } },
+          { gstin: { $regex: search, $options: "i" } },
+          { placeOfSupply: { $regex: search, $options: "i" } },
+          { paymentMethod: { $regex: search, $options: "i" } },
+        ];
+      }
+
+      // Parse pagination parameters
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
+      const skip = (pageNum - 1) * limitNum;
+
+      // Build sort object
+      const sortObject = {};
+      sortObject[sortBy] = sortOrder === "asc" ? 1 : -1;
+
+      // Get total count for pagination
+      const totalRecords = await rcmCollection.countDocuments(filterQuery);
+
+      // Get paginated results
+      const rcmRecords = await rcmCollection
+        .find(filterQuery)
+        .sort(sortObject)
+        .skip(skip)
+        .limit(limitNum)
         .toArray();
 
-      return createResponse(200, records, origin);
+      // Get distinct values for dynamic filter options
+
+      // Get distinct placeOfSupply values for dynamic filter options
+      const placeOfSupplyValues = await rcmCollection.distinct(
+        "placeOfSupply",
+        { isDeleted: { $ne: true }, placeOfSupply: { $exists: true, $ne: "" } },
+      );
+
+      const paymentStatusValues = await rcmCollection.distinct(
+        "paymentStatus",
+        { isDeleted: { $ne: true }, paymentStatus: { $exists: true, $ne: "" } },
+      );
+
+      const paymentMethodValues = await rcmCollection.distinct(
+        "paymentMethod",
+        { isDeleted: { $ne: true }, paymentMethod: { $exists: true, $ne: "" } },
+      );
+
+      // Get statistics for dashboard cards
+      const totalRecordsCount = await rcmCollection.countDocuments({
+        isDeleted: { $ne: true },
+      });
+
+      const paidCount = await rcmCollection.countDocuments({
+        isDeleted: { $ne: true },
+        paymentStatus: "Paid",
+      });
+
+      const unpaidCount = await rcmCollection.countDocuments({
+        isDeleted: { $ne: true },
+        paymentStatus: "Unpaid",
+      });
+
+      const partialCount = await rcmCollection.countDocuments({
+        isDeleted: { $ne: true },
+        paymentStatus: "Partial",
+      });
+
+      // Calculate total amount
+      const allRcm = await rcmCollection
+        .find({ isDeleted: { $ne: true } })
+        .toArray();
+
+      const totalAmount = allRcm.reduce(
+        (sum, p) => sum + (p.taxData?.totalAmount || 0),
+        0,
+      );
+
+      const paidAmount = allRcm
+        .filter(
+          (p) => p.paymentStatus === "Paid" || p.paymentStatus === "Partial",
+        )
+        .reduce((sum, p) => {
+          if (p.paidAmount !== undefined && p.paidAmount !== null) {
+            return sum + (p.paidAmount || 0);
+          } else if (p.paymentStatus === "Paid") {
+            return sum + (p.taxData?.totalAmount || 0);
+          } else if (p.paymentStatus === "Partial") {
+            return sum + (p.taxData?.totalAmount || 0) / 2;
+          }
+          return sum;
+        }, 0);
+
+      const unpaidAmount = totalAmount - paidAmount;
+
+      // Return paginated response with metadata
+      return createResponse(
+        200,
+        {
+          data: rcmRecords,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            totalRecords,
+            totalPages: Math.ceil(totalRecords / limitNum),
+          },
+          statistics: {
+            total: totalRecordsCount,
+            paid: Number(paidAmount || 0).toFixed(2),
+            unpaid: Number(unpaidAmount || 0).toFixed(2),
+            partial: partialCount,
+            totalAmount: Number(totalAmount || 0).toFixed(2),
+          },
+          filterOptions: {
+            placeOfSupply: ["All", ...placeOfSupplyValues.sort()],
+            paymentStatus: ["All", ...paymentStatusValues.sort()],
+            paymentMethod: ["All", ...paymentMethodValues.sort()],
+          },
+          debug: {
+            filterQuery,
+            params,
+            dateRanges,
+          },
+        },
+        origin,
+      );
     }
 
+    // POST - Create new RCM record
     if (event.httpMethod === "POST") {
-      const payload = JSON.parse(event.body || "{}");
+      const rcmData = JSON.parse(event.body || "{}");
 
       const defaultYear = await yearsCollection.findOne({
         isDeleted: { $ne: true },
         isDefault: true,
       });
 
-      if (!defaultYear) {
-        return createResponse(
-          400,
-          {
-            error:
-              "Default financial year is not configured. Please set default financial year first.",
-          },
-          origin,
-        );
-      }
-
-      if (!isDateWithinFinancialYear(payload.invoiceDate, defaultYear)) {
-        return createResponse(
-          400,
-          {
-            error: `Invoice Date must be between ${defaultYear.startDate} and ${defaultYear.endDate} for financial year ${defaultYear.financialYear}.`,
-          },
-          origin,
-        );
-      }
-
-      if (!payload.selfInvoiceNumber) {
+      if (!rcmData.selfInvoiceNumber) {
         const selfInvoiceFormat =
-          payload.selfInvoiceFormat || defaultYear?.selfInvoiceFormat || "";
+          rcmData.selfInvoiceFormat || defaultYear?.selfInvoiceFormat || "";
 
         if (!selfInvoiceFormat) {
           return createResponse(
@@ -164,15 +438,20 @@ export async function handler(event) {
           );
         }
 
-        payload.selfInvoiceNumber =
+        rcmData.selfInvoiceNumber =
           await getNextSelfInvoiceNumber(selfInvoiceFormat);
       }
 
-      const existingRecord = await rcmCollection.findOne({
-        selfInvoiceNumber: payload.selfInvoiceNumber,
+      if (!rcmData.financialYear && defaultYear?.financialYear) {
+        rcmData.financialYear = defaultYear.financialYear;
+      }
+
+      // Check for duplicate self invoice number (including soft-deleted records)
+      const existingRcm = await rcmCollection.findOne({
+        selfInvoiceNumber: rcmData.selfInvoiceNumber,
       });
 
-      if (existingRecord) {
+      if (existingRcm && !existingRcm.isDeleted) {
         return createResponse(
           409,
           { error: "Self invoice number already exists" },
@@ -180,32 +459,27 @@ export async function handler(event) {
         );
       }
 
-      const normalizedTaxData = normalizeTaxData({
-        ...payload.taxData,
-        roundingAmount: payload.roundingAmount,
-      });
+      // Set place of supply default
+      rcmData.placeOfSupply = rcmData.placeOfSupply || "Rajasthan (08)";
 
-      const docToInsert = {
-        ...payload,
+      const result = await rcmCollection.insertOne({
         _id: new ObjectId(),
-        placeOfSupply: "Rajasthan (08)",
-        financialYear: defaultYear.financialYear || payload.financialYear || "",
-        taxData: normalizedTaxData,
+        ...rcmData,
         createdAt: new Date(),
         updatedAt: new Date(),
-      };
-      const result = await rcmCollection.insertOne(docToInsert);
+      });
 
       return createResponse(
         201,
         {
-          message: "RCM created successfully",
+          message: "RCM record created successfully",
           id: result.insertedId,
         },
         origin,
       );
     }
 
+    // PUT - Update existing RCM record
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
@@ -216,16 +490,17 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid RCM ID" }, origin);
       }
 
-      const payload = JSON.parse(event.body || "{}");
-      if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid RCM ID" }, origin);
-      }
-      if (payload.selfInvoiceNumber) {
-        // Only block if another RCM (not this one) has same selfInvoiceNumber
-        const existingRecord = await rcmCollection.findOne({
-          selfInvoiceNumber: payload.selfInvoiceNumber,
+      const rcmData = JSON.parse(event.body);
+      const rcmObjectId = new ObjectId(id);
+
+      // Check for duplicate self invoice number (excluding current record)
+      if (rcmData.selfInvoiceNumber) {
+        const existingRcm = await rcmCollection.findOne({
+          _id: { $ne: rcmObjectId },
+          selfInvoiceNumber: rcmData.selfInvoiceNumber,
         });
-        if (existingRecord && String(existingRecord._id) !== String(id)) {
+
+        if (existingRcm) {
           return createResponse(
             409,
             { error: "Self invoice number already exists" },
@@ -233,50 +508,30 @@ export async function handler(event) {
           );
         }
       }
-      const defaultYear = await yearsCollection.findOne({
-        isDeleted: { $ne: true },
-        isDefault: true,
-      });
-      if (
-        defaultYear?.startDate &&
-        defaultYear?.endDate &&
-        payload.invoiceDate
-      ) {
-        if (!isDateWithinFinancialYear(payload.invoiceDate, defaultYear)) {
-          return createResponse(
-            400,
-            {
-              error: `Invoice Date must be between ${defaultYear.startDate} and ${defaultYear.endDate} for financial year ${defaultYear.financialYear}.`,
-            },
-            origin,
-          );
-        }
-      }
-      const normalizedTaxData = normalizeTaxData({
-        ...payload.taxData,
-        roundingAmount: payload.roundingAmount,
-      });
+
       const result = await rcmCollection.updateOne(
-        { _id: new ObjectId(id), isDeleted: { $ne: true } },
+        { _id: rcmObjectId, isDeleted: { $ne: true } },
         {
           $set: {
-            ...payload,
-            placeOfSupply: "Rajasthan (08)",
-            taxData: normalizedTaxData,
+            ...rcmData,
+            placeOfSupply: rcmData.placeOfSupply || "Rajasthan (08)",
             updatedAt: new Date(),
           },
         },
       );
+
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "RCM not found" }, origin);
+        return createResponse(404, { error: "RCM record not found" }, origin);
       }
+
       return createResponse(
         200,
-        { message: "RCM updated successfully" },
+        { message: "RCM record updated successfully" },
         origin,
       );
     }
 
+    // DELETE - Soft delete RCM record
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
@@ -287,9 +542,6 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid RCM ID" }, origin);
       }
 
-      if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid RCM ID" }, origin);
-      }
       const result = await rcmCollection.updateOne(
         { _id: new ObjectId(id), isDeleted: { $ne: true } },
         {
@@ -300,12 +552,14 @@ export async function handler(event) {
           },
         },
       );
+
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "RCM not found" }, origin);
+        return createResponse(404, { error: "RCM record not found" }, origin);
       }
+
       return createResponse(
         200,
-        { message: "RCM deleted successfully" },
+        { message: "RCM record deleted successfully" },
         origin,
       );
     }

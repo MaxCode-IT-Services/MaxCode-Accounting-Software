@@ -122,7 +122,7 @@ const CreatePurchase = ({
         const response = await apiGet(API_ENDPOINTS.VENDORS.LIST);
         const vendorData = Array.isArray(response.data)
           ? response.data
-          : response.data?.vendors || [];
+          : response.data?.data || [];
 
         setVendorOptions(
           vendorData.filter((vendor) => vendor?.isDeleted !== true),

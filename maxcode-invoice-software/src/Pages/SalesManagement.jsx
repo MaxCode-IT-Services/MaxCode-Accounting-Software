@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateSales from "../Components/CreateSales";
-import InvoicePreview from "../Components/InvoicePreview"; // Ensure this import is correct
+import InvoicePreview from "../Components/InvoicePreview";
 import {
   showSuccess,
   showError,
   showInfo,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
+import { apiGet, apiDelete, apiPut, apiPost } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 import {
   exportItemWiseExcel,
@@ -19,25 +19,59 @@ const SalesManagement = () => {
   const moduleKey = "salesManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
+  // Server-side mode state, fetched from backend user preferences
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
+
+  // Fetch user preference on mount
   useEffect(() => {
     document.title = "Sales Management | MaxCode IT Services";
+    const fetchPreference = async () => {
+      try {
+        const res = await apiGet("/user-preferences");
+        if (typeof res.data?.salesManagementServerSide === "boolean") {
+          setServerSide(res.data.salesManagementServerSide);
+        }
+      } catch (e) {
+        // fallback: do nothing, keep default
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+    fetchPreference();
   }, []);
 
-  const [allRecords, setAllRecords] = useState([]);
+  // Save preference to backend when toggled
+  useEffect(() => {
+    if (prefLoading) return;
+    const savePreference = async () => {
+      try {
+        await apiPost("/user-preferences", {
+          salesManagementServerSide: serverSide,
+        });
+      } catch (e) {
+        // ignore
+      }
+    };
+    savePreference();
+  }, [serverSide, prefLoading]);
+
+  // State for records and loading
   const [records, setRecords] = useState([]);
   const [clients, setClients] = useState([]);
   const [financialYears, setFinancialYears] = useState([]);
   const [selectedFinancialYear, setSelectedFinancialYear] = useState(
     localStorage.getItem("selectedFinancialYear") || "ALL",
   );
-  const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly"); // Add this state
+  const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly");
   const [loading, setLoading] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [showCreateSalesForm, setShowCreateSalesForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showInvoicePreview, setShowInvoicePreview] = useState(false);
   const [previewRecord, setPreviewRecord] = useState(null);
-  const [filteredRecords, setFilteredRecords] = useState([]);
   const [exportingInvoices, setExportingInvoices] = useState(false);
   const [businessSettings, setBusinessSettings] = useState({
     companyName: "",
@@ -50,6 +84,22 @@ const SalesManagement = () => {
     branchAddress: "",
   });
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+
+  // Filter state for server-side
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
+
+  // Debounce refs
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
+
+  // Statistics state
   const [statistics, setStatistics] = useState({
     total: 0,
     paid: 0,
@@ -58,36 +108,47 @@ const SalesManagement = () => {
     totalAmount: 0,
   });
 
-  // Updated cards array - replaced "Total Sales" with Financial Period card
+  // Columns with date range filter
+  const columnsWithDateFilter = [
+    "createdDateTime",
+    "invoiceDateFormatted",
+    "paymentDateFormatted",
+  ];
+
+  // Cards array
   const cards = [
     {
       icon: "fas fa-rupee-sign",
       title: "Total Amount",
       key: "totalAmount",
       color: "info",
+      count: statistics.totalAmount,
     },
     {
       icon: "fas fa-check-circle",
       title: "Paid",
       key: "paid",
       color: "success",
+      count: statistics.paid,
     },
     {
       icon: "fa-solid fa-times-circle",
       title: "Unpaid",
       key: "unpaid",
       color: "danger",
+      count: statistics.unpaid,
     },
     {
       icon: "fas fa-hourglass-half",
       title: "Partial",
       key: "partial",
       color: "warning",
+      count: statistics.partial,
     },
     {
-      icon: "fa-regular fa-calendar-days", // Changed icon to calendar
-      title: "Financial Period", // Changed title
-      key: "period", // Changed key to "period"
+      icon: "fa-regular fa-calendar-days",
+      title: "Financial Period",
+      key: "period",
       color: "warning",
     },
     {
@@ -98,159 +159,28 @@ const SalesManagement = () => {
     },
   ];
 
-  const toNumber = (value) => {
-    const num = parseFloat(value);
-    return Number.isNaN(num) ? 0 : num;
-  };
-
-  const formatDateForDisplay = (dateString) => {
-    if (!dateString) return "";
-
+  // Fetch clients
+  const fetchClients = async () => {
     try {
-      const date = new Date(dateString);
-      if (!isNaN(date.getTime())) {
-        const day = String(date.getDate()).padStart(2, "0");
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const year = date.getFullYear();
-        return `${day}/${month}/${year}`;
-      }
-      return dateString;
-    } catch (e) {
-      return dateString;
+      const response = await apiGet(API_ENDPOINTS.CLIENTS.LIST);
+      const clientsData = Array.isArray(response.data)
+        ? response.data
+        : response.data?.clients || [];
+
+      const activeClients = clientsData
+        .filter((c) => c?.isDeleted !== true)
+        .map((client) => ({
+          ...client,
+          id: client.id || client._id,
+        }));
+      setClients(activeClients);
+    } catch (err) {
+      console.error("Clients API fetch error:", err);
+      setClients([]);
     }
   };
 
-  const formatDateTimeForDisplay = (dateString) => {
-    if (!dateString) return "";
-
-    try {
-      const date = new Date(dateString);
-      if (!isNaN(date.getTime())) {
-        const day = String(date.getDate()).padStart(2, "0");
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const year = date.getFullYear();
-
-        let hours = date.getHours();
-        const minutes = String(date.getMinutes()).padStart(2, "0");
-        const seconds = String(date.getSeconds()).padStart(2, "0");
-        const ampm = hours >= 12 ? "PM" : "AM";
-
-        hours = hours % 12;
-        hours = hours ? hours : 12;
-        const formattedHours = String(hours).padStart(2, "0");
-
-        return `${day}/${month}/${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
-      }
-
-      return dateString;
-    } catch (e) {
-      return dateString;
-    }
-  };
-
-  // Add this function from PurchaseManagement
-  const getDateOnly = (value) => {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  };
-
-  // Add this function from PurchaseManagement
-  const isWithinPeriodMode = (dateValue) => {
-    const dateOnly = getDateOnly(dateValue);
-    const today = getDateOnly(new Date());
-
-    if (!dateOnly || !today) return false;
-
-    if (financialPeriodMode === "daily") {
-      return dateOnly.getTime() === today.getTime();
-    }
-
-    if (financialPeriodMode === "monthly") {
-      return (
-        dateOnly.getFullYear() === today.getFullYear() &&
-        dateOnly.getMonth() === today.getMonth()
-      );
-    }
-
-    if (financialPeriodMode === "quarterly") {
-      const getQuarter = (date) => Math.floor(date.getMonth() / 3) + 1;
-      return (
-        dateOnly.getFullYear() === today.getFullYear() &&
-        getQuarter(dateOnly) === getQuarter(today)
-      );
-    }
-
-    if (financialPeriodMode === "halfYearly") {
-      const getHalf = (date) => (date.getMonth() < 6 ? 1 : 2);
-      return (
-        dateOnly.getFullYear() === today.getFullYear() &&
-        getHalf(dateOnly) === getHalf(today)
-      );
-    }
-
-    if (financialPeriodMode === "yearly") {
-      return dateOnly.getFullYear() === today.getFullYear();
-    }
-
-    return true;
-  };
-
-  useEffect(() => {
-    fetchFinancialYears();
-    fetchSales();
-    fetchClients();
-    fetchBusinessSettings();
-
-    const handleFinancialYearSelectionChanged = (event) => {
-      const selectedYear =
-        event?.detail?.selectedFinancialYear ||
-        localStorage.getItem("selectedFinancialYear") ||
-        "ALL";
-      setSelectedFinancialYear(selectedYear);
-    };
-
-    window.addEventListener(
-      "financialYearSelectionChanged",
-      handleFinancialYearSelectionChanged,
-    );
-
-    return () => {
-      window.removeEventListener(
-        "financialYearSelectionChanged",
-        handleFinancialYearSelectionChanged,
-      );
-    };
-  }, []);
-
-  useEffect(() => {
-    applySelectedFinancialYearFilter(allRecords, selectedFinancialYear);
-  }, [allRecords, selectedFinancialYear, financialYears]);
-
-  // Add this useEffect from PurchaseManagement
-  useEffect(() => {
-    // Apply period filter when financialPeriodMode changes
-    if (records.length > 0) {
-      applyPeriodFilter(records);
-    }
-  }, [financialPeriodMode]);
-
-  // Add this function from PurchaseManagement
-  const applyPeriodFilter = (sourceRecords) => {
-    if (!Array.isArray(sourceRecords)) {
-      setFilteredRecords([]);
-      return;
-    }
-
-    const periodFiltered = sourceRecords.filter((record) => {
-      const recordDate = record.invoiceDate || record.createdDate;
-      return isWithinPeriodMode(recordDate);
-    });
-
-    setFilteredRecords(periodFiltered);
-  };
-
+  // Fetch financial years
   const fetchFinancialYears = async () => {
     try {
       const response = await apiGet(API_ENDPOINTS.YEARS.LIST);
@@ -273,117 +203,7 @@ const SalesManagement = () => {
     }
   };
 
-  const getDefaultFinancialYearRecord = () => {
-    return financialYears.find((year) => year?.isDefault === true) || null;
-  };
-
-  const isInvoiceDateWithinFinancialYear = (
-    invoiceDate,
-    financialYearRecord,
-  ) => {
-    const invoiceDateOnly = getDateOnly(invoiceDate);
-    const startDate = getDateOnly(financialYearRecord?.startDate);
-    const endDate = getDateOnly(financialYearRecord?.endDate);
-
-    if (!invoiceDateOnly || !startDate || !endDate) {
-      return false;
-    }
-
-    return invoiceDateOnly >= startDate && invoiceDateOnly <= endDate;
-  };
-
-  const applySelectedFinancialYearFilter = (sourceRecords, selectedYear) => {
-    if (!Array.isArray(sourceRecords)) {
-      setRecords([]);
-      setFilteredRecords([]); // Add this line
-      updateStatistics([]);
-      return;
-    }
-
-    if (!selectedYear || selectedYear === "ALL") {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      applyPeriodFilter(sourceRecords); // Add this line
-      return;
-    }
-
-    const matchedYear = financialYears.find(
-      (year) => year.value === selectedYear,
-    );
-
-    if (!matchedYear?.startDate || !matchedYear?.endDate) {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      applyPeriodFilter(sourceRecords); // Add this line
-      return;
-    }
-
-    const startDate = getDateOnly(matchedYear.startDate);
-    const endDate = getDateOnly(matchedYear.endDate);
-
-    if (!startDate || !endDate) {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      applyPeriodFilter(sourceRecords); // Add this line
-      return;
-    }
-
-    const filteredRecords = sourceRecords.filter((record) => {
-      const invoiceDate = getDateOnly(record.invoiceDate);
-      if (!invoiceDate) return false;
-      return invoiceDate >= startDate && invoiceDate <= endDate;
-    });
-
-    setRecords(filteredRecords);
-    updateStatistics(filteredRecords);
-    applyPeriodFilter(filteredRecords); // Add this line
-  };
-
-  const fetchSales = async () => {
-    setLoading(true);
-    try {
-      const response = await apiGet(API_ENDPOINTS.INVOICES.LIST);
-      const invoicesData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.invoices || [];
-
-      const normalizedInvoices = invoicesData.map((invoice) => ({
-        ...invoice,
-        id: invoice._id || invoice.id,
-      }));
-
-      setAllRecords(normalizedInvoices);
-    } catch (err) {
-      showError("Failed to fetch sales");
-      setAllRecords([]);
-      setRecords([]);
-      setFilteredRecords([]); // Add this line
-      updateStatistics([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchClients = async () => {
-    try {
-      const response = await apiGet(API_ENDPOINTS.CLIENTS.LIST);
-      const clientsData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.clients || [];
-
-      const activeClients = clientsData
-        .filter((client) => client?.isDeleted !== true)
-        .map((client) => ({
-          ...client,
-          id: client.id || client._id,
-        }));
-      setClients(activeClients);
-    } catch (err) {
-      showError("Failed to fetch clients");
-      setClients([]);
-    }
-  };
-
+  // Fetch business settings
   const fetchBusinessSettings = async () => {
     const cached = localStorage.getItem("business_settings");
 
@@ -414,32 +234,238 @@ const SalesManagement = () => {
     }
   };
 
+  // Listen for financial year changes
   useEffect(() => {
-    if (!showInvoicePreview || !previewRecord) return;
+    const handleFinancialYearSelectionChanged = (event) => {
+      const selectedYear =
+        event?.detail?.selectedFinancialYear ||
+        localStorage.getItem("selectedFinancialYear") ||
+        "ALL";
+      setSelectedFinancialYear(selectedYear);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
+    };
 
-    const previewId = previewRecord._id || previewRecord.id;
-    if (!previewId) return;
-
-    const latestRecord = allRecords.find(
-      (record) => (record._id || record.id) === previewId,
+    window.addEventListener(
+      "financialYearSelectionChanged",
+      handleFinancialYearSelectionChanged,
     );
 
-    if (latestRecord) {
-      setPreviewRecord(latestRecord);
-    }
-  }, [allRecords, showInvoicePreview, previewRecord]);
+    return () => {
+      window.removeEventListener(
+        "financialYearSelectionChanged",
+        handleFinancialYearSelectionChanged,
+      );
+    };
+  }, [serverSide]);
 
+  // Fetch sales from API with server-side parameters
+  const fetchSales = async () => {
+    // Cancel previous request if running
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new controller
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (prefLoading) return;
+    setLoading(true);
+
+    try {
+      let url = API_ENDPOINTS.INVOICES.LIST;
+      const params = new URLSearchParams();
+
+      if (serverSide) {
+        // Add pagination params
+        params.append("page", currentPage);
+        params.append("limit", recordsPerPage);
+
+        // Add search term
+        if (searchTerm) {
+          params.append("search", searchTerm);
+        }
+
+        // Add financial year filter
+        if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+          params.append("financialYear", selectedFinancialYear);
+        }
+
+        // Add period filter
+        if (financialPeriodMode && financialPeriodMode !== "yearly") {
+          params.append("period", financialPeriodMode);
+        }
+
+        // Only send valid filters (skip sn, action, empty, null, undefined, 'All')
+        Object.entries(filters).forEach(([key, value]) => {
+          if (["sn", "action"].includes(key)) return;
+          if (
+            value === undefined ||
+            value === null ||
+            value === "" ||
+            value === "All"
+          )
+            return;
+
+          // Handle date range filters for columnsWithDateFilter
+          if (columnsWithDateFilter.includes(key)) {
+            if (value && typeof value === "object") {
+              if (value.startDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_start`, value.startDate);
+              }
+              if (value.endDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_end`, value.endDate);
+              }
+            }
+          } else {
+            // Only send if not 'All'
+            if (
+              Array.isArray(value) &&
+              value.length > 0 &&
+              !value.includes("All")
+            ) {
+              params.append(key, value.join(","));
+            } else if (!Array.isArray(value) && value !== "All") {
+              params.append(key, value);
+            }
+          }
+        });
+
+        // Add sorting
+        if (sortField && sortDirection !== "normal") {
+          params.append("sortBy", sortField);
+          params.append(
+            "sortOrder",
+            sortDirection === "ascending" ? "asc" : "desc",
+          );
+        }
+
+        // Add card filter
+        if (
+          activeCardFilter &&
+          activeCardFilter !== "total" &&
+          activeCardFilter !== "addNew" &&
+          activeCardFilter !== "period"
+        ) {
+          params.append("filter", activeCardFilter);
+        }
+
+        url = `${url}?${params.toString()}`;
+      }
+
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
+
+      let salesData;
+      let total;
+
+      if (serverSide) {
+        // Server-side response format with pagination
+        salesData = response.data?.data || response.data?.invoices || [];
+        total =
+          response.data?.pagination?.totalRecords ||
+          response.data?.total ||
+          salesData.length;
+
+        // Update statistics from response if available
+        if (response.data?.statistics) {
+          setStatistics(response.data.statistics);
+        }
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
+        }
+        if (response.data?.clients) {
+          setClients(response.data.clients);
+        }
+      } else {
+        // Client-side response format
+        salesData =
+          response.data?.data ||
+          response.data?.invoices ||
+          (Array.isArray(response.data) ? response.data : []);
+        total = salesData.length;
+      }
+
+      const mappedData = salesData.map((sale) => {
+        const createdDate = sale.createdDate || sale.createdAt;
+
+        return {
+          ...sale,
+          id: sale._id || sale.id,
+          createdDate,
+          invoiceDateFormatted: formatDateForDisplay(sale.invoiceDate),
+          paymentDateFormatted: sale.paymentDate
+            ? formatDateForDisplay(sale.paymentDate)
+            : "-",
+          createdDateTime: formatDateTimeForDisplay(createdDate),
+          totalAmount: sale.taxData?.totalAmount || 0,
+          roundingAmount: sale.roundingAmount || 0,
+          itemCount: sale.items?.length || 0,
+          clientName: getClientName(sale),
+        };
+      });
+
+      setRecords(mappedData);
+      setTotalRecords(total);
+
+      // Update statistics for client-side mode
+      if (!serverSide) {
+        updateStatistics(mappedData);
+      }
+    } catch (err) {
+      if (err.name === "CanceledError" || err.name === "AbortError") {
+        return;
+      }
+
+      console.error("Failed to fetch sales:", err);
+      showError("Failed to fetch sales");
+      setRecords([]);
+      setTotalRecords(0);
+      updateStatistics([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Helper to get client name
+  const getClientName = (sale) => {
+    if (sale.clientName) return sale.clientName;
+    if (sale.clientRefId && clients.length > 0) {
+      const client = clients.find((c) => c.id === sale.clientRefId);
+      return client?.clientName || "";
+    }
+    return "";
+  };
+
+  // Update statistics (client-side)
   const updateStatistics = (data) => {
-    // Calculate total sales amount, total paid amount, and unpaid amount
     const totalAmount = data.reduce(
-      (sum, r) => sum + toNumber(r.taxData?.totalAmount || 0),
+      (sum, r) => sum + parseFloat(r.taxData?.totalAmount || 0),
       0,
     );
+
     const paidAmount = data
       .filter(
         (r) => r.paymentStatus === "Paid" || r.paymentStatus === "Partial",
       )
-      .reduce((sum, r) => sum + toNumber(r.amountReceived || 0), 0);
+      .reduce((sum, r) => {
+        if (r.amountReceived !== undefined && r.amountReceived !== null) {
+          return sum + parseFloat(r.amountReceived || 0);
+        } else if (r.paymentStatus === "Paid") {
+          return sum + parseFloat(r.taxData?.totalAmount || 0);
+        } else if (r.paymentStatus === "Partial") {
+          return sum + parseFloat(r.taxData?.totalAmount || 0) / 2;
+        }
+        return sum;
+      }, 0);
+
     const unpaidAmount = totalAmount - paidAmount;
 
     const stats = {
@@ -452,27 +478,217 @@ const SalesManagement = () => {
     setStatistics(stats);
   };
 
-  const prepareTableData = () => {
-    return filteredRecords.map((record, index) => ({
-      ...record,
-      sn: index + 1,
-      invoiceDateFormatted: formatDateForDisplay(record.invoiceDate),
-      paymentDateFormatted: record.paymentDate
-        ? formatDateForDisplay(record.paymentDate)
-        : "-",
-      createdDateTime:
-        record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
-      createdDateFilter: record.createdDate,
-      totalAmount: record.taxData?.totalAmount || 0,
-      roundingAmount: record.roundingAmount || 0,
-      itemCount: record.items?.length || 0,
-    }));
+  // Debounced fetch for server-side mode
+  useEffect(() => {
+    if (prefLoading) return;
+
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+    debounceTimeoutRef.current = setTimeout(
+      () => {
+        fetchSales();
+      },
+      serverSide ? 500 : 0,
+    );
+
+    return () => clearTimeout(debounceTimeoutRef.current);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    selectedFinancialYear,
+    financialPeriodMode,
+    prefLoading,
+  ]);
+
+  // Fetch clients, financial years, and business settings on mount
+  useEffect(() => {
+    fetchFinancialYears();
+    fetchClients();
+    fetchBusinessSettings();
+  }, []);
+
+  // Update preview record when records change
+  useEffect(() => {
+    if (!showInvoicePreview || !previewRecord) return;
+
+    const previewId = previewRecord._id || previewRecord.id;
+    if (!previewId) return;
+
+    const latestRecord = records.find(
+      (record) => (record._id || record.id) === previewId,
+    );
+
+    if (latestRecord) {
+      setPreviewRecord(latestRecord);
+    }
+  }, [records, showInvoicePreview, previewRecord]);
+
+  // Format date for display (DD/MM/YYYY)
+  const formatDateForDisplay = (dateString) => {
+    if (!dateString) return "";
+
+    try {
+      const date = new Date(dateString);
+      if (!isNaN(date.getTime())) {
+        const day = String(date.getDate()).padStart(2, "0");
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
+      }
+      return dateString;
+    } catch (e) {
+      return dateString;
+    }
   };
 
+  // Format date for display (DD/MM/YYYY | HH:MM:SS AM/PM)
+  const formatDateTimeForDisplay = (dateString) => {
+    if (!dateString) return "";
+
+    try {
+      const date = new Date(dateString);
+      if (!isNaN(date.getTime())) {
+        const day = String(date.getDate()).padStart(2, "0");
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const year = date.getFullYear();
+
+        let hours = date.getHours();
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        const seconds = String(date.getSeconds()).padStart(2, "0");
+        const ampm = hours >= 12 ? "PM" : "AM";
+
+        hours = hours % 12;
+        hours = hours ? hours : 12;
+        const formattedHours = String(hours).padStart(2, "0");
+
+        return `${day}/${month}/${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
+      }
+
+      return dateString;
+    } catch (e) {
+      return dateString;
+    }
+  };
+
+  // Prepare data for table
+  const preparedData = useMemo(() => {
+    return records.map((record, index) => ({
+      ...record,
+      sn: (currentPage - 1) * recordsPerPage + index + 1,
+    }));
+  }, [records, currentPage, recordsPerPage]);
+
+  // Client-side per-column filtering logic
+  const filteredClientSideData = useMemo(() => {
+    if (serverSide) {
+      return preparedData;
+    }
+
+    let data = preparedData;
+
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value && typeof value === "string" && value.trim() !== "") {
+        data = data.filter((row) =>
+          (row[key] || "")
+            .toString()
+            .toLowerCase()
+            .includes(value.toLowerCase()),
+        );
+      }
+    });
+
+    // Apply financial year filter for client-side
+    if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+      const yearRecord = financialYears.find(
+        (y) => y.value === selectedFinancialYear,
+      );
+      if (yearRecord?.startDate && yearRecord?.endDate) {
+        const startDate = new Date(yearRecord.startDate);
+        const endDate = new Date(yearRecord.endDate);
+        data = data.filter((record) => {
+          const invoiceDate = new Date(record.invoiceDate);
+          return invoiceDate >= startDate && invoiceDate <= endDate;
+        });
+      }
+    }
+
+    // Apply period filter for client-side
+    if (financialPeriodMode !== "yearly") {
+      const today = new Date();
+      data = data.filter((record) => {
+        const invoiceDate = new Date(record.invoiceDate);
+        if (!invoiceDate) return false;
+
+        if (financialPeriodMode === "daily") {
+          return (
+            invoiceDate.getDate() === today.getDate() &&
+            invoiceDate.getMonth() === today.getMonth() &&
+            invoiceDate.getFullYear() === today.getFullYear()
+          );
+        }
+        if (financialPeriodMode === "monthly") {
+          return (
+            invoiceDate.getMonth() === today.getMonth() &&
+            invoiceDate.getFullYear() === today.getFullYear()
+          );
+        }
+        if (financialPeriodMode === "quarterly") {
+          const getQuarter = (date) => Math.floor(date.getMonth() / 3) + 1;
+          return (
+            invoiceDate.getFullYear() === today.getFullYear() &&
+            getQuarter(invoiceDate) === getQuarter(today)
+          );
+        }
+        if (financialPeriodMode === "halfYearly") {
+          const getHalf = (date) => (date.getMonth() < 6 ? 1 : 2);
+          return (
+            invoiceDate.getFullYear() === today.getFullYear() &&
+            getHalf(invoiceDate) === getHalf(today)
+          );
+        }
+        return true;
+      });
+    }
+
+    return data;
+  }, [
+    preparedData,
+    filters,
+    serverSide,
+    selectedFinancialYear,
+    financialYears,
+    financialPeriodMode,
+  ]);
+
+  // Debounced per-column filter change handler for server-side
+  const handleDebouncedColumnFilterChange = (key, value) => {
+    if (serverSide) {
+      if (debounceColumnTimeoutRef.current)
+        clearTimeout(debounceColumnTimeoutRef.current);
+      debounceColumnTimeoutRef.current = setTimeout(() => {
+        setFilters((prev) => ({ ...prev, [key]: value }));
+        setCurrentPage(1);
+      }, 500);
+    } else {
+      setFilters((prev) => ({ ...prev, [key]: value }));
+    }
+  };
+
+  // Columns configuration
   const columns = [
     { key: "sn", label: "S.No", width: 70 },
     { key: "invoiceNumber", label: "Invoice No.", width: 130 },
-    { key: "invoiceDateFormatted", label: "Invoice Date", width: 130 },
+    {
+      key: "invoiceDateFormatted",
+      label: "Invoice Date",
+      width: 130,
+    },
     { key: "clientName", label: "Client Name", width: 160 },
     { key: "clientId", label: "Client ID", width: 120 },
     { key: "businessName", label: "Business Name", width: 180 },
@@ -528,7 +744,11 @@ const SalesManagement = () => {
       },
     },
     { key: "paymentMethod", label: "Payment Method", width: 130 },
-    { key: "paymentDateFormatted", label: "Payment Date", width: 130 },
+    {
+      key: "paymentDateFormatted",
+      label: "Payment Date",
+      width: 130,
+    },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
     { key: "action", label: "Actions", width: 180 },
   ];
@@ -550,27 +770,26 @@ const SalesManagement = () => {
     "action",
   ];
 
+  // Columns with dropdown filter
   const columnsWithDropdownFilter = ["paymentStatus", "paymentMethod"];
-  const columnsWithDateFilter = [
-    "createdDateTime",
-    "invoiceDateFormatted",
-    "paymentDateFormatted",
-  ];
 
-  const filterOptions = {
-    paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
-    paymentMethod: [
-      "All",
-      "Cash",
-      "Bank Transfer",
-      "Credit Card",
-      "Debit Card",
-      "UPI",
-      "Cheque",
-    ],
+  // Filter options
+  const getFilterOptions = () => {
+    return {
+      paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
+      paymentMethod: [
+        "All",
+        "Cash",
+        "Bank Transfer",
+        "Credit Card",
+        "Debit Card",
+        "UPI",
+        "Cheque",
+      ],
+    };
   };
 
-  // Updated handleCardClick to include period logic
+  // Handle card click
   const handleCardClick = (cardKey) => {
     if (cardKey === "addNew") {
       if (!canCreate) {
@@ -580,7 +799,6 @@ const SalesManagement = () => {
       setEditingRecord(null);
       setShowCreateSalesForm(true);
     } else if (cardKey === "period") {
-      // Add period cycle logic from PurchaseManagement
       const periodCycle = [
         "daily",
         "monthly",
@@ -592,14 +810,51 @@ const SalesManagement = () => {
       setFinancialPeriodMode((prev) => {
         const currentIndex = periodCycle.indexOf(prev);
         if (currentIndex === -1) return "daily";
-        return periodCycle[(currentIndex + 1) % periodCycle.length];
+        const newMode = periodCycle[(currentIndex + 1) % periodCycle.length];
+        if (serverSide) {
+          setCurrentPage(1);
+        }
+        return newMode;
       });
     } else {
       setActiveCardFilter(cardKey);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     }
   };
 
-  // Add this function from PurchaseManagement
+  // Get card number for styling
+  const getCardNumber = (index) => {
+    return (index % 8) + 1;
+  };
+
+  // Get default financial year record
+  const getDefaultFinancialYearRecord = () => {
+    return financialYears.find((year) => year?.isDefault === true) || null;
+  };
+
+  // Check if invoice date is within financial year
+  const isInvoiceDateWithinFinancialYear = (
+    invoiceDate,
+    financialYearRecord,
+  ) => {
+    if (
+      !invoiceDate ||
+      !financialYearRecord?.startDate ||
+      !financialYearRecord?.endDate
+    ) {
+      return true;
+    }
+
+    const invoiceDateObj = new Date(invoiceDate);
+    const startDate = new Date(financialYearRecord.startDate);
+    const endDate = new Date(financialYearRecord.endDate);
+
+    return invoiceDateObj >= startDate && invoiceDateObj <= endDate;
+  };
+
+  // Get current period display value
   const getPeriodDisplayValue = () => {
     return financialPeriodMode === "daily"
       ? "Daily"
@@ -612,10 +867,7 @@ const SalesManagement = () => {
             : "Yearly";
   };
 
-  const getCardNumber = (index) => {
-    return (index % 8) + 1;
-  };
-
+  // Handle form submit
   const handleFormSubmit = async (formData) => {
     if (!editingRecord) {
       const defaultFinancialYear = getDefaultFinancialYearRecord();
@@ -642,17 +894,6 @@ const SalesManagement = () => {
       if (!isValidInvoiceDate) {
         showError(
           `Invoice Date must be between ${formatDateForDisplay(defaultFinancialYear.startDate)} and ${formatDateForDisplay(defaultFinancialYear.endDate)} for financial year ${defaultFinancialYear.value}.`,
-        );
-        return;
-      }
-
-      const invoiceExists = allRecords.some(
-        (record) => record.invoiceNumber === formData.invoiceNumber,
-      );
-
-      if (invoiceExists) {
-        showError(
-          "Invoice number already exists. Please refresh and try again.",
         );
         return;
       }
@@ -704,31 +945,30 @@ const SalesManagement = () => {
     }
   };
 
+  // Handle edit
   const handleEdit = (record) => {
     setEditingRecord(record);
     setShowCreateSalesForm(true);
     showInfo(`Editing sales: ${record.invoiceNumber}`);
   };
 
+  // Handle view
   const handleView = (record) => {
     setEditingRecord({ ...record, isViewMode: true });
     setShowCreateSalesForm(true);
     showInfo(`Viewing sales: ${record.invoiceNumber}`);
   };
 
+  // Handle delete
   const handleDelete = (id) => {
     handleDeleteInvoice(id);
   };
 
   const handleDeleteInvoice = async (id) => {
     try {
-      // Soft delete: set isDeleted true
-      await apiPut(API_ENDPOINTS.INVOICES.UPDATE(id), {
-        isDeleted: true,
-        deletedAt: new Date().toISOString(),
-      });
-      await fetchSales();
+      await apiDelete(API_ENDPOINTS.INVOICES.DELETE(id));
       showSuccess("Sales deleted successfully!");
+      await fetchSales();
     } catch (error) {
       console.error("Error deleting invoice:", error);
       showError(
@@ -739,32 +979,45 @@ const SalesManagement = () => {
     }
   };
 
+  // Handle refresh
   const handleRefresh = () => {
     fetchFinancialYears();
-    fetchSales();
     fetchClients();
     fetchBusinessSettings();
-    setActiveCardFilter("total");
-    setFinancialPeriodMode("yearly"); // Add this line
+    if (serverSide) {
+      setFilters({});
+      setSearchTerm("");
+      setSortField(null);
+      setSortDirection("normal");
+      setCurrentPage(1);
+      setActiveCardFilter("total");
+      setFinancialPeriodMode("yearly");
+    }
+    fetchSales();
     showInfo("Data refreshed!");
   };
 
+  // Open invoice preview
   const openInvoicePreview = (record) => {
     setPreviewRecord(record);
     setShowInvoicePreview(true);
   };
 
+  // Close invoice preview
   const closeInvoicePreview = () => {
     setShowInvoicePreview(false);
     setPreviewRecord(null);
   };
 
+  // Get invoice element ID for printing
   const getInvoiceElementId = (record, index) => {
     return `invoice-print-${record.id || record.invoiceNumber || index}`;
   };
 
+  // Export multiple invoices as PDF
   const exportInvoicesPdf = async () => {
-    if (!filteredRecords.length) {
+    const dataToExport = serverSide ? records : filteredClientSideData;
+    if (!dataToExport.length) {
       showError("No invoices found for the selected filters.");
       return;
     }
@@ -783,8 +1036,8 @@ const SalesManagement = () => {
         compress: true,
       });
 
-      for (let i = 0; i < filteredRecords.length; i += 1) {
-        const record = filteredRecords[i];
+      for (let i = 0; i < dataToExport.length; i += 1) {
+        const record = dataToExport[i];
         const elementId = getInvoiceElementId(record, i);
         const element = document.getElementById(elementId);
 
@@ -822,15 +1075,17 @@ const SalesManagement = () => {
     }
   };
 
+  // Handle export with items (Excel)
   const handleExportItemWiseExcel = () => {
-    if (!filteredRecords.length) {
+    const dataToExport = serverSide ? records : filteredClientSideData;
+    if (!dataToExport.length) {
       showError("No sales invoices found for the selected filters.");
       return;
     }
 
     try {
       exportItemWiseExcel({
-        records: filteredRecords,
+        records: dataToExport,
         exportFileName: "Sales_Management",
         sheetName: "Sales Item Wise",
         reportTitle: "Sales_Item_Wise",
@@ -851,15 +1106,17 @@ const SalesManagement = () => {
     }
   };
 
+  // Handle export with items (PDF)
   const handleExportItemWisePDF = () => {
-    if (!filteredRecords.length) {
+    const dataToExport = serverSide ? records : filteredClientSideData;
+    if (!dataToExport.length) {
       showError("No sales invoices found for the selected filters.");
       return;
     }
 
     try {
       exportItemWisePDF({
-        records: filteredRecords,
+        records: dataToExport,
         exportFileName: "Sales_Management",
         reportTitle: "Sales Report",
         invoiceNumberKey: "invoiceNumber",
@@ -879,14 +1136,21 @@ const SalesManagement = () => {
     }
   };
 
+  // Get status label for invoice
   const getStatusLabel = (status) => {
     if (status === "Paid") return "PAID";
     if (status === "Partial") return "PARTIAL";
     return "UNPAID";
   };
 
+  // Build invoice data for preview
   const buildInvoiceData = (record) => {
     if (!record) return null;
+
+    const toNumber = (value) => {
+      const num = parseFloat(value);
+      return Number.isNaN(num) ? 0 : num;
+    };
 
     const subtotal = toNumber(record.taxData?.subtotal || 0);
     const discountPercent = toNumber(record.discountPercent || 0);
@@ -969,18 +1233,67 @@ const SalesManagement = () => {
     };
   };
 
+  // Server-side handlers
+  const handleServerSideSearch = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideFilter = (filterParams) => {
+    setFilters(filterParams);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideSort = (field, direction) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
+  const handleServerSidePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleServerSideRecordsPerPageChange = (limit) => {
+    setRecordsPerPage(limit);
+    setCurrentPage(1);
+  };
+
   return (
     <>
       <div className="container-fluid">
         <div
-          className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+          className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <div className="flex-grow-1">
-            <h4 className="fs-18 fw-semibold m-0">Sales Management</h4>
+          {/* Left Side - Heading */}
+          <h4 className="fs-18 fw-semibold m-0">Sales Management</h4>
+
+          {/* Right Side - Toggle */}
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+                setActiveCardFilter("total");
+                setFinancialPeriodMode("yearly");
+              }}
+              id="serverSideToggle"
+            />
+            <label className="form-check-label ms-2" htmlFor="serverSideToggle">
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
           </div>
         </div>
 
+        {/* Statistics Cards */}
         <div className="row">
           {cards.map((card, index) => {
             const cardNumber = getCardNumber(index);
@@ -989,10 +1302,9 @@ const SalesManagement = () => {
             const isActive =
               activeCardFilter === card.key &&
               card.key !== "addNew" &&
-              card.key !== "period"; // Update this line to exclude period from active filter
+              card.key !== "period";
             const isAddNewDisabled = card.key === "addNew" && !canCreate;
 
-            // Determine the value to display (updated from PurchaseManagement)
             let displayValue;
             if (card.key === "addNew") {
               displayValue = "+ Add New";
@@ -1002,15 +1314,20 @@ const SalesManagement = () => {
                   ? "All Year"
                   : selectedFinancialYear
               } • ${getPeriodDisplayValue()}`;
-            } else if (card.key === "totalAmount") {
-              displayValue = `₹ ${parseFloat(
-                statistics[card.key] || 0,
-              ).toLocaleString("en-IN", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}`;
+            } else if (
+              card.key === "totalAmount" ||
+              card.key === "paid" ||
+              card.key === "unpaid"
+            ) {
+              displayValue = `₹ ${parseFloat(card.count || 0).toLocaleString(
+                "en-IN",
+                {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                },
+              )}`;
             } else {
-              displayValue = statistics[card.key];
+              displayValue = card.count || 0;
             }
 
             return (
@@ -1030,7 +1347,7 @@ const SalesManagement = () => {
                   onMouseEnter={(e) => {
                     if (
                       (card.key === "addNew" && !isAddNewDisabled) ||
-                      card.key === "period" // Add period card hover effect
+                      card.key === "period"
                     ) {
                       e.currentTarget.style.transform = "translateY(-5px)";
                       e.currentTarget.style.boxShadow =
@@ -1073,23 +1390,25 @@ const SalesManagement = () => {
           })}
         </div>
 
+        {/* Reusable Table */}
         <ReusableTable
           moduleKey={moduleKey}
           columns={columns}
-          data={prepareTableData()}
+          data={serverSide ? preparedData : filteredClientSideData}
           loading={loading}
-          onFilteredDataChange={setFilteredRecords}
+          totalRecords={totalRecords}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onView={handleView}
           onRefresh={handleRefresh}
           showActions={true}
           actions={["view", "edit", "delete"]}
+          skipDeleteConfirmation={true}
           fixedColumns={fixedColumns}
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
-          filterOptions={filterOptions}
+          filterOptions={serverSide ? dynamicFilterOptions : getFilterOptions()}
           tableTitle="Sales Records"
           showColumnSelector={true}
           showExport={true}
@@ -1100,11 +1419,11 @@ const SalesManagement = () => {
           exportTitle="Sales Management Report"
           extraExportItems={[
             {
-              label: "Export Excel with Item",
+              label: "Export Excel with Items",
               onClick: handleExportItemWiseExcel,
             },
             {
-              label: "PDF with Item",
+              label: "Export PDF with Items",
               onClick: handleExportItemWisePDF,
             },
             {
@@ -1132,8 +1451,23 @@ const SalesManagement = () => {
               <i className="fas fa-file-invoice"></i>
             </button>
           )}
+          serverSide={serverSide}
+          onServerSideSearch={handleServerSideSearch}
+          onServerSideFilter={handleServerSideFilter}
+          onServerSideSort={handleServerSideSort}
+          onServerSidePageChange={handleServerSidePageChange}
+          onServerSideRecordsPerPageChange={
+            handleServerSideRecordsPerPageChange
+          }
+          currentPage={currentPage}
+          recordsPerPage={recordsPerPage}
+          onPageChange={setCurrentPage}
+          onRecordsPerPageChange={setRecordsPerPage}
+          onColumnFilterChange={handleDebouncedColumnFilterChange}
+          exportApi={API_ENDPOINTS.INVOICES.LIST}
         />
 
+        {/* Create/Edit Sales Modal */}
         <CreateSales
           show={showCreateSalesForm}
           onClose={() => {
@@ -1144,7 +1478,7 @@ const SalesManagement = () => {
           editingRecord={editingRecord}
           clients={clients}
           defaultFinancialYear={getDefaultFinancialYearRecord()}
-          existingInvoices={allRecords}
+          existingInvoices={records}
         />
       </div>
 
@@ -1155,6 +1489,7 @@ const SalesManagement = () => {
         invoiceData={buildInvoiceData(previewRecord)}
       />
 
+      {/* Hidden divs for printing multiple invoices */}
       <div
         style={{
           position: "absolute",
@@ -1165,15 +1500,17 @@ const SalesManagement = () => {
           overflow: "hidden",
         }}
       >
-        {filteredRecords.map((record, index) => (
-          <InvoicePreview
-            key={record.id || record.invoiceNumber || index}
-            id={getInvoiceElementId(record, index)}
-            show={true}
-            renderMode="print"
-            invoiceData={buildInvoiceData(record)}
-          />
-        ))}
+        {(serverSide ? records : filteredClientSideData).map(
+          (record, index) => (
+            <InvoicePreview
+              key={record.id || record.invoiceNumber || index}
+              id={getInvoiceElementId(record, index)}
+              show={true}
+              renderMode="print"
+              invoiceData={buildInvoiceData(record)}
+            />
+          ),
+        )}
       </div>
     </>
   );

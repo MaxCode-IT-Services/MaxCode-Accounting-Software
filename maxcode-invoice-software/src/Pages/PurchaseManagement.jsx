@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreatePurchase from "../Components/CreatePurchase";
+import ConfirmationModal from "../Components/ConfirmationModal";
 import {
   showSuccess,
   showError,
   showInfo,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
+import { apiGet, apiDelete, apiPut, apiPost } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 import {
   exportItemWiseExcel,
@@ -18,12 +19,45 @@ const PurchaseManagement = () => {
   const moduleKey = "purchaseManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
+  // Server-side mode state, fetched from backend user preferences
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
+
+  // Fetch user preference on mount
   useEffect(() => {
     document.title = "Purchase Management | MaxCode IT Services";
+    const fetchPreference = async () => {
+      try {
+        const res = await apiGet("/user-preferences");
+        if (typeof res.data?.purchaseManagementServerSide === "boolean") {
+          setServerSide(res.data.purchaseManagementServerSide);
+        }
+      } catch (e) {
+        // fallback: do nothing, keep default
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+    fetchPreference();
   }, []);
 
+  // Save preference to backend when toggled
+  useEffect(() => {
+    if (prefLoading) return;
+    const savePreference = async () => {
+      try {
+        await apiPost("/user-preferences", {
+          purchaseManagementServerSide: serverSide,
+        });
+      } catch (e) {
+        // ignore
+      }
+    };
+    savePreference();
+  }, [serverSide, prefLoading]);
+
   // State for records and loading
-  const [allRecords, setAllRecords] = useState([]);
   const [records, setRecords] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [financialYears, setFinancialYears] = useState([]);
@@ -32,10 +66,27 @@ const PurchaseManagement = () => {
   );
   const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly");
   const [loading, setLoading] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [showCreatePurchaseForm, setShowCreatePurchaseForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
-  const [filteredRecords, setFilteredRecords] = useState([]);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [purchaseToDelete, setPurchaseToDelete] = useState(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+
+  // Filter state for server-side
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
+
+  // Debounce refs
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Statistics state
   const [statistics, setStatistics] = useState({
@@ -46,45 +97,329 @@ const PurchaseManagement = () => {
     totalAmount: 0,
   });
 
-  // Card data array
-  const cards = [
-    {
-      icon: "fas fa-rupee-sign",
-      title: "Total Amount",
-      key: "totalAmount",
-      color: "info",
-    },
-    {
-      icon: "fas fa-check-circle",
-      title: "Paid",
-      key: "paid",
-      color: "success",
-    },
-    {
-      icon: "fa-solid fa-times-circle",
-      title: "Unpaid",
-      key: "unpaid",
-      color: "danger",
-    },
-    {
-      icon: "fas fa-hourglass-half",
-      title: "Partial",
-      key: "partial",
-      color: "warning",
-    },
-    {
-      icon: "fa-regular fa-calendar-days",
-      title: "Financial Period",
-      key: "period",
-      color: "warning",
-    },
-    {
-      icon: "fas fa-plus-circle",
-      title: "Add New",
-      key: "addNew",
-      color: "success",
-    },
+  // Columns with date range filter
+  const columnsWithDateFilter = [
+    "createdDateTime",
+    "invoiceDateFormatted",
+    "paymentDateFormatted",
   ];
+
+  // Fetch vendors
+  const fetchVendors = async () => {
+    try {
+      const response = await apiGet(API_ENDPOINTS.VENDORS.LIST);
+      const vendorsData = Array.isArray(response.data)
+        ? response.data
+        : response.data?.vendors || [];
+
+      const activeVendors = vendorsData
+        .filter((v) => v?.isDeleted !== true)
+        .map((vendor) => ({
+          ...vendor,
+          id: vendor.id || vendor._id,
+        }));
+      setVendors(activeVendors);
+    } catch (err) {
+      console.error("Vendors API fetch error:", err);
+      setVendors([]);
+    }
+  };
+
+  // Fetch financial years
+  const fetchFinancialYears = async () => {
+    try {
+      const response = await apiGet(API_ENDPOINTS.YEARS.LIST);
+      const yearsData = Array.isArray(response.data)
+        ? response.data
+        : response.data?.years || [];
+
+      const normalizedYears = yearsData
+        .filter((yearRecord) => yearRecord?.isDeleted !== true)
+        .map((yearRecord) => ({
+          ...yearRecord,
+          id: yearRecord.id || yearRecord._id,
+          value: yearRecord.financialYear || yearRecord.year,
+        }));
+
+      setFinancialYears(normalizedYears);
+    } catch (error) {
+      console.error("Financial years API fetch error:", error);
+      setFinancialYears([]);
+    }
+  };
+
+  // Listen for financial year changes
+  useEffect(() => {
+    const handleFinancialYearSelectionChanged = (event) => {
+      const selectedYear =
+        event?.detail?.selectedFinancialYear ||
+        localStorage.getItem("selectedFinancialYear") ||
+        "ALL";
+      setSelectedFinancialYear(selectedYear);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
+    };
+
+    window.addEventListener(
+      "financialYearSelectionChanged",
+      handleFinancialYearSelectionChanged,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "financialYearSelectionChanged",
+        handleFinancialYearSelectionChanged,
+      );
+    };
+  }, [serverSide]);
+
+  // Fetch purchases from API with server-side parameters
+  const fetchPurchases = async () => {
+    // Cancel previous request if running
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new controller
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (prefLoading) return;
+    setLoading(true);
+
+    try {
+      let url = API_ENDPOINTS.PURCHASES.LIST;
+      const params = new URLSearchParams();
+
+      if (serverSide) {
+        // Add pagination params
+        params.append("page", currentPage);
+        params.append("limit", recordsPerPage);
+
+        // Add search term
+        if (searchTerm) {
+          params.append("search", searchTerm);
+        }
+
+        // Add financial year filter
+        if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+          params.append("financialYear", selectedFinancialYear);
+        }
+
+        // Add period filter
+        if (financialPeriodMode && financialPeriodMode !== "yearly") {
+          params.append("period", financialPeriodMode);
+        }
+
+        // Only send valid filters (skip sn, action, empty, null, undefined, 'All')
+        Object.entries(filters).forEach(([key, value]) => {
+          if (["sn", "action"].includes(key)) return;
+          if (
+            value === undefined ||
+            value === null ||
+            value === "" ||
+            value === "All"
+          )
+            return;
+
+          // Handle date range filters for columnsWithDateFilter
+          if (columnsWithDateFilter.includes(key)) {
+            if (value && typeof value === "object") {
+              if (value.startDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_start`, value.startDate);
+              }
+              if (value.endDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_end`, value.endDate);
+              }
+            }
+          } else {
+            if (Array.isArray(value) && value.length > 0) {
+              params.append(key, value.join(","));
+            } else if (!Array.isArray(value)) {
+              params.append(key, value);
+            }
+          }
+        });
+
+        // Add sorting
+        if (sortField && sortDirection !== "normal") {
+          params.append("sortBy", sortField);
+          params.append(
+            "sortOrder",
+            sortDirection === "ascending" ? "asc" : "desc",
+          );
+        }
+
+        // Add card filter
+        if (
+          activeCardFilter &&
+          activeCardFilter !== "total" &&
+          activeCardFilter !== "addNew" &&
+          activeCardFilter !== "period"
+        ) {
+          params.append("filter", activeCardFilter);
+        }
+
+        url = `${url}?${params.toString()}`;
+      }
+
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
+
+      let purchasesData;
+      let total;
+
+      if (serverSide) {
+        // Server-side response format with pagination
+        purchasesData = response.data?.data || response.data?.purchases || [];
+        total =
+          response.data?.pagination?.totalRecords ||
+          response.data?.total ||
+          purchasesData.length;
+
+        // Update statistics from response if available
+        if (response.data?.statistics) {
+          setStatistics(response.data.statistics);
+        }
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
+        }
+        if (response.data?.vendors) {
+          setVendors(response.data.vendors);
+        }
+      } else {
+        // Client-side response format
+        purchasesData =
+          response.data?.data ||
+          response.data?.purchases ||
+          (Array.isArray(response.data) ? response.data : []);
+        total = purchasesData.length;
+      }
+
+      const mappedData = purchasesData.map((purchase) => {
+        const createdDate = purchase.createdDate || purchase.createdAt;
+
+        return {
+          ...purchase,
+          id: purchase._id || purchase.id,
+          createdDate,
+          invoiceDateFormatted: formatDateForDisplay(purchase.invoiceDate),
+          paymentDateFormatted: purchase.paymentDate
+            ? formatDateForDisplay(purchase.paymentDate)
+            : "-",
+          createdDateTime: formatDateTimeForDisplay(createdDate),
+          totalAmount: purchase.taxData?.totalAmount || 0,
+          roundingAmount: purchase.roundingAmount || 0,
+          itemCount: purchase.items?.length || 0,
+          vendorName: getVendorName(purchase),
+        };
+      });
+
+      setRecords(mappedData);
+      setTotalRecords(total);
+
+      // Update statistics for client-side mode
+      if (!serverSide) {
+        updateStatistics(mappedData);
+      }
+    } catch (err) {
+      if (err.name === "CanceledError" || err.name === "AbortError") {
+        return;
+      }
+
+      console.error("Failed to fetch purchases:", err);
+      showError("Failed to fetch purchases");
+      setRecords([]);
+      setTotalRecords(0);
+      updateStatistics([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Helper to get vendor name
+  const getVendorName = (purchase) => {
+    if (purchase.vendorName) return purchase.vendorName;
+    if (purchase.vendorId && vendors.length > 0) {
+      const vendor = vendors.find((v) => v.id === purchase.vendorId);
+      return vendor?.vendorName || "";
+    }
+    return "";
+  };
+
+  // Update statistics (client-side)
+  const updateStatistics = (data) => {
+    const totalAmount = data.reduce(
+      (sum, r) => sum + parseFloat(r.taxData?.totalAmount || 0),
+      0,
+    );
+
+    const paidAmount = data
+      .filter(
+        (r) => r.paymentStatus === "Paid" || r.paymentStatus === "Partial",
+      )
+      .reduce((sum, r) => {
+        if (r.amountReceived !== undefined && r.amountReceived !== null) {
+          return sum + parseFloat(r.amountReceived || 0);
+        } else if (r.paymentStatus === "Paid") {
+          return sum + parseFloat(r.taxData?.totalAmount || 0);
+        } else if (r.paymentStatus === "Partial") {
+          return sum + parseFloat(r.taxData?.totalAmount || 0) / 2;
+        }
+        return sum;
+      }, 0);
+
+    const unpaidAmount = totalAmount - paidAmount;
+
+    const stats = {
+      total: data.length,
+      paid: paidAmount.toFixed(2),
+      unpaid: unpaidAmount.toFixed(2),
+      partial: data.filter((r) => r.paymentStatus === "Partial").length,
+      totalAmount: totalAmount.toFixed(2),
+    };
+    setStatistics(stats);
+  };
+
+  // Debounced fetch for server-side mode
+  useEffect(() => {
+    if (prefLoading) return;
+
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+    debounceTimeoutRef.current = setTimeout(
+      () => {
+        fetchPurchases();
+      },
+      serverSide ? 500 : 0,
+    );
+
+    return () => clearTimeout(debounceTimeoutRef.current);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    selectedFinancialYear,
+    financialPeriodMode,
+    prefLoading,
+  ]);
+
+  // Fetch vendors and financial years on mount
+  useEffect(() => {
+    fetchFinancialYears();
+    fetchVendors();
+  }, []);
 
   // Format date for display (DD/MM/YYYY)
   const formatDateForDisplay = (dateString) => {
@@ -133,302 +468,152 @@ const PurchaseManagement = () => {
     }
   };
 
-  const toNumber = (value) => {
-    const number = parseFloat(value);
-    return Number.isNaN(number) ? 0 : number;
-  };
+  // Card data array
+  const cards = [
+    {
+      icon: "fas fa-rupee-sign",
+      title: "Total Amount",
+      key: "totalAmount",
+      color: "info",
+      count: statistics.totalAmount,
+    },
+    {
+      icon: "fas fa-check-circle",
+      title: "Paid",
+      key: "paid",
+      color: "success",
+      count: statistics.paid,
+    },
+    {
+      icon: "fa-solid fa-times-circle",
+      title: "Unpaid",
+      key: "unpaid",
+      color: "danger",
+      count: statistics.unpaid,
+    },
+    {
+      icon: "fas fa-hourglass-half",
+      title: "Partial",
+      key: "partial",
+      color: "warning",
+      count: statistics.partial,
+    },
+    {
+      icon: "fa-regular fa-calendar-days",
+      title: "Financial Period",
+      key: "period",
+      color: "warning",
+    },
+    {
+      icon: "fas fa-plus-circle",
+      title: "Add New",
+      key: "addNew",
+      color: "success",
+    },
+  ];
 
-  const formatCurrency = (value) => {
-    return `₹ ${toNumber(value).toLocaleString("en-IN", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-  };
-
-  const getDateOnly = (value) => {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  };
-
-  const isWithinPeriodMode = (dateValue) => {
-    const dateOnly = getDateOnly(dateValue);
-    const today = getDateOnly(new Date());
-
-    if (!dateOnly || !today) return false;
-
-    if (financialPeriodMode === "daily") {
-      return dateOnly.getTime() === today.getTime();
-    }
-
-    if (financialPeriodMode === "monthly") {
-      return (
-        dateOnly.getFullYear() === today.getFullYear() &&
-        dateOnly.getMonth() === today.getMonth()
-      );
-    }
-
-    if (financialPeriodMode === "quarterly") {
-      const getQuarter = (date) => Math.floor(date.getMonth() / 3) + 1;
-      return (
-        dateOnly.getFullYear() === today.getFullYear() &&
-        getQuarter(dateOnly) === getQuarter(today)
-      );
-    }
-
-    if (financialPeriodMode === "halfYearly") {
-      const getHalf = (date) => (date.getMonth() < 6 ? 1 : 2);
-      return (
-        dateOnly.getFullYear() === today.getFullYear() &&
-        getHalf(dateOnly) === getHalf(today)
-      );
-    }
-
-    if (financialPeriodMode === "yearly") {
-      return dateOnly.getFullYear() === today.getFullYear();
-    }
-
-    return true;
-  };
-
-  useEffect(() => {
-    fetchFinancialYears();
-    fetchPurchases();
-    fetchVendors();
-
-    const handleFinancialYearSelectionChanged = (event) => {
-      const selectedYear =
-        event?.detail?.selectedFinancialYear ||
-        localStorage.getItem("selectedFinancialYear") ||
-        "ALL";
-      setSelectedFinancialYear(selectedYear);
-    };
-
-    window.addEventListener(
-      "financialYearSelectionChanged",
-      handleFinancialYearSelectionChanged,
-    );
-
-    return () => {
-      window.removeEventListener(
-        "financialYearSelectionChanged",
-        handleFinancialYearSelectionChanged,
-      );
-    };
-  }, []);
-
-  useEffect(() => {
-    applySelectedFinancialYearFilter(allRecords, selectedFinancialYear);
-  }, [allRecords, selectedFinancialYear, financialYears]);
-
-  useEffect(() => {
-    // Apply period filter when financialPeriodMode changes
-    if (records.length > 0) {
-      applyPeriodFilter(records);
-    }
-  }, [financialPeriodMode]);
-
-  const applyPeriodFilter = (sourceRecords) => {
-    if (!Array.isArray(sourceRecords)) {
-      setFilteredRecords([]);
-      return;
-    }
-
-    const periodFiltered = sourceRecords.filter((record) => {
-      const recordDate = record.invoiceDate || record.createdDate;
-      return isWithinPeriodMode(recordDate);
-    });
-
-    setFilteredRecords(periodFiltered);
-  };
-
-  const fetchFinancialYears = async () => {
-    try {
-      const response = await apiGet(API_ENDPOINTS.YEARS.LIST);
-      const yearsData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.years || [];
-
-      const normalizedYears = yearsData
-        .filter((yearRecord) => yearRecord?.isDeleted !== true)
-        .map((yearRecord) => ({
-          ...yearRecord,
-          id: yearRecord.id || yearRecord._id,
-          value: yearRecord.financialYear || yearRecord.year,
-        }));
-
-      setFinancialYears(normalizedYears);
-    } catch (error) {
-      console.error("Financial years API fetch error:", error);
-      setFinancialYears([]);
-    }
-  };
-
-  const getDefaultFinancialYearRecord = () => {
-    return financialYears.find((year) => year?.isDefault === true) || null;
-  };
-
-  const isInvoiceDateWithinFinancialYear = (
-    invoiceDate,
-    financialYearRecord,
-  ) => {
-    const invoiceDateOnly = getDateOnly(invoiceDate);
-    const startDate = getDateOnly(financialYearRecord?.startDate);
-    const endDate = getDateOnly(financialYearRecord?.endDate);
-
-    if (!invoiceDateOnly || !startDate || !endDate) {
-      return false;
-    }
-
-    return invoiceDateOnly >= startDate && invoiceDateOnly <= endDate;
-  };
-
-  const applySelectedFinancialYearFilter = (sourceRecords, selectedYear) => {
-    if (!Array.isArray(sourceRecords)) {
-      setRecords([]);
-      setFilteredRecords([]);
-      updateStatistics([]);
-      return;
-    }
-
-    if (!selectedYear || selectedYear === "ALL") {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      applyPeriodFilter(sourceRecords);
-      return;
-    }
-
-    const matchedYear = financialYears.find(
-      (year) => year.value === selectedYear,
-    );
-
-    if (!matchedYear?.startDate || !matchedYear?.endDate) {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      applyPeriodFilter(sourceRecords);
-      return;
-    }
-
-    const startDate = getDateOnly(matchedYear.startDate);
-    const endDate = getDateOnly(matchedYear.endDate);
-
-    if (!startDate || !endDate) {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      applyPeriodFilter(sourceRecords);
-      return;
-    }
-
-    const filteredRecords = sourceRecords.filter((record) => {
-      const invoiceDate = getDateOnly(record.invoiceDate);
-      if (!invoiceDate) return false;
-      return invoiceDate >= startDate && invoiceDate <= endDate;
-    });
-
-    setRecords(filteredRecords);
-    updateStatistics(filteredRecords);
-    applyPeriodFilter(filteredRecords);
-  };
-
-  const fetchPurchases = async () => {
-    setLoading(true);
-    try {
-      const response = await apiGet(API_ENDPOINTS.PURCHASES.LIST);
-      const purchasesData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.purchases || [];
-
-      const normalizedPurchases = purchasesData.map((purchase) => ({
-        ...purchase,
-        id: purchase._id || purchase.id,
-      }));
-
-      setAllRecords(normalizedPurchases);
-    } catch (err) {
-      console.error("API fetch error:", err);
-      showError("Failed to fetch purchases");
-      setAllRecords([]);
-      setRecords([]);
-      setFilteredRecords([]);
-      updateStatistics([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchVendors = async () => {
-    try {
-      const response = await apiGet(API_ENDPOINTS.VENDORS.LIST);
-      const vendorsData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.vendors || [];
-
-      const activeVendors = vendorsData
-        .filter((v) => v?.isDeleted !== true)
-        .map((vendor) => ({
-          ...vendor,
-          id: vendor.id || vendor._id,
-        }));
-      setVendors(activeVendors);
-    } catch (err) {
-      console.error("Vendors API fetch error:", err);
-      showError("Failed to fetch vendors");
-      setVendors([]);
-    }
-  };
-
-  // Update statistics
-  const updateStatistics = (data) => {
-    // Calculate total purchase amount, total paid amount, and unpaid amount
-    const totalAmount = data.reduce(
-      (sum, r) => sum + parseFloat(r.taxData?.totalAmount || 0),
-      0,
-    );
-    // Paid amount: sum of paid and partial records' paid amount (if available, else fallback to totalAmount for paid)
-    const paidAmount = data
-      .filter(
-        (r) => r.paymentStatus === "Paid" || r.paymentStatus === "Partial",
-      )
-      .reduce((sum, r) => {
-        // If amountReceived exists, use it, else for Paid use totalAmount, for Partial use half of totalAmount as fallback
-        if (r.amountReceived !== undefined && r.amountReceived !== null) {
-          return sum + parseFloat(r.amountReceived || 0);
-        } else if (r.paymentStatus === "Paid") {
-          return sum + parseFloat(r.taxData?.totalAmount || 0);
-        } else if (r.paymentStatus === "Partial") {
-          return sum + parseFloat(r.taxData?.totalAmount || 0) / 2;
-        }
-        return sum;
-      }, 0);
-    const unpaidAmount = totalAmount - paidAmount;
-
-    const stats = {
-      total: data.length,
-      paid: paidAmount.toFixed(2),
-      unpaid: unpaidAmount.toFixed(2),
-      partial: data.filter((r) => r.paymentStatus === "Partial").length,
-      totalAmount: totalAmount.toFixed(2),
-    };
-    setStatistics(stats);
-  };
-
-  // Prepare data for table (add serial number and formatted dates)
-  const prepareTableData = () => {
-    return filteredRecords.map((record, index) => ({
+  // Prepare data for table
+  const preparedData = useMemo(() => {
+    return records.map((record, index) => ({
       ...record,
-      sn: index + 1,
-      invoiceDateFormatted: formatDateForDisplay(record.invoiceDate),
-      paymentDateFormatted: record.paymentDate
-        ? formatDateForDisplay(record.paymentDate)
-        : "-",
-      createdDateTime:
-        record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
-      createdDateFilter: record.createdDate,
-      totalAmount: record.taxData?.totalAmount || 0,
-      roundingAmount: record.roundingAmount || 0,
-      itemCount: record.items?.length || 0,
+      sn: (currentPage - 1) * recordsPerPage + index + 1,
     }));
+  }, [records, currentPage, recordsPerPage]);
+
+  // Client-side per-column filtering logic
+  const filteredClientSideData = useMemo(() => {
+    if (serverSide) {
+      return preparedData;
+    }
+
+    let data = preparedData;
+
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value && typeof value === "string" && value.trim() !== "") {
+        data = data.filter((row) =>
+          (row[key] || "")
+            .toString()
+            .toLowerCase()
+            .includes(value.toLowerCase()),
+        );
+      }
+    });
+
+    // Apply financial year filter for client-side
+    if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+      const yearRecord = financialYears.find(
+        (y) => y.value === selectedFinancialYear,
+      );
+      if (yearRecord?.startDate && yearRecord?.endDate) {
+        const startDate = new Date(yearRecord.startDate);
+        const endDate = new Date(yearRecord.endDate);
+        data = data.filter((record) => {
+          const invoiceDate = new Date(record.invoiceDate);
+          return invoiceDate >= startDate && invoiceDate <= endDate;
+        });
+      }
+    }
+
+    // Apply period filter for client-side
+    if (financialPeriodMode !== "yearly") {
+      const today = new Date();
+      data = data.filter((record) => {
+        const invoiceDate = new Date(record.invoiceDate);
+        if (!invoiceDate) return false;
+
+        if (financialPeriodMode === "daily") {
+          return (
+            invoiceDate.getDate() === today.getDate() &&
+            invoiceDate.getMonth() === today.getMonth() &&
+            invoiceDate.getFullYear() === today.getFullYear()
+          );
+        }
+        if (financialPeriodMode === "monthly") {
+          return (
+            invoiceDate.getMonth() === today.getMonth() &&
+            invoiceDate.getFullYear() === today.getFullYear()
+          );
+        }
+        if (financialPeriodMode === "quarterly") {
+          const getQuarter = (date) => Math.floor(date.getMonth() / 3) + 1;
+          return (
+            invoiceDate.getFullYear() === today.getFullYear() &&
+            getQuarter(invoiceDate) === getQuarter(today)
+          );
+        }
+        if (financialPeriodMode === "halfYearly") {
+          const getHalf = (date) => (date.getMonth() < 6 ? 1 : 2);
+          return (
+            invoiceDate.getFullYear() === today.getFullYear() &&
+            getHalf(invoiceDate) === getHalf(today)
+          );
+        }
+        return true;
+      });
+    }
+
+    return data;
+  }, [
+    preparedData,
+    filters,
+    serverSide,
+    selectedFinancialYear,
+    financialYears,
+    financialPeriodMode,
+  ]);
+
+  // Debounced per-column filter change handler for server-side
+  const handleDebouncedColumnFilterChange = (key, value) => {
+    if (serverSide) {
+      if (debounceColumnTimeoutRef.current)
+        clearTimeout(debounceColumnTimeoutRef.current);
+      debounceColumnTimeoutRef.current = setTimeout(() => {
+        setFilters((prev) => ({ ...prev, [key]: value }));
+        setCurrentPage(1);
+      }, 500);
+    } else {
+      setFilters((prev) => ({ ...prev, [key]: value }));
+    }
   };
 
   // Columns configuration
@@ -525,9 +710,7 @@ const PurchaseManagement = () => {
     "businessName",
     "itemCount",
     "totalAmount",
-    "roundingAmount",
     "paymentStatus",
-    "paymentMethod",
     "invoiceType",
     "createdDateTime",
     "action",
@@ -538,35 +721,47 @@ const PurchaseManagement = () => {
     "paymentStatus",
     "paymentMethod",
     "invoiceType",
-  ];
-
-  // Columns with date range filter
-  const columnsWithDateFilter = [
-    "createdDateTime",
-    "invoiceDateFormatted",
-    "paymentDateFormatted",
+    "placeOfSupply",
   ];
 
   // Filter options
-  const filterOptions = {
-    paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
-    paymentMethod: [
-      "All",
-      "Cash",
-      "Bank Transfer",
-      "Credit Card",
-      "Debit Card",
-      "UPI",
-      "Cheque",
-    ],
-    invoiceType: ["All", "Not ITC", "ITC", "RCM", "RCM + ITC"],
+  const getFilterOptions = () => {
+    const options = {
+      paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
+      paymentMethod: [
+        "All",
+        "Cash",
+        "Bank Transfer",
+        "Credit Card",
+        "Debit Card",
+        "UPI",
+        "Cheque",
+      ],
+      invoiceType: ["All", "Not ITC", "ITC", "RCM", "RCM + ITC"],
+    };
+
+    // Get unique placeOfSupply values from records
+    if (records.length > 0) {
+      const uniquePlaces = [
+        ...new Set(
+          records
+            .map((r) => r.placeOfSupply)
+            .filter((place) => place && place !== ""),
+        ),
+      ].sort();
+      options.placeOfSupply = ["All", ...uniquePlaces];
+    } else {
+      options.placeOfSupply = ["All"];
+    }
+
+    return options;
   };
 
   // Handle card click
   const handleCardClick = (cardKey) => {
     if (cardKey === "addNew") {
       if (!canCreate) {
-        showError("You don't have permission to add purchases");
+        showError("You don't have permission to add purchase records");
         return;
       }
       setEditingRecord(null);
@@ -583,16 +778,61 @@ const PurchaseManagement = () => {
       setFinancialPeriodMode((prev) => {
         const currentIndex = periodCycle.indexOf(prev);
         if (currentIndex === -1) return "daily";
-        return periodCycle[(currentIndex + 1) % periodCycle.length];
+        const newMode = periodCycle[(currentIndex + 1) % periodCycle.length];
+        if (serverSide) {
+          setCurrentPage(1);
+        }
+        return newMode;
       });
     } else {
       setActiveCardFilter(cardKey);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     }
   };
 
   // Get card number for styling
   const getCardNumber = (index) => {
     return (index % 8) + 1;
+  };
+
+  // Get default financial year record
+  const getDefaultFinancialYearRecord = () => {
+    return financialYears.find((year) => year?.isDefault === true) || null;
+  };
+
+  // Check if invoice date is within financial year
+  const isInvoiceDateWithinFinancialYear = (
+    invoiceDate,
+    financialYearRecord,
+  ) => {
+    if (
+      !invoiceDate ||
+      !financialYearRecord?.startDate ||
+      !financialYearRecord?.endDate
+    ) {
+      return true;
+    }
+
+    const invoiceDateObj = new Date(invoiceDate);
+    const startDate = new Date(financialYearRecord.startDate);
+    const endDate = new Date(financialYearRecord.endDate);
+
+    return invoiceDateObj >= startDate && invoiceDateObj <= endDate;
+  };
+
+  // Get current period display value
+  const getPeriodDisplayValue = () => {
+    return financialPeriodMode === "daily"
+      ? "Daily"
+      : financialPeriodMode === "monthly"
+        ? "Monthly"
+        : financialPeriodMode === "quarterly"
+          ? "Quarterly"
+          : financialPeriodMode === "halfYearly"
+            ? "Half Yearly"
+            : "Yearly";
   };
 
   // Handle form submit
@@ -685,15 +925,24 @@ const PurchaseManagement = () => {
   };
 
   // Handle delete
-  const handleDelete = async (id) => {
+  const handleDelete = (id) => {
+    const record = records.find((r) => r.id === id || r._id === id);
+    if (!record) return;
+
+    setPurchaseToDelete(id);
+    setShowDeleteConfirm(true);
+  };
+
+  // Confirm delete
+  const confirmDelete = async () => {
+    if (!purchaseToDelete) return;
+
     try {
-      // Soft delete: set isDeleted true
-      await apiPut(API_ENDPOINTS.PURCHASES.UPDATE(id), {
-        isDeleted: true,
-        deletedAt: new Date().toISOString(),
-      });
-      await fetchPurchases();
+      await apiDelete(API_ENDPOINTS.PURCHASES.DELETE(purchaseToDelete));
       showSuccess("Purchase deleted successfully!");
+      await fetchPurchases();
+      setShowDeleteConfirm(false);
+      setPurchaseToDelete(null);
     } catch (error) {
       console.error("Error deleting purchase:", error);
       showError(
@@ -704,25 +953,39 @@ const PurchaseManagement = () => {
     }
   };
 
+  // Handle status toggle (not applicable for purchases, but kept for compatibility)
+  const handleStatusToggle = async (id) => {
+    showInfo("Status toggle not applicable for purchases");
+  };
+
   // Handle refresh
   const handleRefresh = () => {
     fetchFinancialYears();
-    fetchPurchases();
     fetchVendors();
-    setActiveCardFilter("total");
-    setFinancialPeriodMode("yearly");
+    if (serverSide) {
+      setFilters({});
+      setSearchTerm("");
+      setSortField(null);
+      setSortDirection("normal");
+      setCurrentPage(1);
+      setActiveCardFilter("total");
+      setFinancialPeriodMode("yearly");
+    }
+    fetchPurchases();
     showInfo("Data refreshed!");
   };
 
+  // Handle export with items
   const handleExportItemWiseExcel = () => {
-    if (!filteredRecords.length) {
+    const dataToExport = serverSide ? records : filteredClientSideData;
+    if (!dataToExport.length) {
       showError("No purchase invoices found for the selected filters.");
       return;
     }
 
     try {
       exportItemWiseExcel({
-        records: filteredRecords,
+        records: dataToExport,
         exportFileName: "Purchase_Management",
         sheetName: "Purchase Item Wise",
         reportTitle: "Purchase_Item_Wise",
@@ -744,14 +1007,15 @@ const PurchaseManagement = () => {
   };
 
   const handleExportItemWisePDF = () => {
-    if (!filteredRecords.length) {
+    const dataToExport = serverSide ? records : filteredClientSideData;
+    if (!dataToExport.length) {
       showError("No purchase invoices found for the selected filters.");
       return;
     }
 
     try {
       exportItemWisePDF({
-        records: filteredRecords,
+        records: dataToExport,
         exportFileName: "Purchase_Management",
         reportTitle: "Purchase Report",
         invoiceNumberKey: "invoiceNumber",
@@ -771,28 +1035,63 @@ const PurchaseManagement = () => {
     }
   };
 
-  // Get the current period display value
-  const getPeriodDisplayValue = () => {
-    return financialPeriodMode === "daily"
-      ? "Daily"
-      : financialPeriodMode === "monthly"
-        ? "Monthly"
-        : financialPeriodMode === "quarterly"
-          ? "Quarterly"
-          : financialPeriodMode === "halfYearly"
-            ? "Half Yearly"
-            : "Yearly";
+  // Server-side handlers
+  const handleServerSideSearch = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideFilter = (filterParams) => {
+    setFilters(filterParams);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideSort = (field, direction) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
+  const handleServerSidePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleServerSideRecordsPerPageChange = (limit) => {
+    setRecordsPerPage(limit);
+    setCurrentPage(1);
   };
 
   return (
     <>
       <div className="container-fluid">
         <div
-          className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+          className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <div className="flex-grow-1">
-            <h4 className="fs-18 fw-semibold m-0">Purchase Management</h4>
+          {/* Left Side - Heading */}
+          <h4 className="fs-18 fw-semibold m-0">Purchase Management</h4>
+
+          {/* Right Side - Toggle */}
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+                setActiveCardFilter("total");
+                setFinancialPeriodMode("yearly");
+              }}
+              id="serverSideToggle"
+            />
+            <label className="form-check-label ms-2" htmlFor="serverSideToggle">
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
           </div>
         </div>
 
@@ -808,7 +1107,6 @@ const PurchaseManagement = () => {
               card.key !== "period";
             const isAddNewDisabled = card.key === "addNew" && !canCreate;
 
-            // Determine the value to display
             let displayValue;
             if (card.key === "addNew") {
               displayValue = "+ Add New";
@@ -818,15 +1116,20 @@ const PurchaseManagement = () => {
                   ? "All Year"
                   : selectedFinancialYear
               } • ${getPeriodDisplayValue()}`;
-            } else if (card.key === "totalAmount") {
-              displayValue = `₹ ${parseFloat(
-                statistics[card.key] || 0,
-              ).toLocaleString("en-IN", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}`;
+            } else if (
+              card.key === "totalAmount" ||
+              card.key === "paid" ||
+              card.key === "unpaid"
+            ) {
+              displayValue = `₹ ${parseFloat(card.count || 0).toLocaleString(
+                "en-IN",
+                {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                },
+              )}`;
             } else {
-              displayValue = statistics[card.key];
+              displayValue = card.count || 0;
             }
 
             return (
@@ -893,20 +1196,22 @@ const PurchaseManagement = () => {
         <ReusableTable
           moduleKey={moduleKey}
           columns={columns}
-          data={prepareTableData()}
+          data={serverSide ? preparedData : filteredClientSideData}
           loading={loading}
-          onFilteredDataChange={setFilteredRecords}
+          totalRecords={totalRecords}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onView={handleView}
+          onStatusToggle={handleStatusToggle}
           onRefresh={handleRefresh}
           showActions={true}
           actions={["view", "edit", "delete"]}
+          skipDeleteConfirmation={true}
           fixedColumns={fixedColumns}
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
-          filterOptions={filterOptions}
+          filterOptions={serverSide ? dynamicFilterOptions : getFilterOptions()}
           tableTitle="Purchase Records"
           showColumnSelector={true}
           showExport={true}
@@ -917,11 +1222,11 @@ const PurchaseManagement = () => {
           exportTitle="Purchase Management Report"
           extraExportItems={[
             {
-              label: "Export Excel with Item",
+              label: "Export Excel with Items",
               onClick: handleExportItemWiseExcel,
             },
             {
-              label: "PDF with Item",
+              label: "Export PDF with Items",
               onClick: handleExportItemWisePDF,
             },
           ]}
@@ -931,8 +1236,26 @@ const PurchaseManagement = () => {
             if (value === "Paid") return "bg-success";
             if (value === "Unpaid") return "bg-danger";
             if (value === "Partial") return "bg-warning";
-            return "bg-primary";
+            if (value === "ITC") return "bg-success";
+            if (value === "Not ITC") return "bg-warning";
+            if (value === "RCM") return "bg-info";
+            if (value === "RCM + ITC") return "bg-primary";
+            return "bg-secondary";
           }}
+          serverSide={serverSide}
+          onServerSideSearch={handleServerSideSearch}
+          onServerSideFilter={handleServerSideFilter}
+          onServerSideSort={handleServerSideSort}
+          onServerSidePageChange={handleServerSidePageChange}
+          onServerSideRecordsPerPageChange={
+            handleServerSideRecordsPerPageChange
+          }
+          currentPage={currentPage}
+          recordsPerPage={recordsPerPage}
+          onPageChange={setCurrentPage}
+          onRecordsPerPageChange={setRecordsPerPage}
+          onColumnFilterChange={handleDebouncedColumnFilterChange}
+          exportApi={API_ENDPOINTS.PURCHASES.LIST}
         />
 
         {/* Create/Edit Purchase Modal */}
@@ -945,6 +1268,34 @@ const PurchaseManagement = () => {
           onSubmit={handleFormSubmit}
           editingRecord={editingRecord}
           vendors={vendors}
+        />
+
+        {/* Delete Confirmation Modal */}
+        <ConfirmationModal
+          show={showDeleteConfirm}
+          onHide={() => {
+            setShowDeleteConfirm(false);
+            setPurchaseToDelete(null);
+          }}
+          onConfirm={confirmDelete}
+          title="Delete Purchase"
+          message={
+            <>
+              Are you sure you want to delete purchase{" "}
+              <strong>
+                "
+                {records.find(
+                  (r) =>
+                    r.id === purchaseToDelete || r._id === purchaseToDelete,
+                )?.invoiceNumber || ""}
+                "
+              </strong>
+              ? This action marks the purchase as deleted.
+            </>
+          }
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="danger"
         />
       </div>
     </>
