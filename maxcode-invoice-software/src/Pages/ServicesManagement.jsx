@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateServices from "../Components/CreateServices";
 import {
@@ -9,14 +9,54 @@ import {
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
+import { fetchAllClients } from "../utils/fetchAllEntities";
 
 const ServicesManagement = () => {
   const moduleKey = "servicesManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
+
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
+
   useEffect(() => {
     document.title = "Services Management | MaxCode IT Services";
+
+    const fetchPreference = async () => {
+      try {
+        const response = await apiGet(API_ENDPOINTS.USER_PREFERENCES.GET);
+        if (typeof response.data?.servicesManagementServerSide === "boolean") {
+          setServerSide(response.data.servicesManagementServerSide);
+        }
+      } catch (error) {
+        console.error("Failed to fetch services management preference:", error);
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+
+    fetchPreference();
   }, []);
+
+  useEffect(() => {
+    if (prefLoading) return;
+
+    const savePreference = async () => {
+      try {
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          servicesManagementServerSide: serverSide,
+        });
+      } catch (error) {
+        console.error("Failed to save services management preference:", error);
+      }
+    };
+
+    savePreference();
+  }, [serverSide, prefLoading]);
 
   const [allRecords, setAllRecords] = useState([]);
   const [records, setRecords] = useState([]);
@@ -26,10 +66,21 @@ const ServicesManagement = () => {
     localStorage.getItem("selectedFinancialYear") || "ALL",
   );
 
+  const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly");
+
   const [loading, setLoading] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [showCreateServicesForm, setShowCreateServicesForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
 
   const [statistics, setStatistics] = useState({
     total: 0,
@@ -41,34 +92,38 @@ const ServicesManagement = () => {
 
   const cards = [
     {
-      icon: "fa-solid fa-server",
-      title: "Total Services",
-      key: "total",
-      color: "primary",
+      icon: "fas fa-rupee-sign",
+      title: "Total Amount",
+      key: "totalAmount",
+      color: "info",
+      count: statistics.totalAmount,
     },
     {
       icon: "fa-solid fa-circle-check",
       title: "Active",
       key: "allActive",
       color: "success",
+      count: statistics.allActive,
     },
     {
       icon: "fa-solid fa-circle-xmark",
       title: "Expired",
       key: "expired",
       color: "danger",
+      count: statistics.expired,
     },
     {
       icon: "fa-solid fa-clock",
       title: "Due in 30 Days",
       key: "dueSoon",
       color: "warning",
+      count: statistics.dueSoon,
     },
     {
-      icon: "fas fa-rupee-sign",
-      title: "Total Amount",
-      key: "totalAmount",
-      color: "info",
+      icon: "fa-regular fa-calendar-days",
+      title: "Financial Period",
+      key: "period",
+      color: "warning",
     },
     {
       icon: "fas fa-plus-circle",
@@ -80,7 +135,6 @@ const ServicesManagement = () => {
 
   useEffect(() => {
     fetchFinancialYears();
-    fetchServices();
     fetchClients();
 
     const handleFinancialYearSelectionChanged = (event) => {
@@ -89,6 +143,9 @@ const ServicesManagement = () => {
         localStorage.getItem("selectedFinancialYear") ||
         "ALL";
       setSelectedFinancialYear(selectedYear);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     };
 
     window.addEventListener(
@@ -102,11 +159,7 @@ const ServicesManagement = () => {
         handleFinancialYearSelectionChanged,
       );
     };
-  }, []);
-
-  useEffect(() => {
-    applySelectedFinancialYearFilter(allRecords, selectedFinancialYear);
-  }, [allRecords, selectedFinancialYear, financialYears]);
+  }, [serverSide]);
 
   const formatDateForDisplay = (dateString) => {
     if (!dateString) return "";
@@ -226,27 +279,203 @@ const ServicesManagement = () => {
   };
 
   const fetchServices = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (prefLoading) return;
     setLoading(true);
+
     try {
-      const response = await apiGet(API_ENDPOINTS.SERVICES.LIST);
-      const servicesData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.services || [];
+      let url = API_ENDPOINTS.SERVICES.LIST;
+      const params = new URLSearchParams();
+
+      if (serverSide) {
+        // ✅ Server-side pagination
+        params.append("page", currentPage);
+        params.append("limit", recordsPerPage);
+
+        if (searchTerm) {
+          params.append("search", searchTerm);
+        }
+
+        if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+          params.append("financialYear", selectedFinancialYear);
+        }
+
+        if (financialPeriodMode && financialPeriodMode !== "yearly") {
+          params.append("period", financialPeriodMode);
+        }
+
+        if (sortField && sortDirection !== "normal") {
+          params.append("sortBy", sortField);
+          params.append(
+            "sortOrder",
+            sortDirection === "ascending" ? "asc" : "desc",
+          );
+        }
+
+        const dateRangeColumns = [
+          "serviceDateFormatted",
+          "createdDateTime",
+          "nextExpiry",
+        ];
+
+        Object.entries(filters).forEach(([key, value]) => {
+          if (["sn", "action", "filter"].includes(key)) return;
+          if (
+            value === undefined ||
+            value === null ||
+            value === "" ||
+            value === "All"
+          ) {
+            return;
+          }
+
+          if (dateRangeColumns.includes(key) && typeof value === "object") {
+            if (value.startDate) {
+              params.append(`${key}_start`, value.startDate);
+            }
+            if (value.endDate) {
+              params.append(`${key}_end`, value.endDate);
+            }
+            return;
+          }
+
+          if (
+            Array.isArray(value) &&
+            value.length > 0 &&
+            !value.includes("All")
+          ) {
+            params.append(key, value.join(","));
+            return;
+          }
+
+          if (!Array.isArray(value)) {
+            params.append(key, value);
+          }
+        });
+
+        if (
+          activeCardFilter &&
+          activeCardFilter !== "total" &&
+          activeCardFilter !== "addNew" &&
+          activeCardFilter !== "period"
+        ) {
+          params.append("filter", activeCardFilter);
+        }
+      } else {
+        // ✅ Client-side mode → get FULL data
+        params.append("export", "1");
+      }
+
+      url = `${url}?${params.toString()}`;
+
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
+
+      let servicesData;
+      let total;
+
+      if (serverSide) {
+        servicesData = response.data?.data || response.data?.services || [];
+        total =
+          response.data?.pagination?.totalRecords ||
+          response.data?.total ||
+          servicesData.length;
+
+        if (response.data?.statistics) {
+          setStatistics({
+            total: Number(response.data.statistics.total || 0),
+            allActive: Number(response.data.statistics.allActive || 0),
+            expired: Number(response.data.statistics.expired || 0),
+            dueSoon: Number(response.data.statistics.dueSoon || 0),
+            totalAmount: Number(
+              response.data.statistics.totalAmount || 0,
+            ).toFixed(2),
+          });
+        }
+
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
+        }
+
+        if (response.data?.clients) {
+          setClients(
+            response.data.clients.map((client) => ({
+              ...client,
+              id: client.id || client._id,
+            })),
+          );
+        }
+      } else {
+        servicesData =
+          response.data?.data ||
+          response.data?.services ||
+          (Array.isArray(response.data) ? response.data : []);
+        total = servicesData.length;
+      }
 
       const normalized = servicesData.map((record) => {
         const withNormalizedStatus = normalizeRecordStatuses(record);
+        const serviceRows = Array.isArray(withNormalizedStatus.services)
+          ? withNormalizedStatus.services
+          : [];
+        const counters = calculateServiceCounters(serviceRows);
+        const nearestExpiry = getNearestExpiryDate(serviceRows);
+        const createdDate =
+          withNormalizedStatus.createdDate || withNormalizedStatus.createdAt;
+
         return {
           ...withNormalizedStatus,
           id: withNormalizedStatus._id || withNormalizedStatus.id,
+          createdDate,
+          serviceDateFormatted: formatDateForDisplay(
+            withNormalizedStatus.serviceDate,
+          ),
+          createdDateTime:
+            withNormalizedStatus.createdDateTime ||
+            formatDateTimeForDisplay(createdDate),
+          serviceCount: counters.total,
+          activeCount: counters.active,
+          expiredCount: counters.expired,
+          nextExpiry: formatDateForDisplay(nearestExpiry),
+          totalServiceAmount:
+            withNormalizedStatus.summary?.totalServiceAmount || 0,
+          totalTransactionAmount:
+            withNormalizedStatus.summary?.totalTransactionAmount || 0,
+          grandTotal: withNormalizedStatus.summary?.grandTotal || 0,
+          recordStatus:
+            withNormalizedStatus.recordStatus ||
+            getRecordStatus(withNormalizedStatus),
         };
       });
 
-      setAllRecords(normalized);
+      setRecords(normalized);
+      setTotalRecords(total);
+
+      if (!serverSide) {
+        setAllRecords(normalized);
+        updateStatistics(normalized);
+      }
+
+      if (serverSide) {
+        setAllRecords(normalized);
+      }
     } catch (error) {
+      if (error.name === "CanceledError" || error.name === "AbortError") {
+        return;
+      }
+
       console.error("Failed to fetch services:", error);
       showError("Failed to fetch services");
       setAllRecords([]);
       setRecords([]);
+      setTotalRecords(0);
       updateStatistics([]);
     } finally {
       setLoading(false);
@@ -255,10 +484,7 @@ const ServicesManagement = () => {
 
   const fetchClients = async () => {
     try {
-      const response = await apiGet(API_ENDPOINTS.CLIENTS.LIST);
-      const clientsData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.clients || [];
+      const clientsData = await fetchAllClients();
 
       const activeClients = clientsData
         .filter((client) => client?.isDeleted !== true)
@@ -386,6 +612,204 @@ const ServicesManagement = () => {
     });
   };
 
+  const getDefaultFinancialYearRecord = () => {
+    return financialYears.find((year) => year?.isDefault === true) || null;
+  };
+
+  const isServiceDateWithinFinancialYear = (
+    serviceDate,
+    financialYearRecord,
+  ) => {
+    if (
+      !serviceDate ||
+      !financialYearRecord?.startDate ||
+      !financialYearRecord?.endDate
+    ) {
+      return true;
+    }
+
+    const serviceDateObj = new Date(serviceDate);
+    const startDate = new Date(financialYearRecord.startDate);
+    const endDate = new Date(financialYearRecord.endDate);
+    return serviceDateObj >= startDate && serviceDateObj <= endDate;
+  };
+
+  const getPeriodDisplayValue = () => {
+    return financialPeriodMode === "daily"
+      ? "Daily"
+      : financialPeriodMode === "monthly"
+        ? "Monthly"
+        : financialPeriodMode === "quarterly"
+          ? "Quarterly"
+          : financialPeriodMode === "halfYearly"
+            ? "Half Yearly"
+            : "Yearly";
+  };
+
+  useEffect(() => {
+    if (serverSide) return;
+    updateStatistics(records);
+  }, [records, serverSide]);
+
+  useEffect(() => {
+    if (prefLoading) return;
+
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+    debounceTimeoutRef.current = setTimeout(
+      () => {
+        fetchServices();
+      },
+      serverSide ? 500 : 0,
+    );
+
+    return () => clearTimeout(debounceTimeoutRef.current);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    selectedFinancialYear,
+    financialPeriodMode,
+    prefLoading,
+  ]);
+
+  const preparedData = useMemo(() => {
+    return records.map((record, index) => ({
+      ...record,
+      sn: serverSide
+        ? (currentPage - 1) * recordsPerPage + index + 1
+        : index + 1,
+    }));
+  }, [records, currentPage, recordsPerPage, serverSide]);
+
+  const filteredClientSideData = useMemo(() => {
+    if (serverSide) {
+      return preparedData;
+    }
+
+    let data = preparedData;
+
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value && typeof value === "string" && value.trim() !== "") {
+        data = data.filter((row) =>
+          (row[key] || "")
+            .toString()
+            .toLowerCase()
+            .includes(value.toLowerCase()),
+        );
+      }
+    });
+
+    if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+      data = data.filter((record) => {
+        const recordFinancialYear = String(record.financialYear || "").trim();
+
+        if (recordFinancialYear) {
+          return recordFinancialYear === selectedFinancialYear;
+        }
+
+        const yearRecord = financialYears.find(
+          (year) => year.value === selectedFinancialYear,
+        );
+
+        if (!yearRecord?.startDate || !yearRecord?.endDate) {
+          return true;
+        }
+
+        const serviceDate = new Date(record.serviceDate);
+        if (Number.isNaN(serviceDate.getTime())) {
+          return false;
+        }
+
+        const startDate = new Date(yearRecord.startDate);
+        const endDate = new Date(yearRecord.endDate);
+        return serviceDate >= startDate && serviceDate <= endDate;
+      });
+    }
+
+    if (financialPeriodMode !== "yearly") {
+      const today = new Date();
+
+      data = data.filter((record) => {
+        const serviceDate = new Date(record.serviceDate);
+        if (!serviceDate || Number.isNaN(serviceDate.getTime())) return false;
+
+        if (financialPeriodMode === "daily") {
+          return (
+            serviceDate.getDate() === today.getDate() &&
+            serviceDate.getMonth() === today.getMonth() &&
+            serviceDate.getFullYear() === today.getFullYear()
+          );
+        }
+
+        if (financialPeriodMode === "monthly") {
+          return (
+            serviceDate.getMonth() === today.getMonth() &&
+            serviceDate.getFullYear() === today.getFullYear()
+          );
+        }
+
+        if (financialPeriodMode === "quarterly") {
+          const quarter = (date) => Math.floor(date.getMonth() / 3) + 1;
+          return (
+            serviceDate.getFullYear() === today.getFullYear() &&
+            quarter(serviceDate) === quarter(today)
+          );
+        }
+
+        if (financialPeriodMode === "halfYearly") {
+          const half = (date) => (date.getMonth() < 6 ? 1 : 2);
+          return (
+            serviceDate.getFullYear() === today.getFullYear() &&
+            half(serviceDate) === half(today)
+          );
+        }
+
+        return true;
+      });
+    }
+
+    if (activeCardFilter === "allActive") {
+      data = data.filter((record) => record.recordStatus === "Active");
+    } else if (activeCardFilter === "expired") {
+      data = data.filter((record) => record.recordStatus === "Expired");
+    } else if (activeCardFilter === "dueSoon") {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const dueSoonLimit = new Date(today);
+      dueSoonLimit.setDate(dueSoonLimit.getDate() + 30);
+
+      data = data.filter((record) => {
+        const serviceRows = Array.isArray(record.services)
+          ? record.services
+          : [];
+        return serviceRows.some((row) => {
+          if (!row?.expiryDate || row.status === "Expired") return false;
+          const expiry = new Date(row.expiryDate);
+          if (Number.isNaN(expiry.getTime())) return false;
+          expiry.setHours(0, 0, 0, 0);
+          return expiry >= today && expiry <= dueSoonLimit;
+        });
+      });
+    }
+
+    return data;
+  }, [
+    preparedData,
+    filters,
+    serverSide,
+    selectedFinancialYear,
+    financialYears,
+    financialPeriodMode,
+    activeCardFilter,
+  ]);
+
   const getRecordStatus = (record) => {
     const serviceRows = Array.isArray(record.services) ? record.services : [];
     if (!serviceRows.length) return "No Services";
@@ -398,60 +822,19 @@ const ServicesManagement = () => {
     return "Mixed";
   };
 
-  const prepareTableData = () => {
-    return records.map((record, index) => {
-      const serviceRows = Array.isArray(record.services) ? record.services : [];
-      const counters = calculateServiceCounters(serviceRows);
+  const handleDebouncedColumnFilterChange = (key, value) => {
+    if (serverSide) {
+      if (debounceColumnTimeoutRef.current) {
+        clearTimeout(debounceColumnTimeoutRef.current);
+      }
 
-      return {
-        ...record,
-        sn: index + 1,
-        serviceDateFormatted: formatDateForDisplay(record.serviceDate),
-        createdDateTime:
-          record.createdDateTime ||
-          formatDateTimeForDisplay(record.createdDate),
-        serviceCount: counters.total,
-        activeCount: counters.active,
-        expiredCount: counters.expired,
-        nextExpiry: formatDateForDisplay(getNearestExpiryDate(serviceRows)),
-        totalServiceAmount: record.summary?.totalServiceAmount || 0,
-        totalTransactionAmount: record.summary?.totalTransactionAmount || 0,
-        grandTotal: record.summary?.grandTotal || 0,
-        recordStatus: getRecordStatus(record),
-      };
-    });
-  };
-
-  const getCardFilteredData = (tableData) => {
-    if (activeCardFilter === "total") return tableData;
-
-    if (activeCardFilter === "allActive") {
-      return tableData.filter((record) => record.recordStatus === "Active");
+      debounceColumnTimeoutRef.current = setTimeout(() => {
+        setFilters((prev) => ({ ...prev, [key]: value }));
+        setCurrentPage(1);
+      }, 500);
+    } else {
+      setFilters((prev) => ({ ...prev, [key]: value }));
     }
-
-    if (activeCardFilter === "expired") {
-      return tableData.filter((record) => record.recordStatus === "Expired");
-    }
-
-    if (activeCardFilter === "dueSoon") {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const dueSoonLimit = new Date(today);
-      dueSoonLimit.setDate(dueSoonLimit.getDate() + 30);
-
-      return tableData.filter((record) => {
-        const services = Array.isArray(record.services) ? record.services : [];
-        return services.some((row) => {
-          if (!row?.expiryDate || row.status === "Expired") return false;
-          const expiry = new Date(row.expiryDate);
-          expiry.setHours(0, 0, 0, 0);
-          return expiry >= today && expiry <= dueSoonLimit;
-        });
-      });
-    }
-
-    return tableData;
   };
 
   const columns = [
@@ -571,8 +954,32 @@ const ServicesManagement = () => {
       }
       setEditingRecord(null);
       setShowCreateServicesForm(true);
+      return;
+    }
+
+    if (cardKey === "period") {
+      const periodCycle = [
+        "daily",
+        "monthly",
+        "quarterly",
+        "halfYearly",
+        "yearly",
+      ];
+
+      setFinancialPeriodMode((prev) => {
+        const currentIndex = periodCycle.indexOf(prev);
+        if (currentIndex === -1) return "daily";
+        const next = periodCycle[(currentIndex + 1) % periodCycle.length];
+        if (serverSide) {
+          setCurrentPage(1);
+        }
+        return next;
+      });
     } else {
       setActiveCardFilter(cardKey);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     }
   };
 
@@ -582,6 +989,36 @@ const ServicesManagement = () => {
 
   const handleFormSubmit = async (formData) => {
     try {
+      if (!editingRecord) {
+        const defaultFinancialYear = getDefaultFinancialYearRecord();
+
+        if (!defaultFinancialYear?.value) {
+          showError(
+            "Default financial year is not configured. Please set default financial year first.",
+          );
+          return;
+        }
+
+        if (selectedFinancialYear !== defaultFinancialYear.value) {
+          showError(
+            `Please select default financial year ${defaultFinancialYear.value} in navbar before creating service.`,
+          );
+          return;
+        }
+
+        const isValidServiceDate = isServiceDateWithinFinancialYear(
+          formData.serviceDate,
+          defaultFinancialYear,
+        );
+
+        if (!isValidServiceDate) {
+          showError(
+            `Service Date must be between ${formatDateForDisplay(defaultFinancialYear.startDate)} and ${formatDateForDisplay(defaultFinancialYear.endDate)} for financial year ${defaultFinancialYear.value}.`,
+          );
+          return;
+        }
+      }
+
       const selectedClient = clients.find(
         (client) =>
           client.id == formData.clientRefId ||
@@ -591,6 +1028,12 @@ const ServicesManagement = () => {
 
       const payload = {
         ...formData,
+        financialYear:
+          selectedFinancialYear !== "ALL"
+            ? selectedFinancialYear
+            : editingRecord?.financialYear ||
+              getDefaultFinancialYearRecord()?.value ||
+              "",
         clientName: selectedClient?.clientName || formData.clientName || "",
         createdDate: editingRecord?.createdDate || new Date().toISOString(),
       };
@@ -632,11 +1075,7 @@ const ServicesManagement = () => {
 
   const handleDelete = async (id) => {
     try {
-      // Soft delete: set isDeleted true
-      await apiPut(API_ENDPOINTS.SERVICES.UPDATE(id), {
-        isDeleted: true,
-        deletedAt: new Date().toISOString(),
-      });
+      await apiDelete(API_ENDPOINTS.SERVICES.DELETE(id));
       await fetchServices();
       showSuccess("Service deleted successfully!");
     } catch (error) {
@@ -650,24 +1089,90 @@ const ServicesManagement = () => {
   };
 
   const handleRefresh = () => {
-    fetchFinancialYears();
     fetchServices();
-    fetchClients();
-    setActiveCardFilter("total");
     showInfo("Data refreshed!");
   };
 
-  const tableData = getCardFilteredData(prepareTableData());
+  const handleServerSideSearch = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideFilter = (filterParams) => {
+    setFilters(filterParams);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideSort = (field, direction) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
+  const handleServerSidePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleServerSideRecordsPerPageChange = (limit) => {
+    setRecordsPerPage(limit);
+    setCurrentPage(1);
+  };
+
+  const getFilterOptions = () => {
+    const options = {
+      recordStatus: ["All", "Active", "Expired", "Mixed", "No Services"],
+    };
+
+    if (serverSide && dynamicFilterOptions?.businessName) {
+      options.businessName = dynamicFilterOptions.businessName;
+    } else if (records.length > 0) {
+      const names = [
+        ...new Set(
+          records
+            .map((record) => record.businessName)
+            .filter((name) => name && String(name).trim() !== ""),
+        ),
+      ].sort();
+      options.businessName = ["All", ...names];
+    } else {
+      options.businessName = ["All"];
+    }
+
+    return options;
+  };
 
   return (
     <>
       <div className="container-fluid">
         <div
-          className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+          className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <div className="flex-grow-1">
-            <h4 className="fs-18 fw-semibold m-0">Services Management</h4>
+          <h4 className="fs-18 fw-semibold m-0">Services Management</h4>
+
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+                setActiveCardFilter("total");
+                setFinancialPeriodMode("yearly");
+              }}
+              id="servicesServerSideToggle"
+            />
+            <label
+              className="form-check-label ms-2"
+              htmlFor="servicesServerSideToggle"
+            >
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
           </div>
         </div>
 
@@ -677,8 +1182,27 @@ const ServicesManagement = () => {
             const cardClass = `card${cardNumber}`;
             const cardIconBgClass = `card-icon-bg${cardNumber}`;
             const isActive =
-              activeCardFilter === card.key && card.key !== "addNew";
+              activeCardFilter === card.key &&
+              card.key !== "addNew" &&
+              card.key !== "period";
             const isAddNewDisabled = card.key === "addNew" && !canCreate;
+
+            let displayValue;
+            if (card.key === "addNew") {
+              displayValue = "+ Add New";
+            } else if (card.key === "period") {
+              displayValue = `${selectedFinancialYear === "ALL" ? "All Year" : selectedFinancialYear} • ${getPeriodDisplayValue()}`;
+            } else if (card.key === "totalAmount") {
+              displayValue = `₹ ${parseFloat(card.count || 0).toLocaleString(
+                "en-IN",
+                {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                },
+              )}`;
+            } else {
+              displayValue = card.count || 0;
+            }
 
             return (
               <div key={index} className="col-md-6 col-xl-2 mb-4">
@@ -695,7 +1219,10 @@ const ServicesManagement = () => {
                       : "1px solid #dee2e6",
                   }}
                   onMouseEnter={(e) => {
-                    if (card.key === "addNew" && !isAddNewDisabled) {
+                    if (
+                      (card.key === "addNew" && !isAddNewDisabled) ||
+                      card.key === "period"
+                    ) {
                       e.currentTarget.style.transform = "translateY(-5px)";
                       e.currentTarget.style.boxShadow =
                         "0 10px 20px rgba(0,0,0,0.1)";
@@ -727,11 +1254,7 @@ const ServicesManagement = () => {
                         className="mb-0 text-muted fs-6 fw-bold"
                         style={{ marginBottom: "-10px" }}
                       >
-                        {card.key === "addNew"
-                          ? "+ Add New"
-                          : card.key === "totalAmount"
-                            ? `₹ ${parseFloat(statistics[card.key] || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                            : statistics[card.key]}
+                        {displayValue}
                       </h6>
                     </div>
                   </div>
@@ -742,20 +1265,24 @@ const ServicesManagement = () => {
         </div>
 
         <ReusableTable
+          key={serverSide ? "services-table-server" : "services-table-client"}
           moduleKey={moduleKey}
           columns={columns}
-          data={tableData}
+          data={serverSide ? preparedData : filteredClientSideData}
           loading={loading}
+          totalRecords={totalRecords}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onView={handleView}
           onRefresh={handleRefresh}
           showActions={true}
           actions={["view", "edit", "delete"]}
+          skipDeleteConfirmation={true}
           fixedColumns={fixedColumns}
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
+          filterOptions={serverSide ? dynamicFilterOptions : getFilterOptions()}
           tableTitle="Services Records"
           showColumnSelector={true}
           showExport={true}
@@ -764,7 +1291,7 @@ const ServicesManagement = () => {
           showSearch={true}
           exportFileName="Services_Management"
           exportTitle="Services Management Report"
-          activeCardFilter={"total"}
+          activeCardFilter={activeCardFilter}
           cards={cards}
           getBadgeClass={(value) => {
             if (value === "Active") return "bg-success";
@@ -772,6 +1299,20 @@ const ServicesManagement = () => {
             if (value === "Mixed") return "bg-warning";
             return "bg-primary";
           }}
+          serverSide={serverSide}
+          onServerSideSearch={handleServerSideSearch}
+          onServerSideFilter={handleServerSideFilter}
+          onServerSideSort={handleServerSideSort}
+          onServerSidePageChange={handleServerSidePageChange}
+          onServerSideRecordsPerPageChange={
+            handleServerSideRecordsPerPageChange
+          }
+          currentPage={currentPage}
+          recordsPerPage={recordsPerPage}
+          onPageChange={setCurrentPage}
+          onRecordsPerPageChange={setRecordsPerPage}
+          onColumnFilterChange={handleDebouncedColumnFilterChange}
+          exportApi={API_ENDPOINTS.SERVICES.LIST}
         />
 
         <CreateServices
@@ -783,7 +1324,7 @@ const ServicesManagement = () => {
           onSubmit={handleFormSubmit}
           editingRecord={editingRecord}
           clients={clients}
-          existingServices={allRecords}
+          existingServices={serverSide ? records : allRecords}
         />
       </div>
     </>

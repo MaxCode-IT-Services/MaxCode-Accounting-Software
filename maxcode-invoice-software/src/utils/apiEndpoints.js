@@ -144,7 +144,10 @@ const API_ENDPOINTS = {
     UPDATE: "/user-preferences",
   },
 
-  // Add more endpoints as needed
+  DETAILED_LEDGER: {
+    LIST: "/detailed-ledger",
+    STATISTICS: "/detailed-ledger/statistics",
+  },
 };
 
 export default API_ENDPOINTS;

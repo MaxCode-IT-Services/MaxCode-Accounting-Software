@@ -14,6 +14,7 @@ import {
   exportItemWiseExcel,
   exportItemWisePDF,
 } from "../utils/itemWiseExport";
+import { fetchAllVendors } from "../utils/fetchAllEntities";
 
 const PurchaseManagement = () => {
   const moduleKey = "purchaseManagement";
@@ -107,10 +108,7 @@ const PurchaseManagement = () => {
   // Fetch vendors
   const fetchVendors = async () => {
     try {
-      const response = await apiGet(API_ENDPOINTS.VENDORS.LIST);
-      const vendorsData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.vendors || [];
+      const vendorsData = await fetchAllVendors();
 
       const activeVendors = vendorsData
         .filter((v) => v?.isDeleted !== true)

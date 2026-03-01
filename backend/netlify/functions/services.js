@@ -19,9 +19,90 @@ export async function handler(event) {
 
     const { db } = await connectToDatabase();
     const servicesCollection = db.collection("services");
+    const clientsCollection = db.collection("clients");
+    const yearsCollection = db.collection("financialYears");
+
+    const getDateString = (date) => {
+      const pad = (value) => String(value).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    };
+
+    const getExpiryDrivenStatus = (expiryDate, fallbackStatus = "Active") => {
+      if (!expiryDate) return fallbackStatus || "Active";
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const expiry = new Date(expiryDate);
+      if (Number.isNaN(expiry.getTime())) return fallbackStatus || "Active";
+      expiry.setHours(0, 0, 0, 0);
+
+      return expiry < today ? "Expired" : "Active";
+    };
+
+    const getRecordStatus = (record) => {
+      const serviceRows = Array.isArray(record?.services)
+        ? record.services
+        : [];
+      if (!serviceRows.length) return "No Services";
+
+      const normalizedStatuses = serviceRows.map((row) =>
+        getExpiryDrivenStatus(row?.expiryDate, row?.status),
+      );
+
+      const allExpired = normalizedStatuses.every(
+        (status) => status === "Expired",
+      );
+      const allActive = normalizedStatuses.every(
+        (status) => status === "Active",
+      );
+
+      if (allExpired) return "Expired";
+      if (allActive) return "Active";
+      return "Mixed";
+    };
+
+    const getNearestExpiryDate = (record) => {
+      const serviceRows = Array.isArray(record?.services)
+        ? record.services
+        : [];
+      const dates = serviceRows
+        .map((row) => row?.expiryDate)
+        .filter(Boolean)
+        .map((value) => new Date(value))
+        .filter((date) => !Number.isNaN(date.getTime()))
+        .sort((a, b) => a.getTime() - b.getTime());
+
+      return dates.length ? getDateString(dates[0]) : "";
+    };
+
+    const normalizeRecord = (record) => {
+      return {
+        ...record,
+        recordStatus: getRecordStatus(record),
+        nextExpiryDate: getNearestExpiryDate(record),
+      };
+    };
 
     if (event.httpMethod === "GET") {
-      const { id, clientId, status } = event.queryStringParameters || {};
+      const {
+        id,
+        page = 1,
+        limit = 10,
+        search,
+        financialYear,
+        period,
+        serviceDateFormatted_start,
+        serviceDateFormatted_end,
+        createdDateTime_start,
+        createdDateTime_end,
+        nextExpiry_start,
+        nextExpiry_end,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+        filter,
+        export: exportAll,
+      } = event.queryStringParameters || {};
 
       if (id) {
         if (!ObjectId.isValid(id)) {
@@ -44,22 +125,366 @@ export async function handler(event) {
         return createResponse(200, serviceRecord, origin);
       }
 
-      const query = { isDeleted: { $ne: true } };
+      const params = event.queryStringParameters || {};
+      const filterQuery = { isDeleted: { $ne: true } };
+      let derivedRecordStatusFilter = null;
+      let derivedCardFilter = null;
 
-      if (clientId) {
-        query.clientId = clientId;
+      if (financialYear && financialYear !== "ALL") {
+        filterQuery.financialYear = financialYear;
       }
 
-      if (status) {
-        query.status = status;
+      if (period && period !== "yearly") {
+        const today = new Date();
+        let startDate;
+        let endDate;
+
+        if (period === "daily") {
+          startDate = new Date(
+            today.getFullYear(),
+            today.getMonth(),
+            today.getDate(),
+          );
+          endDate = new Date(
+            today.getFullYear(),
+            today.getMonth(),
+            today.getDate(),
+          );
+        } else if (period === "monthly") {
+          startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+          endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        } else if (period === "quarterly") {
+          const quarter = Math.floor(today.getMonth() / 3);
+          startDate = new Date(today.getFullYear(), quarter * 3, 1);
+          endDate = new Date(today.getFullYear(), quarter * 3 + 3, 0);
+        } else if (period === "halfYearly") {
+          const half = today.getMonth() < 6 ? 0 : 6;
+          startDate = new Date(today.getFullYear(), half, 1);
+          endDate = new Date(today.getFullYear(), half + 6, 0);
+        }
+
+        if (startDate && endDate) {
+          filterQuery.serviceDate = {
+            $gte: getDateString(startDate),
+            $lte: getDateString(endDate),
+          };
+        }
       }
 
-      const serviceRecords = await servicesCollection
-        .find(query)
-        .sort({ createdAt: -1 })
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value || value === "" || value === "All") return;
+        if (key === "filter" || key === "financialYear" || key === "period")
+          return;
+        if (key.endsWith("_start") || key.endsWith("_end")) return;
+        if (
+          [
+            "id",
+            "page",
+            "limit",
+            "sortBy",
+            "sortOrder",
+            "search",
+            "export",
+          ].includes(key)
+        ) {
+          return;
+        }
+
+        if (key === "recordStatus") {
+          derivedRecordStatusFilter = String(value).trim();
+          return;
+        }
+
+        if (typeof value === "string" && value.includes(",")) {
+          filterQuery[key] = {
+            $in: value
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          };
+          return;
+        }
+
+        if (key === "businessName") {
+          filterQuery[key] = value.trim();
+          return;
+        }
+
+        filterQuery[key] = {
+          $regex: value.trim(),
+          $options: "i",
+        };
+      });
+
+      const dateRanges = {};
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value) return;
+
+        if (key.endsWith("_start") || key.endsWith("_end")) {
+          let baseKey = key.replace(/_(start|end)$/, "");
+          if (baseKey === "serviceDateFormatted") baseKey = "serviceDate";
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+          if (baseKey === "nextExpiry") baseKey = "nextExpiryDate";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          if (baseKey === "serviceDate" || baseKey === "nextExpiryDate") {
+            if (key.endsWith("_start")) {
+              dateRanges[baseKey].$gte = value;
+            }
+            if (key.endsWith("_end")) {
+              dateRanges[baseKey].$lte = value;
+            }
+            return;
+          }
+
+          const dateParts = String(value).split("-");
+          if (dateParts.length !== 3) return;
+
+          const year = parseInt(dateParts[0], 10);
+          const month = parseInt(dateParts[1], 10) - 1;
+          const day = parseInt(dateParts[2], 10);
+
+          if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) {
+            return;
+          }
+
+          if (key.endsWith("_start")) {
+            dateRanges[baseKey].$gte = new Date(
+              Date.UTC(year, month, day, 0, 0, 0, 0),
+            );
+          }
+
+          if (key.endsWith("_end")) {
+            dateRanges[baseKey].$lte = new Date(
+              Date.UTC(year, month, day, 23, 59, 59, 999),
+            );
+          }
+        }
+      });
+
+      Object.entries(dateRanges).forEach(([key, range]) => {
+        if (key === "nextExpiryDate") {
+          return;
+        }
+
+        filterQuery[key] = range;
+      });
+
+      if (filter) {
+        derivedCardFilter = String(filter).trim();
+      }
+
+      if (search) {
+        filterQuery.$or = [
+          { serviceNumber: { $regex: search, $options: "i" } },
+          { clientName: { $regex: search, $options: "i" } },
+          { businessName: { $regex: search, $options: "i" } },
+          { clientId: { $regex: search, $options: "i" } },
+          { gstin: { $regex: search, $options: "i" } },
+          { phoneNumber: { $regex: search, $options: "i" } },
+          { email: { $regex: search, $options: "i" } },
+        ];
+      }
+
+      const sortFieldMapping = {
+        serviceDateFormatted: "serviceDate",
+        createdDateTime: "createdAt",
+        nextExpiry: "services.expiryDate",
+      };
+
+      const sortObject = {};
+      const mappedSortBy = sortFieldMapping[sortBy] || sortBy || "createdAt";
+      sortObject[mappedSortBy] = sortOrder === "asc" ? 1 : -1;
+
+      const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+      const limitNum = Math.max(parseInt(limit, 10) || 10, 1);
+      const skip = (pageNum - 1) * limitNum;
+
+      let matchedRecords = await servicesCollection
+        .find(filterQuery)
+        .sort(sortObject)
         .toArray();
 
-      return createResponse(200, serviceRecords, origin);
+      matchedRecords = matchedRecords.map(normalizeRecord);
+
+      if (derivedRecordStatusFilter && derivedRecordStatusFilter !== "All") {
+        matchedRecords = matchedRecords.filter(
+          (record) => record.recordStatus === derivedRecordStatusFilter,
+        );
+      }
+
+      if (derivedCardFilter) {
+        if (derivedCardFilter === "allActive") {
+          matchedRecords = matchedRecords.filter(
+            (record) => record.recordStatus === "Active",
+          );
+        } else if (derivedCardFilter === "expired") {
+          matchedRecords = matchedRecords.filter(
+            (record) => record.recordStatus === "Expired",
+          );
+        } else if (derivedCardFilter === "dueSoon") {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          const dueSoonLimit = new Date(today);
+          dueSoonLimit.setDate(dueSoonLimit.getDate() + 30);
+
+          matchedRecords = matchedRecords.filter((record) => {
+            const rows = Array.isArray(record?.services) ? record.services : [];
+            return rows.some((row) => {
+              if (!row?.expiryDate) return false;
+              const expiry = new Date(row.expiryDate);
+              if (Number.isNaN(expiry.getTime())) return false;
+              expiry.setHours(0, 0, 0, 0);
+
+              const rowStatus = getExpiryDrivenStatus(
+                row?.expiryDate,
+                row?.status,
+              );
+              return (
+                rowStatus !== "Expired" &&
+                expiry >= today &&
+                expiry <= dueSoonLimit
+              );
+            });
+          });
+        }
+      }
+
+      if (dateRanges.nextExpiryDate) {
+        const nextExpiryRange = dateRanges.nextExpiryDate;
+        const startDate = nextExpiryRange.$gte || "";
+        const endDate = nextExpiryRange.$lte || "";
+
+        matchedRecords = matchedRecords.filter((record) => {
+          const nextExpiryDate = record.nextExpiryDate || "";
+          if (!nextExpiryDate) return false;
+
+          if (startDate && nextExpiryDate < startDate) return false;
+          if (endDate && nextExpiryDate > endDate) return false;
+          return true;
+        });
+      }
+
+      const totalRecords = matchedRecords.length;
+
+      const serviceRecords =
+        String(exportAll) === "1"
+          ? matchedRecords
+          : matchedRecords.slice(skip, skip + limitNum);
+
+      const clients = await clientsCollection
+        .find({ isDeleted: { $ne: true } })
+        .toArray();
+
+      const allServiceRecords = await servicesCollection
+        .find({ isDeleted: { $ne: true } })
+        .toArray();
+
+      const businessNameValues = await servicesCollection.distinct(
+        "businessName",
+        {
+          isDeleted: { $ne: true },
+          businessName: { $exists: true, $ne: "" },
+        },
+      );
+
+      const statusValuesSet = new Set();
+
+      const aggregateStats = allServiceRecords.reduce(
+        (acc, record) => {
+          const serviceRows = Array.isArray(record?.services)
+            ? record.services
+            : [];
+          const normalizedStatuses = serviceRows.map((row) =>
+            getExpiryDrivenStatus(row?.expiryDate, row?.status),
+          );
+
+          const total = normalizedStatuses.length;
+          const active = normalizedStatuses.filter(
+            (status) => status === "Active",
+          ).length;
+          const expired = normalizedStatuses.filter(
+            (status) => status === "Expired",
+          ).length;
+
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const dueSoonLimit = new Date(today);
+          dueSoonLimit.setDate(dueSoonLimit.getDate() + 30);
+
+          const dueSoon = serviceRows.filter((row) => {
+            if (!row?.expiryDate) return false;
+            const expiry = new Date(row.expiryDate);
+            if (Number.isNaN(expiry.getTime())) return false;
+            expiry.setHours(0, 0, 0, 0);
+
+            const rowStatus = getExpiryDrivenStatus(
+              row?.expiryDate,
+              row?.status,
+            );
+            return (
+              rowStatus !== "Expired" &&
+              expiry >= today &&
+              expiry <= dueSoonLimit
+            );
+          }).length;
+
+          const recordStatus = getRecordStatus(record);
+          if (recordStatus) {
+            statusValuesSet.add(recordStatus);
+          }
+
+          acc.total += total;
+          acc.allActive += active;
+          acc.expired += expired;
+          acc.dueSoon += dueSoon;
+          acc.totalAmount += parseFloat(record?.summary?.grandTotal || 0) || 0;
+
+          return acc;
+        },
+        {
+          total: 0,
+          allActive: 0,
+          expired: 0,
+          dueSoon: 0,
+          totalAmount: 0,
+        },
+      );
+
+      return createResponse(
+        200,
+        {
+          data: serviceRecords,
+          services: serviceRecords,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            totalRecords,
+            totalPages: Math.ceil(totalRecords / limitNum),
+          },
+          statistics: {
+            total: aggregateStats.total,
+            allActive: aggregateStats.allActive,
+            expired: aggregateStats.expired,
+            dueSoon: aggregateStats.dueSoon,
+            totalAmount: Number(aggregateStats.totalAmount || 0).toFixed(2),
+          },
+          filterOptions: {
+            recordStatus: ["All", ...Array.from(statusValuesSet).sort()],
+            businessName: ["All", ...businessNameValues.sort()],
+          },
+          clients: clients.map((client) => ({
+            id: client._id,
+            clientName: client.clientName,
+            businessName: client.businessName,
+            clientId: client.clientId,
+          })),
+        },
+        origin,
+      );
     }
 
     if (event.httpMethod === "POST") {

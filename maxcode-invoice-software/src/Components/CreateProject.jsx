@@ -3,6 +3,10 @@ import Select from "react-select";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import {
+  fetchAllClients,
+  filterActiveSelectableRows,
+} from "../utils/fetchAllEntities";
 
 const emptyPaymentRow = (id = 1) => ({
   id,
@@ -157,7 +161,7 @@ const CreateProject = ({
 
   useEffect(() => {
     if (Array.isArray(clients) && clients.length > 0) {
-      setClientOptions(clients.filter((client) => client?.isDeleted !== true));
+      setClientOptions(filterActiveSelectableRows(clients));
     }
   }, [clients]);
 
@@ -182,15 +186,13 @@ const CreateProject = ({
       try {
         const [clientResponse, staffResponse, yearResponse, invoiceResponse] =
           await Promise.all([
-            apiGet(API_ENDPOINTS.CLIENTS.LIST),
+            fetchAllClients(),
             apiGet(API_ENDPOINTS.STAFF.LIST),
             apiGet(API_ENDPOINTS.YEARS.LIST),
             apiGet(API_ENDPOINTS.INVOICES.LIST),
           ]);
 
-        const clientData = Array.isArray(clientResponse.data)
-          ? clientResponse.data
-          : clientResponse.data?.clients || [];
+        const clientData = Array.isArray(clientResponse) ? clientResponse : [];
 
         const staffData = Array.isArray(staffResponse.data)
           ? staffResponse.data
@@ -204,7 +206,7 @@ const CreateProject = ({
           ? invoiceResponse.data
           : invoiceResponse.data?.invoices || [];
 
-        setClientOptions(clientData.filter((item) => item?.isDeleted !== true));
+        setClientOptions(filterActiveSelectableRows(clientData));
         setStaffOptions(staffData.filter((item) => item?.isDeleted !== true));
         setYears(yearData.filter((item) => item?.isDeleted !== true));
         setInvoices(invoiceData.filter((item) => item?.isDeleted !== true));

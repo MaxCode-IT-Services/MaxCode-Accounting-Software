@@ -9,6 +9,7 @@ import {
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
+import { fetchAllClients } from "../utils/fetchAllEntities";
 
 const toNumber = (value) => {
   const number = parseFloat(value);
@@ -218,10 +219,7 @@ const ProjectManagement = () => {
 
   const fetchClients = async () => {
     try {
-      const response = await apiGet(API_ENDPOINTS.CLIENTS.LIST);
-      const clientsData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.clients || [];
+      const clientsData = await fetchAllClients();
 
       const activeClients = clientsData
         .filter((client) => client?.isDeleted !== true)

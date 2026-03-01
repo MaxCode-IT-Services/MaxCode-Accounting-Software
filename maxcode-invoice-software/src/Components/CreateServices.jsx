@@ -4,6 +4,10 @@ import CreatableSelect from "react-select/creatable";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import {
+  fetchAllClients,
+  filterActiveSelectableRows,
+} from "../utils/fetchAllEntities";
 
 const emptyServiceRow = (id = 1) => ({
   id,
@@ -89,7 +93,7 @@ const CreateServices = ({
 
   useEffect(() => {
     if (Array.isArray(clients) && clients.length > 0) {
-      setClientOptions(clients.filter((client) => client?.isDeleted !== true));
+      setClientOptions(filterActiveSelectableRows(clients));
     }
   }, [clients]);
 
@@ -98,14 +102,9 @@ const CreateServices = ({
 
     const fetchClients = async () => {
       try {
-        const response = await apiGet(API_ENDPOINTS.CLIENTS.LIST);
-        const clientData = Array.isArray(response.data)
-          ? response.data
-          : response.data?.clients || [];
+        const clientData = await fetchAllClients();
 
-        setClientOptions(
-          clientData.filter((client) => client?.isDeleted !== true),
-        );
+        setClientOptions(filterActiveSelectableRows(clientData));
       } catch (error) {
         console.error("Failed to fetch clients:", error);
       }

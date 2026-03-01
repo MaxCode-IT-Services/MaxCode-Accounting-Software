@@ -3,6 +3,10 @@ import Select from "react-select";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import {
+  fetchAllVendors,
+  filterActiveSelectableRows,
+} from "../utils/fetchAllEntities";
 
 // Indian states list for Place of Supply dropdown
 const INDIAN_STATES = [
@@ -110,7 +114,7 @@ const CreatePurchase = ({
 
   useEffect(() => {
     if (Array.isArray(vendors) && vendors.length > 0) {
-      setVendorOptions(vendors.filter((vendor) => vendor?.isDeleted !== true));
+      setVendorOptions(filterActiveSelectableRows(vendors));
     }
   }, [vendors]);
 
@@ -119,14 +123,9 @@ const CreatePurchase = ({
 
     const fetchVendors = async () => {
       try {
-        const response = await apiGet(API_ENDPOINTS.VENDORS.LIST);
-        const vendorData = Array.isArray(response.data)
-          ? response.data
-          : response.data?.data || [];
+        const vendorData = await fetchAllVendors();
 
-        setVendorOptions(
-          vendorData.filter((vendor) => vendor?.isDeleted !== true),
-        );
+        setVendorOptions(filterActiveSelectableRows(vendorData));
       } catch (error) {
         console.error("Failed to fetch vendors:", error);
       }

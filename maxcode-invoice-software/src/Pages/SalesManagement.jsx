@@ -14,6 +14,7 @@ import {
   exportItemWiseExcel,
   exportItemWisePDF,
 } from "../utils/itemWiseExport";
+import { fetchAllClients } from "../utils/fetchAllEntities";
 
 const SalesManagement = () => {
   const moduleKey = "salesManagement";
@@ -162,10 +163,7 @@ const SalesManagement = () => {
   // Fetch clients
   const fetchClients = async () => {
     try {
-      const response = await apiGet(API_ENDPOINTS.CLIENTS.LIST);
-      const clientsData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.clients || [];
+      const clientsData = await fetchAllClients();
 
       const activeClients = clientsData
         .filter((c) => c?.isDeleted !== true)
