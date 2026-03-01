@@ -1,52 +1,74 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+import { apiDelete, apiGet, apiPatch } from "../utils/api";
+import API_ENDPOINTS from "../utils/apiEndpoints";
 
 // Audio files - you can replace these with your own sound files
 const newNotificationSound = "/Sound/Text.mp3";
 const newReadSound = "/Sound/Read.wav";
 const oldReadSound = "/Sound/Old.wav";
 const deleteNotificationSound = "/Sound/Delete.wav";
+const NOTIFICATION_POLL_INTERVAL_MS = 30000;
 
-const Notification = ({ onUnreadCountChange, userId }) => {
-  // Notification variables for expiry reminder
-  // Service Name
-  const serviceName = "GST Filing";
-  // Business Name
-  const businessName = "MaxCode Business";
-  // Days left for expiry
-  const daysLeft = 7;
-  // Expiry Date
-  const expiryDate = "2026-03-05";
-  // Price
-  const price = 1200;
-  // Tax %
-  const taxPercent = 18;
-  // Tax Amount
-  const taxAmount = Math.round((price * taxPercent) / 100);
-  // Total Amount
-  const totalAmount = price + taxAmount;
+const ALERT_DAYS = [15, 10, 7, 3, 2, 1];
 
-  // Remove dummy notification, use empty array initially
+const toNumber = (value) => {
+  if (value === null || value === undefined) return 0;
+  const parsed = parseFloat(String(value).replace(/,/g, ""));
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const getDateOnly = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const formatDateForDisplay = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const formatDateTimeForDisplay = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const formatCurrency = (value) => `₹${toNumber(value).toFixed(2)}`;
+
+const getRelativeTime = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Just now";
+
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "Just now";
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min${minutes > 1 ? "s" : ""} ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? "s" : ""} ago`;
+
+  const days = Math.floor(hours / 24);
+  return `${days} day${days > 1 ? "s" : ""} ago`;
+};
+
+const Notification = ({ onUnreadCountChange }) => {
   const [allNotifications, setAllNotifications] = useState([]);
-
-  // Fetch notifications from backend on mount
-  useEffect(() => {
-    async function fetchNotifications() {
-      try {
-        // NOTE: Netlify local dev uses /.netlify/functions/notifications
-        // Change this path if you are running locally or on Netlify
-        const res = await fetch(
-          `/.netlify/functions/notifications?userId=testuser1`,
-        );
-        const data = await res.json();
-        console.log("Fetched notifications:", data); // Debug log
-        setAllNotifications(data);
-      } catch (err) {
-        console.error("Failed to fetch notifications", err);
-      }
-    }
-    fetchNotifications();
-  }, []); // Remove userId dependency for now
 
   const [showAll, setShowAll] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -56,22 +78,104 @@ const Notification = ({ onUnreadCountChange, userId }) => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [notificationToDelete, setNotificationToDelete] = useState(null);
   const [isSwiping, setIsSwiping] = useState(false);
-  const [prevUnreadCount, setPrevUnreadCount] = useState(
-    allNotifications.filter((n) => !n.read).length,
-  );
 
   // Audio refs
   const newSoundRef = useRef(null);
   const newReadSoundRef = useRef(null);
   const oldReadSoundRef = useRef(null);
   const deleteSoundRef = useRef(null);
+  const notificationsInitializedRef = useRef(false);
+  const prevUnreadCountRef = useRef(0);
+
+  const normalizeFetchedNotifications = (fetchedNotifications = []) => {
+    return fetchedNotifications
+      .map((item) => {
+        const itemId = item?.id;
+        if (!itemId) return null;
+
+        const createdAt = item?.createdAt || new Date().toISOString();
+        const daysRemaining = Number(item?.templateData?.daysRemaining ?? 0);
+
+        if (
+          item?.templateType === "service-expiry" &&
+          !ALERT_DAYS.includes(daysRemaining)
+        ) {
+          return null;
+        }
+
+        return {
+          ...item,
+          id: itemId,
+          type: item?.type || (daysRemaining <= 3 ? "danger" : "warning"),
+          icon: item?.icon || "bullhorn",
+          image: item?.image || "https://img.maxcodehub.com/Ex.png",
+          links: Array.isArray(item?.links) ? item.links : [],
+          read: Boolean(item?.read),
+          expanded: false,
+          createdAt,
+          daysRemaining,
+          time: getRelativeTime(createdAt),
+          date: formatDateTimeForDisplay(createdAt),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        const aTime = new Date(a.createdAt || 0).getTime();
+        const bTime = new Date(b.createdAt || 0).getTime();
+        return bTime - aTime;
+      });
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const response = await apiGet(API_ENDPOINTS.NOTIFICATION.LIST);
+      const fetchedNotifications = Array.isArray(response?.data?.notifications)
+        ? response.data.notifications
+        : [];
+      setAllNotifications(normalizeFetchedNotifications(fetchedNotifications));
+    } catch (error) {
+      console.error("Failed to fetch notifications:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+
+    const pollId = setInterval(
+      fetchNotifications,
+      NOTIFICATION_POLL_INTERVAL_MS,
+    );
+
+    const handleWindowFocus = () => {
+      fetchNotifications();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchNotifications();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(pollId);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   // Calculate unread count whenever notifications change
   useEffect(() => {
     const currentUnreadCount = allNotifications.filter((n) => !n.read).length;
+    const previousUnreadCount = prevUnreadCountRef.current;
     onUnreadCountChange(currentUnreadCount);
 
-    if (currentUnreadCount > prevUnreadCount) {
+    if (
+      notificationsInitializedRef.current &&
+      currentUnreadCount > previousUnreadCount
+    ) {
       // New notification arrived
       if (newSoundRef.current) {
         newSoundRef.current.currentTime = 0;
@@ -81,8 +185,9 @@ const Notification = ({ onUnreadCountChange, userId }) => {
       }
     }
 
-    setPrevUnreadCount(currentUnreadCount);
-  }, [allNotifications, onUnreadCountChange, prevUnreadCount]);
+    notificationsInitializedRef.current = true;
+    prevUnreadCountRef.current = currentUnreadCount;
+  }, [allNotifications, onUnreadCountChange]);
 
   // Get notifications to display (either first 4 or all)
   const notifications = showAll
@@ -91,6 +196,10 @@ const Notification = ({ onUnreadCountChange, userId }) => {
 
   const toggleExpand = (id) => {
     if (isSwiping) return;
+
+    const selectedNotification = allNotifications.find(
+      (notification) => notification.id === id,
+    );
 
     setAllNotifications(
       allNotifications.map((notification) => {
@@ -124,40 +233,73 @@ const Notification = ({ onUnreadCountChange, userId }) => {
         }
       }),
     );
-  };
 
-  const markAsRead = async (id, e) => {
-    e?.stopPropagation();
-    setAllNotifications((prev) =>
-      prev.map((notification) =>
-        notification._id === id
-          ? { ...notification, read: true }
-          : notification,
-      ),
-    );
-    try {
-      await fetch(`/api/notifications?id=${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ read: true }),
-      });
-    } catch (err) {
-      // Optionally show error
+    if (selectedNotification && !selectedNotification.read) {
+      apiPatch(API_ENDPOINTS.NOTIFICATION.MARK, { id, read: true }).catch(
+        (error) => {
+          console.error("Failed to mark notification read:", error);
+        },
+      );
     }
   };
 
-  const markAllAsRead = async () => {
-    const unread = allNotifications.filter((n) => !n.read);
-    setAllNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    await Promise.all(
-      unread.map((n) =>
-        fetch(`/api/notifications?id=${n._id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ read: true }),
-        }),
-      ),
+  const markAsRead = (id, e) => {
+    e?.stopPropagation();
+    setAllNotifications(
+      allNotifications.map((notification) => {
+        if (notification.id === id) {
+          // Play different sound based on whether it's a new or old notification
+          if (!notification.read) {
+            // New notification being marked as read
+            if (newReadSoundRef.current) {
+              newReadSoundRef.current.currentTime = 0;
+              newReadSoundRef.current
+                .play()
+                .catch((e) => console.log("Audio play failed:", e));
+            }
+          } else {
+            // Old notification being marked as read (though this case shouldn't normally happen)
+            if (oldReadSoundRef.current) {
+              oldReadSoundRef.current.currentTime = 0;
+              oldReadSoundRef.current
+                .play()
+                .catch((e) => console.log("Audio play failed:", e));
+            }
+          }
+          return { ...notification, read: true };
+        }
+        return notification;
+      }),
     );
+
+    apiPatch(API_ENDPOINTS.NOTIFICATION.MARK, { id, read: true }).catch(
+      (error) => {
+        console.error("Failed to mark notification read:", error);
+      },
+    );
+  };
+
+  const markAllAsRead = () => {
+    // Play new read sound if there are any unread notifications
+    if (allNotifications.some((n) => !n.read) && newReadSoundRef.current) {
+      newReadSoundRef.current.currentTime = 0;
+      newReadSoundRef.current
+        .play()
+        .catch((e) => console.log("Audio play failed:", e));
+    }
+
+    setAllNotifications(
+      allNotifications.map((notification) => ({
+        ...notification,
+        read: true,
+      })),
+    );
+
+    apiPatch(API_ENDPOINTS.NOTIFICATION.MARK, {
+      action: "markAllRead",
+    }).catch((error) => {
+      console.error("Failed to mark all notifications read:", error);
+    });
   };
 
   const handleDeleteClick = (id, e) => {
@@ -167,15 +309,27 @@ const Notification = ({ onUnreadCountChange, userId }) => {
     setSwipedId(null);
   };
 
-  const confirmDelete = async () => {
-    setAllNotifications((prev) =>
-      prev.filter((n) => n._id !== notificationToDelete),
+  const confirmDelete = () => {
+    // Play delete sound before deleting
+    if (deleteSoundRef.current) {
+      deleteSoundRef.current.currentTime = 0;
+      deleteSoundRef.current
+        .play()
+        .catch((e) => console.log("Audio play failed:", e));
+    }
+
+    setAllNotifications(
+      allNotifications.filter(
+        (notification) => notification.id !== notificationToDelete,
+      ),
     );
-    try {
-      await fetch(`/api/notifications?id=${notificationToDelete}`, {
-        method: "DELETE",
-      });
-    } catch (err) {}
+
+    apiDelete(API_ENDPOINTS.NOTIFICATION.DELETE(notificationToDelete)).catch(
+      (error) => {
+        console.error("Failed to delete notification:", error);
+      },
+    );
+
     setShowDeleteModal(false);
     setNotificationToDelete(null);
   };
@@ -283,6 +437,25 @@ const Notification = ({ onUnreadCountChange, userId }) => {
     }
   };
 
+  const getNotificationIcon = (icon) => {
+    switch (icon) {
+      case "check-circle":
+        return "fa-check-circle";
+      case "x-circle":
+        return "fa-times-circle";
+      case "chat-left-text":
+        return "fa-comment-alt";
+      case "tag":
+        return "fa-tag";
+      case "person-check":
+        return "fa-user-check";
+      case "bullhorn":
+        return "fa-bullhorn";
+      default:
+        return "fa-bell";
+    }
+  };
+
   const truncateText = (text, maxLines = 2, maxLength = 100) => {
     if (text.length <= maxLength) return text;
 
@@ -296,19 +469,39 @@ const Notification = ({ onUnreadCountChange, userId }) => {
     return lines.slice(0, maxLines).join("\n") + "...";
   };
 
+  const renderNotificationDescription = (notification) => {
+    if (notification?.templateType !== "service-expiry") {
+      return notification.expanded
+        ? notification.description
+        : truncateText(notification.description || "");
+    }
+
+    const details = notification.templateData || {};
+    const dayLabel =
+      Number(details.daysRemaining) > 1
+        ? `${details.daysRemaining} days`
+        : `${details.daysRemaining} day`;
+
+    return (
+      <>
+        <strong>{details.serviceName || "Service"}</strong> Subsciption for{" "}
+        <strong>{details.businessName || "Business"}</strong> is Expirying in{" "}
+        <strong>{dayLabel}</strong>. Expiry Date:{" "}
+        <strong>{details.expiryDate}</strong>, Price:{" "}
+        <strong>{details.price}</strong>, Tax{" "}
+        <strong>{details.taxPercentage}%</strong>:{" "}
+        <strong>{details.taxAmount}</strong>, Total Amount{" "}
+        <strong>{details.totalAmount}</strong>.
+        <br />
+        Please take necessary action to renew or notify the client.
+      </>
+    );
+  };
+
   const handleLinkClick = (e, url) => {
     e.stopPropagation();
     console.log("Navigating to:", url);
   };
-
-  // Format date to DD/MM/YYYY
-  function formatDateToDDMMYYYY(dateString) {
-    const date = new Date(dateString);
-    const day = String(date.getDate()).padStart(2, "0");
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-  }
 
   return (
     <>
@@ -334,7 +527,7 @@ const Notification = ({ onUnreadCountChange, userId }) => {
         <div className="offcanvas-header border-bottom px-3 py-2">
           <div className="d-flex justify-content-between w-100 align-items-center">
             <div className="d-flex align-items-center">
-              <i className="bi bi-bell-fill me-2 fs-5 text-primary"></i>
+              <i className="fas fa-bell me-2 fs-5 text-primary"></i>
               <h5
                 className="offcanvas-title fw-bold mb-0"
                 id="notificationSliderLabel"
@@ -356,7 +549,7 @@ const Notification = ({ onUnreadCountChange, userId }) => {
                     allNotifications.filter((n) => !n.read).length === 0
                   }
                 >
-                  <i class="fa-regular fa-circle-check me-1"></i> Mark all read
+                  <i className="fas fa-check-double me-1"></i> Mark all read
                 </button>
               )}
               <button
@@ -372,7 +565,7 @@ const Notification = ({ onUnreadCountChange, userId }) => {
         <div className="offcanvas-body p-0">
           {allNotifications.length === 0 ? (
             <div className="text-center py-5">
-              <i className="fa-solid fa-bell-slash fs-1 text-muted mb-3"></i>
+              <i className="fas fa-bell-slash fs-1 text-muted mb-3"></i>
               <h5 className="text-muted">No notifications</h5>
               <p className="text-muted small">You're all caught up!</p>
             </div>
@@ -412,7 +605,7 @@ const Notification = ({ onUnreadCountChange, userId }) => {
                         <div className="d-flex justify-content-between align-items-start mb-2">
                           <div className="d-flex align-items-center">
                             <i
-                              className={`${notification.icon} me-2 fs-5 ${getTypeColor(notification.type)}`}
+                              className={`fas ${getNotificationIcon(notification.icon)} me-2 fs-5 ${getTypeColor(notification.type)}`}
                             ></i>
                             <h6
                               className={`mb-0 ${!notification.read ? "fw-bold" : "fw-semibold"}`}
@@ -465,15 +658,15 @@ const Notification = ({ onUnreadCountChange, userId }) => {
                                 }
                               />
                               <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-dark bg-opacity-25 rounded-2 opacity-0 hover-opacity-100 transition-all">
-                                <i className="bi bi-zoom-in text-white fs-5"></i>
+                                <i className="fas fa-search-plus text-white fs-5"></i>
                               </div>
                             </div>
                           </div>
 
                           {/* Text Content */}
                           <div className="flex-grow-1">
-                            <div
-                              className="notification-description mb-2 text-muted"
+                            <p
+                              className="mb-2 text-muted"
                               style={{
                                 display: "-webkit-box",
                                 WebkitLineClamp: notification.expanded
@@ -489,17 +682,14 @@ const Notification = ({ onUnreadCountChange, userId }) => {
                                   ? "none"
                                   : "2.8em",
                               }}
-                              dangerouslySetInnerHTML={{
-                                __html: notification.expanded
-                                  ? notification.description
-                                  : truncateText(notification.description),
-                              }}
-                            />
+                            >
+                              {renderNotificationDescription(notification)}
+                            </p>
 
                             {/* Additional Date & Time Below Description */}
                             <small className="text-muted d-block mb-2">
-                              <i className="bi bi-clock me-1"></i>{" "}
-                              {formatDateToDDMMYYYY(notification.date)}
+                              <i className="fas fa-clock me-1"></i>{" "}
+                              {notification.date}
                             </small>
 
                             {/* Notification Links - Only visible when expanded */}
@@ -548,7 +738,7 @@ const Notification = ({ onUnreadCountChange, userId }) => {
                         }}
                       >
                         <i
-                          className="fa-solid fa-trash-can fs-5"
+                          className="fas fa-trash fs-5"
                           style={{ marginRight: "0px" }}
                         ></i>
                       </button>
@@ -571,7 +761,7 @@ const Notification = ({ onUnreadCountChange, userId }) => {
                 className="btn btn-lg btn-primary w-100 rounded-pill"
                 onClick={() => setShowAll(true)}
               >
-                <i className="fa-regular fa-circle-down me-2"></i> View all
+                <i className="fas fa-arrow-circle-down me-2"></i> View all
                 notifications
               </button>
             ) : showAll ? (
@@ -579,15 +769,15 @@ const Notification = ({ onUnreadCountChange, userId }) => {
                 className="btn btn-lg btn-primary w-100 rounded-pill"
                 disabled={true}
               >
-                <i className="fa-regular fa-circle-check me-2"></i> All
-                notifications loaded
+                <i className="fas fa-check-circle me-2"></i> All notifications
+                loaded
               </button>
             ) : (
               <Link
                 to="/notifications"
                 className="btn btn-lg btn-primary w-100 rounded-pill"
               >
-                <i className="fa-solid fa-eye me-2"></i> View notifications page
+                <i className="fas fa-list-ul me-2"></i> View notifications page
               </Link>
             )}
           </div>
@@ -624,7 +814,7 @@ const Notification = ({ onUnreadCountChange, userId }) => {
                   className="btn btn-outline-light rounded-pill"
                   onClick={closeImagePopup}
                 >
-                  <i className="bi bi-x-lg me-1"></i> Close
+                  <i className="fas fa-times me-1"></i> Close
                 </button>
               </div>
             </div>

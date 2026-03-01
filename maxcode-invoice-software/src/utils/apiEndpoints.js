@@ -103,6 +103,13 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/services?id=${id}`,
   },
 
+  // Notification endpoints
+  NOTIFICATION: {
+    LIST: "/notification",
+    MARK: "/notification",
+    DELETE: (id) => `/notification?id=${id}`,
+  },
+
   // Projects endpoints
   PROJECTS: {
     LIST: "/projects",

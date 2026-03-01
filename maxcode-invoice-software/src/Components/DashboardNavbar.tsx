@@ -661,17 +661,19 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                 </li>
 
                 {/* Fullscreen */}
-                <li className="d-flex">
-                  <button
-                    type="button"
-                    className="btn nav-link"
-                    onClick={toggleFullscreen}
-                  >
-                    <i
-                      className={`fa-solid ${isFullscreen ? "fa-compress" : "fa-expand"} align-middle noti-icon`}
-                    />
-                  </button>
-                </li>
+                {!isMobile && (
+                  <li className="d-flex">
+                    <button
+                      type="button"
+                      className="btn nav-link"
+                      onClick={toggleFullscreen}
+                    >
+                      <i
+                        className={`fa-solid ${isFullscreen ? "fa-compress" : "fa-expand"} align-middle noti-icon`}
+                      />
+                    </button>
+                  </li>
+                )}
 
                 {/* Profile Dropdown */}
                 <li
