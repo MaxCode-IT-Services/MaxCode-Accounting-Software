@@ -88,7 +88,16 @@ export async function handler(event) {
     const staffCollection = db.collection("staff");
 
     if (event.httpMethod === "GET") {
-      const { id, asset } = event.queryStringParameters || {};
+      const {
+        id,
+        asset,
+        page = 1,
+        limit = 10,
+        search,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+        filter,
+      } = event.queryStringParameters || {};
 
       // Allow public access to staff assets (images)
       if (id && asset) {
@@ -165,13 +174,230 @@ export async function handler(event) {
         return createResponse(200, mapStaffForClient(staff, event), origin);
       }
 
+      const params = event.queryStringParameters || {};
+      const filterQuery = { isDeleted: { $ne: true } };
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value || value === "" || value === "All") return;
+        if (key === "filter") return;
+
+        if (
+          [
+            "id",
+            "asset",
+            "page",
+            "limit",
+            "search",
+            "sortBy",
+            "sortOrder",
+          ].includes(key)
+        ) {
+          return;
+        }
+
+        if (key.endsWith("_start") || key.endsWith("_end")) return;
+
+        if (key === "photoStatus") {
+          if (value === "Available") {
+            filterQuery.profilePhotoUrl = {
+              $exists: true,
+              $nin: ["", null],
+            };
+          } else if (value === "Not Available") {
+            filterQuery.$or = [
+              { profilePhotoUrl: { $exists: false } },
+              { profilePhotoUrl: "" },
+              { profilePhotoUrl: null },
+            ];
+          }
+          return;
+        }
+
+        if (typeof value === "string" && value.includes(",")) {
+          filterQuery[key] = {
+            $in: value
+              .split(",")
+              .map((row) => row.trim())
+              .filter(Boolean),
+          };
+          return;
+        }
+
+        if (["status", "department", "designation"].includes(key)) {
+          filterQuery[key] = String(value).trim();
+          return;
+        }
+
+        filterQuery[key] = { $regex: String(value).trim(), $options: "i" };
+      });
+
+      const dateRanges = {};
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value) return;
+
+        if (key.endsWith("_start")) {
+          let baseKey = key.replace(/_start$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = String(value).split("-");
+          if (dateParts.length === 3) {
+            const year = parseInt(dateParts[0], 10);
+            const month = parseInt(dateParts[1], 10) - 1;
+            const day = parseInt(dateParts[2], 10);
+            dateRanges[baseKey].$gte = new Date(
+              Date.UTC(year, month, day, 0, 0, 0, 0),
+            );
+          }
+        }
+
+        if (key.endsWith("_end")) {
+          let baseKey = key.replace(/_end$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = String(value).split("-");
+          if (dateParts.length === 3) {
+            const year = parseInt(dateParts[0], 10);
+            const month = parseInt(dateParts[1], 10) - 1;
+            const day = parseInt(dateParts[2], 10);
+            dateRanges[baseKey].$lte = new Date(
+              Date.UTC(year, month, day, 23, 59, 59, 999),
+            );
+          }
+        }
+      });
+
+      Object.entries(dateRanges).forEach(([key, range]) => {
+        filterQuery[key] = range;
+      });
+
+      if (filter) {
+        if (filter === "active") {
+          filterQuery.status = "Active";
+        }
+        if (filter === "inactive") {
+          filterQuery.status = "Inactive";
+        }
+        if (filter === "withPhoto") {
+          filterQuery.profilePhotoUrl = {
+            $exists: true,
+            $nin: ["", null],
+          };
+        }
+        if (filter === "withoutPhoto") {
+          filterQuery.$or = [
+            { profilePhotoUrl: { $exists: false } },
+            { profilePhotoUrl: "" },
+            { profilePhotoUrl: null },
+          ];
+        }
+      }
+
+      if (search) {
+        filterQuery.$and = [
+          ...(Array.isArray(filterQuery.$and) ? filterQuery.$and : []),
+          {
+            $or: [
+              { developerName: { $regex: search, $options: "i" } },
+              { fatherName: { $regex: search, $options: "i" } },
+              { phoneNumber: { $regex: search, $options: "i" } },
+              { emergencyContact: { $regex: search, $options: "i" } },
+              { email: { $regex: search, $options: "i" } },
+              { githubUsername: { $regex: search, $options: "i" } },
+              { designation: { $regex: search, $options: "i" } },
+              { department: { $regex: search, $options: "i" } },
+              { pnaNumber: { $regex: search, $options: "i" } },
+              { panNumber: { $regex: search, $options: "i" } },
+            ],
+          },
+        ];
+      }
+
+      const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+      const limitNum = Math.max(parseInt(limit, 10) || 10, 1);
+      const skip = (pageNum - 1) * limitNum;
+
+      const sortFieldMapping = {
+        createdDateTime: "createdAt",
+      };
+
+      const sortObject = {};
+      sortObject[sortFieldMapping[sortBy] || sortBy] =
+        sortOrder === "asc" ? 1 : -1;
+
+      const totalRecords = await staffCollection.countDocuments(filterQuery);
+
       const staffList = await staffCollection
-        .find({ isDeleted: { $ne: true } })
+        .find(filterQuery)
+        .sort(sortObject)
+        .skip(skip)
+        .limit(limitNum)
         .toArray();
+
+      const [
+        statusValues,
+        totalActive,
+        totalInactive,
+        totalWithPhoto,
+        totalWithoutPhoto,
+      ] = await Promise.all([
+        staffCollection.distinct("status", {
+          isDeleted: { $ne: true },
+          status: { $exists: true, $ne: "" },
+        }),
+        staffCollection.countDocuments({
+          isDeleted: { $ne: true },
+          status: "Active",
+        }),
+        staffCollection.countDocuments({
+          isDeleted: { $ne: true },
+          status: "Inactive",
+        }),
+        staffCollection.countDocuments({
+          isDeleted: { $ne: true },
+          profilePhotoUrl: { $exists: true, $nin: ["", null] },
+        }),
+        staffCollection.countDocuments({
+          isDeleted: { $ne: true },
+          $or: [
+            { profilePhotoUrl: { $exists: false } },
+            { profilePhotoUrl: "" },
+            { profilePhotoUrl: null },
+          ],
+        }),
+      ]);
+
       const mappedStaff = staffList.map((staff) =>
         mapStaffForClient(staff, event),
       );
-      return createResponse(200, mappedStaff, origin);
+
+      return createResponse(
+        200,
+        {
+          data: mappedStaff,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            totalRecords,
+            totalPages: Math.ceil(totalRecords / limitNum),
+          },
+          statistics: {
+            total: totalRecords,
+            active: totalActive,
+            inactive: totalInactive,
+            withPhoto: totalWithPhoto,
+            withoutPhoto: totalWithoutPhoto,
+          },
+          filterOptions: {
+            status: ["All", ...statusValues.sort()],
+            photoStatus: ["All", "Available", "Not Available"],
+          },
+        },
+        origin,
+      );
     }
 
     // All non-GET requests require authentication

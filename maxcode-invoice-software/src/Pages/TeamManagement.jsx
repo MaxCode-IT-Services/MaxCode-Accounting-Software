@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateTeamMember from "../Components/CreateTeamMember";
 import ConfirmationModal from "../Components/ConfirmationModal";
@@ -8,24 +8,72 @@ import {
   showSuccess,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet, apiPut } from "../utils/api";
+import { apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
 const TeamManagement = () => {
   const moduleKey = "teamManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
+
   useEffect(() => {
     document.title = "Team Management | MaxCode IT Services";
+
+    const fetchPreference = async () => {
+      try {
+        const res = await apiGet(API_ENDPOINTS.USER_PREFERENCES.GET);
+        if (typeof res.data?.teamManagementServerSide === "boolean") {
+          setServerSide(res.data.teamManagementServerSide);
+        }
+      } catch (error) {
+        console.error("Failed to fetch team preferences:", error);
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+
+    fetchPreference();
   }, []);
+
+  useEffect(() => {
+    if (prefLoading) return;
+
+    const savePreference = async () => {
+      try {
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          teamManagementServerSide: serverSide,
+        });
+      } catch (error) {
+        console.error("Failed to save team preferences:", error);
+      }
+    };
+
+    savePreference();
+  }, [serverSide, prefLoading]);
 
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [teamToDelete, setTeamToDelete] = useState(null);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
+
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
+
   const [statistics, setStatistics] = useState({
     total: 0,
     active: 0,
@@ -34,17 +82,111 @@ const TeamManagement = () => {
     teams: 0,
   });
 
-  useEffect(() => {
-    fetchTeamMembers();
-  }, []);
+  const columnsWithDateFilter = ["createdDateTime"];
 
   const fetchTeamMembers = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (prefLoading) return;
     setLoading(true);
+
     try {
-      const response = await apiGet(API_ENDPOINTS.TEAM_MEMBERS.LIST);
-      const data = Array.isArray(response.data)
-        ? response.data
-        : response.data?.teamMembers || [];
+      let url = API_ENDPOINTS.TEAM_MEMBERS.LIST;
+      const params = new URLSearchParams();
+
+      if (serverSide) {
+        params.append("page", currentPage);
+        params.append("limit", recordsPerPage);
+
+        if (searchTerm) {
+          params.append("search", searchTerm);
+        }
+
+        Object.entries(filters).forEach(([key, value]) => {
+          if (["sn", "action"].includes(key)) return;
+          if (
+            value === undefined ||
+            value === null ||
+            value === "" ||
+            value === "All"
+          ) {
+            return;
+          }
+
+          if (columnsWithDateFilter.includes(key)) {
+            if (value && typeof value === "object") {
+              if (value.startDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_start`, value.startDate);
+              }
+              if (value.endDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_end`, value.endDate);
+              }
+            }
+          } else {
+            if (Array.isArray(value) && value.length > 0) {
+              params.append(key, value.join(","));
+            } else if (!Array.isArray(value)) {
+              params.append(key, value);
+            }
+          }
+        });
+
+        if (sortField && sortDirection !== "normal") {
+          params.append("sortBy", sortField);
+          params.append(
+            "sortOrder",
+            sortDirection === "ascending" ? "asc" : "desc",
+          );
+        }
+
+        if (
+          activeCardFilter &&
+          activeCardFilter !== "total" &&
+          activeCardFilter !== "addNew"
+        ) {
+          params.append("filter", activeCardFilter);
+        }
+
+        url = `${url}?${params.toString()}`;
+      }
+
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
+
+      let data;
+      let total;
+
+      if (serverSide) {
+        data = response.data?.data || response.data?.teamMembers || [];
+        total =
+          response.data?.pagination?.totalRecords ||
+          response.data?.total ||
+          data.length;
+
+        if (response.data?.statistics) {
+          setStatistics(response.data.statistics);
+        }
+
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
+        }
+      } else {
+        data =
+          response.data?.data ||
+          response.data?.teamMembers ||
+          (Array.isArray(response.data) ? response.data : []);
+        total = data.length;
+      }
 
       const mapped = data.map((record) => ({
         ...record,
@@ -53,10 +195,19 @@ const TeamManagement = () => {
       }));
 
       setRecords(mapped);
-      updateStatistics(mapped);
+      setTotalRecords(total);
+
+      if (!serverSide) {
+        updateStatistics(mapped);
+      }
     } catch (error) {
+      if (error.name === "CanceledError" || error.name === "AbortError") {
+        return;
+      }
+
       showError("Failed to fetch team users");
       setRecords([]);
+      setTotalRecords(0);
       updateStatistics([]);
     } finally {
       setLoading(false);
@@ -77,6 +228,31 @@ const TeamManagement = () => {
       teams: activeRecords.filter((record) => record.role === "Team").length,
     });
   };
+
+  useEffect(() => {
+    if (prefLoading) return;
+
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+    debounceTimeoutRef.current = setTimeout(
+      () => {
+        fetchTeamMembers();
+      },
+      serverSide ? 500 : 0,
+    );
+
+    return () => clearTimeout(debounceTimeoutRef.current);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    prefLoading,
+  ]);
 
   const cards = [
     {
@@ -131,17 +307,43 @@ const TeamManagement = () => {
     return `${day}/${month}/${year} | ${String(hours).padStart(2, "0")}:${minutes}:${seconds} ${ampm}`;
   };
 
-  const prepareTableData = () =>
-    records.map((record, index) => ({
-      ...record,
-      sn: index + 1,
-      phoneNumber: record.phone,
-      moduleAccessCount: Object.values(record.permissions || {}).filter(
-        (module) => module?.active === true,
-      ).length,
-      createdDateTime: formatDateTime(record.createdDate),
-      createdDateFilter: record.createdDate,
-    }));
+  const preparedData = useMemo(
+    () =>
+      records.map((record, index) => ({
+        ...record,
+        sn: serverSide
+          ? (currentPage - 1) * recordsPerPage + index + 1
+          : index + 1,
+        phoneNumber: record.phone,
+        moduleAccessCount: Object.values(record.permissions || {}).filter(
+          (module) => module?.active === true,
+        ).length,
+        createdDateTime: formatDateTime(record.createdDate),
+        createdDateFilter: record.createdDate,
+      })),
+    [records, serverSide, currentPage, recordsPerPage],
+  );
+
+  const filteredClientSideData = useMemo(() => {
+    if (serverSide) {
+      return preparedData.filter((record) => record.isDeleted !== true);
+    }
+
+    let data = preparedData.filter((record) => record.isDeleted !== true);
+
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value && typeof value === "string" && value.trim() !== "") {
+        data = data.filter((row) =>
+          (row[key] || "")
+            .toString()
+            .toLowerCase()
+            .includes(value.toLowerCase()),
+        );
+      }
+    });
+
+    return data;
+  }, [preparedData, filters, serverSide]);
 
   const columns = useMemo(
     () => [
@@ -177,11 +379,29 @@ const TeamManagement = () => {
     "action",
   ];
   const columnsWithDropdownFilter = ["status", "role"];
-  const columnsWithDateFilter = ["createdDateTime"];
 
-  const filterOptions = {
-    status: ["All", "Active", "Inactive"],
-    role: ["All", "Team", "Admin", "Super Admin"],
+  const getFilterOptions = () => {
+    if (serverSide && Object.keys(dynamicFilterOptions).length > 0) {
+      return dynamicFilterOptions;
+    }
+
+    return {
+      status: ["All", "Active", "Inactive"],
+      role: ["All", "Team", "Admin", "Super Admin"],
+    };
+  };
+
+  const handleDebouncedColumnFilterChange = (key, value) => {
+    if (serverSide) {
+      if (debounceColumnTimeoutRef.current)
+        clearTimeout(debounceColumnTimeoutRef.current);
+      debounceColumnTimeoutRef.current = setTimeout(() => {
+        setFilters((prev) => ({ ...prev, [key]: value }));
+        setCurrentPage(1);
+      }, 500);
+    } else {
+      setFilters((prev) => ({ ...prev, [key]: value }));
+    }
   };
 
   const handleCardClick = (cardKey) => {
@@ -195,12 +415,15 @@ const TeamManagement = () => {
       return;
     }
     setActiveCardFilter(cardKey);
+    if (serverSide) {
+      setCurrentPage(1);
+    }
   };
 
-  const handleFormSubmit = () => {
+  const handleFormSubmit = async () => {
     setShowCreateForm(false);
     setEditingRecord(null);
-    fetchTeamMembers();
+    await fetchTeamMembers();
   };
 
   const handleEdit = (record) => {
@@ -229,15 +452,8 @@ const TeamManagement = () => {
         deletedAt: new Date().toISOString(),
       });
 
-      const updated = records.map((record) =>
-        record.id === teamToDelete || record._id === teamToDelete
-          ? { ...record, isDeleted: true }
-          : record,
-      );
-
-      setRecords(updated);
-      updateStatistics(updated);
       showSuccess("Team user deleted successfully");
+      await fetchTeamMembers();
       setShowDeleteConfirm(false);
       setTeamToDelete(null);
     } catch (error) {
@@ -268,15 +484,8 @@ const TeamManagement = () => {
       };
 
       await apiPut(API_ENDPOINTS.TEAM_MEMBERS.UPDATE(id), payload);
-
-      const updated = records.map((item) =>
-        item.id === id || item._id === id
-          ? { ...item, status: newStatus }
-          : item,
-      );
-      setRecords(updated);
-      updateStatistics(updated);
       showSuccess("Status updated successfully");
+      await fetchTeamMembers();
     } catch (error) {
       showError(
         error.response?.data?.message ||
@@ -286,20 +495,76 @@ const TeamManagement = () => {
     }
   };
 
-  const handleRefresh = () => {
-    fetchTeamMembers();
+  const handleRefresh = async () => {
+    if (serverSide) {
+      setFilters({});
+      setSearchTerm("");
+      setSortField(null);
+      setSortDirection("normal");
+      setCurrentPage(1);
+      setActiveCardFilter("total");
+    }
+
+    await fetchTeamMembers();
     showInfo("Data refreshed");
+  };
+
+  const handleServerSideSearch = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideFilter = (filterParams) => {
+    setFilters(filterParams);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideSort = (field, direction) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
+  const handleServerSidePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleServerSideRecordsPerPageChange = (limit) => {
+    setRecordsPerPage(limit);
+    setCurrentPage(1);
   };
 
   return (
     <>
       <div className="container-fluid">
         <div
-          className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+          className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <div className="flex-grow-1">
-            <h4 className="fs-18 fw-semibold m-0">Team Management</h4>
+          <h4 className="fs-18 fw-semibold m-0">Team Management</h4>
+
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+                setActiveCardFilter("total");
+              }}
+              id="teamServerSideToggle"
+            />
+            <label
+              className="form-check-label ms-2"
+              htmlFor="teamServerSideToggle"
+            >
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
           </div>
         </div>
 
@@ -374,10 +639,9 @@ const TeamManagement = () => {
         <ReusableTable
           moduleKey={moduleKey}
           columns={columns}
-          data={prepareTableData().filter(
-            (record) => record.isDeleted !== true,
-          )}
+          data={filteredClientSideData}
           loading={loading}
+          totalRecords={totalRecords}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onView={handleView}
@@ -390,7 +654,7 @@ const TeamManagement = () => {
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
-          filterOptions={filterOptions}
+          filterOptions={getFilterOptions()}
           tableTitle="Team User Record"
           showColumnSelector={true}
           showExport={true}
@@ -409,6 +673,20 @@ const TeamManagement = () => {
             if (value === "Team") return "bg-info";
             return "bg-secondary";
           }}
+          serverSide={serverSide}
+          onServerSideSearch={handleServerSideSearch}
+          onServerSideFilter={handleServerSideFilter}
+          onServerSideSort={handleServerSideSort}
+          onServerSidePageChange={handleServerSidePageChange}
+          onServerSideRecordsPerPageChange={
+            handleServerSideRecordsPerPageChange
+          }
+          currentPage={currentPage}
+          recordsPerPage={recordsPerPage}
+          onPageChange={setCurrentPage}
+          onRecordsPerPageChange={setRecordsPerPage}
+          onColumnFilterChange={handleDebouncedColumnFilterChange}
+          exportApi={API_ENDPOINTS.TEAM_MEMBERS.LIST}
         />
 
         <CreateTeamMember

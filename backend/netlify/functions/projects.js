@@ -38,7 +38,19 @@ export async function handler(event) {
     };
 
     if (event.httpMethod === "GET") {
-      const { id, clientId } = event.queryStringParameters || {};
+      const {
+        id,
+        clientId,
+        view,
+        page = 1,
+        limit = 10,
+        search,
+        financialYear,
+        period,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+        filter,
+      } = event.queryStringParameters || {};
 
       if (id) {
         if (!ObjectId.isValid(id)) {
@@ -61,18 +73,965 @@ export async function handler(event) {
         return createResponse(200, projectRecord, origin);
       }
 
+      const normalizedView = String(view || "")
+        .trim()
+        .toLowerCase();
+      if (normalizedView === "developerpayouts") {
+        const params = event.queryStringParameters || {};
+        const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+        const limitNum = Math.max(parseInt(limit, 10) || 10, 1);
+        const skip = (pageNum - 1) * limitNum;
+
+        const buildPeriodRange = (periodValue) => {
+          const normalizedPeriod = String(periodValue || "")
+            .trim()
+            .toLowerCase();
+
+          if (!normalizedPeriod || normalizedPeriod === "yearly") {
+            return null;
+          }
+
+          const now = new Date();
+
+          if (normalizedPeriod === "daily") {
+            return {
+              $gte: new Date(
+                now.getFullYear(),
+                now.getMonth(),
+                now.getDate(),
+                0,
+                0,
+                0,
+                0,
+              ),
+              $lte: new Date(
+                now.getFullYear(),
+                now.getMonth(),
+                now.getDate(),
+                23,
+                59,
+                59,
+                999,
+              ),
+            };
+          }
+
+          if (normalizedPeriod === "monthly") {
+            return {
+              $gte: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
+              $lte: new Date(
+                now.getFullYear(),
+                now.getMonth() + 1,
+                0,
+                23,
+                59,
+                59,
+                999,
+              ),
+            };
+          }
+
+          if (normalizedPeriod === "quarterly") {
+            const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+            return {
+              $gte: new Date(
+                now.getFullYear(),
+                quarterStartMonth,
+                1,
+                0,
+                0,
+                0,
+                0,
+              ),
+              $lte: new Date(
+                now.getFullYear(),
+                quarterStartMonth + 3,
+                0,
+                23,
+                59,
+                59,
+                999,
+              ),
+            };
+          }
+
+          if (normalizedPeriod === "halfyearly") {
+            const halfStartMonth = now.getMonth() < 6 ? 0 : 6;
+            return {
+              $gte: new Date(now.getFullYear(), halfStartMonth, 1, 0, 0, 0, 0),
+              $lte: new Date(
+                now.getFullYear(),
+                halfStartMonth + 6,
+                0,
+                23,
+                59,
+                59,
+                999,
+              ),
+            };
+          }
+
+          return null;
+        };
+
+        const projectMatch = { isDeleted: { $ne: true } };
+        if (financialYear && financialYear !== "ALL") {
+          projectMatch.financialYear = String(financialYear).trim();
+        }
+
+        const prePipeline = [
+          { $match: projectMatch },
+          {
+            $project: {
+              _id: 1,
+              projectId: 1,
+              projectName: 1,
+              phoneNumber: 1,
+              totalDeveloperCost: { $ifNull: ["$totalDeveloperCost", 0] },
+              projectDate: 1,
+              createdAt: 1,
+              developerTransactions: {
+                $ifNull: ["$developerTransactions", []],
+              },
+            },
+          },
+          {
+            $unwind: {
+              path: "$developerTransactions",
+              preserveNullAndEmptyArrays: false,
+            },
+          },
+          {
+            $addFields: {
+              payoutDateResolved: {
+                $ifNull: [
+                  "$developerTransactions.payoutDate",
+                  {
+                    $ifNull: [
+                      "$developerTransactions.paymentDate",
+                      { $ifNull: ["$projectDate", "$createdAt"] },
+                    ],
+                  },
+                ],
+              },
+              developerName: {
+                $ifNull: ["$developerTransactions.staffName", "-"],
+              },
+              payoutMethod: {
+                $ifNull: [
+                  "$developerTransactions.payoutMethod",
+                  "Bank Transfer",
+                ],
+              },
+              description: {
+                $ifNull: ["$developerTransactions.description", "-"],
+              },
+              payoutAmount: {
+                $convert: {
+                  input: "$developerTransactions.payoutAmount",
+                  to: "double",
+                  onError: 0,
+                  onNull: 0,
+                },
+              },
+            },
+          },
+        ];
+
+        const payoutMatch = {};
+        const periodRange = buildPeriodRange(period);
+        if (periodRange) {
+          payoutMatch.payoutDateResolved = periodRange;
+        }
+
+        if (search) {
+          payoutMatch.$or = [
+            { developerName: { $regex: search, $options: "i" } },
+            { projectName: { $regex: search, $options: "i" } },
+            { projectId: { $regex: search, $options: "i" } },
+            { payoutMethod: { $regex: search, $options: "i" } },
+            { description: { $regex: search, $options: "i" } },
+            { phoneNumber: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        Object.entries(params).forEach(([key, value]) => {
+          if (!value || value === "" || value === "All") return;
+          if (
+            [
+              "id",
+              "clientId",
+              "view",
+              "page",
+              "limit",
+              "search",
+              "financialYear",
+              "period",
+              "sortBy",
+              "sortOrder",
+              "filter",
+            ].includes(key)
+          ) {
+            return;
+          }
+
+          if (key.endsWith("_start") || key.endsWith("_end")) return;
+
+          const keyMap = {
+            developerName: "developerName",
+            payoutMethod: "payoutMethod",
+            projectName: "projectName",
+            projectId: "projectId",
+            description: "description",
+          };
+
+          const mappedKey = keyMap[key] || key;
+
+          if (typeof value === "string" && value.includes(",")) {
+            payoutMatch[mappedKey] = {
+              $in: value
+                .split(",")
+                .map((row) => row.trim())
+                .filter(Boolean),
+            };
+            return;
+          }
+
+          if (["developerName", "payoutMethod", "projectName"].includes(key)) {
+            payoutMatch[mappedKey] = String(value).trim();
+            return;
+          }
+
+          payoutMatch[mappedKey] = {
+            $regex: String(value).trim(),
+            $options: "i",
+          };
+        });
+
+        const dateRanges = {};
+        Object.entries(params).forEach(([key, value]) => {
+          if (!value) return;
+
+          if (key.endsWith("_start")) {
+            const baseKey = key.replace(/_start$/, "");
+            if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+            const dateParts = String(value).split("-");
+            if (dateParts.length === 3) {
+              const year = parseInt(dateParts[0], 10);
+              const month = parseInt(dateParts[1], 10) - 1;
+              const day = parseInt(dateParts[2], 10);
+              dateRanges[baseKey].$gte = new Date(
+                Date.UTC(year, month, day, 0, 0, 0, 0),
+              );
+            }
+          }
+
+          if (key.endsWith("_end")) {
+            const baseKey = key.replace(/_end$/, "");
+            if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+            const dateParts = String(value).split("-");
+            if (dateParts.length === 3) {
+              const year = parseInt(dateParts[0], 10);
+              const month = parseInt(dateParts[1], 10) - 1;
+              const day = parseInt(dateParts[2], 10);
+              dateRanges[baseKey].$lte = new Date(
+                Date.UTC(year, month, day, 23, 59, 59, 999),
+              );
+            }
+          }
+        });
+
+        if (dateRanges.payoutDate) {
+          payoutMatch.payoutDateResolved = {
+            ...(payoutMatch.payoutDateResolved || {}),
+            ...dateRanges.payoutDate,
+          };
+        }
+
+        const sortFieldMapping = {
+          payoutDate: "payoutDateResolved",
+          payoutAmount: "payoutAmount",
+          developerName: "developerName",
+          projectName: "projectName",
+          payoutMethod: "payoutMethod",
+          projectId: "projectId",
+        };
+
+        const sortStage = {
+          [sortFieldMapping[sortBy] || "payoutDateResolved"]:
+            sortOrder === "asc" ? 1 : -1,
+        };
+
+        const aggregateResult = await projectsCollection
+          .aggregate([
+            ...prePipeline,
+            { $match: payoutMatch },
+            {
+              $facet: {
+                data: [
+                  { $sort: sortStage },
+                  { $skip: skip },
+                  { $limit: limitNum },
+                  {
+                    $project: {
+                      _id: 0,
+                      id: {
+                        $concat: [
+                          { $toString: "$_id" },
+                          "-",
+                          { $ifNull: ["$developerTransactions.id", "0"] },
+                        ],
+                      },
+                      projectObjectId: "$_id",
+                      projectId: "$projectId",
+                      projectName: "$projectName",
+                      phoneNumber: { $ifNull: ["$phoneNumber", "-"] },
+                      developerName: "$developerName",
+                      payoutMethod: "$payoutMethod",
+                      description: "$description",
+                      payoutAmount: "$payoutAmount",
+                      payoutDateRaw: "$payoutDateResolved",
+                      payoutDate: "$payoutDateResolved",
+                      totalDeveloperCost: "$totalDeveloperCost",
+                    },
+                  },
+                ],
+                totalCount: [{ $count: "count" }],
+                optionBuckets: [
+                  {
+                    $group: {
+                      _id: null,
+                      developerNames: { $addToSet: "$developerName" },
+                      payoutMethods: { $addToSet: "$payoutMethod" },
+                      projectNames: { $addToSet: "$projectName" },
+                    },
+                  },
+                ],
+                projectCostBuckets: [
+                  {
+                    $group: {
+                      _id: "$_id",
+                      projectCost: { $first: "$totalDeveloperCost" },
+                    },
+                  },
+                  {
+                    $group: {
+                      _id: null,
+                      totalProjects: { $sum: 1 },
+                      totalDeveloperCost: { $sum: "$projectCost" },
+                    },
+                  },
+                ],
+                payoutBuckets: [
+                  {
+                    $group: {
+                      _id: null,
+                      totalPayout: { $sum: "$payoutAmount" },
+                      developers: { $addToSet: "$developerName" },
+                    },
+                  },
+                ],
+              },
+            },
+          ])
+          .toArray();
+
+        const facet = aggregateResult[0] || {};
+        const rows = Array.isArray(facet.data) ? facet.data : [];
+        const totalRecords = Number(facet.totalCount?.[0]?.count || 0);
+        const optionBuckets = facet.optionBuckets?.[0] || {};
+        const projectCostBuckets = facet.projectCostBuckets?.[0] || {};
+        const payoutBuckets = facet.payoutBuckets?.[0] || {};
+
+        const uniqueDeveloperCount = (
+          Array.isArray(payoutBuckets.developers)
+            ? payoutBuckets.developers
+            : []
+        ).filter(
+          (name) => String(name || "").trim() && String(name) !== "-",
+        ).length;
+
+        const totalDeveloperCost = Number(
+          projectCostBuckets.totalDeveloperCost || 0,
+        );
+        const totalPayout = Number(payoutBuckets.totalPayout || 0);
+
+        return createResponse(
+          200,
+          {
+            data: rows,
+            pagination: {
+              page: pageNum,
+              limit: limitNum,
+              totalRecords,
+              totalPages: Math.ceil(totalRecords / limitNum),
+            },
+            statistics: {
+              totalDevelopers: uniqueDeveloperCount,
+              totalProjects: Number(projectCostBuckets.totalProjects || 0),
+              totalDeveloperCost,
+              totalPayout,
+              pendingPayout: totalDeveloperCost - totalPayout,
+            },
+            filterOptions: {
+              developerName: [
+                "All",
+                ...(Array.isArray(optionBuckets.developerNames)
+                  ? optionBuckets.developerNames
+                  : []
+                )
+                  .filter((value) => String(value || "").trim())
+                  .sort(),
+              ],
+              payoutMethod: [
+                "All",
+                ...(Array.isArray(optionBuckets.payoutMethods)
+                  ? optionBuckets.payoutMethods
+                  : []
+                )
+                  .filter((value) => String(value || "").trim())
+                  .sort(),
+              ],
+              projectName: [
+                "All",
+                ...(Array.isArray(optionBuckets.projectNames)
+                  ? optionBuckets.projectNames
+                  : []
+                )
+                  .filter((value) => String(value || "").trim())
+                  .sort(),
+              ],
+            },
+          },
+          origin,
+        );
+      }
+
+      const params = event.queryStringParameters || {};
       const query = { isDeleted: { $ne: true } };
 
       if (clientId) {
         query.clientId = clientId;
       }
 
+      if (financialYear && financialYear !== "ALL") {
+        query.financialYear = String(financialYear).trim();
+      }
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value || value === "" || value === "All") return;
+        if (key === "filter") return;
+
+        if (
+          [
+            "id",
+            "clientId",
+            "page",
+            "limit",
+            "search",
+            "sortBy",
+            "sortOrder",
+            "financialYear",
+            "period",
+          ].includes(key)
+        ) {
+          return;
+        }
+
+        if (key.endsWith("_start") || key.endsWith("_end")) return;
+
+        const mappedKey =
+          key === "taxPercentage" ? "summary.taxPercentage" : key;
+
+        if (typeof value === "string" && value.includes(",")) {
+          query[mappedKey] = {
+            $in: value
+              .split(",")
+              .map((row) => row.trim())
+              .filter(Boolean),
+          };
+          return;
+        }
+
+        if (
+          [
+            "businessName",
+            "clientName",
+            "projectName",
+            "taxPercentage",
+          ].includes(key)
+        ) {
+          if (key === "taxPercentage") {
+            const parsed = Number(value);
+            if (!Number.isNaN(parsed)) {
+              query[mappedKey] = parsed;
+            }
+          } else {
+            query[mappedKey] = String(value).trim();
+          }
+          return;
+        }
+
+        query[mappedKey] = { $regex: String(value).trim(), $options: "i" };
+      });
+
+      const dateRanges = {};
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value) return;
+
+        if (key.endsWith("_start")) {
+          let baseKey = key.replace(/_start$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+          if (baseKey === "projectDateFormatted") baseKey = "projectDate";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = String(value).split("-");
+          if (dateParts.length === 3) {
+            const year = parseInt(dateParts[0], 10);
+            const month = parseInt(dateParts[1], 10) - 1;
+            const day = parseInt(dateParts[2], 10);
+            dateRanges[baseKey].$gte = new Date(
+              Date.UTC(year, month, day, 0, 0, 0, 0),
+            );
+          }
+        }
+
+        if (key.endsWith("_end")) {
+          let baseKey = key.replace(/_end$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+          if (baseKey === "projectDateFormatted") baseKey = "projectDate";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = String(value).split("-");
+          if (dateParts.length === 3) {
+            const year = parseInt(dateParts[0], 10);
+            const month = parseInt(dateParts[1], 10) - 1;
+            const day = parseInt(dateParts[2], 10);
+            dateRanges[baseKey].$lte = new Date(
+              Date.UTC(year, month, day, 23, 59, 59, 999),
+            );
+          }
+        }
+      });
+
+      Object.entries(dateRanges).forEach(([key, range]) => {
+        query[key] = range;
+      });
+
+      const andConditions = [];
+
+      if (filter) {
+        if (filter === "totalAmountWithTax") {
+          andConditions.push({
+            $or: [
+              { "summary.totalAmountWithTax": { $gt: 0 } },
+              { projectTotalCost: { $gt: 0 } },
+            ],
+          });
+        }
+        if (filter === "totalProjectValue") {
+          andConditions.push({
+            $or: [
+              { "summary.totalProjectAmountWithoutTax": { $gt: 0 } },
+              { projectTotalCost: { $gt: 0 } },
+            ],
+          });
+        }
+        if (filter === "totalClientPayable") {
+          andConditions.push({ "summary.totalClientPayable": { $gt: 0 } });
+        }
+        if (filter === "totalDeveloperPayable") {
+          andConditions.push({ "summary.totalDeveloperPayable": { $gt: 0 } });
+        }
+        if (filter === "totalRemainingAmount") {
+          andConditions.push({ "summary.remainingAmount": { $ne: 0 } });
+        }
+      }
+
+      if (search) {
+        andConditions.push({
+          $or: [
+            { projectId: { $regex: search, $options: "i" } },
+            { projectName: { $regex: search, $options: "i" } },
+            { clientName: { $regex: search, $options: "i" } },
+            { businessName: { $regex: search, $options: "i" } },
+            { phoneNumber: { $regex: search, $options: "i" } },
+            { email: { $regex: search, $options: "i" } },
+          ],
+        });
+      }
+
+      if (andConditions.length > 0) {
+        query.$and = andConditions;
+      }
+
+      const normalizedPeriod = String(period || "")
+        .trim()
+        .toLowerCase();
+      if (normalizedPeriod && normalizedPeriod !== "yearly") {
+        const now = new Date();
+
+        if (normalizedPeriod === "daily") {
+          const start = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            0,
+            0,
+            0,
+            0,
+          );
+          const end = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            23,
+            59,
+            59,
+            999,
+          );
+          query.projectDate = {
+            ...(query.projectDate || {}),
+            $gte: start,
+            $lte: end,
+          };
+        }
+
+        if (normalizedPeriod === "monthly") {
+          const start = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            1,
+            0,
+            0,
+            0,
+            0,
+          );
+          const end = new Date(
+            now.getFullYear(),
+            now.getMonth() + 1,
+            0,
+            23,
+            59,
+            59,
+            999,
+          );
+          query.projectDate = {
+            ...(query.projectDate || {}),
+            $gte: start,
+            $lte: end,
+          };
+        }
+
+        if (normalizedPeriod === "quarterly") {
+          const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+          const start = new Date(
+            now.getFullYear(),
+            quarterStartMonth,
+            1,
+            0,
+            0,
+            0,
+            0,
+          );
+          const end = new Date(
+            now.getFullYear(),
+            quarterStartMonth + 3,
+            0,
+            23,
+            59,
+            59,
+            999,
+          );
+          query.projectDate = {
+            ...(query.projectDate || {}),
+            $gte: start,
+            $lte: end,
+          };
+        }
+
+        if (normalizedPeriod === "halfyearly") {
+          const halfStartMonth = now.getMonth() < 6 ? 0 : 6;
+          const start = new Date(
+            now.getFullYear(),
+            halfStartMonth,
+            1,
+            0,
+            0,
+            0,
+            0,
+          );
+          const end = new Date(
+            now.getFullYear(),
+            halfStartMonth + 6,
+            0,
+            23,
+            59,
+            59,
+            999,
+          );
+          query.projectDate = {
+            ...(query.projectDate || {}),
+            $gte: start,
+            $lte: end,
+          };
+        }
+      }
+
+      const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+      const limitNum = Math.max(parseInt(limit, 10) || 10, 1);
+      const skip = (pageNum - 1) * limitNum;
+
+      const sortFieldMapping = {
+        projectDateFormatted: "projectDate",
+        createdDateTime: "createdAt",
+        totalProjectAmountWithoutTax: "summary.totalProjectAmountWithoutTax",
+        totalAmountWithTax: "summary.totalAmountWithTax",
+        totalClientPayable: "summary.totalClientPayable",
+        totalDeveloperPayable: "summary.totalDeveloperPayable",
+        remainingAmount: "summary.remainingAmount",
+        taxPercentage: "summary.taxPercentage",
+      };
+
+      const sortObject = {};
+      sortObject[sortFieldMapping[sortBy] || sortBy] =
+        sortOrder === "asc" ? 1 : -1;
+
+      const totalRecords = await projectsCollection.countDocuments(query);
+
       const projectRecords = await projectsCollection
         .find(query)
-        .sort({ createdAt: -1 })
+        .sort(sortObject)
+        .skip(skip)
+        .limit(limitNum)
         .toArray();
 
-      return createResponse(200, projectRecords, origin);
+      const statsMatchQuery = {
+        isDeleted: { $ne: true },
+      };
+      if (clientId) statsMatchQuery.clientId = clientId;
+      if (financialYear && financialYear !== "ALL") {
+        statsMatchQuery.financialYear = String(financialYear).trim();
+      }
+
+      if (normalizedPeriod && normalizedPeriod !== "yearly") {
+        const now = new Date();
+
+        if (normalizedPeriod === "daily") {
+          const start = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            0,
+            0,
+            0,
+            0,
+          );
+          const end = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate(),
+            23,
+            59,
+            59,
+            999,
+          );
+          statsMatchQuery.projectDate = {
+            ...(statsMatchQuery.projectDate || {}),
+            $gte: start,
+            $lte: end,
+          };
+        }
+
+        if (normalizedPeriod === "monthly") {
+          const start = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            1,
+            0,
+            0,
+            0,
+            0,
+          );
+          const end = new Date(
+            now.getFullYear(),
+            now.getMonth() + 1,
+            0,
+            23,
+            59,
+            59,
+            999,
+          );
+          statsMatchQuery.projectDate = {
+            ...(statsMatchQuery.projectDate || {}),
+            $gte: start,
+            $lte: end,
+          };
+        }
+
+        if (normalizedPeriod === "quarterly") {
+          const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+          const start = new Date(
+            now.getFullYear(),
+            quarterStartMonth,
+            1,
+            0,
+            0,
+            0,
+            0,
+          );
+          const end = new Date(
+            now.getFullYear(),
+            quarterStartMonth + 3,
+            0,
+            23,
+            59,
+            59,
+            999,
+          );
+          statsMatchQuery.projectDate = {
+            ...(statsMatchQuery.projectDate || {}),
+            $gte: start,
+            $lte: end,
+          };
+        }
+
+        if (normalizedPeriod === "halfyearly") {
+          const halfStartMonth = now.getMonth() < 6 ? 0 : 6;
+          const start = new Date(
+            now.getFullYear(),
+            halfStartMonth,
+            1,
+            0,
+            0,
+            0,
+            0,
+          );
+          const end = new Date(
+            now.getFullYear(),
+            halfStartMonth + 6,
+            0,
+            23,
+            59,
+            59,
+            999,
+          );
+          statsMatchQuery.projectDate = {
+            ...(statsMatchQuery.projectDate || {}),
+            $gte: start,
+            $lte: end,
+          };
+        }
+      }
+
+      const [
+        summaryStats,
+        businessNames,
+        projectNames,
+        clientNames,
+        taxPercentageValues,
+      ] = await Promise.all([
+        projectsCollection
+          .aggregate([
+            { $match: statsMatchQuery },
+            {
+              $group: {
+                _id: null,
+                totalAmountWithTax: {
+                  $sum: {
+                    $ifNull: [
+                      "$summary.totalAmountWithTax",
+                      "$projectTotalCost",
+                    ],
+                  },
+                },
+                totalProjectValue: {
+                  $sum: {
+                    $ifNull: [
+                      "$summary.totalProjectAmountWithoutTax",
+                      "$projectTotalCost",
+                    ],
+                  },
+                },
+                totalDeveloperCost: {
+                  $sum: { $ifNull: ["$totalDeveloperCost", 0] },
+                },
+                totalClientPayable: {
+                  $sum: { $ifNull: ["$summary.totalClientPayable", 0] },
+                },
+                totalDeveloperPayable: {
+                  $sum: { $ifNull: ["$summary.totalDeveloperPayable", 0] },
+                },
+                totalRemainingAmount: {
+                  $sum: { $ifNull: ["$summary.remainingAmount", 0] },
+                },
+              },
+            },
+          ])
+          .toArray(),
+        projectsCollection.distinct("businessName", {
+          ...statsMatchQuery,
+          businessName: { $exists: true, $ne: "" },
+        }),
+        projectsCollection.distinct("projectName", {
+          ...statsMatchQuery,
+          projectName: { $exists: true, $ne: "" },
+        }),
+        projectsCollection.distinct("clientName", {
+          ...statsMatchQuery,
+          clientName: { $exists: true, $ne: "" },
+        }),
+        projectsCollection.distinct("summary.taxPercentage", {
+          ...statsMatchQuery,
+          "summary.taxPercentage": { $exists: true, $ne: null },
+        }),
+      ]);
+
+      const stats = summaryStats[0] || {
+        totalAmountWithTax: 0,
+        totalProjectValue: 0,
+        totalDeveloperCost: 0,
+        totalClientPayable: 0,
+        totalDeveloperPayable: 0,
+        totalRemainingAmount: 0,
+      };
+
+      return createResponse(
+        200,
+        {
+          data: projectRecords,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            totalRecords,
+            totalPages: Math.ceil(totalRecords / limitNum),
+          },
+          statistics: {
+            totalAmountWithTax: stats.totalAmountWithTax || 0,
+            totalProjectValue: stats.totalProjectValue || 0,
+            totalDeveloperCost: stats.totalDeveloperCost || 0,
+            totalClientPayable: stats.totalClientPayable || 0,
+            totalDeveloperPayable: stats.totalDeveloperPayable || 0,
+            totalRemainingAmount: stats.totalRemainingAmount || 0,
+          },
+          filterOptions: {
+            businessName: ["All", ...businessNames.sort()],
+            projectName: ["All", ...projectNames.sort()],
+            clientName: ["All", ...clientNames.sort()],
+            taxPercentage: [
+              "All",
+              ...taxPercentageValues
+                .map((row) => Number(row))
+                .filter((row) => !Number.isNaN(row))
+                .sort((a, b) => a - b)
+                .map((row) => String(row)),
+            ],
+          },
+        },
+        origin,
+      );
     }
 
     if (event.httpMethod === "POST") {

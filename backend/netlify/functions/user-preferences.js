@@ -30,10 +30,16 @@ export async function handler(event) {
       "clientManagementServerSide",
       "companyExpenseManagementServerSide",
       "detailedLedgerManagementServerSide",
+      "developerPayoutManagementServerSide",
+      "financialYearManagementServerSide",
+      "projectDetailsServerSide",
+      "projectManagementServerSide",
       "purchaseManagementServerSide",
       "rcmManagementServerSide",
       "salesManagementServerSide",
       "servicesManagementServerSide",
+      "staffManagementServerSide",
+      "teamManagementServerSide",
       "vendorManagementServerSide",
     ];
 

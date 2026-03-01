@@ -51,7 +51,15 @@ export async function handler(event) {
     const usersCollection = db.collection("users");
 
     if (event.httpMethod === "GET") {
-      const { id } = event.queryStringParameters || {};
+      const {
+        id,
+        page = 1,
+        limit = 10,
+        search,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+        filter,
+      } = event.queryStringParameters || {};
 
       if (id) {
         if (!ObjectId.isValid(id)) {
@@ -83,20 +91,205 @@ export async function handler(event) {
         );
       }
 
+      const params = event.queryStringParameters || {};
+      const filterQuery = {
+        userType: "team-member",
+        isDeleted: { $ne: true },
+      };
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value || value === "" || value === "All") return;
+        if (key === "filter") return;
+
+        if (
+          ["id", "page", "limit", "search", "sortBy", "sortOrder"].includes(key)
+        ) {
+          return;
+        }
+
+        if (key.endsWith("_start") || key.endsWith("_end")) return;
+
+        if (typeof value === "string" && value.includes(",")) {
+          filterQuery[key] = {
+            $in: value
+              .split(",")
+              .map((row) => row.trim())
+              .filter(Boolean),
+          };
+          return;
+        }
+
+        if (["status", "role"].includes(key)) {
+          const normalized = key === "role" ? normalizeRole(value) : value;
+          if (normalized) {
+            filterQuery[key] = String(normalized).trim();
+          }
+          return;
+        }
+
+        filterQuery[key] = { $regex: String(value).trim(), $options: "i" };
+      });
+
+      const dateRanges = {};
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value) return;
+
+        if (key.endsWith("_start")) {
+          let baseKey = key.replace(/_start$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = String(value).split("-");
+          if (dateParts.length === 3) {
+            const year = parseInt(dateParts[0], 10);
+            const month = parseInt(dateParts[1], 10) - 1;
+            const day = parseInt(dateParts[2], 10);
+            dateRanges[baseKey].$gte = new Date(
+              Date.UTC(year, month, day, 0, 0, 0, 0),
+            );
+          }
+        }
+
+        if (key.endsWith("_end")) {
+          let baseKey = key.replace(/_end$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = String(value).split("-");
+          if (dateParts.length === 3) {
+            const year = parseInt(dateParts[0], 10);
+            const month = parseInt(dateParts[1], 10) - 1;
+            const day = parseInt(dateParts[2], 10);
+            dateRanges[baseKey].$lte = new Date(
+              Date.UTC(year, month, day, 23, 59, 59, 999),
+            );
+          }
+        }
+      });
+
+      Object.entries(dateRanges).forEach(([key, range]) => {
+        filterQuery[key] = range;
+      });
+
+      if (filter) {
+        if (filter === "active") {
+          filterQuery.status = "Active";
+        }
+        if (filter === "inactive") {
+          filterQuery.status = "Inactive";
+        }
+        if (filter === "admins") {
+          filterQuery.role = { $in: ["Admin", "Super Admin"] };
+        }
+        if (filter === "teams") {
+          filterQuery.role = "Team";
+        }
+      }
+
+      if (search) {
+        filterQuery.$and = [
+          ...(Array.isArray(filterQuery.$and) ? filterQuery.$and : []),
+          {
+            $or: [
+              { name: { $regex: search, $options: "i" } },
+              { phone: { $regex: search, $options: "i" } },
+              { email: { $regex: search, $options: "i" } },
+              { address: { $regex: search, $options: "i" } },
+              { role: { $regex: search, $options: "i" } },
+            ],
+          },
+        ];
+      }
+
+      const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+      const limitNum = Math.max(parseInt(limit, 10) || 10, 1);
+      const skip = (pageNum - 1) * limitNum;
+
+      const sortFieldMapping = {
+        createdDateTime: "createdAt",
+        phoneNumber: "phone",
+      };
+
+      const sortObject = {};
+      sortObject[sortFieldMapping[sortBy] || sortBy] =
+        sortOrder === "asc" ? 1 : -1;
+
+      const totalRecords = await usersCollection.countDocuments(filterQuery);
+
       const teamMembers = await usersCollection
-        .find({
+        .find(filterQuery)
+        .sort(sortObject)
+        .skip(skip)
+        .limit(limitNum)
+        .toArray();
+
+      const [
+        roleValues,
+        statusValues,
+        totalActive,
+        totalInactive,
+        totalAdmins,
+        totalTeams,
+      ] = await Promise.all([
+        usersCollection.distinct("role", {
           userType: "team-member",
           isDeleted: { $ne: true },
-        })
-        .sort({ createdAt: -1 })
-        .toArray();
+          role: { $exists: true, $ne: "" },
+        }),
+        usersCollection.distinct("status", {
+          userType: "team-member",
+          isDeleted: { $ne: true },
+          status: { $exists: true, $ne: "" },
+        }),
+        usersCollection.countDocuments({
+          userType: "team-member",
+          isDeleted: { $ne: true },
+          status: "Active",
+        }),
+        usersCollection.countDocuments({
+          userType: "team-member",
+          isDeleted: { $ne: true },
+          status: "Inactive",
+        }),
+        usersCollection.countDocuments({
+          userType: "team-member",
+          isDeleted: { $ne: true },
+          role: { $in: ["Admin", "Super Admin"] },
+        }),
+        usersCollection.countDocuments({
+          userType: "team-member",
+          isDeleted: { $ne: true },
+          role: "Team",
+        }),
+      ]);
 
       return createResponse(
         200,
-        teamMembers.map((member) => ({
-          ...member,
-          pin: "",
-        })),
+        {
+          data: teamMembers.map((member) => ({
+            ...member,
+            pin: "",
+          })),
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            totalRecords,
+            totalPages: Math.ceil(totalRecords / limitNum),
+          },
+          statistics: {
+            total: totalRecords,
+            active: totalActive,
+            inactive: totalInactive,
+            admins: totalAdmins,
+            teams: totalTeams,
+          },
+          filterOptions: {
+            role: ["All", ...roleValues.sort()],
+            status: ["All", ...statusValues.sort()],
+          },
+        },
         origin,
       );
     }

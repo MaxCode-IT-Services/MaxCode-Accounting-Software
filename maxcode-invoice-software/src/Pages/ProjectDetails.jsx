@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import { showError, showInfo } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet } from "../utils/api";
+import { apiGet, apiPost } from "../utils/api";
 
 const toNumber = (value) => {
   const number = parseFloat(value);
@@ -26,13 +26,6 @@ const formatDateForDisplay = (dateString) => {
   }
 };
 
-const getDateOnly = (value) => {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-};
-
 const formatCurrency = (value) => {
   return `₹ ${toNumber(value).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
@@ -41,8 +34,8 @@ const formatCurrency = (value) => {
 };
 
 const getPeriodDisplay = (projectDate, mode) => {
-  const date = getDateOnly(projectDate);
-  if (!date) return "-";
+  const date = projectDate ? new Date(projectDate) : null;
+  if (!date || Number.isNaN(date.getTime())) return "-";
 
   if (mode === "daily") {
     return formatDateForDisplay(projectDate);
@@ -53,7 +46,25 @@ const getPeriodDisplay = (projectDate, mode) => {
     return `${month}/${date.getFullYear()}`;
   }
 
+  if (mode === "quarterly") {
+    const quarter = Math.floor(date.getMonth() / 3) + 1;
+    return `Q${quarter} ${date.getFullYear()}`;
+  }
+
+  if (mode === "halfYearly") {
+    const half = date.getMonth() < 6 ? "H1" : "H2";
+    return `${half} ${date.getFullYear()}`;
+  }
+
   return String(date.getFullYear());
+};
+
+const getPeriodModeLabel = (mode) => {
+  if (mode === "daily") return "Daily";
+  if (mode === "monthly") return "Monthly";
+  if (mode === "quarterly") return "Quarterly";
+  if (mode === "halfYearly") return "Half Yearly";
+  return "Yearly";
 };
 
 const ProjectDetails = () => {
@@ -61,48 +72,47 @@ const ProjectDetails = () => {
     document.title = "Project Details | MaxCode IT Services";
   }, []);
 
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
+
   const [financialYears, setFinancialYears] = useState([]);
   const [selectedFinancialYear, setSelectedFinancialYear] = useState(
     localStorage.getItem("selectedFinancialYear") || "ALL",
   );
-  const [allRecords, setAllRecords] = useState([]);
+  const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly");
 
-  const getSelectedYearRange = () => {
-    if (!selectedFinancialYear || selectedFinancialYear === "ALL") {
-      return null;
-    }
+  const [statistics, setStatistics] = useState({
+    totalAmountWithTax: 0,
+    totalProjectValue: 0,
+    totalDeveloperCost: 0,
+    totalClientPayable: 0,
+    totalDeveloperPayable: 0,
+    totalRemainingAmount: 0,
+  });
 
-    const matchedYear = financialYears.find(
-      (year) => year.value === selectedFinancialYear,
-    );
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
 
-    if (!matchedYear?.startDate || !matchedYear?.endDate) {
-      return null;
-    }
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
-    const startDate = getDateOnly(matchedYear.startDate);
-    const endDate = getDateOnly(matchedYear.endDate);
-    if (!startDate || !endDate) return null;
+  const columnsWithDateFilter = ["projectDate", "createdDateTime"];
 
-    return { startDate, endDate };
-  };
-
-  const loadAllData = async () => {
-    setLoading(true);
+  const fetchFinancialYears = async () => {
     try {
-      const [yearsResult, projectsResult] = await Promise.allSettled([
-        apiGet(API_ENDPOINTS.YEARS.LIST),
-        apiGet(API_ENDPOINTS.PROJECTS.LIST),
-      ]);
-
-      const yearsData =
-        yearsResult.status === "fulfilled"
-          ? Array.isArray(yearsResult.value.data)
-            ? yearsResult.value.data
-            : yearsResult.value.data?.years || []
-          : [];
+      const response = await apiGet(API_ENDPOINTS.YEARS.LIST);
+      const yearsData = Array.isArray(response.data)
+        ? response.data
+        : response.data?.years || [];
 
       const normalizedYears = yearsData
         .filter((yearRecord) => yearRecord?.isDeleted !== true)
@@ -112,41 +122,217 @@ const ProjectDetails = () => {
           value: yearRecord.financialYear || yearRecord.year,
         }));
 
-      const projectsData =
-        projectsResult.status === "fulfilled"
-          ? Array.isArray(projectsResult.value.data)
-            ? projectsResult.value.data
-            : projectsResult.value.data?.projects || []
-          : [];
-
       setFinancialYears(normalizedYears);
-      setAllRecords(
-        projectsData.map((record) => ({
+    } catch (error) {
+      console.error("Financial years API fetch error:", error);
+      setFinancialYears([]);
+    }
+  };
+
+  const fetchProjectDetails = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (prefLoading) return;
+    setLoading(true);
+
+    try {
+      let url = API_ENDPOINTS.PROJECTS.LIST;
+      const params = new URLSearchParams();
+
+      if (serverSide) {
+        params.append("page", currentPage);
+        params.append("limit", recordsPerPage);
+
+        if (searchTerm) {
+          params.append("search", searchTerm);
+        }
+
+        if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+          params.append("financialYear", selectedFinancialYear);
+        }
+
+        if (financialPeriodMode && financialPeriodMode !== "yearly") {
+          params.append("period", financialPeriodMode);
+        }
+
+        Object.entries(filters).forEach(([key, value]) => {
+          if (["sn", "action"].includes(key)) return;
+          if (
+            value === undefined ||
+            value === null ||
+            value === "" ||
+            value === "All"
+          )
+            return;
+
+          if (columnsWithDateFilter.includes(key)) {
+            if (value && typeof value === "object") {
+              if (value.startDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_start`, value.startDate);
+              }
+              if (value.endDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_end`, value.endDate);
+              }
+            }
+          } else {
+            if (Array.isArray(value) && value.length > 0) {
+              params.append(key, value.join(","));
+            } else if (!Array.isArray(value)) {
+              params.append(key, value);
+            }
+          }
+        });
+
+        if (sortField && sortDirection !== "normal") {
+          params.append("sortBy", sortField);
+          params.append(
+            "sortOrder",
+            sortDirection === "ascending" ? "asc" : "desc",
+          );
+        }
+
+        url = `${url}?${params.toString()}`;
+      }
+
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
+
+      let projectData;
+      let total;
+
+      if (serverSide) {
+        projectData = response.data?.data || response.data?.projects || [];
+        total =
+          response.data?.pagination?.totalRecords ||
+          response.data?.total ||
+          projectData.length;
+
+        if (response.data?.statistics) {
+          setStatistics(response.data.statistics);
+        }
+
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
+        }
+      } else {
+        projectData =
+          response.data?.data ||
+          response.data?.projects ||
+          (Array.isArray(response.data) ? response.data : []);
+        total = projectData.length;
+      }
+
+      const normalized = projectData
+        .filter((record) => record?.isDeleted !== true)
+        .map((record) => ({
           ...record,
           id: record._id || record.id,
-        })),
-      );
+        }));
 
-      if (
-        yearsResult.status === "rejected" ||
-        projectsResult.status === "rejected"
-      ) {
-        showInfo(
-          "Some project details data could not be loaded. Please refresh.",
-        );
+      setRecords(normalized);
+      setTotalRecords(total);
+
+      if (!serverSide) {
+        updateStatistics(normalized);
       }
     } catch (error) {
+      if (error.name === "CanceledError" || error.name === "AbortError") {
+        return;
+      }
+
       console.error("Failed to load project details data:", error);
       showError("Failed to fetch project details data");
-      setFinancialYears([]);
-      setAllRecords([]);
+      setRecords([]);
+      setTotalRecords(0);
+      updateStatistics([]);
     } finally {
       setLoading(false);
     }
   };
 
+  const updateStatistics = (projectRecords) => {
+    const stats = projectRecords.reduce(
+      (acc, record) => {
+        const summary = record.summary || {};
+        const totalAmountWithoutTax = toNumber(
+          summary.totalProjectAmountWithoutTax || record.projectTotalCost || 0,
+        );
+        const totalAmountWithTax = toNumber(
+          summary.totalAmountWithTax ||
+            totalAmountWithoutTax +
+              (totalAmountWithoutTax * toNumber(summary.taxPercentage || 0)) /
+                100,
+        );
+
+        acc.totalAmountWithTax += totalAmountWithTax;
+        acc.totalProjectValue += totalAmountWithoutTax;
+        acc.totalDeveloperCost += toNumber(record.totalDeveloperCost || 0);
+        acc.totalClientPayable += toNumber(summary.totalClientPayable || 0);
+        acc.totalDeveloperPayable += toNumber(
+          summary.totalDeveloperPayable || 0,
+        );
+        acc.totalRemainingAmount += toNumber(summary.remainingAmount || 0);
+
+        return acc;
+      },
+      {
+        totalAmountWithTax: 0,
+        totalProjectValue: 0,
+        totalDeveloperCost: 0,
+        totalClientPayable: 0,
+        totalDeveloperPayable: 0,
+        totalRemainingAmount: 0,
+      },
+    );
+
+    setStatistics(stats);
+  };
+
   useEffect(() => {
-    loadAllData();
+    const fetchPreference = async () => {
+      try {
+        const res = await apiGet(API_ENDPOINTS.USER_PREFERENCES.GET);
+        if (typeof res.data?.projectDetailsServerSide === "boolean") {
+          setServerSide(res.data.projectDetailsServerSide);
+        }
+      } catch (error) {
+        console.error("Failed to fetch project details preferences:", error);
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+
+    fetchPreference();
+  }, []);
+
+  useEffect(() => {
+    if (prefLoading) return;
+
+    const savePreference = async () => {
+      try {
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          projectDetailsServerSide: serverSide,
+        });
+      } catch (error) {
+        console.error("Failed to save project details preferences:", error);
+      }
+    };
+
+    savePreference();
+  }, [serverSide, prefLoading]);
+
+  useEffect(() => {
+    fetchFinancialYears();
 
     const handleFinancialYearSelectionChanged = (event) => {
       const selectedYear =
@@ -154,6 +340,9 @@ const ProjectDetails = () => {
         localStorage.getItem("selectedFinancialYear") ||
         "ALL";
       setSelectedFinancialYear(selectedYear);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     };
 
     window.addEventListener(
@@ -167,41 +356,36 @@ const ProjectDetails = () => {
         handleFinancialYearSelectionChanged,
       );
     };
-  }, []);
+  }, [serverSide]);
 
-  const filteredRecords = useMemo(() => {
-    const selectedRange = getSelectedYearRange();
-    const today = getDateOnly(new Date());
+  useEffect(() => {
+    if (prefLoading) return;
 
-    return allRecords.filter((record) => {
-      const projectDate = getDateOnly(record.projectDate || record.createdDate);
-      if (!projectDate) return false;
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
 
-      if (selectedRange) {
-        const isWithinYear =
-          projectDate >= selectedRange.startDate &&
-          projectDate <= selectedRange.endDate;
-        if (!isWithinYear) return false;
-      }
+    debounceTimeoutRef.current = setTimeout(
+      () => {
+        fetchProjectDetails();
+      },
+      serverSide ? 500 : 0,
+    );
 
-      if (financialPeriodMode === "daily") {
-        if (!today || projectDate.getTime() !== today.getTime()) return false;
-      } else if (financialPeriodMode === "monthly") {
-        if (
-          !today ||
-          projectDate.getFullYear() !== today.getFullYear() ||
-          projectDate.getMonth() !== today.getMonth()
-        ) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }, [allRecords, selectedFinancialYear, financialYears, financialPeriodMode]);
+    return () => clearTimeout(debounceTimeoutRef.current);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    selectedFinancialYear,
+    financialPeriodMode,
+    prefLoading,
+  ]);
 
   const tableData = useMemo(() => {
-    return filteredRecords.map((record, index) => {
+    return records.map((record, index) => {
       const summary = record.summary || {};
       const totalAmountWithoutTax = toNumber(
         summary.totalProjectAmountWithoutTax || record.projectTotalCost || 0,
@@ -223,7 +407,9 @@ const ProjectDetails = () => {
 
       return {
         id: record.id || `${record.projectId || "project"}-${index}`,
-        sn: index + 1,
+        sn: serverSide
+          ? (currentPage - 1) * recordsPerPage + index + 1
+          : index + 1,
         period: getPeriodDisplay(
           record.projectDate || record.createdDate,
           financialPeriodMode,
@@ -234,6 +420,9 @@ const ProjectDetails = () => {
         projectDate: formatDateForDisplay(
           record.projectDate || record.createdDate,
         ),
+        createdDateTime: formatDateForDisplay(
+          record.createdDate || record.createdAt,
+        ),
         totalAmountWithoutTax,
         totalAmountWithTax,
         totalClientReceived,
@@ -242,77 +431,46 @@ const ProjectDetails = () => {
         taxAmount,
       };
     });
-  }, [filteredRecords, financialPeriodMode]);
-
-  const summaryCards = useMemo(() => {
-    return filteredRecords.reduce(
-      (acc, record) => {
-        const summary = record.summary || {};
-        const totalAmountWithoutTax = toNumber(
-          summary.totalProjectAmountWithoutTax || record.projectTotalCost || 0,
-        );
-        const totalDeveloperPaid = toNumber(summary.totalDeveloperPayable || 0);
-        const remainingAmount = toNumber(summary.remainingAmount || 0);
-        const totalAmountWithTax = toNumber(summary.totalAmountWithTax || 0);
-        const taxAmount =
-          totalAmountWithTax > 0
-            ? Math.max(totalAmountWithTax - totalAmountWithoutTax, 0)
-            : (totalAmountWithoutTax * toNumber(summary.taxPercentage || 0)) /
-              100;
-
-        acc.totalAmountWithTax += totalAmountWithTax;
-        acc.totalAmountWithoutTax += totalAmountWithoutTax;
-        acc.totalDeveloperPaid += totalDeveloperPaid;
-        acc.totalRemainingAmount += remainingAmount;
-        acc.totalTaxAmount += taxAmount;
-
-        return acc;
-      },
-      {
-        totalAmountWithTax: 0,
-        totalAmountWithoutTax: 0,
-        totalDeveloperPaid: 0,
-        totalRemainingAmount: 0,
-        totalTaxAmount: 0,
-      },
-    );
-  }, [filteredRecords]);
+  }, [records, serverSide, currentPage, recordsPerPage, financialPeriodMode]);
 
   const cards = [
     {
       key: "totalAmountWithTax",
       title: "Total With Tax",
-      value: formatCurrency(summaryCards.totalAmountWithTax),
+      value: formatCurrency(statistics.totalAmountWithTax),
       icon: "fa-solid fa-diagram-project",
     },
     {
-      key: "totalAmountWithoutTax",
+      key: "totalProjectValue",
       title: "Total Without Tax",
-      value: formatCurrency(summaryCards.totalAmountWithoutTax),
+      value: formatCurrency(statistics.totalProjectValue),
       icon: "fa-solid fa-sack-dollar",
     },
     {
       key: "totalTaxAmount",
       title: "Tax Amount",
-      value: formatCurrency(summaryCards.totalTaxAmount),
+      value: formatCurrency(
+        toNumber(statistics.totalAmountWithTax) -
+          toNumber(statistics.totalProjectValue),
+      ),
       icon: "fa-solid fa-receipt",
     },
     {
-      key: "totalDeveloperPaid",
+      key: "totalDeveloperPayable",
       title: "Developer Paid",
-      value: formatCurrency(summaryCards.totalDeveloperPaid),
+      value: formatCurrency(statistics.totalDeveloperPayable),
       icon: "fa-solid fa-money-check-dollar",
     },
     {
       key: "totalRemainingAmount",
       title: "Net Amount",
-      value: formatCurrency(summaryCards.totalRemainingAmount),
+      value: formatCurrency(statistics.totalRemainingAmount),
       icon: "fa-solid fa-scale-balanced",
     },
     {
       key: "period",
       title: "Financial Period",
-      value: `${financialPeriodMode.charAt(0).toUpperCase()}${financialPeriodMode.slice(1)}`,
+      value: `${selectedFinancialYear === "ALL" ? "All Year" : selectedFinancialYear} • ${getPeriodModeLabel(financialPeriodMode)}`,
       icon: "fa-regular fa-calendar-days",
     },
   ];
@@ -324,12 +482,22 @@ const ProjectDetails = () => {
   const handleCardClick = (cardKey) => {
     if (cardKey !== "period") return;
 
-    const periodCycle = ["daily", "monthly", "yearly"];
+    const periodCycle = [
+      "daily",
+      "monthly",
+      "quarterly",
+      "halfYearly",
+      "yearly",
+    ];
     setFinancialPeriodMode((prev) => {
       const currentIndex = periodCycle.indexOf(prev);
       if (currentIndex === -1) return "daily";
       return periodCycle[(currentIndex + 1) % periodCycle.length];
     });
+
+    if (serverSide) {
+      setCurrentPage(1);
+    }
   };
 
   const columns = [
@@ -399,22 +567,97 @@ const ProjectDetails = () => {
     },
   ];
 
+  const handleDebouncedColumnFilterChange = (key, value) => {
+    if (serverSide) {
+      if (debounceColumnTimeoutRef.current) {
+        clearTimeout(debounceColumnTimeoutRef.current);
+      }
+
+      debounceColumnTimeoutRef.current = setTimeout(() => {
+        setFilters((prev) => ({ ...prev, [key]: value }));
+        setCurrentPage(1);
+      }, 500);
+    } else {
+      setFilters((prev) => ({ ...prev, [key]: value }));
+    }
+  };
+
   const handleRefresh = async () => {
-    await loadAllData();
+    await fetchFinancialYears();
+
+    if (serverSide) {
+      setFilters({});
+      setSearchTerm("");
+      setSortField(null);
+      setSortDirection("normal");
+      setCurrentPage(1);
+    }
+
+    await fetchProjectDetails();
     showInfo("Project details refreshed!");
+  };
+
+  const handleServerSideSearch = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideFilter = (filterParams) => {
+    setFilters(filterParams);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideSort = (field, direction) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
+  const handleServerSidePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleServerSideRecordsPerPageChange = (limit) => {
+    setRecordsPerPage(limit);
+    setCurrentPage(1);
   };
 
   return (
     <div className="container-fluid">
       <div
-        className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+        className="py-3 d-flex justify-content-between align-items-center flex-wrap"
         style={{ marginTop: "70px" }}
       >
-        <div className="flex-grow-1">
+        <div>
           <h4 className="fs-18 fw-semibold m-0">Project Details</h4>
           <small className="text-muted">
             Project-wise payable, payout and tax details
           </small>
+        </div>
+
+        <div className="d-flex align-items-center gap-3 flex-wrap">
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+              }}
+              id="projectDetailsServerSideToggle"
+            />
+            <label
+              className="form-check-label ms-2"
+              htmlFor="projectDetailsServerSideToggle"
+            >
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
+          </div>
         </div>
       </div>
 
@@ -467,9 +710,11 @@ const ProjectDetails = () => {
       </div>
 
       <ReusableTable
+        moduleKey="projectDetails"
         columns={columns}
         data={tableData}
         loading={loading}
+        totalRecords={totalRecords}
         showActions={false}
         fixedColumns={["sn"]}
         defaultVisibleColumns={[
@@ -486,7 +731,30 @@ const ProjectDetails = () => {
           "totalDeveloperPaid",
           "remainingAmount",
         ]}
-        columnsWithDateFilter={["projectDate"]}
+        columnsWithDropdownFilter={["businessName", "projectName"]}
+        columnsWithDateFilter={columnsWithDateFilter}
+        filterOptions={
+          serverSide
+            ? dynamicFilterOptions
+            : {
+                businessName: [
+                  "All",
+                  ...[
+                    ...new Set(
+                      records.map((row) => row.businessName).filter(Boolean),
+                    ),
+                  ].sort(),
+                ],
+                projectName: [
+                  "All",
+                  ...[
+                    ...new Set(
+                      records.map((row) => row.projectName).filter(Boolean),
+                    ),
+                  ].sort(),
+                ],
+              }
+        }
         tableTitle="Project Details"
         showColumnSelector={true}
         showExport={true}
@@ -496,6 +764,18 @@ const ProjectDetails = () => {
         onRefresh={handleRefresh}
         exportFileName="Project_Details"
         exportTitle="Project Details Report"
+        serverSide={serverSide}
+        onServerSideSearch={handleServerSideSearch}
+        onServerSideFilter={handleServerSideFilter}
+        onServerSideSort={handleServerSideSort}
+        onServerSidePageChange={handleServerSidePageChange}
+        onServerSideRecordsPerPageChange={handleServerSideRecordsPerPageChange}
+        currentPage={currentPage}
+        recordsPerPage={recordsPerPage}
+        onPageChange={setCurrentPage}
+        onRecordsPerPageChange={setRecordsPerPage}
+        onColumnFilterChange={handleDebouncedColumnFilterChange}
+        exportApi={API_ENDPOINTS.PROJECTS.LIST}
       />
     </div>
   );

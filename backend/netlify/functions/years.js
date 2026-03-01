@@ -20,8 +20,34 @@ export async function handler(event) {
     const { db } = await connectToDatabase();
     const yearsCollection = db.collection("financialYears");
 
+    const getCurrentFinancialYear = () => {
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth() + 1;
+
+      if (currentMonth >= 4) {
+        return `${currentYear}-${(currentYear + 1).toString().slice(-2)}`;
+      }
+
+      return `${currentYear - 1}-${currentYear.toString().slice(-2)}`;
+    };
+
+    const getCurrentFinancialYearStart = () => {
+      const [startYear] = getCurrentFinancialYear().split("-").map(Number);
+      return Number.isNaN(startYear) ? new Date().getFullYear() : startYear;
+    };
+
     if (event.httpMethod === "GET") {
-      const { id } = event.queryStringParameters || {};
+      const params = event.queryStringParameters || {};
+      const {
+        id,
+        page,
+        limit,
+        search,
+        sortBy = "startDate",
+        sortOrder = "desc",
+        filter,
+      } = params;
 
       if (id) {
         if (!ObjectId.isValid(id)) {
@@ -44,12 +70,233 @@ export async function handler(event) {
         return createResponse(200, yearRecord, origin);
       }
 
+      const hasServerSideParams = [
+        "page",
+        "limit",
+        "search",
+        "sortBy",
+        "sortOrder",
+        "filter",
+      ].some((key) => Object.prototype.hasOwnProperty.call(params, key));
+
+      if (!hasServerSideParams) {
+        const years = await yearsCollection
+          .find({ isDeleted: { $ne: true } })
+          .sort({ startDate: -1, createdAt: -1 })
+          .toArray();
+
+        return createResponse(200, years, origin);
+      }
+
+      const filterQuery = { isDeleted: { $ne: true } };
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value || value === "" || value === "All") return;
+        if (key === "filter") return;
+        if (
+          ["id", "page", "limit", "search", "sortBy", "sortOrder"].includes(key)
+        ) {
+          return;
+        }
+
+        if (key.endsWith("_start") || key.endsWith("_end")) return;
+
+        if (key === "isDefaultDisplay") {
+          if (value === "Yes") filterQuery.isDefault = true;
+          if (value === "No") filterQuery.isDefault = { $ne: true };
+          return;
+        }
+
+        if (typeof value === "string" && value.includes(",")) {
+          filterQuery[key] = {
+            $in: value
+              .split(",")
+              .map((row) => row.trim())
+              .filter(Boolean),
+          };
+          return;
+        }
+
+        if (
+          [
+            "status",
+            "financialYear",
+            "invoiceFormat",
+            "selfInvoiceFormat",
+          ].includes(key)
+        ) {
+          filterQuery[key] = String(value).trim();
+          return;
+        }
+
+        filterQuery[key] = { $regex: String(value).trim(), $options: "i" };
+      });
+
+      const dateRanges = {};
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value) return;
+
+        if (key.endsWith("_start")) {
+          let baseKey = key.replace(/_start$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = String(value).split("-");
+          if (dateParts.length === 3) {
+            const yearValue = parseInt(dateParts[0], 10);
+            const month = parseInt(dateParts[1], 10) - 1;
+            const day = parseInt(dateParts[2], 10);
+            dateRanges[baseKey].$gte = new Date(
+              Date.UTC(yearValue, month, day, 0, 0, 0, 0),
+            );
+          }
+        }
+
+        if (key.endsWith("_end")) {
+          let baseKey = key.replace(/_end$/, "");
+          if (baseKey === "createdDateTime") baseKey = "createdAt";
+
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = String(value).split("-");
+          if (dateParts.length === 3) {
+            const yearValue = parseInt(dateParts[0], 10);
+            const month = parseInt(dateParts[1], 10) - 1;
+            const day = parseInt(dateParts[2], 10);
+            dateRanges[baseKey].$lte = new Date(
+              Date.UTC(yearValue, month, day, 23, 59, 59, 999),
+            );
+          }
+        }
+      });
+
+      Object.entries(dateRanges).forEach(([key, range]) => {
+        filterQuery[key] = range;
+      });
+
+      const currentFY = getCurrentFinancialYear();
+      const currentFYStart = getCurrentFinancialYearStart();
+
+      if (filter === "active") {
+        filterQuery.status = "Active";
+      }
+      if (filter === "inactive") {
+        filterQuery.status = "Inactive";
+      }
+      if (filter === "currentYear") {
+        filterQuery.financialYear = currentFY;
+      }
+      if (filter === "upcomingYear") {
+        filterQuery.$expr = {
+          $gt: [
+            { $toInt: { $substr: ["$financialYear", 0, 4] } },
+            currentFYStart,
+          ],
+        };
+      }
+
+      if (search) {
+        filterQuery.$and = [
+          ...(Array.isArray(filterQuery.$and) ? filterQuery.$and : []),
+          {
+            $or: [
+              { financialYear: { $regex: search, $options: "i" } },
+              { invoiceFormat: { $regex: search, $options: "i" } },
+              { selfInvoiceFormat: { $regex: search, $options: "i" } },
+              { description: { $regex: search, $options: "i" } },
+            ],
+          },
+        ];
+      }
+
+      const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+      const limitNum = Math.max(parseInt(limit, 10) || 10, 1);
+      const skip = (pageNum - 1) * limitNum;
+
+      const sortFieldMapping = {
+        startDateFormatted: "startDate",
+        endDateFormatted: "endDate",
+        createdDateTime: "createdAt",
+        isDefaultDisplay: "isDefault",
+      };
+
+      const sortObject = {};
+      sortObject[sortFieldMapping[sortBy] || sortBy] =
+        sortOrder === "asc" ? 1 : -1;
+
+      const totalRecords = await yearsCollection.countDocuments(filterQuery);
+
       const years = await yearsCollection
-        .find({ isDeleted: { $ne: true } })
-        .sort({ startDate: -1, createdAt: -1 })
+        .find(filterQuery)
+        .sort(sortObject)
+        .skip(skip)
+        .limit(limitNum)
         .toArray();
 
-      return createResponse(200, years, origin);
+      const [
+        statusValues,
+        totalAll,
+        totalActive,
+        totalInactive,
+        totalCurrentYear,
+        totalUpcomingYear,
+      ] = await Promise.all([
+        yearsCollection.distinct("status", {
+          isDeleted: { $ne: true },
+          status: { $exists: true, $ne: "" },
+        }),
+        yearsCollection.countDocuments({
+          isDeleted: { $ne: true },
+        }),
+        yearsCollection.countDocuments({
+          isDeleted: { $ne: true },
+          status: "Active",
+        }),
+        yearsCollection.countDocuments({
+          isDeleted: { $ne: true },
+          status: "Inactive",
+        }),
+        yearsCollection.countDocuments({
+          isDeleted: { $ne: true },
+          financialYear: currentFY,
+        }),
+        yearsCollection.countDocuments({
+          isDeleted: { $ne: true },
+          $expr: {
+            $gt: [
+              { $toInt: { $substr: ["$financialYear", 0, 4] } },
+              currentFYStart,
+            ],
+          },
+        }),
+      ]);
+
+      return createResponse(
+        200,
+        {
+          data: years,
+          years,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            totalRecords,
+            totalPages: Math.ceil(totalRecords / limitNum),
+          },
+          statistics: {
+            total: totalAll,
+            active: totalActive,
+            inactive: totalInactive,
+            currentYear: totalCurrentYear,
+            upcomingYear: totalUpcomingYear,
+          },
+          filterOptions: {
+            status: ["All", ...statusValues.sort()],
+            isDefaultDisplay: ["All", "Yes", "No"],
+          },
+        },
+        origin,
+      );
     }
 
     if (event.httpMethod === "POST") {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateProject from "../Components/CreateProject";
 import {
@@ -7,9 +7,12 @@ import {
   showInfo,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
+import { apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
-import { fetchAllClients } from "../utils/fetchAllEntities";
+import {
+  fetchAllClients,
+  fetchAllPaginatedEntities,
+} from "../utils/fetchAllEntities";
 
 const toNumber = (value) => {
   const number = parseFloat(value);
@@ -72,12 +75,12 @@ const ProjectManagement = () => {
   const moduleKey = "projectManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
-  useEffect(() => {
-    document.title = "Project Management | MaxCode IT Services";
-  }, []);
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
 
-  const [allRecords, setAllRecords] = useState([]);
   const [records, setRecords] = useState([]);
+  const [allProjectRecords, setAllProjectRecords] = useState([]);
   const [clients, setClients] = useState([]);
   const [staffRecords, setStaffRecords] = useState([]);
   const [financialYears, setFinancialYears] = useState([]);
@@ -99,6 +102,18 @@ const ProjectManagement = () => {
     totalDeveloperPayable: 0,
     totalRemainingAmount: 0,
   });
+
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
+
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   const cards = [
     {
@@ -139,11 +154,48 @@ const ProjectManagement = () => {
     },
   ];
 
+  const columnsWithDateFilter = ["projectDateFormatted", "createdDateTime"];
+
+  useEffect(() => {
+    document.title = "Project Management | MaxCode IT Services";
+
+    const fetchPreference = async () => {
+      try {
+        const res = await apiGet(API_ENDPOINTS.USER_PREFERENCES.GET);
+        if (typeof res.data?.projectManagementServerSide === "boolean") {
+          setServerSide(res.data.projectManagementServerSide);
+        }
+      } catch (error) {
+        console.error("Failed to fetch project preferences:", error);
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+
+    fetchPreference();
+  }, []);
+
+  useEffect(() => {
+    if (prefLoading) return;
+
+    const savePreference = async () => {
+      try {
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          projectManagementServerSide: serverSide,
+        });
+      } catch (error) {
+        console.error("Failed to save project preferences:", error);
+      }
+    };
+
+    savePreference();
+  }, [serverSide, prefLoading]);
+
   useEffect(() => {
     fetchFinancialYears();
-    fetchProjects();
     fetchClients();
     fetchStaff();
+    loadAllProjectRecords();
 
     const handleFinancialYearSelectionChanged = (event) => {
       const selectedYear =
@@ -151,6 +203,9 @@ const ProjectManagement = () => {
         localStorage.getItem("selectedFinancialYear") ||
         "ALL";
       setSelectedFinancialYear(selectedYear);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     };
 
     window.addEventListener(
@@ -164,11 +219,55 @@ const ProjectManagement = () => {
         handleFinancialYearSelectionChanged,
       );
     };
-  }, []);
+  }, [serverSide]);
 
   useEffect(() => {
-    applySelectedFinancialYearFilter(allRecords, selectedFinancialYear);
-  }, [allRecords, selectedFinancialYear, financialYears]);
+    if (prefLoading) return;
+
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+    debounceTimeoutRef.current = setTimeout(
+      () => {
+        fetchProjects();
+      },
+      serverSide ? 500 : 0,
+    );
+
+    return () => clearTimeout(debounceTimeoutRef.current);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    selectedFinancialYear,
+    prefLoading,
+  ]);
+
+  const loadAllProjectRecords = async (options = {}) => {
+    try {
+      const allData = await fetchAllPaginatedEntities({
+        endpoint: API_ENDPOINTS.PROJECTS.LIST,
+        fallbackKeys: ["projects"],
+        ...options,
+      });
+
+      const normalized = allData
+        .filter((record) => record?.isDeleted !== true)
+        .map((record) => ({
+          ...record,
+          id: record._id || record.id,
+        }));
+
+      setAllProjectRecords(normalized);
+    } catch (error) {
+      console.error("Failed to fetch all projects:", error);
+      setAllProjectRecords([]);
+    }
+  };
 
   const fetchFinancialYears = async () => {
     try {
@@ -189,31 +288,6 @@ const ProjectManagement = () => {
     } catch (error) {
       console.error("Financial years API fetch error:", error);
       setFinancialYears([]);
-    }
-  };
-
-  const fetchProjects = async () => {
-    setLoading(true);
-    try {
-      const response = await apiGet(API_ENDPOINTS.PROJECTS.LIST);
-      const projectData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.projects || [];
-
-      const normalized = projectData.map((record) => ({
-        ...record,
-        id: record._id || record.id,
-      }));
-
-      setAllRecords(normalized);
-    } catch (error) {
-      console.error("Failed to fetch projects:", error);
-      showError("Failed to fetch projects");
-      setAllRecords([]);
-      setRecords([]);
-      updateStatistics([]);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -256,50 +330,167 @@ const ProjectManagement = () => {
     }
   };
 
-  const applySelectedFinancialYearFilter = (sourceRecords, selectedYear) => {
-    if (!Array.isArray(sourceRecords)) {
+  const fetchProjects = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (prefLoading) return;
+    setLoading(true);
+
+    try {
+      let url = API_ENDPOINTS.PROJECTS.LIST;
+      const params = new URLSearchParams();
+
+      if (serverSide) {
+        params.append("page", currentPage);
+        params.append("limit", recordsPerPage);
+
+        if (searchTerm) params.append("search", searchTerm);
+
+        if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+          params.append("financialYear", selectedFinancialYear);
+        }
+
+        Object.entries(filters).forEach(([key, value]) => {
+          if (["sn", "action"].includes(key)) return;
+          if (
+            value === undefined ||
+            value === null ||
+            value === "" ||
+            value === "All"
+          )
+            return;
+
+          if (columnsWithDateFilter.includes(key)) {
+            if (value && typeof value === "object") {
+              if (value.startDate) {
+                const backendKey =
+                  key === "createdDateTime"
+                    ? "createdAt"
+                    : key === "projectDateFormatted"
+                      ? "projectDate"
+                      : key;
+                params.append(`${backendKey}_start`, value.startDate);
+              }
+              if (value.endDate) {
+                const backendKey =
+                  key === "createdDateTime"
+                    ? "createdAt"
+                    : key === "projectDateFormatted"
+                      ? "projectDate"
+                      : key;
+                params.append(`${backendKey}_end`, value.endDate);
+              }
+            }
+          } else {
+            if (Array.isArray(value) && value.length > 0) {
+              params.append(key, value.join(","));
+            } else if (!Array.isArray(value)) {
+              params.append(key, value);
+            }
+          }
+        });
+
+        if (sortField && sortDirection !== "normal") {
+          params.append("sortBy", sortField);
+          params.append(
+            "sortOrder",
+            sortDirection === "ascending" ? "asc" : "desc",
+          );
+        }
+
+        if (
+          activeCardFilter &&
+          activeCardFilter !== "total" &&
+          activeCardFilter !== "addNew"
+        ) {
+          params.append("filter", activeCardFilter);
+        }
+
+        url = `${url}?${params.toString()}`;
+      }
+
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
+
+      let projectData;
+      let total;
+
+      if (serverSide) {
+        projectData = response.data?.data || response.data?.projects || [];
+        total =
+          response.data?.pagination?.totalRecords ||
+          response.data?.total ||
+          projectData.length;
+
+        if (response.data?.statistics) {
+          setStatistics(response.data.statistics);
+        }
+
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
+        }
+      } else {
+        projectData =
+          response.data?.data ||
+          response.data?.projects ||
+          (Array.isArray(response.data) ? response.data : []);
+        total = projectData.length;
+      }
+
+      const normalized = projectData
+        .filter((record) => record?.isDeleted !== true)
+        .map((record) => ({
+          ...record,
+          id: record._id || record.id,
+          createdDate: record.createdDate || record.createdAt,
+        }));
+
+      setRecords(normalized);
+      setTotalRecords(total);
+
+      if (!serverSide) {
+        updateStatistics(normalized);
+      }
+    } catch (error) {
+      if (error.name === "CanceledError" || error.name === "AbortError") {
+        return;
+      }
+
+      console.error("Failed to fetch projects:", error);
+      showError("Failed to fetch projects");
       setRecords([]);
+      setTotalRecords(0);
       updateStatistics([]);
-      return;
+    } finally {
+      setLoading(false);
     }
+  };
 
-    if (!selectedYear || selectedYear === "ALL") {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      return;
-    }
+  const updateStatistics = (data) => {
+    const selectedRange =
+      selectedFinancialYear && selectedFinancialYear !== "ALL"
+        ? financialYears.find((year) => year.value === selectedFinancialYear)
+        : null;
 
-    const matchedYear = financialYears.find(
-      (year) => year.value === selectedYear,
-    );
+    const startDate = getDateOnly(selectedRange?.startDate);
+    const endDate = getDateOnly(selectedRange?.endDate);
 
-    if (!matchedYear?.startDate || !matchedYear?.endDate) {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      return;
-    }
+    const sourceData = Array.isArray(data) ? data : [];
 
-    const startDate = getDateOnly(matchedYear.startDate);
-    const endDate = getDateOnly(matchedYear.endDate);
-
-    if (!startDate || !endDate) {
-      setRecords(sourceRecords);
-      updateStatistics(sourceRecords);
-      return;
-    }
-
-    const filtered = sourceRecords.filter((record) => {
+    const fyData = sourceData.filter((record) => {
+      if (!startDate || !endDate) return true;
       const projectDate = getDateOnly(record.projectDate || record.createdDate);
       if (!projectDate) return false;
       return projectDate >= startDate && projectDate <= endDate;
     });
 
-    setRecords(filtered);
-    updateStatistics(filtered);
-  };
-
-  const updateStatistics = (data) => {
-    const stats = data.reduce(
+    const stats = fyData.reduce(
       (acc, record) => {
         const summary = record.summary || {};
         const totalProjectAmountWithoutTax = toNumber(
@@ -343,7 +534,7 @@ const ProjectManagement = () => {
       maximumFractionDigits: 2,
     });
 
-  const prepareTableData = () => {
+  const preparedData = useMemo(() => {
     return records.map((record, index) => {
       const paymentDetails = Array.isArray(record.paymentDetails)
         ? record.paymentDetails
@@ -371,11 +562,13 @@ const ProjectManagement = () => {
 
       return {
         ...record,
-        sn: index + 1,
+        sn: serverSide
+          ? (currentPage - 1) * recordsPerPage + index + 1
+          : index + 1,
         projectDateFormatted: formatDateForDisplay(record.projectDate),
         createdDateTime:
           record.createdDateTime ||
-          formatDateTimeForDisplay(record.createdDate),
+          formatDateTimeForDisplay(record.createdDate || record.createdAt),
         paymentCount: paymentDetails.length,
         payoutCount: developerTransactions.length,
         totalProjectAmountWithoutTax,
@@ -390,33 +583,62 @@ const ProjectManagement = () => {
         taxPercentage: toNumber(record.summary?.taxPercentage || 0),
       };
     });
-  };
+  }, [records, serverSide, currentPage, recordsPerPage]);
 
   const tableData = useMemo(() => {
-    const prepared = prepareTableData();
+    let data = preparedData;
 
-    if (activeCardFilter === "totalAmountWithTax") {
-      return prepared.filter((row) => row.totalAmountWithTax > 0);
+    if (!serverSide) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value && typeof value === "string" && value.trim() !== "") {
+          data = data.filter((row) =>
+            (row[key] || "")
+              .toString()
+              .toLowerCase()
+              .includes(value.toLowerCase()),
+          );
+        }
+      });
+
+      if (selectedFinancialYear && selectedFinancialYear !== "ALL") {
+        const yearRecord = financialYears.find(
+          (year) => year.value === selectedFinancialYear,
+        );
+
+        if (yearRecord?.startDate && yearRecord?.endDate) {
+          const startDate = getDateOnly(yearRecord.startDate);
+          const endDate = getDateOnly(yearRecord.endDate);
+
+          data = data.filter((record) => {
+            const projectDate = getDateOnly(record.projectDate);
+            if (!projectDate || !startDate || !endDate) return false;
+            return projectDate >= startDate && projectDate <= endDate;
+          });
+        }
+      }
+
+      if (activeCardFilter === "totalAmountWithTax") {
+        data = data.filter((row) => row.totalAmountWithTax > 0);
+      } else if (activeCardFilter === "totalProjectValue") {
+        data = data.filter((row) => row.totalProjectAmountWithoutTax > 0);
+      } else if (activeCardFilter === "totalClientPayable") {
+        data = data.filter((row) => row.totalClientPayable > 0);
+      } else if (activeCardFilter === "totalDeveloperPayable") {
+        data = data.filter((row) => row.totalDeveloperPayable > 0);
+      } else if (activeCardFilter === "totalRemainingAmount") {
+        data = data.filter((row) => row.remainingAmount !== 0);
+      }
     }
 
-    if (activeCardFilter === "totalProjectValue") {
-      return prepared.filter((row) => row.totalProjectAmountWithoutTax > 0);
-    }
-
-    if (activeCardFilter === "totalClientPayable") {
-      return prepared.filter((row) => row.totalClientPayable > 0);
-    }
-
-    if (activeCardFilter === "totalDeveloperPayable") {
-      return prepared.filter((row) => row.totalDeveloperPayable > 0);
-    }
-
-    if (activeCardFilter === "totalRemainingAmount") {
-      return prepared.filter((row) => row.remainingAmount !== 0);
-    }
-
-    return prepared;
-  }, [activeCardFilter, records]);
+    return data;
+  }, [
+    preparedData,
+    serverSide,
+    filters,
+    selectedFinancialYear,
+    financialYears,
+    activeCardFilter,
+  ]);
 
   const columns = [
     { key: "sn", label: "S.No", width: 70 },
@@ -538,19 +760,80 @@ const ProjectManagement = () => {
     "action",
   ];
 
-  const columnsWithDropdownFilter = ["businessName", "taxPercentage"];
-  const columnsWithDateFilter = ["projectDateFormatted", "createdDateTime"];
+  const columnsWithDropdownFilter = [
+    "businessName",
+    "projectName",
+    "taxPercentage",
+  ];
 
-  const handleCardClick = (cardKey) => {
+  const getFilterOptions = () => {
+    const options = {
+      businessName: ["All"],
+      projectName: ["All"],
+      taxPercentage: ["All"],
+    };
+
+    if (serverSide && Object.keys(dynamicFilterOptions).length) {
+      return {
+        ...options,
+        ...dynamicFilterOptions,
+      };
+    }
+
+    if (records.length > 0) {
+      const businessNames = [
+        ...new Set(
+          records.map((record) => record.businessName).filter(Boolean),
+        ),
+      ].sort();
+      const projectNames = [
+        ...new Set(records.map((record) => record.projectName).filter(Boolean)),
+      ].sort();
+      const taxPercentages = [
+        ...new Set(
+          records
+            .map((record) =>
+              String(toNumber(record.summary?.taxPercentage || 0)),
+            )
+            .filter(Boolean),
+        ),
+      ].sort((a, b) => Number(a) - Number(b));
+
+      options.businessName = ["All", ...businessNames];
+      options.projectName = ["All", ...projectNames];
+      options.taxPercentage = ["All", ...taxPercentages];
+    }
+
+    return options;
+  };
+
+  const handleDebouncedColumnFilterChange = (key, value) => {
+    if (serverSide) {
+      if (debounceColumnTimeoutRef.current)
+        clearTimeout(debounceColumnTimeoutRef.current);
+      debounceColumnTimeoutRef.current = setTimeout(() => {
+        setFilters((prev) => ({ ...prev, [key]: value }));
+        setCurrentPage(1);
+      }, 500);
+    } else {
+      setFilters((prev) => ({ ...prev, [key]: value }));
+    }
+  };
+
+  const handleCardClick = async (cardKey) => {
     if (cardKey === "addNew") {
       if (!canCreate) {
         showError("You don't have permission to add projects");
         return;
       }
+      await loadAllProjectRecords();
       setEditingRecord(null);
       setShowCreateProjectForm(true);
     } else {
       setActiveCardFilter(cardKey);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     }
   };
 
@@ -567,6 +850,7 @@ const ProjectManagement = () => {
 
       const payload = {
         ...formData,
+        financialYear: formData.financialYear || selectedFinancialYear || "",
         clientName: selectedClient?.clientName || formData.clientName || "",
         clientId:
           selectedClient?.clientId ||
@@ -596,6 +880,7 @@ const ProjectManagement = () => {
       }
 
       await fetchProjects();
+      await loadAllProjectRecords({ forceRefresh: true });
       setShowCreateProjectForm(false);
       setEditingRecord(null);
     } catch (error) {
@@ -609,13 +894,15 @@ const ProjectManagement = () => {
     }
   };
 
-  const handleEdit = (record) => {
+  const handleEdit = async (record) => {
+    await loadAllProjectRecords();
     setEditingRecord(record);
     setShowCreateProjectForm(true);
     showInfo(`Editing project: ${record.projectId}`);
   };
 
-  const handleView = (record) => {
+  const handleView = async (record) => {
+    await loadAllProjectRecords();
     setEditingRecord({ ...record, isViewMode: true });
     setShowCreateProjectForm(true);
     showInfo(`Viewing project: ${record.projectId}`);
@@ -623,12 +910,12 @@ const ProjectManagement = () => {
 
   const handleDelete = async (id) => {
     try {
-      // Soft delete: set isDeleted true
       await apiPut(API_ENDPOINTS.PROJECTS.UPDATE(id), {
         isDeleted: true,
         deletedAt: new Date().toISOString(),
       });
       await fetchProjects();
+      await loadAllProjectRecords({ forceRefresh: true });
       showSuccess("Project deleted successfully!");
     } catch (error) {
       console.error("Error deleting project:", error);
@@ -640,24 +927,80 @@ const ProjectManagement = () => {
     }
   };
 
-  const handleRefresh = () => {
-    fetchFinancialYears();
-    fetchProjects();
-    fetchClients({ forceRefresh: true });
-    fetchStaff();
-    setActiveCardFilter("totalAmountWithTax");
+  const handleRefresh = async () => {
+    await Promise.all([
+      fetchFinancialYears(),
+      fetchStaff(),
+      fetchClients({ forceRefresh: true }),
+      loadAllProjectRecords({ forceRefresh: true }),
+    ]);
+
+    if (serverSide) {
+      setFilters({});
+      setSearchTerm("");
+      setSortField(null);
+      setSortDirection("normal");
+      setCurrentPage(1);
+      setActiveCardFilter("totalAmountWithTax");
+    }
+
+    await fetchProjects();
     showInfo("Data refreshed!");
+  };
+
+  const handleServerSideSearch = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideFilter = (filterParams) => {
+    setFilters(filterParams);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideSort = (field, direction) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
+  const handleServerSidePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleServerSideRecordsPerPageChange = (limit) => {
+    setRecordsPerPage(limit);
+    setCurrentPage(1);
   };
 
   return (
     <>
       <div className="container-fluid">
         <div
-          className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+          className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <div className="flex-grow-1">
-            <h4 className="fs-18 fw-semibold m-0">Project Management</h4>
+          <h4 className="fs-18 fw-semibold m-0">Project Management</h4>
+
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+                setActiveCardFilter("totalAmountWithTax");
+              }}
+              id="serverSideToggle"
+            />
+            <label className="form-check-label ms-2" htmlFor="serverSideToggle">
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
           </div>
         </div>
 
@@ -734,6 +1077,7 @@ const ProjectManagement = () => {
           columns={columns}
           data={tableData}
           loading={loading}
+          totalRecords={totalRecords}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onView={handleView}
@@ -744,6 +1088,7 @@ const ProjectManagement = () => {
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
+          filterOptions={serverSide ? dynamicFilterOptions : getFilterOptions()}
           tableTitle="Project Records"
           showColumnSelector={true}
           showExport={true}
@@ -754,6 +1099,20 @@ const ProjectManagement = () => {
           exportTitle="Project Management Report"
           activeCardFilter={activeCardFilter}
           cards={cards}
+          serverSide={serverSide}
+          onServerSideSearch={handleServerSideSearch}
+          onServerSideFilter={handleServerSideFilter}
+          onServerSideSort={handleServerSideSort}
+          onServerSidePageChange={handleServerSidePageChange}
+          onServerSideRecordsPerPageChange={
+            handleServerSideRecordsPerPageChange
+          }
+          currentPage={currentPage}
+          recordsPerPage={recordsPerPage}
+          onPageChange={setCurrentPage}
+          onRecordsPerPageChange={setRecordsPerPage}
+          onColumnFilterChange={handleDebouncedColumnFilterChange}
+          exportApi={API_ENDPOINTS.PROJECTS.LIST}
         />
 
         <CreateProject
@@ -767,7 +1126,7 @@ const ProjectManagement = () => {
           clients={clients}
           staffRecords={staffRecords}
           financialYears={financialYears}
-          existingProjects={allRecords}
+          existingProjects={allProjectRecords}
         />
       </div>
     </>

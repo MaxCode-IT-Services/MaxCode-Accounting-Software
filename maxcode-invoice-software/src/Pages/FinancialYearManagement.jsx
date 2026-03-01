@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateYear from "../Components/CreateYear";
 import ConfirmationModal from "../Components/ConfirmationModal";
@@ -8,25 +8,73 @@ import {
   showInfo,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet, apiPut } from "../utils/api";
+import { apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
 const FinancialYearManagement = () => {
   const moduleKey = "financialYearManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
+
   useEffect(() => {
     document.title = "Financial Year Management | MaxCode IT Services";
+
+    const fetchPreference = async () => {
+      try {
+        const res = await apiGet(API_ENDPOINTS.USER_PREFERENCES.GET);
+        if (typeof res.data?.financialYearManagementServerSide === "boolean") {
+          setServerSide(res.data.financialYearManagementServerSide);
+        }
+      } catch (error) {
+        console.error("Failed to fetch financial year preferences:", error);
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+
+    fetchPreference();
   }, []);
+
+  useEffect(() => {
+    if (prefLoading) return;
+
+    const savePreference = async () => {
+      try {
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          financialYearManagementServerSide: serverSide,
+        });
+      } catch (error) {
+        console.error("Failed to save financial year preferences:", error);
+      }
+    };
+
+    savePreference();
+  }, [serverSide, prefLoading]);
 
   // State for records and loading
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [showCreateYearForm, setShowCreateYearForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
+  const [allExistingYears, setAllExistingYears] = useState([]);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [yearToDelete, setYearToDelete] = useState(null);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
+
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Statistics state
   const [statistics, setStatistics] = useState({
@@ -175,17 +223,111 @@ const FinancialYearManagement = () => {
     return startYear > currentStartYear;
   };
 
-  useEffect(() => {
-    fetchFinancialYears();
-  }, []);
+  const columnsWithDateFilter = ["createdDateTime"];
 
   const fetchFinancialYears = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (prefLoading) return;
     setLoading(true);
+
     try {
-      const response = await apiGet(API_ENDPOINTS.YEARS.LIST);
-      const yearsData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.years || [];
+      let url = API_ENDPOINTS.YEARS.LIST;
+      const params = new URLSearchParams();
+
+      if (serverSide) {
+        params.append("page", currentPage);
+        params.append("limit", recordsPerPage);
+
+        if (searchTerm) {
+          params.append("search", searchTerm);
+        }
+
+        Object.entries(filters).forEach(([key, value]) => {
+          if (["sn", "action"].includes(key)) return;
+          if (
+            value === undefined ||
+            value === null ||
+            value === "" ||
+            value === "All"
+          ) {
+            return;
+          }
+
+          if (columnsWithDateFilter.includes(key)) {
+            if (value && typeof value === "object") {
+              if (value.startDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_start`, value.startDate);
+              }
+              if (value.endDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_end`, value.endDate);
+              }
+            }
+          } else {
+            if (Array.isArray(value) && value.length > 0) {
+              params.append(key, value.join(","));
+            } else if (!Array.isArray(value)) {
+              params.append(key, value);
+            }
+          }
+        });
+
+        if (sortField && sortDirection !== "normal") {
+          params.append("sortBy", sortField);
+          params.append(
+            "sortOrder",
+            sortDirection === "ascending" ? "asc" : "desc",
+          );
+        }
+
+        if (
+          activeCardFilter &&
+          activeCardFilter !== "total" &&
+          activeCardFilter !== "addNew"
+        ) {
+          params.append("filter", activeCardFilter);
+        }
+
+        url = `${url}?${params.toString()}`;
+      }
+
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
+
+      let yearsData;
+      let total;
+
+      if (serverSide) {
+        yearsData = response.data?.data || response.data?.years || [];
+        total =
+          response.data?.pagination?.totalRecords ||
+          response.data?.total ||
+          yearsData.length;
+
+        if (response.data?.statistics) {
+          setStatistics(response.data.statistics);
+        }
+
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
+        }
+      } else {
+        yearsData =
+          response.data?.data ||
+          response.data?.years ||
+          (Array.isArray(response.data) ? response.data : []);
+        total = yearsData.length;
+      }
 
       const mappedData = yearsData.map((yearRecord) => {
         const createdDate =
@@ -201,21 +343,29 @@ const FinancialYearManagement = () => {
       });
 
       setRecords(mappedData);
-      updateStatistics(mappedData);
+      setTotalRecords(total);
+
+      if (!serverSide) {
+        updateStatistics(mappedData);
+      }
     } catch (err) {
+      if (err.name === "CanceledError" || err.name === "AbortError") {
+        return;
+      }
+
       console.error("Failed to fetch financial years:", err);
       showError("Failed to fetch financial years");
       setRecords([]);
+      setTotalRecords(0);
       updateStatistics([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Update statistics
   const updateStatistics = (data) => {
     const activeRecords = data.filter((r) => r.isDeleted !== true);
-    const stats = {
+    setStatistics({
       total: activeRecords.length,
       active: activeRecords.filter((r) => r.status === "Active").length,
       inactive: activeRecords.filter((r) => r.status === "Inactive").length,
@@ -225,15 +375,57 @@ const FinancialYearManagement = () => {
       upcomingYear: activeRecords.filter((r) =>
         isUpcomingFinancialYear(r.financialYear),
       ).length,
-    };
-    setStatistics(stats);
+    });
   };
+
+  const fetchAllExistingYears = async () => {
+    try {
+      const response = await apiGet(API_ENDPOINTS.YEARS.LIST);
+      const data = Array.isArray(response.data)
+        ? response.data
+        : response.data?.years || response.data?.data || [];
+
+      const yearList = data
+        .filter((item) => item?.isDeleted !== true)
+        .map((item) => item.financialYear)
+        .filter(Boolean);
+
+      setAllExistingYears(yearList);
+    } catch (error) {
+      console.error("Failed to fetch full financial year list:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (prefLoading) return;
+
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+    debounceTimeoutRef.current = setTimeout(
+      () => {
+        fetchFinancialYears();
+      },
+      serverSide ? 500 : 0,
+    );
+
+    return () => clearTimeout(debounceTimeoutRef.current);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    prefLoading,
+  ]);
 
   // Prepare data for table (add serial number and formatted dates)
   const prepareTableData = () => {
     return records.map((record, index) => ({
       ...record,
-      sn: index + 1,
+      sn: (serverSide ? (currentPage - 1) * recordsPerPage : 0) + index + 1,
       startDateFormatted: formatDateForDisplay(record.startDate),
       endDateFormatted: formatDateForDisplay(record.endDate),
       createdDateTime: formatDateTimeForDisplay(record.createdDate),
@@ -336,14 +528,27 @@ const FinancialYearManagement = () => {
   // Columns with dropdown filter
   const columnsWithDropdownFilter = ["status", "isDefaultDisplay"];
 
-  // Columns with date range filter
-  const columnsWithDateFilter = ["createdDateTime"];
-
   // Filter options
   const filterOptions = {
     status: ["All", "Active", "Inactive"],
     isDefaultDisplay: ["All", "Yes", "No"],
   };
+
+  const tableData = useMemo(
+    () => prepareTableData().filter((record) => record.isDeleted !== true),
+    [records, serverSide, currentPage, recordsPerPage],
+  );
+
+  const finalFilterOptions = useMemo(() => {
+    if (serverSide && Object.keys(dynamicFilterOptions).length > 0) {
+      return {
+        ...filterOptions,
+        ...dynamicFilterOptions,
+      };
+    }
+
+    return filterOptions;
+  }, [serverSide, dynamicFilterOptions]);
 
   // Handle card click
   const handleCardClick = (cardKey) => {
@@ -353,9 +558,13 @@ const FinancialYearManagement = () => {
         return;
       }
       setEditingRecord(null);
+      fetchAllExistingYears();
       setShowCreateYearForm(true);
     } else {
       setActiveCardFilter(cardKey);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     }
   };
 
@@ -368,11 +577,15 @@ const FinancialYearManagement = () => {
   const handleFormSubmit = () => {
     setShowCreateYearForm(false);
     setEditingRecord(null);
+    if (serverSide) {
+      setCurrentPage(1);
+    }
     fetchFinancialYears();
   };
 
   // Handle edit
   const handleEdit = (record) => {
+    fetchAllExistingYears();
     setEditingRecord(record);
     setShowCreateYearForm(true);
     showInfo(`Editing financial year: ${record.financialYear}`);
@@ -380,6 +593,7 @@ const FinancialYearManagement = () => {
 
   // Handle view
   const handleView = (record) => {
+    fetchAllExistingYears();
     setEditingRecord({ ...record, isViewMode: true });
     setShowCreateYearForm(true);
     showInfo(`Viewing financial year: ${record.financialYear}`);
@@ -429,8 +643,12 @@ const FinancialYearManagement = () => {
           : r,
       );
 
-      setRecords(updatedRecords);
-      updateStatistics(updatedRecords);
+      if (serverSide) {
+        fetchFinancialYears();
+      } else {
+        setRecords(updatedRecords);
+        updateStatistics(updatedRecords);
+      }
       showSuccess("Financial Year deleted successfully!");
       setShowDeleteConfirm(false);
       setYearToDelete(null);
@@ -473,8 +691,12 @@ const FinancialYearManagement = () => {
           : record,
       );
 
-      setRecords(updatedRecords);
-      updateStatistics(updatedRecords);
+      if (serverSide) {
+        fetchFinancialYears();
+      } else {
+        setRecords(updatedRecords);
+        updateStatistics(updatedRecords);
+      }
       showSuccess("Status updated successfully!");
     } catch (error) {
       console.error("Error updating status:", error);
@@ -510,8 +732,12 @@ const FinancialYearManagement = () => {
         isDefault: record.id === id || record._id === id,
       }));
 
-      setRecords(updatedRecords);
-      updateStatistics(updatedRecords);
+      if (serverSide) {
+        fetchFinancialYears();
+      } else {
+        setRecords(updatedRecords);
+        updateStatistics(updatedRecords);
+      }
 
       window.dispatchEvent(
         new CustomEvent("financialYearDefaultUpdated", {
@@ -535,9 +761,56 @@ const FinancialYearManagement = () => {
 
   // Handle refresh
   const handleRefresh = () => {
+    if (serverSide) {
+      setFilters({});
+      setSearchTerm("");
+      setSortField(null);
+      setSortDirection("normal");
+      setCurrentPage(1);
+    }
+
     fetchFinancialYears();
     setActiveCardFilter("total");
     showInfo("Data refreshed!");
+  };
+
+  const handleServerSideSearch = (search) => {
+    setSearchTerm(search);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideFilter = (newFilters) => {
+    setFilters(newFilters);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideSort = (field, direction) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
+  const handleServerSidePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleServerSideRecordsPerPageChange = (limit) => {
+    setRecordsPerPage(limit);
+    setCurrentPage(1);
+  };
+
+  const handleDebouncedColumnFilterChange = (columnKey, value) => {
+    if (debounceColumnTimeoutRef.current) {
+      clearTimeout(debounceColumnTimeoutRef.current);
+    }
+
+    debounceColumnTimeoutRef.current = setTimeout(() => {
+      setFilters((prev) => ({
+        ...prev,
+        [columnKey]: value,
+      }));
+      setCurrentPage(1);
+    }, 500);
   };
 
   // Custom actions render
@@ -560,15 +833,48 @@ const FinancialYearManagement = () => {
     </>
   );
 
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+      if (debounceColumnTimeoutRef.current)
+        clearTimeout(debounceColumnTimeoutRef.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+  }, []);
+
   return (
     <>
       <div className="container-fluid">
         <div
-          className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+          className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <div className="flex-grow-1">
+          <div>
             <h4 className="fs-18 fw-semibold m-0">Financial Year Management</h4>
+          </div>
+
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+                setActiveCardFilter("total");
+              }}
+              id="financialYearServerSideToggle"
+            />
+            <label
+              className="form-check-label ms-2"
+              htmlFor="financialYearServerSideToggle"
+            >
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
           </div>
         </div>
 
@@ -645,8 +951,9 @@ const FinancialYearManagement = () => {
         <ReusableTable
           moduleKey={moduleKey}
           columns={columns}
-          data={prepareTableData().filter((r) => r.isDeleted !== true)}
+          data={tableData}
           loading={loading}
+          totalRecords={totalRecords}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onView={handleView}
@@ -659,7 +966,7 @@ const FinancialYearManagement = () => {
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
-          filterOptions={filterOptions}
+          filterOptions={finalFilterOptions}
           tableTitle="Financial Years Record"
           showColumnSelector={true}
           showExport={true}
@@ -677,6 +984,20 @@ const FinancialYearManagement = () => {
             if (value === "No") return "bg-secondary";
             return "bg-primary";
           }}
+          serverSide={serverSide}
+          onServerSideSearch={handleServerSideSearch}
+          onServerSideFilter={handleServerSideFilter}
+          onServerSideSort={handleServerSideSort}
+          onServerSidePageChange={handleServerSidePageChange}
+          onServerSideRecordsPerPageChange={
+            handleServerSideRecordsPerPageChange
+          }
+          currentPage={currentPage}
+          recordsPerPage={recordsPerPage}
+          onPageChange={setCurrentPage}
+          onRecordsPerPageChange={setRecordsPerPage}
+          onColumnFilterChange={handleDebouncedColumnFilterChange}
+          exportApi={API_ENDPOINTS.YEARS.LIST}
           customActions={renderCustomActions}
         />
 
@@ -689,9 +1010,13 @@ const FinancialYearManagement = () => {
           }}
           onSubmit={handleFormSubmit}
           editingRecord={editingRecord}
-          existingYears={records
-            .filter((r) => r.isDeleted !== true)
-            .map((r) => r.financialYear)}
+          existingYears={
+            allExistingYears.length > 0
+              ? allExistingYears
+              : records
+                  .filter((r) => r.isDeleted !== true)
+                  .map((r) => r.financialYear)
+          }
         />
 
         <ConfirmationModal

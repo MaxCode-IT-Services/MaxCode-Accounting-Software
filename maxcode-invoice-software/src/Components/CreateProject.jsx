@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Select from "react-select";
 import { showError } from "./ToastNotification";
-import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import {
   fetchAllClients,
+  fetchAllPaginatedEntities,
   filterActiveSelectableRows,
 } from "../utils/fetchAllEntities";
 
@@ -184,27 +184,24 @@ const CreateProject = ({
 
     const fetchMetaData = async () => {
       try {
-        const [clientResponse, staffResponse, yearResponse, invoiceResponse] =
+        const [clientResponse, staffData, yearData, invoiceData] =
           await Promise.all([
             fetchAllClients(),
-            apiGet(API_ENDPOINTS.STAFF.LIST),
-            apiGet(API_ENDPOINTS.YEARS.LIST),
-            apiGet(API_ENDPOINTS.INVOICES.LIST),
+            fetchAllPaginatedEntities({
+              endpoint: API_ENDPOINTS.STAFF.LIST,
+              fallbackKeys: ["staff"],
+            }),
+            fetchAllPaginatedEntities({
+              endpoint: API_ENDPOINTS.YEARS.LIST,
+              fallbackKeys: ["years"],
+            }),
+            fetchAllPaginatedEntities({
+              endpoint: API_ENDPOINTS.INVOICES.LIST,
+              fallbackKeys: ["invoices"],
+            }),
           ]);
 
         const clientData = Array.isArray(clientResponse) ? clientResponse : [];
-
-        const staffData = Array.isArray(staffResponse.data)
-          ? staffResponse.data
-          : staffResponse.data?.staff || [];
-
-        const yearData = Array.isArray(yearResponse.data)
-          ? yearResponse.data
-          : yearResponse.data?.years || [];
-
-        const invoiceData = Array.isArray(invoiceResponse.data)
-          ? invoiceResponse.data
-          : invoiceResponse.data?.invoices || [];
 
         setClientOptions(filterActiveSelectableRows(clientData));
         setStaffOptions(staffData.filter((item) => item?.isDeleted !== true));
@@ -691,6 +688,8 @@ const CreateProject = ({
     try {
       const submitData = {
         ...formData,
+        financialYear:
+          summary.applicableFinancialYear || formData.financialYear || "",
         projectTotalCost: toNumber(formData.projectTotalCost),
         totalDeveloperCost: toNumber(formData.totalDeveloperCost),
         paymentDetails: paymentDetails.map((payment) => ({

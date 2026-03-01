@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateStaff from "../Components/CreateStaff";
 import ConfirmationModal from "../Components/ConfirmationModal";
@@ -8,24 +8,71 @@ import {
   showInfo,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet, apiPut } from "../utils/api";
+import { apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
 const StaffManagement = () => {
   const moduleKey = "staffManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
+  const [serverSide, setServerSide] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+  const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
+
   useEffect(() => {
     document.title = "Staff Management | MaxCode IT Services";
+
+    const fetchPreference = async () => {
+      try {
+        const res = await apiGet(API_ENDPOINTS.USER_PREFERENCES.GET);
+        if (typeof res.data?.staffManagementServerSide === "boolean") {
+          setServerSide(res.data.staffManagementServerSide);
+        }
+      } catch (error) {
+        console.error("Failed to fetch staff preferences:", error);
+      } finally {
+        setPrefLoading(false);
+      }
+    };
+
+    fetchPreference();
   }, []);
+
+  useEffect(() => {
+    if (prefLoading) return;
+
+    const savePreference = async () => {
+      try {
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          staffManagementServerSide: serverSide,
+        });
+      } catch (error) {
+        console.error("Failed to save staff preferences:", error);
+      }
+    };
+
+    savePreference();
+  }, [serverSide, prefLoading]);
 
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [showCreateStaffForm, setShowCreateStaffForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [staffToDelete, setStaffToDelete] = useState(null);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(10);
+  const [filters, setFilters] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("normal");
+
+  const debounceTimeoutRef = useRef(null);
+  const debounceColumnTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   const [statistics, setStatistics] = useState({
     total: 0,
@@ -35,17 +82,110 @@ const StaffManagement = () => {
     withoutPhoto: 0,
   });
 
-  useEffect(() => {
-    fetchStaff();
-  }, []);
+  const columnsWithDateFilter = ["createdDateTime"];
 
   const fetchStaff = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    if (prefLoading) return;
     setLoading(true);
+
     try {
-      const response = await apiGet(API_ENDPOINTS.STAFF.LIST);
-      const staffData = Array.isArray(response.data)
-        ? response.data
-        : response.data?.staff || [];
+      let url = API_ENDPOINTS.STAFF.LIST;
+      const params = new URLSearchParams();
+
+      if (serverSide) {
+        params.append("page", currentPage);
+        params.append("limit", recordsPerPage);
+
+        if (searchTerm) {
+          params.append("search", searchTerm);
+        }
+
+        Object.entries(filters).forEach(([key, value]) => {
+          if (["sn", "action"].includes(key)) return;
+          if (
+            value === undefined ||
+            value === null ||
+            value === "" ||
+            value === "All"
+          )
+            return;
+
+          if (columnsWithDateFilter.includes(key)) {
+            if (value && typeof value === "object") {
+              if (value.startDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_start`, value.startDate);
+              }
+              if (value.endDate) {
+                const backendKey =
+                  key === "createdDateTime" ? "createdAt" : key;
+                params.append(`${backendKey}_end`, value.endDate);
+              }
+            }
+          } else {
+            if (Array.isArray(value) && value.length > 0) {
+              params.append(key, value.join(","));
+            } else if (!Array.isArray(value)) {
+              params.append(key, value);
+            }
+          }
+        });
+
+        if (sortField && sortDirection !== "normal") {
+          params.append("sortBy", sortField);
+          params.append(
+            "sortOrder",
+            sortDirection === "ascending" ? "asc" : "desc",
+          );
+        }
+
+        if (
+          activeCardFilter &&
+          activeCardFilter !== "total" &&
+          activeCardFilter !== "addNew"
+        ) {
+          params.append("filter", activeCardFilter);
+        }
+
+        url = `${url}?${params.toString()}`;
+      }
+
+      const response = await apiGet(url, {
+        signal: controller.signal,
+      });
+
+      let staffData;
+      let total;
+
+      if (serverSide) {
+        staffData = response.data?.data || response.data?.staff || [];
+        total =
+          response.data?.pagination?.totalRecords ||
+          response.data?.total ||
+          staffData.length;
+
+        if (response.data?.statistics) {
+          setStatistics(response.data.statistics);
+        }
+
+        if (response.data?.filterOptions) {
+          setDynamicFilterOptions(response.data.filterOptions);
+        }
+      } else {
+        staffData =
+          response.data?.data ||
+          response.data?.staff ||
+          (Array.isArray(response.data) ? response.data : []);
+        total = staffData.length;
+      }
 
       const mappedData = staffData.map((staff, index) => {
         const createdDate =
@@ -56,16 +196,26 @@ const StaffManagement = () => {
           id: staff._id || staff.id,
           createdDate,
           serialNo:
-            staff.serialNo || `STF-${String(index + 1).padStart(3, "0")}`,
+            staff.serialNo ||
+            `STF-${String((serverSide ? (currentPage - 1) * recordsPerPage : 0) + index + 1).padStart(3, "0")}`,
         };
       });
 
       setRecords(mappedData);
-      updateStatistics(mappedData);
+      setTotalRecords(total);
+
+      if (!serverSide) {
+        updateStatistics(mappedData);
+      }
     } catch (err) {
+      if (err.name === "CanceledError" || err.name === "AbortError") {
+        return;
+      }
+
       console.error("Failed to fetch staff:", err);
       showError("Failed to fetch staff");
       setRecords([]);
+      setTotalRecords(0);
       updateStatistics([]);
     } finally {
       setLoading(false);
@@ -83,6 +233,31 @@ const StaffManagement = () => {
     };
     setStatistics(stats);
   };
+
+  useEffect(() => {
+    if (prefLoading) return;
+
+    if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+    debounceTimeoutRef.current = setTimeout(
+      () => {
+        fetchStaff();
+      },
+      serverSide ? 500 : 0,
+    );
+
+    return () => clearTimeout(debounceTimeoutRef.current);
+  }, [
+    serverSide,
+    currentPage,
+    recordsPerPage,
+    searchTerm,
+    filters,
+    sortField,
+    sortDirection,
+    activeCardFilter,
+    prefLoading,
+  ]);
 
   const formatDateTimeForDisplay = (dateString) => {
     if (!dateString) return "";
@@ -151,10 +326,12 @@ const StaffManagement = () => {
     },
   ];
 
-  const prepareTableData = () => {
+  const preparedData = useMemo(() => {
     return records.map((record, index) => ({
       ...record,
-      sn: index + 1,
+      sn: serverSide
+        ? (currentPage - 1) * recordsPerPage + index + 1
+        : index + 1,
       pnaNumber: record.pnaNumber || record.panNumber || "-",
       createdDateTime:
         record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
@@ -164,7 +341,28 @@ const StaffManagement = () => {
         ? new Date(record.dateOfBirth).toLocaleDateString("en-GB")
         : "-",
     }));
-  };
+  }, [records, serverSide, currentPage, recordsPerPage]);
+
+  const filteredClientSideData = useMemo(() => {
+    if (serverSide) {
+      return preparedData.filter((record) => record.isDeleted !== true);
+    }
+
+    let data = preparedData.filter((record) => record.isDeleted !== true);
+
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value && typeof value === "string" && value.trim() !== "") {
+        data = data.filter((row) =>
+          (row[key] || "")
+            .toString()
+            .toLowerCase()
+            .includes(value.toLowerCase()),
+        );
+      }
+    });
+
+    return data;
+  }, [preparedData, filters, serverSide]);
 
   const columns = [
     { key: "sn", label: "S.No", width: 70 },
@@ -216,7 +414,7 @@ const StaffManagement = () => {
             rel="noopener noreferrer"
             className="text-center text-danger"
           >
-            <i class="fa-solid fa-up-right-from-square"></i> View Now
+            <i className="fa-solid fa-up-right-from-square"></i> View Now
           </a>
         ) : (
           "-"
@@ -234,7 +432,7 @@ const StaffManagement = () => {
             rel="noopener noreferrer"
             className="text-center text-danger"
           >
-            <i class="fa-solid fa-up-right-from-square"></i> View Now
+            <i className="fa-solid fa-up-right-from-square"></i> View Now
           </a>
         ) : (
           "-"
@@ -252,7 +450,7 @@ const StaffManagement = () => {
             rel="noopener noreferrer"
             className="text-center text-danger"
           >
-            <i class="fa-solid fa-up-right-from-square"></i> View Now
+            <i className="fa-solid fa-up-right-from-square"></i> View Now
           </a>
         ) : (
           "-"
@@ -281,11 +479,30 @@ const StaffManagement = () => {
   ];
 
   const columnsWithDropdownFilter = ["status", "photoStatus"];
-  const columnsWithDateFilter = ["createdDateTime"];
 
-  const filterOptions = {
-    status: ["All", "Active", "Inactive"],
-    photoStatus: ["All", "Available", "Not Available"],
+  const getFilterOptions = () => {
+    if (serverSide && Object.keys(dynamicFilterOptions).length > 0) {
+      return dynamicFilterOptions;
+    }
+
+    return {
+      status: ["All", "Active", "Inactive"],
+      photoStatus: ["All", "Available", "Not Available"],
+    };
+  };
+
+  const handleDebouncedColumnFilterChange = (key, value) => {
+    if (serverSide) {
+      if (debounceColumnTimeoutRef.current)
+        clearTimeout(debounceColumnTimeoutRef.current);
+
+      debounceColumnTimeoutRef.current = setTimeout(() => {
+        setFilters((prev) => ({ ...prev, [key]: value }));
+        setCurrentPage(1);
+      }, 500);
+    } else {
+      setFilters((prev) => ({ ...prev, [key]: value }));
+    }
   };
 
   const handleCardClick = (cardKey) => {
@@ -298,6 +515,9 @@ const StaffManagement = () => {
       setShowCreateStaffForm(true);
     } else {
       setActiveCardFilter(cardKey);
+      if (serverSide) {
+        setCurrentPage(1);
+      }
     }
   };
 
@@ -305,10 +525,10 @@ const StaffManagement = () => {
     return (index % 8) + 1;
   };
 
-  const handleFormSubmit = () => {
+  const handleFormSubmit = async () => {
     setShowCreateStaffForm(false);
     setEditingRecord(null);
-    fetchStaff();
+    await fetchStaff();
   };
 
   const handleEdit = (record) => {
@@ -335,26 +555,13 @@ const StaffManagement = () => {
     if (!staffToDelete) return;
 
     try {
-      const record = records.find(
-        (r) => r.id === staffToDelete || r._id === staffToDelete,
-      );
-      if (!record) return;
-
-      const updateData = {
+      await apiPut(API_ENDPOINTS.STAFF.UPDATE(staffToDelete), {
         isDeleted: true,
         deletedAt: new Date().toISOString(),
-      };
+      });
 
-      await apiPut(API_ENDPOINTS.STAFF.UPDATE(staffToDelete), updateData);
-
-      const updatedRecords = records.map((r) =>
-        r.id === staffToDelete || r._id === staffToDelete
-          ? { ...r, isDeleted: true, deletedAt: new Date().toISOString() }
-          : r,
-      );
-      setRecords(updatedRecords);
-      updateStatistics(updatedRecords);
       showSuccess("Staff deleted successfully!");
+      await fetchStaff();
       setShowDeleteConfirm(false);
       setStaffToDelete(null);
     } catch (error) {
@@ -377,12 +584,8 @@ const StaffManagement = () => {
       updateData.status = newStatus;
 
       await apiPut(API_ENDPOINTS.STAFF.UPDATE(id), updateData);
-      const updatedRecords = records.map((r) =>
-        r.id === id || r._id === id ? { ...r, status: newStatus } : r,
-      );
-      setRecords(updatedRecords);
-      updateStatistics(updatedRecords);
       showSuccess("Status updated successfully!");
+      await fetchStaff();
     } catch (error) {
       console.error("Error updating status:", error);
       showError(
@@ -393,20 +596,76 @@ const StaffManagement = () => {
     }
   };
 
-  const handleRefresh = () => {
-    fetchStaff();
+  const handleRefresh = async () => {
+    if (serverSide) {
+      setFilters({});
+      setSearchTerm("");
+      setSortField(null);
+      setSortDirection("normal");
+      setCurrentPage(1);
+      setActiveCardFilter("total");
+    }
+
+    await fetchStaff();
     showInfo("Data refreshed!");
+  };
+
+  const handleServerSideSearch = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideFilter = (filterParams) => {
+    setFilters(filterParams);
+    setCurrentPage(1);
+  };
+
+  const handleServerSideSort = (field, direction) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
+  const handleServerSidePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  const handleServerSideRecordsPerPageChange = (limit) => {
+    setRecordsPerPage(limit);
+    setCurrentPage(1);
   };
 
   return (
     <>
       <div className="container-fluid">
         <div
-          className="py-3 d-flex align-items-sm-center flex-sm-row flex-column"
+          className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <div className="flex-grow-1">
-            <h4 className="fs-18 fw-semibold m-0">Staff Management</h4>
+          <h4 className="fs-18 fw-semibold m-0">Staff Management</h4>
+
+          <div className="form-check form-switch m-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={serverSide}
+              onChange={(e) => {
+                setServerSide(e.target.checked);
+                setCurrentPage(1);
+                setFilters({});
+                setSearchTerm("");
+                setSortField(null);
+                setSortDirection("normal");
+                setActiveCardFilter("total");
+              }}
+              id="staffServerSideToggle"
+            />
+            <label
+              className="form-check-label ms-2"
+              htmlFor="staffServerSideToggle"
+            >
+              Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
+            </label>
           </div>
         </div>
 
@@ -481,8 +740,9 @@ const StaffManagement = () => {
         <ReusableTable
           moduleKey={moduleKey}
           columns={columns}
-          data={prepareTableData().filter((r) => r.isDeleted !== true)}
+          data={filteredClientSideData}
           loading={loading}
+          totalRecords={totalRecords}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onView={handleView}
@@ -495,7 +755,7 @@ const StaffManagement = () => {
           defaultVisibleColumns={defaultVisibleColumns}
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
-          filterOptions={filterOptions}
+          filterOptions={getFilterOptions()}
           tableTitle="Staff Record"
           showColumnSelector={true}
           showExport={true}
@@ -513,6 +773,20 @@ const StaffManagement = () => {
             if (value === "Not Available") return "bg-secondary";
             return "bg-primary";
           }}
+          serverSide={serverSide}
+          onServerSideSearch={handleServerSideSearch}
+          onServerSideFilter={handleServerSideFilter}
+          onServerSideSort={handleServerSideSort}
+          onServerSidePageChange={handleServerSidePageChange}
+          onServerSideRecordsPerPageChange={
+            handleServerSideRecordsPerPageChange
+          }
+          currentPage={currentPage}
+          recordsPerPage={recordsPerPage}
+          onPageChange={setCurrentPage}
+          onRecordsPerPageChange={setRecordsPerPage}
+          onColumnFilterChange={handleDebouncedColumnFilterChange}
+          exportApi={API_ENDPOINTS.STAFF.LIST}
         />
 
         <CreateStaff
