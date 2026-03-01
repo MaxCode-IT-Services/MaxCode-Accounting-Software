@@ -161,9 +161,9 @@ const SalesManagement = () => {
   ];
 
   // Fetch clients
-  const fetchClients = async () => {
+  const fetchClients = async (options = {}) => {
     try {
-      const clientsData = await fetchAllClients();
+      const clientsData = await fetchAllClients(options);
 
       const activeClients = clientsData
         .filter((c) => c?.isDeleted !== true)
@@ -1002,7 +1002,7 @@ const SalesManagement = () => {
   // Handle refresh
   const handleRefresh = () => {
     fetchFinancialYears();
-    fetchClients();
+    fetchClients({ forceRefresh: true });
     fetchBusinessSettings();
     if (serverSide) {
       setFilters({});

@@ -482,9 +482,9 @@ const ServicesManagement = () => {
     }
   };
 
-  const fetchClients = async () => {
+  const fetchClients = async (options = {}) => {
     try {
-      const clientsData = await fetchAllClients();
+      const clientsData = await fetchAllClients(options);
 
       const activeClients = clientsData
         .filter((client) => client?.isDeleted !== true)
@@ -1089,6 +1089,7 @@ const ServicesManagement = () => {
   };
 
   const handleRefresh = () => {
+    fetchClients({ forceRefresh: true });
     fetchServices();
     showInfo("Data refreshed!");
   };

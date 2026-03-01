@@ -2,6 +2,8 @@ import { apiGet } from "./api";
 import API_ENDPOINTS from "./apiEndpoints";
 
 const MAX_PAGES = 500;
+const CACHE_TTL_MS = 20 * 1000;
+const entityCache = new Map();
 
 const extractRows = (payload, fallbackKeys = []) => {
   if (Array.isArray(payload)) return payload;
@@ -33,57 +35,101 @@ const uniqueById = (rows = []) => {
 export const fetchAllPaginatedEntities = async ({
   endpoint,
   fallbackKeys = [],
-  pageSize = 200,
+  pageSize = 1000,
+  useCache = true,
+  forceRefresh = false,
 }) => {
+  const cacheKey = JSON.stringify({ endpoint, fallbackKeys, pageSize });
+  const now = Date.now();
+
+  if (useCache && !forceRefresh) {
+    const cached = entityCache.get(cacheKey);
+
+    if (cached?.inFlightPromise) {
+      return cached.inFlightPromise;
+    }
+
+    if (cached?.data && now - cached.timestamp < CACHE_TTL_MS) {
+      return cached.data;
+    }
+  }
+
   const allRows = [];
   let page = 1;
 
-  for (let attempts = 0; attempts < MAX_PAGES; attempts += 1) {
-    const separator = endpoint.includes("?") ? "&" : "?";
-    const response = await apiGet(
-      `${endpoint}${separator}page=${page}&limit=${pageSize}`,
-    );
+  const fetchPromise = (async () => {
+    for (let attempts = 0; attempts < MAX_PAGES; attempts += 1) {
+      const separator = endpoint.includes("?") ? "&" : "?";
+      const response = await apiGet(
+        `${endpoint}${separator}page=${page}&limit=${pageSize}`,
+      );
 
-    const payload = response?.data;
-    const rows = extractRows(payload, fallbackKeys);
-    allRows.push(...rows);
+      const payload = response?.data;
+      const rows = extractRows(payload, fallbackKeys);
+      allRows.push(...rows);
 
-    const totalPages = Number(payload?.pagination?.totalPages || 0);
-    const totalRecords = Number(payload?.pagination?.totalRecords || 0);
+      const totalPages = Number(payload?.pagination?.totalPages || 0);
+      const totalRecords = Number(payload?.pagination?.totalRecords || 0);
 
-    if (totalPages > 0) {
-      if (page >= totalPages) break;
+      if (totalPages > 0) {
+        if (page >= totalPages) break;
+        page += 1;
+        continue;
+      }
+
+      if (totalRecords > 0) {
+        if (allRows.length >= totalRecords) break;
+        page += 1;
+        continue;
+      }
+
+      if (rows.length < pageSize) {
+        break;
+      }
+
       page += 1;
-      continue;
     }
 
-    if (totalRecords > 0) {
-      if (allRows.length >= totalRecords) break;
-      page += 1;
-      continue;
-    }
+    return uniqueById(allRows);
+  })();
 
-    if (rows.length < pageSize) {
-      break;
-    }
+  entityCache.set(cacheKey, {
+    inFlightPromise: fetchPromise,
+    timestamp: now,
+    data: null,
+  });
 
-    page += 1;
+  try {
+    const data = await fetchPromise;
+    entityCache.set(cacheKey, {
+      inFlightPromise: null,
+      timestamp: Date.now(),
+      data,
+    });
+    return data;
+  } catch (error) {
+    entityCache.delete(cacheKey);
+    throw error;
   }
-
-  return uniqueById(allRows);
 };
 
-export const fetchAllClients = async () => {
+export const clearFetchAllEntitiesCache = () => {
+  entityCache.clear();
+};
+
+export const fetchAllClients = async (options = {}) => {
   return fetchAllPaginatedEntities({
     endpoint: API_ENDPOINTS.CLIENTS.LIST,
     fallbackKeys: ["clients"],
+    ...options,
   });
 };
 
-export const fetchAllVendors = async () => {
+export const fetchAllVendors = async (options = {}) => {
   return fetchAllPaginatedEntities({
     endpoint: API_ENDPOINTS.VENDORS.LIST,
     fallbackKeys: ["vendors"],
+    ...options,
   });
 };
 

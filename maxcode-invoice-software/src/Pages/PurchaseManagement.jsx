@@ -106,9 +106,9 @@ const PurchaseManagement = () => {
   ];
 
   // Fetch vendors
-  const fetchVendors = async () => {
+  const fetchVendors = async (options = {}) => {
     try {
-      const vendorsData = await fetchAllVendors();
+      const vendorsData = await fetchAllVendors(options);
 
       const activeVendors = vendorsData
         .filter((v) => v?.isDeleted !== true)
@@ -959,7 +959,7 @@ const PurchaseManagement = () => {
   // Handle refresh
   const handleRefresh = () => {
     fetchFinancialYears();
-    fetchVendors();
+    fetchVendors({ forceRefresh: true });
     if (serverSide) {
       setFilters({});
       setSearchTerm("");

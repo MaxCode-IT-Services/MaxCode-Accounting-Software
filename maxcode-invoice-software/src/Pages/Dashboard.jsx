@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { showError, showInfo } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet } from "../utils/api";
+import { fetchAllPaginatedEntities } from "../utils/fetchAllEntities";
 
 const toNumber = (value) => {
   const parsed = parseFloat(value);
@@ -122,50 +122,63 @@ const Dashboard = () => {
     });
   };
 
-  const normalizeRecords = (value, key) => {
-    if (Array.isArray(value)) return value;
-    if (Array.isArray(value?.[key])) return value[key];
-    return [];
-  };
-
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (options = {}) => {
+    const { forceRefresh = false } = options;
     setLoading(true);
     try {
-      const [
-        yearsResult,
-        clientsResult,
-        vendorsResult,
-        staffResult,
-        servicesResult,
-        salesResult,
-        purchasesResult,
-        rcmResult,
-        projectsResult,
-      ] = await Promise.allSettled([
-        apiGet(API_ENDPOINTS.YEARS.LIST),
-        apiGet(API_ENDPOINTS.CLIENTS.LIST),
-        apiGet(API_ENDPOINTS.VENDORS.LIST),
-        apiGet(API_ENDPOINTS.STAFF.LIST),
-        apiGet(API_ENDPOINTS.SERVICES.LIST),
-        apiGet(API_ENDPOINTS.INVOICES.LIST),
-        apiGet(API_ENDPOINTS.PURCHASES.LIST),
-        apiGet(API_ENDPOINTS.RCM.LIST),
-        apiGet(API_ENDPOINTS.PROJECTS.LIST),
-      ]);
+      const fetchSafe = async (config) => {
+        try {
+          const value = await fetchAllPaginatedEntities({
+            ...config,
+            forceRefresh,
+          });
+          return { status: "fulfilled", value };
+        } catch (reason) {
+          return { status: "rejected", reason };
+        }
+      };
+
+      const yearsResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.YEARS.LIST,
+        fallbackKeys: ["years"],
+      });
+      const clientsResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.CLIENTS.LIST,
+        fallbackKeys: ["clients"],
+      });
+      const vendorsResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.VENDORS.LIST,
+        fallbackKeys: ["vendors"],
+      });
+      const staffResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.STAFF.LIST,
+        fallbackKeys: ["staff"],
+      });
+      const servicesResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.SERVICES.LIST,
+        fallbackKeys: ["services"],
+      });
+      const salesResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.INVOICES.LIST,
+        fallbackKeys: ["invoices"],
+      });
+      const purchasesResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.PURCHASES.LIST,
+        fallbackKeys: ["purchases"],
+      });
+      const rcmResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.RCM.LIST,
+        fallbackKeys: ["rcm", "records"],
+      });
+      const projectsResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.PROJECTS.LIST,
+        fallbackKeys: ["projects"],
+      });
 
       const yearData =
-        yearsResult.status === "fulfilled"
-          ? normalizeRecords(yearsResult.value.data, "years")
-          : [];
+        yearsResult.status === "fulfilled" ? yearsResult.value : [];
 
-      const rcmData =
-        rcmResult.status === "fulfilled"
-          ? (() => {
-              const primaryRcm = normalizeRecords(rcmResult.value.data, "rcm");
-              if (primaryRcm.length > 0) return primaryRcm;
-              return normalizeRecords(rcmResult.value.data, "records");
-            })()
-          : [];
+      const rcmData = rcmResult.status === "fulfilled" ? rcmResult.value : [];
 
       setFinancialYears(
         yearData
@@ -179,42 +192,40 @@ const Dashboard = () => {
 
       setClients(
         (clientsResult.status === "fulfilled"
-          ? normalizeRecords(clientsResult.value.data, "clients")
+          ? clientsResult.value
           : []
         ).filter((record) => record?.isDeleted !== true),
       );
 
       setVendors(
         (vendorsResult.status === "fulfilled"
-          ? normalizeRecords(vendorsResult.value.data, "vendors")
+          ? vendorsResult.value
           : []
         ).filter((record) => record?.isDeleted !== true),
       );
 
       setStaff(
-        (staffResult.status === "fulfilled"
-          ? normalizeRecords(staffResult.value.data, "staff")
-          : []
-        ).filter((record) => record?.isDeleted !== true),
+        (staffResult.status === "fulfilled" ? staffResult.value : []).filter(
+          (record) => record?.isDeleted !== true,
+        ),
       );
 
       setServices(
         (servicesResult.status === "fulfilled"
-          ? normalizeRecords(servicesResult.value.data, "services")
+          ? servicesResult.value
           : []
         ).filter((record) => record?.isDeleted !== true),
       );
 
       setSales(
-        (salesResult.status === "fulfilled"
-          ? normalizeRecords(salesResult.value.data, "invoices")
-          : []
-        ).filter((record) => record?.isDeleted !== true),
+        (salesResult.status === "fulfilled" ? salesResult.value : []).filter(
+          (record) => record?.isDeleted !== true,
+        ),
       );
 
       setPurchases(
         (purchasesResult.status === "fulfilled"
-          ? normalizeRecords(purchasesResult.value.data, "purchases")
+          ? purchasesResult.value
           : []
         ).filter((record) => record?.isDeleted !== true),
       );
@@ -223,7 +234,7 @@ const Dashboard = () => {
 
       setProjects(
         (projectsResult.status === "fulfilled"
-          ? normalizeRecords(projectsResult.value.data, "projects")
+          ? projectsResult.value
           : []
         ).filter((record) => record?.isDeleted !== true),
       );
@@ -536,7 +547,7 @@ const Dashboard = () => {
           <button
             type="button"
             className="btn btn-sm btn-outline-primary"
-            onClick={loadDashboardData}
+            onClick={() => loadDashboardData({ forceRefresh: true })}
             disabled={loading}
           >
             <i className="fa-solid fa-rotate me-1" /> Refresh

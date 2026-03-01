@@ -5,6 +5,32 @@ import { setupDb } from "./setupDb.js";
 
 let cachedClient = null;
 let cachedDb = null;
+let cachedClientPromise = null;
+let isDbSetupCompleted = false;
+
+const globalMongo = globalThis.__maxcodeMongo || {
+  client: null,
+  db: null,
+  clientPromise: null,
+  isDbSetupCompleted: false,
+};
+globalThis.__maxcodeMongo = globalMongo;
+
+const getPoolSize = () => {
+  const envValue = Number(process.env.MONGODB_MAX_POOL_SIZE);
+  if (!Number.isFinite(envValue) || envValue <= 0) {
+    return 1;
+  }
+  return envValue;
+};
+
+const getMaxConnecting = () => {
+  const envValue = Number(process.env.MONGODB_MAX_CONNECTING);
+  if (!Number.isFinite(envValue) || envValue <= 0) {
+    return 1;
+  }
+  return envValue;
+};
 
 /**
  * Connects to MongoDB using connection pooling
@@ -16,8 +42,14 @@ export async function connectToDatabase() {
     return { client: cachedClient, db: cachedDb };
   }
 
+  if (globalMongo.client && globalMongo.db) {
+    cachedClient = globalMongo.client;
+    cachedDb = globalMongo.db;
+    isDbSetupCompleted = globalMongo.isDbSetupCompleted;
+    return { client: cachedClient, db: cachedDb };
+  }
+
   const MONGODB_URI = process.env.MONGODB_URI;
-  console.log("ENV VALUE:", process.env.MONGODB_URI);
 
   if (!MONGODB_URI) {
     throw new Error(
@@ -26,22 +58,49 @@ export async function connectToDatabase() {
   }
 
   try {
-    const client = await MongoClient.connect(MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    if (!cachedClientPromise && !globalMongo.clientPromise) {
+      const poolSize = getPoolSize();
+      const maxConnecting = getMaxConnecting();
+      const client = new MongoClient(MONGODB_URI, {
+        maxPoolSize: poolSize,
+        maxConnecting,
+        minPoolSize: 0,
+        maxIdleTimeMS: 10000,
+        serverSelectionTimeoutMS: 5000,
+        waitQueueTimeoutMS: 5000,
+      });
 
+      cachedClientPromise = client.connect();
+      globalMongo.clientPromise = cachedClientPromise;
+    }
+
+    const connectedClient =
+      cachedClientPromise || globalMongo.clientPromise || null;
+
+    if (!connectedClient) {
+      throw new Error("Failed to initialize MongoDB client promise");
+    }
+
+    const client = await connectedClient;
     const db = client.db(process.env.DB_NAME);
 
     // Cache the connection
     cachedClient = client;
     cachedDb = db;
+    globalMongo.client = client;
+    globalMongo.db = db;
 
-    await setupDb(db);
+    if (!isDbSetupCompleted && !globalMongo.isDbSetupCompleted) {
+      await setupDb(db);
+      isDbSetupCompleted = true;
+      globalMongo.isDbSetupCompleted = true;
+    }
 
     return { client, db };
   } catch (error) {
     console.error("MongoDB connection error:", error);
+    cachedClientPromise = null;
+    globalMongo.clientPromise = null;
     throw error;
   }
 }

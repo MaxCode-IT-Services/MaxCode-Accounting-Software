@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import { showError, showInfo } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet } from "../utils/api";
+import { fetchAllPaginatedEntities } from "../utils/fetchAllEntities";
 
 const LedgerManagement = () => {
   useEffect(() => {
@@ -208,7 +208,8 @@ const LedgerManagement = () => {
     return normalizedType === "itc" || normalizedType === "rcm + itc";
   };
 
-  const loadAllData = async () => {
+  const loadAllData = async (options = {}) => {
+    const { forceRefresh = false } = options;
     setLoading(true);
     setApiStatus({
       years: "loading",
@@ -219,28 +220,45 @@ const LedgerManagement = () => {
       projects: "loading",
     });
     try {
-      const [
-        yearsResult,
-        salesResult,
-        purchaseResult,
-        companyExpenseResult,
-        rcmResult,
-        projectsResult,
-      ] = await Promise.allSettled([
-        apiGet(API_ENDPOINTS.YEARS.LIST),
-        apiGet(API_ENDPOINTS.INVOICES.LIST),
-        apiGet(API_ENDPOINTS.PURCHASES.LIST),
-        apiGet(API_ENDPOINTS.COMPANY_EXPENSES.LIST),
-        apiGet(API_ENDPOINTS.RCM.LIST),
-        apiGet(API_ENDPOINTS.PROJECTS.LIST),
-      ]);
+      const fetchSafe = async (config) => {
+        try {
+          const value = await fetchAllPaginatedEntities({
+            ...config,
+            forceRefresh,
+          });
+          return { status: "fulfilled", value };
+        } catch (reason) {
+          return { status: "rejected", reason };
+        }
+      };
+
+      const yearsResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.YEARS.LIST,
+        fallbackKeys: ["years"],
+      });
+      const salesResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.INVOICES.LIST,
+        fallbackKeys: ["invoices"],
+      });
+      const purchaseResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.PURCHASES.LIST,
+        fallbackKeys: ["purchases"],
+      });
+      const companyExpenseResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.COMPANY_EXPENSES.LIST,
+        fallbackKeys: ["companyExpenses", "expenses"],
+      });
+      const rcmResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.RCM.LIST,
+        fallbackKeys: ["records", "rcm"],
+      });
+      const projectsResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.PROJECTS.LIST,
+        fallbackKeys: ["projects"],
+      });
 
       const yearsData =
-        yearsResult.status === "fulfilled"
-          ? Array.isArray(yearsResult.value.data)
-            ? yearsResult.value.data
-            : yearsResult.value.data?.years || []
-          : [];
+        yearsResult.status === "fulfilled" ? yearsResult.value : [];
 
       const normalizedYears = yearsData
         .filter((yearRecord) => yearRecord?.isDeleted !== true)
@@ -251,41 +269,20 @@ const LedgerManagement = () => {
         }));
 
       const invoicesData =
-        salesResult.status === "fulfilled"
-          ? Array.isArray(salesResult.value.data)
-            ? salesResult.value.data
-            : salesResult.value.data?.invoices || []
-          : [];
+        salesResult.status === "fulfilled" ? salesResult.value : [];
 
       const purchasesData =
-        purchaseResult.status === "fulfilled"
-          ? Array.isArray(purchaseResult.value.data)
-            ? purchaseResult.value.data
-            : purchaseResult.value.data?.purchases || []
-          : [];
+        purchaseResult.status === "fulfilled" ? purchaseResult.value : [];
 
       const companyExpensesData =
         companyExpenseResult.status === "fulfilled"
-          ? Array.isArray(companyExpenseResult.value.data)
-            ? companyExpenseResult.value.data
-            : companyExpenseResult.value.data?.companyExpenses ||
-              companyExpenseResult.value.data?.expenses ||
-              []
+          ? companyExpenseResult.value
           : [];
 
-      const rcmData =
-        rcmResult.status === "fulfilled"
-          ? Array.isArray(rcmResult.value.data)
-            ? rcmResult.value.data
-            : rcmResult.value.data?.records || rcmResult.value.data?.rcm || []
-          : [];
+      const rcmData = rcmResult.status === "fulfilled" ? rcmResult.value : [];
 
       const projectsData =
-        projectsResult.status === "fulfilled"
-          ? Array.isArray(projectsResult.value.data)
-            ? projectsResult.value.data
-            : projectsResult.value.data?.projects || []
-          : [];
+        projectsResult.status === "fulfilled" ? projectsResult.value : [];
 
       if (yearsResult.status === "rejected") {
         console.error("Failed to fetch financial years:", yearsResult.reason);
@@ -421,10 +418,11 @@ const LedgerManagement = () => {
 
     try {
       if (apiKey === "years") {
-        const response = await apiGet(API_ENDPOINTS.YEARS.LIST);
-        const yearsData = Array.isArray(response.data)
-          ? response.data
-          : response.data?.years || [];
+        const yearsData = await fetchAllPaginatedEntities({
+          endpoint: API_ENDPOINTS.YEARS.LIST,
+          fallbackKeys: ["years"],
+          forceRefresh: true,
+        });
 
         const normalizedYears = yearsData
           .filter((yearRecord) => yearRecord?.isDeleted !== true)
@@ -438,10 +436,11 @@ const LedgerManagement = () => {
       }
 
       if (apiKey === "invoices") {
-        const response = await apiGet(API_ENDPOINTS.INVOICES.LIST);
-        const invoicesData = Array.isArray(response.data)
-          ? response.data
-          : response.data?.invoices || [];
+        const invoicesData = await fetchAllPaginatedEntities({
+          endpoint: API_ENDPOINTS.INVOICES.LIST,
+          fallbackKeys: ["invoices"],
+          forceRefresh: true,
+        });
 
         setSalesRecords(
           invoicesData.map((invoice) => ({
@@ -452,10 +451,11 @@ const LedgerManagement = () => {
       }
 
       if (apiKey === "purchases") {
-        const response = await apiGet(API_ENDPOINTS.PURCHASES.LIST);
-        const purchasesData = Array.isArray(response.data)
-          ? response.data
-          : response.data?.purchases || [];
+        const purchasesData = await fetchAllPaginatedEntities({
+          endpoint: API_ENDPOINTS.PURCHASES.LIST,
+          fallbackKeys: ["purchases"],
+          forceRefresh: true,
+        });
 
         setPurchaseRecords(
           purchasesData.map((purchase) => ({
@@ -466,10 +466,11 @@ const LedgerManagement = () => {
       }
 
       if (apiKey === "companyExpenses") {
-        const response = await apiGet(API_ENDPOINTS.COMPANY_EXPENSES.LIST);
-        const expensesData = Array.isArray(response.data)
-          ? response.data
-          : response.data?.companyExpenses || response.data?.expenses || [];
+        const expensesData = await fetchAllPaginatedEntities({
+          endpoint: API_ENDPOINTS.COMPANY_EXPENSES.LIST,
+          fallbackKeys: ["companyExpenses", "expenses"],
+          forceRefresh: true,
+        });
 
         setCompanyExpenseRecords(
           expensesData.map((expense) => ({
@@ -480,10 +481,11 @@ const LedgerManagement = () => {
       }
 
       if (apiKey === "rcm") {
-        const response = await apiGet(API_ENDPOINTS.RCM.LIST);
-        const rcmData = Array.isArray(response.data)
-          ? response.data
-          : response.data?.records || response.data?.rcm || [];
+        const rcmData = await fetchAllPaginatedEntities({
+          endpoint: API_ENDPOINTS.RCM.LIST,
+          fallbackKeys: ["records", "rcm"],
+          forceRefresh: true,
+        });
 
         setRcmRecords(
           rcmData.map((record) => ({
@@ -494,10 +496,11 @@ const LedgerManagement = () => {
       }
 
       if (apiKey === "projects") {
-        const response = await apiGet(API_ENDPOINTS.PROJECTS.LIST);
-        const projectsData = Array.isArray(response.data)
-          ? response.data
-          : response.data?.projects || [];
+        const projectsData = await fetchAllPaginatedEntities({
+          endpoint: API_ENDPOINTS.PROJECTS.LIST,
+          fallbackKeys: ["projects"],
+          forceRefresh: true,
+        });
 
         setProjectRecords(
           projectsData.map((record) => ({
@@ -755,6 +758,8 @@ const LedgerManagement = () => {
       if (isPurchaseItcEligible(record.invoiceType)) {
         totals.gstInputDebit += taxAmount;
         totals.purchaseItcInput += taxAmount;
+      } else {
+        totals.purchaseDebit += taxAmount;
       }
     });
 
@@ -1132,7 +1137,7 @@ const LedgerManagement = () => {
   ];
 
   const handleRefresh = async () => {
-    await loadAllData();
+    await loadAllData({ forceRefresh: true });
     showInfo("Ledger refreshed!");
   };
 

@@ -217,9 +217,9 @@ const ProjectManagement = () => {
     }
   };
 
-  const fetchClients = async () => {
+  const fetchClients = async (options = {}) => {
     try {
-      const clientsData = await fetchAllClients();
+      const clientsData = await fetchAllClients(options);
 
       const activeClients = clientsData
         .filter((client) => client?.isDeleted !== true)
@@ -643,7 +643,7 @@ const ProjectManagement = () => {
   const handleRefresh = () => {
     fetchFinancialYears();
     fetchProjects();
-    fetchClients();
+    fetchClients({ forceRefresh: true });
     fetchStaff();
     setActiveCardFilter("totalAmountWithTax");
     showInfo("Data refreshed!");
