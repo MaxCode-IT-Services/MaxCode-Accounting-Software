@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import { showError, showInfo } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet } from "../utils/api";
+import { fetchAllPaginatedEntities } from "../utils/fetchAllEntities";
 
 const BalanceSheet = () => {
   useEffect(() => {
@@ -38,6 +38,17 @@ const BalanceSheet = () => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return null;
     return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  };
+
+  const getRecordDate = (record) => {
+    return (
+      record?.invoiceDate ||
+      record?.expenseDate ||
+      record?.date ||
+      record?.createdDate ||
+      record?.createdAt ||
+      null
+    );
   };
 
   const getSelectedYearRange = () => {
@@ -101,7 +112,7 @@ const BalanceSheet = () => {
     if (!selectedRange) return records;
 
     return records.filter((record) => {
-      const invoiceDate = getDateOnly(record.invoiceDate);
+      const invoiceDate = getDateOnly(getRecordDate(record));
       if (!invoiceDate) return false;
       return (
         invoiceDate >= selectedRange.startDate &&
@@ -185,9 +196,22 @@ const BalanceSheet = () => {
     return normalizedType === "itc" || normalizedType === "rcm + itc";
   };
 
-  const loadAllData = async () => {
+  const loadAllData = async (options = {}) => {
+    const { forceRefresh = false } = options;
     setLoading(true);
     try {
+      const fetchSafe = async (config) => {
+        try {
+          const value = await fetchAllPaginatedEntities({
+            ...config,
+            forceRefresh,
+          });
+          return { status: "fulfilled", value };
+        } catch (reason) {
+          return { status: "rejected", reason };
+        }
+      };
+
       const [
         yearsResult,
         salesResult,
@@ -195,21 +219,35 @@ const BalanceSheet = () => {
         companyExpenseResult,
         rcmResult,
         projectsResult,
-      ] = await Promise.allSettled([
-        apiGet(API_ENDPOINTS.YEARS.LIST),
-        apiGet(API_ENDPOINTS.INVOICES.LIST),
-        apiGet(API_ENDPOINTS.PURCHASES.LIST),
-        apiGet(API_ENDPOINTS.COMPANY_EXPENSES.LIST),
-        apiGet(API_ENDPOINTS.RCM.LIST),
-        apiGet(API_ENDPOINTS.PROJECTS.LIST),
+      ] = await Promise.all([
+        fetchSafe({
+          endpoint: API_ENDPOINTS.YEARS.LIST,
+          fallbackKeys: ["years"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.INVOICES.LIST,
+          fallbackKeys: ["invoices"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.PURCHASES.LIST,
+          fallbackKeys: ["purchases"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.COMPANY_EXPENSES.LIST,
+          fallbackKeys: ["companyExpenses", "expenses"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.RCM.LIST,
+          fallbackKeys: ["records", "rcm"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.PROJECTS.LIST,
+          fallbackKeys: ["projects"],
+        }),
       ]);
 
       const yearsData =
-        yearsResult.status === "fulfilled"
-          ? Array.isArray(yearsResult.value.data)
-            ? yearsResult.value.data
-            : yearsResult.value.data?.years || []
-          : [];
+        yearsResult.status === "fulfilled" ? yearsResult.value : [];
 
       const normalizedYears = yearsData
         .filter((yearRecord) => yearRecord?.isDeleted !== true)
@@ -220,41 +258,20 @@ const BalanceSheet = () => {
         }));
 
       const invoicesData =
-        salesResult.status === "fulfilled"
-          ? Array.isArray(salesResult.value.data)
-            ? salesResult.value.data
-            : salesResult.value.data?.invoices || []
-          : [];
+        salesResult.status === "fulfilled" ? salesResult.value : [];
 
       const purchasesData =
-        purchaseResult.status === "fulfilled"
-          ? Array.isArray(purchaseResult.value.data)
-            ? purchaseResult.value.data
-            : purchaseResult.value.data?.purchases || []
-          : [];
+        purchaseResult.status === "fulfilled" ? purchaseResult.value : [];
 
       const companyExpensesData =
         companyExpenseResult.status === "fulfilled"
-          ? Array.isArray(companyExpenseResult.value.data)
-            ? companyExpenseResult.value.data
-            : companyExpenseResult.value.data?.companyExpenses ||
-              companyExpenseResult.value.data?.expenses ||
-              []
+          ? companyExpenseResult.value
           : [];
 
-      const rcmData =
-        rcmResult.status === "fulfilled"
-          ? Array.isArray(rcmResult.value.data)
-            ? rcmResult.value.data
-            : rcmResult.value.data?.records || rcmResult.value.data?.rcm || []
-          : [];
+      const rcmData = rcmResult.status === "fulfilled" ? rcmResult.value : [];
 
       const projectsData =
-        projectsResult.status === "fulfilled"
-          ? Array.isArray(projectsResult.value.data)
-            ? projectsResult.value.data
-            : projectsResult.value.data?.projects || []
-          : [];
+        projectsResult.status === "fulfilled" ? projectsResult.value : [];
 
       setFinancialYears(normalizedYears);
       setSalesRecords(
@@ -273,6 +290,7 @@ const BalanceSheet = () => {
         companyExpensesData.map((record) => ({
           ...record,
           id: record._id || record.id,
+          invoiceDate: record.invoiceDate || record.expenseDate,
         })),
       );
       setRcmRecords(
@@ -493,6 +511,8 @@ const BalanceSheet = () => {
 
     const cashClosing = openingCash + cashBalance;
     const bankClosing = openingBank + bankBalance;
+    const cashOverdraft = Math.max(-cashClosing, 0);
+    const bankOverdraft = Math.max(-bankClosing, 0);
 
     const inventoryValue = Math.max(
       sumOptionalValues(purchases, [
@@ -520,6 +540,7 @@ const BalanceSheet = () => {
     const liabilities = {
       payables: totals.sundryCreditorsCredit,
       gstPayable: Math.max(gstNet, 0),
+      overdraft: cashOverdraft + bankOverdraft,
     };
 
     const totalAssets =
@@ -528,8 +549,9 @@ const BalanceSheet = () => {
       assets.receivables +
       assets.gstReceivable +
       assets.inventory;
-    const totalLiabilities = liabilities.payables + liabilities.gstPayable;
-    const equity = totalAssets - totalLiabilities + openingCapital;
+    const totalLiabilities =
+      liabilities.payables + liabilities.gstPayable + liabilities.overdraft;
+    const equity = totalAssets - totalLiabilities - openingCapital;
 
     return {
       assets,
@@ -559,11 +581,11 @@ const BalanceSheet = () => {
         case "Cash (Opening)":
           return "Cash balance at start of financial year";
         case "Cash (Closing)":
-          return "Cash balance at end of period";
+          return "Cash balance at end of period (negative balance shown in overdraft liability)";
         case "Bank (Opening)":
           return "Bank balance at start of financial year";
         case "Bank (Closing)":
-          return "Bank balance at end of period";
+          return "Bank balance at end of period (negative balance shown in overdraft liability)";
         case "Accounts Receivable (Sundry Debtors)":
           return "Amount receivable from customers";
         case "GST Receivable":
@@ -574,6 +596,8 @@ const BalanceSheet = () => {
           return "Amount payable to suppliers";
         case "GST Payable":
           return "Net GST liability payable";
+        case "Bank/Cash Overdraft":
+          return "Negative cash/bank closing balance shown as liability";
         case "Capital (Opening)":
           return "Owner capital brought at year start";
         case "Owner's Equity (Calculated)":
@@ -594,7 +618,7 @@ const BalanceSheet = () => {
       {
         section: "Assets",
         account: "Cash (Closing)",
-        amount: balanceSummary.assets.cashClosing,
+        amount: balanceSummary.assets.cash,
       },
       {
         section: "Assets",
@@ -604,7 +628,7 @@ const BalanceSheet = () => {
       {
         section: "Assets",
         account: "Bank (Closing)",
-        amount: balanceSummary.assets.bankClosing,
+        amount: balanceSummary.assets.bank,
       },
       {
         section: "Assets",
@@ -645,6 +669,14 @@ const BalanceSheet = () => {
         amount: balanceSummary.liabilities.gstPayable,
       },
     ];
+
+    if (balanceSummary.liabilities.overdraft > 0) {
+      liabilityRows.push({
+        section: "Liabilities",
+        account: "Bank/Cash Overdraft",
+        amount: balanceSummary.liabilities.overdraft,
+      });
+    }
 
     const equityRows = [];
 
@@ -718,7 +750,7 @@ const BalanceSheet = () => {
     {
       key: "cashClose",
       title: "Cash Closing",
-      value: formatCurrency(balanceSummary.assets.cashClosing),
+      value: formatCurrency(balanceSummary.assets.cash),
       icon: "fa-solid fa-wallet",
     },
     {
@@ -730,7 +762,7 @@ const BalanceSheet = () => {
     {
       key: "bankClose",
       title: "Bank Closing",
-      value: formatCurrency(balanceSummary.assets.bankClosing),
+      value: formatCurrency(balanceSummary.assets.bank),
       icon: "fa-solid fa-building-columns",
     },
     {
@@ -746,6 +778,11 @@ const BalanceSheet = () => {
       icon: "fa-solid fa-scale-unbalanced",
     },
   ];
+
+  const balanceDifference =
+    balanceSummary.totalAssets -
+    (balanceSummary.totalLiabilities + balanceSummary.equity);
+  const isBalanceMatched = Math.abs(balanceDifference) < 0.01;
 
   const getCardNumber = (index) => {
     return (index % 8) + 1;
@@ -768,7 +805,7 @@ const BalanceSheet = () => {
   ];
 
   const handleRefresh = async () => {
-    await loadAllData();
+    await loadAllData({ forceRefresh: true });
     showInfo("Balance sheet refreshed!");
   };
 
@@ -793,6 +830,19 @@ const BalanceSheet = () => {
             {selectedFinancialYear === "ALL"
               ? "All Year"
               : selectedFinancialYear}
+          </span>
+
+          <span
+            className={`badge ${isBalanceMatched ? "bg-success" : "bg-danger"}`}
+            title={
+              isBalanceMatched
+                ? "Assets and Liabilities + Equity are matched"
+                : "Assets and Liabilities + Equity are not matched"
+            }
+          >
+            {isBalanceMatched
+              ? "Balanced"
+              : `Mismatch ${formatCurrency(Math.abs(balanceDifference))}`}
           </span>
 
           {loading && (

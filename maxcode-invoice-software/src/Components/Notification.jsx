@@ -9,6 +9,7 @@ const newReadSound = "/Sound/Read.wav";
 const oldReadSound = "/Sound/Old.wav";
 const deleteNotificationSound = "/Sound/Delete.wav";
 const NOTIFICATION_POLL_INTERVAL_MS = 30000;
+const MIN_FETCH_GAP_MS = 10000;
 
 const ALERT_DAYS = [15, 10, 7, 3, 2, 1];
 
@@ -86,6 +87,8 @@ const Notification = ({ onUnreadCountChange }) => {
   const deleteSoundRef = useRef(null);
   const notificationsInitializedRef = useRef(false);
   const prevUnreadCountRef = useRef(0);
+  const lastFetchAtRef = useRef(0);
+  const isFetchingRef = useRef(false);
 
   const normalizeFetchedNotifications = (fetchedNotifications = []) => {
     return fetchedNotifications
@@ -126,25 +129,37 @@ const Notification = ({ onUnreadCountChange }) => {
       });
   };
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = async (options = {}) => {
+    const { force = false } = options;
+
+    const now = Date.now();
+    if (!force) {
+      if (isFetchingRef.current) return;
+      if (document.visibilityState !== "visible") return;
+      if (now - lastFetchAtRef.current < MIN_FETCH_GAP_MS) return;
+    }
+
+    isFetchingRef.current = true;
     try {
       const response = await apiGet(API_ENDPOINTS.NOTIFICATION.LIST);
       const fetchedNotifications = Array.isArray(response?.data?.notifications)
         ? response.data.notifications
         : [];
       setAllNotifications(normalizeFetchedNotifications(fetchedNotifications));
+      lastFetchAtRef.current = Date.now();
     } catch (error) {
       console.error("Failed to fetch notifications:", error);
+    } finally {
+      isFetchingRef.current = false;
     }
   };
 
   useEffect(() => {
-    fetchNotifications();
+    fetchNotifications({ force: true });
 
-    const pollId = setInterval(
-      fetchNotifications,
-      NOTIFICATION_POLL_INTERVAL_MS,
-    );
+    const pollId = setInterval(() => {
+      fetchNotifications();
+    }, NOTIFICATION_POLL_INTERVAL_MS);
 
     const handleWindowFocus = () => {
       fetchNotifications();

@@ -49,6 +49,17 @@ const LedgerManagement = () => {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate());
   };
 
+  const getRecordDate = (record) => {
+    return (
+      record?.invoiceDate ||
+      record?.expenseDate ||
+      record?.date ||
+      record?.createdDate ||
+      record?.createdAt ||
+      null
+    );
+  };
+
   const getSelectedYearRange = () => {
     if (!selectedFinancialYear || selectedFinancialYear === "ALL") {
       return null;
@@ -98,7 +109,7 @@ const LedgerManagement = () => {
     if (!selectedRange) return records;
 
     return records.filter((record) => {
-      const invoiceDate = getDateOnly(record.invoiceDate);
+      const invoiceDate = getDateOnly(getRecordDate(record));
       if (!invoiceDate) return false;
       return (
         invoiceDate >= selectedRange.startDate &&
@@ -115,7 +126,7 @@ const LedgerManagement = () => {
     if (!today) return records;
 
     return records.filter((record) => {
-      const invoiceDate = getDateOnly(record.invoiceDate);
+      const invoiceDate = getDateOnly(getRecordDate(record));
       if (!invoiceDate) return false;
 
       if (financialPeriodMode === "daily") {
@@ -323,6 +334,7 @@ const LedgerManagement = () => {
         companyExpensesData.map((expense) => ({
           ...expense,
           id: expense._id || expense.id,
+          invoiceDate: expense.invoiceDate || expense.expenseDate,
         })),
       );
       setRcmRecords(
@@ -476,6 +488,7 @@ const LedgerManagement = () => {
           expensesData.map((expense) => ({
             ...expense,
             id: expense._id || expense.id,
+            invoiceDate: expense.invoiceDate || expense.expenseDate,
           })),
         );
       }
