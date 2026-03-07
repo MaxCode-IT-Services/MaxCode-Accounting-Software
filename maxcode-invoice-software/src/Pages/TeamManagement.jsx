@@ -375,10 +375,7 @@ const TeamManagement = () => {
     "phoneNumber",
     "email",
     "role",
-    "jwtTokenExpiryDays",
-    "moduleAccessCount",
     "status",
-    "createdDateTime",
     "action",
   ];
   const columnsWithDropdownFilter = ["status", "role"];

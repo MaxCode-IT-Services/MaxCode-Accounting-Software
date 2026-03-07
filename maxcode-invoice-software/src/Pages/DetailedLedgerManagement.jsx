@@ -1352,14 +1352,7 @@ const DetailedLedgerManagement = () => {
     "date",
     "invoiceNo",
     "clientSecondary",
-    "taxable",
-    "gstAmount",
-    "cgst",
-    "sgct",
-    "igst",
     "total",
-    "paymentMode",
-    "received",
   ];
 
   return (

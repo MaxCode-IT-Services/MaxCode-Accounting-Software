@@ -444,8 +444,6 @@ const VendorManagement = () => {
     "phoneNumber",
     "placeOfSupply",
     "status",
-    "gstStatus",
-    "createdDateTime",
     "action",
   ];
 

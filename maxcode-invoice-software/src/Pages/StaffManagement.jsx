@@ -472,9 +472,7 @@ const StaffManagement = () => {
     "developerName",
     "phoneNumber",
     "email",
-    "department",
     "status",
-    "createdDateTime",
     "action",
   ];
 

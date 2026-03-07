@@ -652,17 +652,9 @@ const CompanyExpenseManagement = () => {
     "sn",
     "expenseNumber",
     "expenseDateFormatted",
-    "expenseTitle",
-    "expenseFor",
-    "referenceNumber",
     "partyName",
     "amount",
     "paymentStatus",
-    "paymentMethod",
-    "paymentDateFormatted",
-    "entrySource",
-    "paymentProof",
-    "createdDateTime",
     "action",
   ];
 

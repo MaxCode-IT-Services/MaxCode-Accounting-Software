@@ -455,8 +455,6 @@ const ClientManagement = () => {
     "businessName",
     "phoneNumber",
     "status",
-    "gstStatus",
-    "createdDateTime",
     "action",
   ];
 

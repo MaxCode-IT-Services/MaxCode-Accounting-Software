@@ -478,9 +478,6 @@ const QutationManagement = () => {
     "projectName",
     "qutationType",
     "qutationTotalAmount",
-    "qutationStatus",
-    "qutationSendVia",
-    "createdDateTime",
     "action",
   ];
 

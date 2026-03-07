@@ -588,9 +588,7 @@ const DeveloperPayoutManagement = () => {
           "phoneNumber",
           "projectName",
           "payoutDate",
-          "payoutMethod",
           "payoutAmount",
-          "description",
         ]}
         columnsWithDropdownFilter={[
           "developerName",

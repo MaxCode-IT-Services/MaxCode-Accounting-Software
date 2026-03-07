@@ -722,14 +722,8 @@ const ProjectDetails = () => {
           "projectId",
           "businessName",
           "projectName",
-          "period",
-          "projectDate",
-          "totalAmountWithoutTax",
           "taxAmount",
           "totalAmountWithTax",
-          "totalClientReceived",
-          "totalDeveloperPaid",
-          "remainingAmount",
         ]}
         columnsWithDropdownFilter={["businessName", "projectName"]}
         columnsWithDateFilter={columnsWithDateFilter}

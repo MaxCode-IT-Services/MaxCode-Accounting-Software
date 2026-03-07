@@ -2376,9 +2376,42 @@ const ReusableTable = ({
                   <tr>
                     <td
                       colSpan={getOrderedColumns().length}
-                      className="text-center py-4"
+                      className="text-center py-2"
                     >
-                      No records found
+                      <div
+                        className="d-flex flex-column align-items-center justify-content-center mx-auto px-3 py-3"
+                        style={{
+                          maxWidth: "460px",
+                          borderRadius: "16px",
+                          border: "1px solid #e9eef5",
+                          background:
+                            "linear-gradient(135deg, #f7fbff 0%, #fff9f2 100%)",
+                        }}
+                      >
+                        <div
+                          className="rounded-circle d-flex align-items-center justify-content-center mb-3"
+                          style={{
+                            width: "56px",
+                            height: "56px",
+                            background: "rgba(13, 253, 17, 0.12)",
+                            color: "#049428",
+                          }}
+                        >
+                          <i className="fas fa-inbox fs-4"></i>
+                        </div>
+                        <h6 className="mb-1 fw-semibold">No records found</h6>
+                        <p className="mb-0 text-muted small">
+                          Try adjusting your search or filters, then check
+                          again.
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-primary mt-2"
+                          onClick={handleClearFilters}
+                        >
+                          Clear Filters
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )}

@@ -756,15 +756,9 @@ const SalesManagement = () => {
     "sn",
     "invoiceNumber",
     "invoiceDateFormatted",
-    "clientName",
-    "clientId",
     "businessName",
-    "itemCount",
     "totalAmount",
-    "roundingAmount",
     "paymentStatus",
-    "paymentMethod",
-    "createdDateTime",
     "action",
   ];
 

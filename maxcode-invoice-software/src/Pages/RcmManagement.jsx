@@ -726,15 +726,9 @@ const RcmManagement = () => {
     "sn",
     "selfInvoiceNumber",
     "invoiceDateFormatted",
-    "originalRefNo",
     "serviceProviderBusinessName",
-    "gstin",
-    "itemCount",
     "totalAmount",
-    "roundingAmount",
     "paymentStatus",
-    "paymentMethod",
-    "createdDateTime",
     "action",
   ];
 

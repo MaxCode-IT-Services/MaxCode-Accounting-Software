@@ -927,15 +927,8 @@ const ServicesManagement = () => {
     "serviceNumber",
     "serviceDateFormatted",
     "clientName",
-    "clientId",
     "businessName",
-    "serviceCount",
-    "activeCount",
-    "expiredCount",
-    "nextExpiry",
     "grandTotal",
-    "recordStatus",
-    "createdDateTime",
     "action",
   ];
 

@@ -706,11 +706,7 @@ const PurchaseManagement = () => {
     "invoiceDateFormatted",
     "vendorName",
     "businessName",
-    "itemCount",
     "totalAmount",
-    "paymentStatus",
-    "invoiceType",
-    "createdDateTime",
     "action",
   ];
 

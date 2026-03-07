@@ -511,17 +511,10 @@ const FinancialYearManagement = () => {
   const defaultVisibleColumns = [
     "sn",
     "financialYear",
-    "startDateFormatted",
-    "endDateFormatted",
     "taxPercentage",
-    "openingCashFormatted",
-    "openingBankFormatted",
-    "openingItcFormatted",
     "invoiceFormat",
     "selfInvoiceFormat",
     "status",
-    "isDefaultDisplay",
-    "createdDateTime",
     "action",
   ];
 
