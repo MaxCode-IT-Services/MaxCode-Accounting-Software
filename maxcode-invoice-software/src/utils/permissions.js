@@ -18,14 +18,6 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
-    key: "qutationManagement",
-    label: "Qutation Management",
-    description: "Manage qutations",
-    icon: "fa-solid fa-file-invoice-dollar",
-    route: "/admin/qutation-management",
-    detailed: true,
-  },
-  {
     key: "vendorManagement",
     label: "Vendor Management",
     description: "Manage vendors",
@@ -90,6 +82,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "qutationManagement",
+    label: "Qutation Management",
+    description: "Manage qutations",
+    icon: "fa-solid fa-file-invoice-dollar",
+    route: "/admin/qutation-management",
+    detailed: true,
+  },
+  {
     key: "servicesManagement",
     label: "Services Management",
     description: "Manage services",
@@ -114,19 +114,19 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
-    key: "projectCredentials",
-    label: "Project Credentials",
-    description: "Manage project credentials",
-    icon: "fa-solid fa-key",
-    route: "/admin/project-credentials",
-    detailed: true,
-  },
-  {
     key: "developerPayoutManagement",
     label: "Developer Payout",
     description: "Manage developer payout",
     icon: "fa-solid fa-hand-holding-dollar",
     route: "/admin/developer-payout-management",
+    detailed: true,
+  },
+  {
+    key: "projectCredentials",
+    label: "Project Credentials",
+    description: "Manage project credentials",
+    icon: "fa-solid fa-key",
+    route: "/admin/project-credentials",
     detailed: true,
   },
   {
