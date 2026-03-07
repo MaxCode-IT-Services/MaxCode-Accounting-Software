@@ -24,7 +24,7 @@ const initialFormData = {
   projectType: "Website",
   qutationType: "One Time Development",
   qutationDate: "",
-  qutationValidity: "",
+  qutationExpiryDate: "",
   qutationTotalAmount: "",
   developmentTime: "",
   qutationGoogleDriveLink: "",
@@ -59,6 +59,10 @@ const CreateQutation = ({ show, onClose, onSubmit, editingRecord = null }) => {
       setFormData({
         ...initialFormData,
         ...editingRecord,
+        qutationExpiryDate:
+          editingRecord.qutationExpiryDate ||
+          editingRecord.qutationValidity ||
+          "",
       });
       setErrors({});
       return;
@@ -81,7 +85,7 @@ const CreateQutation = ({ show, onClose, onSubmit, editingRecord = null }) => {
       "projectType",
       "qutationType",
       "qutationDate",
-      "qutationValidity",
+      "qutationExpiryDate",
       "qutationTotalAmount",
       "developmentTime",
       "qutationSendVia",
@@ -445,22 +449,22 @@ const CreateQutation = ({ show, onClose, onSubmit, editingRecord = null }) => {
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationValidity" className="form-label">
+                  <label htmlFor="qutationExpiryDate" className="form-label">
                     <i className="fas fa-calendar-check me-2 text-primary"></i>
-                    Qutation Validity <RequiredStar />
+                    Qutation Expiry Date <RequiredStar />
                   </label>
                   <input
                     type="date"
-                    className={`form-control modern-input ${errors.qutationValidity ? "is-invalid" : ""}`}
-                    id="qutationValidity"
-                    name="qutationValidity"
-                    value={formData.qutationValidity}
+                    className={`form-control modern-input ${errors.qutationExpiryDate ? "is-invalid" : ""}`}
+                    id="qutationExpiryDate"
+                    name="qutationExpiryDate"
+                    value={formData.qutationExpiryDate}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
                   />
-                  {errors.qutationValidity && (
+                  {errors.qutationExpiryDate && (
                     <div className="invalid-feedback d-block">
-                      {errors.qutationValidity}
+                      {errors.qutationExpiryDate}
                     </div>
                   )}
                 </div>

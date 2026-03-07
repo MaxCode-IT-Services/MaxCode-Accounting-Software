@@ -50,7 +50,7 @@ const QutationManagement = () => {
   const columnsWithDateFilter = [
     "createdDateTime",
     "qutationDate",
-    "qutationValidity",
+    "qutationExpiryDate",
     "qutationSendDate",
     "qutationApproveDate",
     "qutationRejectDate",
@@ -226,6 +226,8 @@ const QutationManagement = () => {
           ...record,
           id: record._id || record.id,
           createdDate,
+          qutationExpiryDate:
+            record.qutationExpiryDate || record.qutationValidity || "",
           qutationTotalAmount: Number(record.qutationTotalAmount || 0),
         };
       });
@@ -395,7 +397,11 @@ const QutationManagement = () => {
     { key: "projectType", label: "Project Type", width: 140 },
     { key: "qutationType", label: "Qutation Type", width: 180 },
     { key: "qutationDate", label: "Qutation Date", width: 140 },
-    { key: "qutationValidity", label: "Qutation Validity", width: 150 },
+    {
+      key: "qutationExpiryDate",
+      label: "Qutation Expiry Date",
+      width: 170,
+    },
     {
       key: "qutationTotalAmount",
       label: "Total Amount",

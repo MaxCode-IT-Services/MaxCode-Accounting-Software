@@ -2,6 +2,28 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const normalizeIncomingQutationData = (qutationData = {}) => {
+  const normalizedData = { ...qutationData };
+
+  if (!normalizedData.qutationExpiryDate && normalizedData.qutationValidity) {
+    normalizedData.qutationExpiryDate = normalizedData.qutationValidity;
+  }
+
+  delete normalizedData.qutationValidity;
+
+  return normalizedData;
+};
+
+const normalizeOutgoingQutationData = (qutationData = {}) => {
+  const normalizedData = { ...qutationData };
+
+  if (!normalizedData.qutationExpiryDate && normalizedData.qutationValidity) {
+    normalizedData.qutationExpiryDate = normalizedData.qutationValidity;
+  }
+
+  return normalizedData;
+};
+
 /**
  * Qutation Management API
  * Handles CRUD operations for qutations with pagination support
@@ -41,7 +63,11 @@ export async function handler(event) {
           return createResponse(404, { error: "Qutation not found" }, origin);
         }
 
-        return createResponse(200, qutation, origin);
+        return createResponse(
+          200,
+          normalizeOutgoingQutationData(qutation),
+          origin,
+        );
       }
 
       const filterQuery = { isDeleted: { $ne: true } };
@@ -50,6 +76,10 @@ export async function handler(event) {
       Object.entries(params).forEach(([key, value]) => {
         if (!value || value === "" || value === "All") return;
         if (key === "filter") return;
+
+        const normalizedKey =
+          key === "qutationValidity" ? "qutationExpiryDate" : key;
+
         if (
           ["page", "limit", "sortBy", "sortOrder", "search", "id"].includes(key)
         ) {
@@ -59,7 +89,7 @@ export async function handler(event) {
         if (key.endsWith("_start") || key.endsWith("_end")) return;
 
         if (typeof value === "string" && value.includes(",")) {
-          filterQuery[key] = {
+          filterQuery[normalizedKey] = {
             $in: value
               .split(",")
               .map((item) => item.trim())
@@ -77,14 +107,17 @@ export async function handler(event) {
               "qutationSendVia",
             ].includes(key)
           ) {
-            filterQuery[key] = value.trim();
+            filterQuery[normalizedKey] = value.trim();
           } else {
-            filterQuery[key] = { $regex: value.trim(), $options: "i" };
+            filterQuery[normalizedKey] = {
+              $regex: value.trim(),
+              $options: "i",
+            };
           }
           return;
         }
 
-        filterQuery[key] = value;
+        filterQuery[normalizedKey] = value;
       });
 
       const dateRanges = {};
@@ -95,6 +128,7 @@ export async function handler(event) {
         if (key.endsWith("_start")) {
           let baseKey = key.replace(/_start$/, "");
           if (baseKey === "createdDateTime") baseKey = "createdAt";
+          if (baseKey === "qutationValidity") baseKey = "qutationExpiryDate";
 
           if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
 
@@ -112,6 +146,7 @@ export async function handler(event) {
         if (key.endsWith("_end")) {
           let baseKey = key.replace(/_end$/, "");
           if (baseKey === "createdDateTime") baseKey = "createdAt";
+          if (baseKey === "qutationValidity") baseKey = "qutationExpiryDate";
 
           if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
 
@@ -178,6 +213,8 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
+      const normalizedQutations = qutations.map(normalizeOutgoingQutationData);
+
       const projectTypes = await qutationsCollection.distinct("projectType", {
         isDeleted: { $ne: true },
         projectType: { $exists: true, $ne: "" },
@@ -227,7 +264,7 @@ export async function handler(event) {
       return createResponse(
         200,
         {
-          data: qutations,
+          data: normalizedQutations,
           pagination: {
             page: pageNum,
             limit: limitNum,
@@ -253,7 +290,9 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === "POST") {
-      const qutationData = JSON.parse(event.body || "{}");
+      const qutationData = normalizeIncomingQutationData(
+        JSON.parse(event.body || "{}"),
+      );
 
       const result = await qutationsCollection.insertOne({
         ...qutationData,
@@ -281,7 +320,9 @@ export async function handler(event) {
         );
       }
 
-      const qutationData = JSON.parse(event.body || "{}");
+      const qutationData = normalizeIncomingQutationData(
+        JSON.parse(event.body || "{}"),
+      );
 
       const result = await qutationsCollection.updateOne(
         { _id: new ObjectId(id), isDeleted: { $ne: true } },
