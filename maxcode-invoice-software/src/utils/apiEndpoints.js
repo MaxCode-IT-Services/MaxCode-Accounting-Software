@@ -38,6 +38,15 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/invoices?id=${id}`,
   },
 
+  // Qutation endpoints
+  QUTATIONS: {
+    LIST: "/qutations",
+    CREATE: "/qutations",
+    GET: (id) => `/qutations?id=${id}`,
+    UPDATE: (id) => `/qutations?id=${id}`,
+    DELETE: (id) => `/qutations?id=${id}`,
+  },
+
   // Financial Year endpoints
   YEARS: {
     LIST: "/years",

@@ -305,13 +305,6 @@ const CreateCredentials = ({
           >
             <form id="credentialsForm" onSubmit={handleSubmit} noValidate>
               <div className="row mb-2">
-                <div className="col-12">
-                  <h6 className="border-bottom pb-2 mb-3">
-                    <i className="fas fa-key me-2 text-primary"></i>
-                    Project Credentials Details
-                  </h6>
-                </div>
-
                 <div className="col-md-4 mb-3">
                   <label htmlFor="clientRefId" className="form-label">
                     Select Client <span className="text-danger">*</span>

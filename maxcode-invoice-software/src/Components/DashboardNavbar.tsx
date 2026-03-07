@@ -384,6 +384,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "balanceSheet",
     },
     {
+      to: "/admin/qutation-management",
+      icon: "fa-solid fa-book-open-reader",
+      label: "Qutation Management",
+      permissionKey: "qutationManagement",
+    },
+    {
       to: "/admin/services-management",
       icon: "fa-solid fa-globe",
       label: "Services Management",

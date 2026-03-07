@@ -18,6 +18,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "qutationManagement",
+    label: "Qutation Management",
+    description: "Manage qutations",
+    icon: "fa-solid fa-file-invoice-dollar",
+    route: "/admin/qutation-management",
+    detailed: true,
+  },
+  {
     key: "vendorManagement",
     label: "Vendor Management",
     description: "Manage vendors",

@@ -28,6 +28,7 @@ export async function handler(event) {
 
     const preferenceFields = [
       "clientManagementServerSide",
+      "qutationManagementServerSide",
       "companyExpenseManagementServerSide",
       "detailedLedgerManagementServerSide",
       "developerPayoutManagementServerSide",
