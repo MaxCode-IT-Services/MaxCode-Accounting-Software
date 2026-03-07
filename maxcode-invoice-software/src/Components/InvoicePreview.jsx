@@ -934,19 +934,19 @@ const InvoicePreview = ({
                         Payment Information :
                       </h6>
                       <div className="fs-6">
-                        <div className="d-flex mb-1">
+                        <div className="d-flex mb-1 fw-bold">
                           <span style={{ width: "120px" }}>Payment Date</span>
                           <span className="fw-bold">
                             : {invoiceData.paymentDate}
                           </span>
                         </div>
-                        <div className="d-flex mb-1">
+                        <div className="d-flex mb-1 fw-bold">
                           <span style={{ width: "120px" }}>Payment Method</span>
                           <span className="fw-bold">
                             : {invoiceData.paymentMethod}
                           </span>
                         </div>
-                        <div className="d-flex mb-1">
+                        <div className="d-flex mb-1 fw-bold">
                           <span style={{ width: "120px" }}>
                             Amount Received
                           </span>
@@ -1109,7 +1109,7 @@ const InvoicePreview = ({
                     <div className="col-3" style={{ width: "28%" }}>
                       <div>
                         <div
-                          className="d-flex justify-content-between px-3 py-1"
+                          className="d-flex justify-content-between px-3 py-1 fw-bold"
                           style={{ borderBottom: "1px solid #000" }}
                         >
                           <span>Sub Total</span>
@@ -1117,7 +1117,7 @@ const InvoicePreview = ({
                         </div>
                         {invoiceData.discountPercent > 0 && (
                           <div
-                            className="d-flex justify-content-between px-3 py-1"
+                            className="d-flex justify-content-between px-3 py-1 fw-bold"
                             style={{ borderBottom: "1px solid #000" }}
                           >
                             <span>
@@ -1127,28 +1127,28 @@ const InvoicePreview = ({
                           </div>
                         )}
                         <div
-                          className="d-flex justify-content-between px-3 py-1"
+                          className="d-flex justify-content-between px-3 py-1 fw-bold"
                           style={{ borderBottom: "1px solid #000" }}
                         >
                           <span>CGST ({cgstPercent}%)</span>
                           <span>₹{formatCurrency(cgst)}</span>
                         </div>
                         <div
-                          className="d-flex justify-content-between px-3 py-1"
+                          className="d-flex justify-content-between px-3 py-1 fw-bold"
                           style={{ borderBottom: "1px solid #000" }}
                         >
                           <span>SGST ({sgstPercent}%)</span>
                           <span>₹{formatCurrency(sgst)}</span>
                         </div>
                         <div
-                          className="d-flex justify-content-between px-3 py-1"
+                          className="d-flex justify-content-between px-3 py-1 fw-bold"
                           style={{ borderBottom: "1px solid #000" }}
                         >
                           <span>IGST ({igstPercent}%)</span>
                           <span>₹{formatCurrency(igst)}</span>
                         </div>
                         <div
-                          className="d-flex justify-content-between px-3 py-1"
+                          className="d-flex justify-content-between px-3 py-1 fw-bold"
                           style={{ borderBottom: "3px solid #000" }}
                         >
                           <span>Rounding</span>

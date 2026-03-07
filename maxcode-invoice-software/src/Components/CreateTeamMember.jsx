@@ -680,11 +680,11 @@ const CreateTeamMember = ({
                           <tr>
                             <th>Module</th>
                             <th>Page</th>
-                            <th>Create</th>
-                            <th>Read</th>
-                            <th>Update</th>
-                            <th>Delete</th>
-                            <th>Export</th>
+                            <th className="text-center">Create</th>
+                            <th className="text-center">Read</th>
+                            <th className="text-center">Update</th>
+                            <th className="text-center">Delete</th>
+                            <th className="text-center">Export</th>
                           </tr>
                         </thead>
                         <tbody>

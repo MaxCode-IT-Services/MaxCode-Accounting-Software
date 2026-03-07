@@ -385,7 +385,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     },
     {
       to: "/admin/qutation-management",
-      icon: "fa-solid fa-book-open-reader",
+      icon: "fa-solid fa-file-signature",
       label: "Qutation Management",
       permissionKey: "qutationManagement",
     },
