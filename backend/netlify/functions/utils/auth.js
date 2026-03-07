@@ -7,6 +7,7 @@ const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 const JWT_EXPIRES_IN = "1d";
 const AUTH_COOKIE_NAME = "maxcode_auth_token";
+const DEFAULT_COOKIE_MAX_AGE_SECONDS = 24 * 60 * 60;
 
 function parseCookies(cookieHeader = "") {
   if (!cookieHeader || typeof cookieHeader !== "string") {
@@ -31,9 +32,9 @@ function parseCookies(cookieHeader = "") {
 /**
  * Generate JWT token
  */
-export function generateToken(payload) {
+export function generateToken(payload, expiresIn = JWT_EXPIRES_IN) {
   return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
+    expiresIn,
     issuer: "MaxCode IT Services",
   });
 }
@@ -97,10 +98,18 @@ export function extractToken(event) {
   return cookies[AUTH_COOKIE_NAME] || null;
 }
 
-export function createAuthCookie(token) {
+export function createAuthCookie(
+  token,
+  maxAgeSeconds = DEFAULT_COOKIE_MAX_AGE_SECONDS,
+) {
   const isProduction = process.env.NODE_ENV === "production";
   const secureFlag = isProduction ? "Secure; " : "";
-  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; ${secureFlag}SameSite=Lax; Max-Age=86400`;
+  const normalizedMaxAge =
+    Number.isInteger(maxAgeSeconds) && maxAgeSeconds > 0
+      ? maxAgeSeconds
+      : DEFAULT_COOKIE_MAX_AGE_SECONDS;
+
+  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; ${secureFlag}SameSite=Lax; Max-Age=${normalizedMaxAge}`;
 }
 
 export function createClearAuthCookie() {
@@ -130,7 +139,7 @@ export function verifyRequestToken(event) {
 /**
  * Create authenticated response with user data
  */
-export function createAuthResponse(user, token) {
+export function createAuthResponse(user, token, expiresIn = JWT_EXPIRES_IN) {
   return {
     user: {
       id: user._id,
@@ -144,7 +153,7 @@ export function createAuthResponse(user, token) {
       permissions: user.permissions || {},
     },
     token,
-    expiresIn: JWT_EXPIRES_IN,
+    expiresIn,
   };
 }
 

@@ -40,6 +40,7 @@ const CreateTeamMember = ({
     email: "",
     address: "",
     role: "",
+    jwtTokenExpiryDays: "",
     pin: "",
     sendEmail: true,
     status: "Active",
@@ -71,6 +72,8 @@ const CreateTeamMember = ({
         email: editingRecord.email || "",
         address: editingRecord.address || "",
         role: normalizeRoleValue(editingRecord.role),
+        jwtTokenExpiryDays:
+          editingRecord.jwtTokenExpiryDays?.toString?.() || "",
         pin: "",
         sendEmail: editingRecord.sendEmail === true,
         status: editingRecord.status === "Inactive" ? "Inactive" : "Active",
@@ -99,6 +102,7 @@ const CreateTeamMember = ({
         email: "",
         address: "",
         role: "",
+        jwtTokenExpiryDays: "",
         pin: "",
         sendEmail: true,
         status: "Active",
@@ -140,6 +144,11 @@ const CreateTeamMember = ({
       setFormData((prev) => ({
         ...prev,
         pin: value.replace(/\D/g, "").slice(0, 6),
+      }));
+    } else if (name === "jwtTokenExpiryDays") {
+      setFormData((prev) => ({
+        ...prev,
+        jwtTokenExpiryDays: value.replace(/\D/g, "").slice(0, 3),
       }));
     } else if (type === "checkbox") {
       setFormData((prev) => ({ ...prev, [name]: checked }));
@@ -214,7 +223,14 @@ const CreateTeamMember = ({
 
   const validateForm = () => {
     const nextErrors = {};
-    const requiredFields = ["name", "phone", "email", "address", "role"];
+    const requiredFields = [
+      "name",
+      "phone",
+      "email",
+      "address",
+      "role",
+      "jwtTokenExpiryDays",
+    ];
 
     if (!editingRecord) {
       requiredFields.push("pin");
@@ -236,6 +252,16 @@ const CreateTeamMember = ({
 
     if (formData.pin && !/^\d{6}$/.test(formData.pin)) {
       nextErrors.pin = "PIN must be exactly 6 digits";
+    }
+
+    if (
+      formData.jwtTokenExpiryDays &&
+      !/^(?:[1-9]\d?|[1-2]\d\d|3[0-5]\d|36[0-5])$/.test(
+        formData.jwtTokenExpiryDays,
+      )
+    ) {
+      nextErrors.jwtTokenExpiryDays =
+        "JWT Token Expiry Days must be between 1 and 365";
     }
 
     const activeModules = Object.values(permissions).filter(
@@ -487,6 +513,32 @@ const CreateTeamMember = ({
                       )}
                     </div>
 
+                    <div className="col-xl-2 col-lg-4 col-md-6 mb-3">
+                      <label
+                        htmlFor="jwtTokenExpiryDays"
+                        className="form-label fw-semibold"
+                      >
+                        JWT Token Expiry Days
+                        <span className="text-danger"> *</span>
+                      </label>
+                      <input
+                        id="jwtTokenExpiryDays"
+                        name="jwtTokenExpiryDays"
+                        type="text"
+                        inputMode="numeric"
+                        className={`form-control modern-input ${errors.jwtTokenExpiryDays ? "is-invalid" : ""}`}
+                        value={formData.jwtTokenExpiryDays}
+                        onChange={handleInputChange}
+                        readOnly={isViewMode}
+                        placeholder="1 to 365"
+                      />
+                      {errors.jwtTokenExpiryDays && (
+                        <div className="invalid-feedback d-block">
+                          {errors.jwtTokenExpiryDays}
+                        </div>
+                      )}
+                    </div>
+
                     <div className="col-xl-3 col-lg-4 col-md-6 mb-3">
                       <label htmlFor="pin" className="form-label fw-semibold">
                         PIN{" "}
@@ -534,7 +586,7 @@ const CreateTeamMember = ({
                       )}
                     </div>
 
-                    <div className="col-xl-3 col-lg-4 col-md-6 mb-3">
+                    <div className="col-xl-1 col-lg-4 col-md-6 mb-3">
                       <label className="form-label fw-semibold d-block">
                         Status
                       </label>

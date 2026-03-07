@@ -32,6 +32,14 @@ const normalizeRole = (role = "") => {
   return "";
 };
 
+const parseJwtTokenExpiryDays = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 365) {
+    return null;
+  }
+  return parsed;
+};
+
 /**
  * Team Members Management API
  * Handles CRUD operations for permission-based users
@@ -304,6 +312,7 @@ export async function handler(event) {
         "address",
         "role",
         "pin",
+        "jwtTokenExpiryDays",
       ];
       for (const field of requiredFields) {
         if (!payload[field] || payload[field].toString().trim() === "") {
@@ -365,6 +374,17 @@ export async function handler(event) {
         );
       }
 
+      const jwtTokenExpiryDays = parseJwtTokenExpiryDays(
+        payload.jwtTokenExpiryDays,
+      );
+      if (!jwtTokenExpiryDays) {
+        return createResponse(
+          400,
+          { error: "JWT Token Expiry Days must be between 1 and 365" },
+          origin,
+        );
+      }
+
       const newTeamMember = {
         name: payload.name,
         phone: payload.phone,
@@ -373,6 +393,7 @@ export async function handler(event) {
         role,
         pin: hashedPin,
         status,
+        jwtTokenExpiryDays,
         sendEmail: payload.sendEmail === true,
         permissions: normalizePermissions(payload.permissions),
         userType: "team-member",
@@ -471,6 +492,22 @@ export async function handler(event) {
 
       if (payload.permissions !== undefined) {
         updateData.permissions = normalizePermissions(payload.permissions);
+      }
+
+      if (payload.jwtTokenExpiryDays !== undefined) {
+        const jwtTokenExpiryDays = parseJwtTokenExpiryDays(
+          payload.jwtTokenExpiryDays,
+        );
+
+        if (!jwtTokenExpiryDays) {
+          return createResponse(
+            400,
+            { error: "JWT Token Expiry Days must be between 1 and 365" },
+            origin,
+          );
+        }
+
+        updateData.jwtTokenExpiryDays = jwtTokenExpiryDays;
       }
 
       if (payload.pin && payload.pin.trim() !== "") {

@@ -315,6 +315,7 @@ const TeamManagement = () => {
           ? (currentPage - 1) * recordsPerPage + index + 1
           : index + 1,
         phoneNumber: record.phone,
+        jwtTokenExpiryDays: record.jwtTokenExpiryDays || "-",
         moduleAccessCount: Object.values(record.permissions || {}).filter(
           (module) => module?.active === true,
         ).length,
@@ -353,6 +354,7 @@ const TeamManagement = () => {
       { key: "email", label: "Email", width: 220 },
       { key: "address", label: "Address", width: 220 },
       { key: "role", label: "Role", width: 130 },
+      { key: "jwtTokenExpiryDays", label: "JWT Expiry (Days)", width: 150 },
       {
         key: "moduleAccessCount",
         label: "Module Access",
@@ -373,6 +375,7 @@ const TeamManagement = () => {
     "phoneNumber",
     "email",
     "role",
+    "jwtTokenExpiryDays",
     "moduleAccessCount",
     "status",
     "createdDateTime",
@@ -478,6 +481,7 @@ const TeamManagement = () => {
         email: record.email,
         address: record.address,
         role: record.role,
+        jwtTokenExpiryDays: record.jwtTokenExpiryDays,
         sendEmail: record.sendEmail === true,
         status: newStatus,
         permissions: record.permissions || {},

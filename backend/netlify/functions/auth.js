@@ -21,6 +21,24 @@ import {
   checkUserRateLimit,
 } from "./utils/rate-limit.js";
 
+const DEFAULT_JWT_EXPIRY_DAYS = 1;
+
+const getTokenExpiryDays = (user = {}) => {
+  const parsed = Number.parseInt(user?.jwtTokenExpiryDays, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 365) {
+    return DEFAULT_JWT_EXPIRY_DAYS;
+  }
+  return parsed;
+};
+
+const getTokenExpiryConfig = (user = {}) => {
+  const days = getTokenExpiryDays(user);
+  return {
+    jwtExpiresIn: `${days}d`,
+    cookieMaxAgeSeconds: days * 24 * 60 * 60,
+  };
+};
+
 /**
  * Authentication API
  * Handles login, register, logout, and password/pin changes
@@ -226,7 +244,11 @@ export async function handler(event) {
           role: user.role || "user",
         };
 
-        const token = generateToken(tokenPayload);
+        const tokenExpiryConfig = getTokenExpiryConfig(user);
+        const token = generateToken(
+          tokenPayload,
+          tokenExpiryConfig.jwtExpiresIn,
+        );
 
         // Update last login
         await usersCollection.updateOne(
@@ -238,10 +260,15 @@ export async function handler(event) {
           200,
           {
             message: "Welcome back! Login successful",
-            ...createAuthResponse(user, token),
+            ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
           },
           origin,
-          { "Set-Cookie": createAuthCookie(token) },
+          {
+            "Set-Cookie": createAuthCookie(
+              token,
+              tokenExpiryConfig.cookieMaxAgeSeconds,
+            ),
+          },
         );
       }
 
@@ -323,7 +350,11 @@ export async function handler(event) {
           role: user.role || "user",
         };
 
-        const token = generateToken(tokenPayload);
+        const tokenExpiryConfig = getTokenExpiryConfig(user);
+        const token = generateToken(
+          tokenPayload,
+          tokenExpiryConfig.jwtExpiresIn,
+        );
 
         // Update last login
         await usersCollection.updateOne(
@@ -335,10 +366,15 @@ export async function handler(event) {
           200,
           {
             message: "2FA verified. Login successful!",
-            ...createAuthResponse(user, token),
+            ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
           },
           origin,
-          { "Set-Cookie": createAuthCookie(token) },
+          {
+            "Set-Cookie": createAuthCookie(
+              token,
+              tokenExpiryConfig.cookieMaxAgeSeconds,
+            ),
+          },
         );
       }
 
@@ -395,16 +431,29 @@ export async function handler(event) {
           role: newUser.role,
         };
 
-        const token = generateToken(tokenPayload);
+        const tokenExpiryConfig = getTokenExpiryConfig(newUser);
+        const token = generateToken(
+          tokenPayload,
+          tokenExpiryConfig.jwtExpiresIn,
+        );
 
         return createResponse(
           201,
           {
             message: "Registration successful",
-            ...createAuthResponse(newUser, token),
+            ...createAuthResponse(
+              newUser,
+              token,
+              tokenExpiryConfig.jwtExpiresIn,
+            ),
           },
           origin,
-          { "Set-Cookie": createAuthCookie(token) },
+          {
+            "Set-Cookie": createAuthCookie(
+              token,
+              tokenExpiryConfig.cookieMaxAgeSeconds,
+            ),
+          },
         );
       }
 
