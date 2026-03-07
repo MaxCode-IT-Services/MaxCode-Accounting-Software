@@ -36,6 +36,9 @@ const ServicesManagement = lazy(
 );
 const ProjectManagement = lazy(() => import("../src/Pages/ProjectManagement"));
 const ProjectDetails = lazy(() => import("../src/Pages/ProjectDetails"));
+const ProjectCredentials = lazy(
+  () => import("../src/Pages/ProjectCredentials"),
+);
 const RcmManagement = lazy(() => import("../src/Pages/RcmManagement"));
 const LedgerManagement = lazy(() => import("../src/Pages/LedgerManagement"));
 const DetailedLedgerManagement = lazy(
@@ -286,6 +289,17 @@ const dashboardChildRoutes = (
         <PermissionRoute moduleKey="projectDetails">
           <Suspense fallback={<Loading />}>
             <ProjectDetails />
+          </Suspense>
+        </PermissionRoute>
+      }
+    />
+
+    <Route
+      path="project-credentials"
+      element={
+        <PermissionRoute moduleKey="projectCredentials">
+          <Suspense fallback={<Loading />}>
+            <ProjectCredentials />
           </Suspense>
         </PermissionRoute>
       }

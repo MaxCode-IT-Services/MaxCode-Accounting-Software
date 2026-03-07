@@ -106,6 +106,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "projectCredentials",
+    label: "Project Credentials",
+    description: "Manage project credentials",
+    icon: "fa-solid fa-key",
+    route: "/admin/project-credentials",
+    detailed: true,
+  },
+  {
     key: "developerPayoutManagement",
     label: "Developer Payout",
     description: "Manage developer payout",

@@ -119,6 +119,15 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/projects?id=${id}`,
   },
 
+  // Project Credentials endpoints
+  PROJECT_CREDENTIALS: {
+    LIST: "/project-credentials",
+    CREATE: "/project-credentials",
+    GET: (id) => `/project-credentials?id=${id}`,
+    UPDATE: (id) => `/project-credentials?id=${id}`,
+    DELETE: (id) => `/project-credentials?id=${id}`,
+  },
+
   // Staff endpoints
   STAFF: {
     LIST: "/staff",

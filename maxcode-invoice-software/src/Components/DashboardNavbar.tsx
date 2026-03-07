@@ -408,6 +408,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "developerPayoutManagement",
     },
     {
+      to: "/admin/project-credentials",
+      icon: "fa-solid fa-key",
+      label: "Project Credentials",
+      permissionKey: "projectCredentials",
+    },
+    {
       to: "/admin/staff-management",
       icon: "fa-solid fa-user-tie",
       label: "Staff Management",
