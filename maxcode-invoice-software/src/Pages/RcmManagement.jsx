@@ -1120,6 +1120,15 @@ const RcmManagement = () => {
   const buildSelfInvoiceData = (record) => {
     if (!record) return null;
 
+    const getFirstNonEmptyValue = (...values) => {
+      const matched = values.find((value) => {
+        if (value === null || value === undefined) return false;
+        if (typeof value === "string") return value.trim().length > 0;
+        return true;
+      });
+      return matched ?? "";
+    };
+
     const toNumber = (value) => {
       const num = parseFloat(value);
       return Number.isNaN(num) ? 0 : num;
@@ -1149,12 +1158,32 @@ const RcmManagement = () => {
     const sgstPercent = 0;
     const igstPercent = taxPercent;
 
+    const companyEmail = getFirstNonEmptyValue(
+      businessSettings.companyEmail,
+      businessSettings.email,
+      businessSettings.contactEmail,
+    );
+    const companyPhone = getFirstNonEmptyValue(
+      businessSettings.companyPhone,
+      businessSettings.phone,
+      businessSettings.phoneNumber,
+      businessSettings.contactPhone,
+    );
+    const companyWebsite = getFirstNonEmptyValue(
+      businessSettings.companyWebsite,
+      businessSettings.website,
+      businessSettings.webSite,
+      businessSettings.companyUrl,
+      businessSettings.websiteUrl,
+      "www.maxcode.in",
+    );
+
     return {
       companyName: businessSettings.companyName || "",
       companyAddress: businessSettings.companyAddress || "",
-      companyEmail: businessSettings.email || "",
-      companyPhone: businessSettings.phone || "",
-      companyWebsite: businessSettings.website || "",
+      companyEmail,
+      companyPhone,
+      companyWebsite,
       companyGstin: businessSettings.gstin || "",
       accountName: businessSettings.accountName || "",
       bankName: businessSettings.bankName || "",

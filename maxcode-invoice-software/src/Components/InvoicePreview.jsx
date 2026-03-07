@@ -18,16 +18,16 @@ const InvoicePreview = ({
   const defaultTermsConditions = [
     "60% advance payment is required before starting the project.",
     "20% payment is due after 60% project completion.",
-    "Remaining 20% must be paid before final completion and launch.",
+    "Remaining 20% must be paid before final delivery or launch.",
     "A late fee of 3% per month will be charged on delayed payments.",
-    "Additional revisions will be billed separately.",
-    "Payment once made after invoice issuance is non-refundable.",
-    "Maintenance services are available at an additional cost.",
+    "Extra features or changes beyond quotation charged separately.",
+    "Advance or partial payments are non-refundable after work starts.",
+    "Maintenance and support services are available at an additional cost.",
     "MaxCode can showcase completed projects in portfolios.",
-    "Payments can be made via Cash, Bank Transfer, or UPI.",
-    "Cancellation charges will apply once the project has started.",
-    "All fees are non-refundable after project approval.",
-    "Ownership rights will be transferred upon full payment.",
+    "Cancellation charges apply after project start, depending on work.",
+    "Ownership of SaaS software remains with MaxCode IT Services.",
+    "Ownership rights transfer after full payment for custom software.",
+    "Project considered complete after three follow-ups if no response.",
     "GST applicable on advance payment invoices.",
     "All disputes are subject to Dausa, Rajasthan jurisdiction.",
   ];
@@ -367,8 +367,10 @@ const InvoicePreview = ({
   const renderContactIcon = (type) => {
     if (!isPrintMode) {
       if (type === "phone")
-        return <i className="bi bi-telephone-fill fs-2"></i>;
+        return <i className="bi bi-telephone-fill fs-3"></i>;
       if (type === "web") return <i className="bi bi-globe fs-2"></i>;
+      if (type === "address")
+        return <i className="bi bi-geo-alt-fill fs-2"></i>;
       return <i className="bi bi-envelope-fill fs-2"></i>;
     }
 
@@ -396,6 +398,20 @@ const InvoicePreview = ({
           aria-hidden="true"
         >
           <path d="M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10 10-4.49 10-10S17.51 2 12 2zm7.93 9h-3.18a15.7 15.7 0 00-1.36-5.11A8.03 8.03 0 0119.93 11zM12 4c1.3 0 2.71 2.07 3.43 5H8.57C9.29 6.07 10.7 4 12 4zM4.07 11a8.03 8.03 0 014.54-5.11A15.7 15.7 0 007.25 11H4.07zM4.07 13h3.18a15.7 15.7 0 001.36 5.11A8.03 8.03 0 014.07 13zM12 20c-1.3 0-2.71-2.07-3.43-5h6.86C14.71 17.93 13.3 20 12 20zm3.93-1.89A15.7 15.7 0 0016.75 13h3.18a8.03 8.03 0 01-4 5.11z" />
+        </svg>
+      );
+    }
+
+    if (type === "address") {
+      return (
+        <svg
+          width="26"
+          height="26"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1112 6a2.5 2.5 0 010 5.5z" />
         </svg>
       );
     }
@@ -452,7 +468,7 @@ const InvoicePreview = ({
       const pdfHeight = 297;
 
       pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`Invoice_${invoiceData.invoiceNumber.replace(/\//g, "_")}.pdf`);
+      pdf.save(`Invoice-${invoiceData.invoiceNumber.replace(/\//g, "-")}.pdf`);
 
       showSuccess("PDF downloaded successfully!");
     } catch (error) {
@@ -488,7 +504,7 @@ const InvoicePreview = ({
       });
 
       const link = document.createElement("a");
-      link.download = `Invoice_${invoiceData.invoiceNumber.replace(/\//g, "_")}.jpg`;
+      link.download = `Invoice-${invoiceData.invoiceNumber.replace(/\//g, "-")}.jpg`;
       link.href = canvas.toDataURL("image/jpeg", 1.0);
       link.click();
 
@@ -1167,7 +1183,10 @@ const InvoicePreview = ({
                     className="px-3 py-1"
                     style={{ borderBottom: "3px solid #000" }}
                   >
-                    <h6 className="fw-black h6 mb-2">Terms & Conditions :</h6>
+                    <h6 className="fw-black h6 mb-2">
+                      Terms & Conditions (Full Terms & Conditions are available
+                      on our website: https://www.maxcode.in/terms-conditions) :
+                    </h6>
                     <div className="row g-2 pb-2">
                       {(termsConditions || []).slice(0, 14).map((term, i) => (
                         <div
@@ -1179,6 +1198,11 @@ const InvoicePreview = ({
                           <span className="text-muted">{term}</span>
                         </div>
                       ))}
+                      <span>
+                        By continuing the services or project with MaxCode IT
+                        Services, the client agrees to these Terms & Conditions
+                        and full terms available on our website.
+                      </span>
                     </div>
                   </div>
 
@@ -1267,61 +1291,92 @@ const InvoicePreview = ({
                       }}
                     >
                       <div className="container">
-                        <div className="row d-flex align-items-center justify-content-between g-4">
-                          <div className="col-2">
-                            <div className="bg-orange text-white fw-bold text-center py-3 px-3 rounded-pill fs-6">
-                              CONTACT US
-                            </div>
-                          </div>
+                        <div className="row d-flex align-items-center justify-content-between g-2 flex-nowrap">
                           {/* PHONE */}
-                          <div className="col-3">
+                          <div className="col-auto">
                             <div className="d-flex align-items-center">
                               <div
                                 className="bg-orange text-white rounded-circle d-flex align-items-center justify-content-center"
-                                style={{ width: 50, height: 50 }}
+                                style={{ width: 42, height: 42 }}
                               >
                                 {renderContactIcon("phone")}
                               </div>
-                              <div className="ms-3">
-                                <div className="fw-bold">Phone Number</div>
-                                <div className="fs-5 fw-bold">
+                              <div className="ms-2">
+                                <div className="fw-bold small">
+                                  Phone Number
+                                </div>
+                                <div
+                                  className="fs-6 fw-bold"
+                                  style={{ lineHeight: 1.1 }}
+                                >
                                   {invoiceData.companyPhone}
                                 </div>
                               </div>
                             </div>
                           </div>
                           {/* WEBSITE */}
-                          <div className="col-3">
+                          <div className="col-auto">
                             <div className="d-flex align-items-center">
                               <div
                                 className="bg-orange text-white rounded-circle d-flex align-items-center justify-content-center"
-                                style={{ width: 50, height: 50 }}
+                                style={{ width: 42, height: 42 }}
                               >
                                 {renderContactIcon("web")}
                               </div>
-                              <div className="ms-3">
-                                <div className="fw-bold">More Information</div>
-                                <div className="fs-5 fw-bold">
+                              <div className="ms-2">
+                                <div className="fw-bold small">
+                                  More Information
+                                </div>
+                                <div
+                                  className="fs-6 fw-bold"
+                                  style={{ lineHeight: 1.1 }}
+                                >
                                   {invoiceData.companyWebsite}
                                 </div>
                               </div>
                             </div>
                           </div>
                           {/* EMAIL */}
-                          <div className="col-4">
+                          <div className="col-auto">
                             <div className="d-flex align-items-center">
                               <div
                                 className="bg-orange text-white rounded-circle d-flex align-items-center justify-content-center"
-                                style={{ width: 50, height: 50 }}
+                                style={{ width: 42, height: 42 }}
                               >
                                 {renderContactIcon("email")}
                               </div>
-                              <div className="ms-3">
-                                <div className="fw-bold">
+                              <div className="ms-2">
+                                <div className="fw-bold small">
                                   Send your Requirement to
                                 </div>
-                                <div className="fs-6 fw-bold">
+                                <div
+                                  className="fs-6 fw-bold"
+                                  style={{ lineHeight: 1.1 }}
+                                >
                                   {invoiceData.companyEmail}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* OFFICE ADDRESS */}
+                          <div className="col-auto">
+                            <div className="d-flex align-items-center">
+                              <div
+                                className="bg-orange text-white rounded-circle d-flex align-items-center justify-content-center"
+                                style={{ width: 42, height: 42 }}
+                              >
+                                {renderContactIcon("address")}
+                              </div>
+                              <div className="ms-2">
+                                <div className="fw-bold small">
+                                  Office Address
+                                </div>
+                                <div
+                                  className="fs-6 fw-bold"
+                                  style={{ lineHeight: 1.1 }}
+                                >
+                                  {invoiceData.companyAddress}
                                 </div>
                               </div>
                             </div>
