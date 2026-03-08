@@ -4,6 +4,7 @@ import { ObjectId } from "mongodb";
 
 const SETTINGS_COLLECTION = "business_settings";
 const ASSETS_COLLECTION = "business_assets";
+const GLOBAL_SETTINGS_SCOPE = "global";
 
 const IMAGE_FIELDS = [
   "profilePhotoUrl",
@@ -44,6 +45,46 @@ const ALLOWED_FIELDS = [
   "services",
   "backupSettings",
 ];
+
+const normalizeRole = (role = "") =>
+  String(role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-");
+
+const isSuperAdminRole = (role = "") => {
+  const normalized = normalizeRole(role);
+  return normalized === "super-admin" || normalized === "superadmin";
+};
+
+const getSharedSettings = async (settingsCollection, userId) => {
+  const globalSettings = await settingsCollection.findOne({
+    scope: GLOBAL_SETTINGS_SCOPE,
+  });
+
+  if (globalSettings) {
+    return globalSettings;
+  }
+
+  // Backward compatibility: old deployments stored settings per-user.
+  if (userId) {
+    const userSettings = await settingsCollection.findOne({ userId });
+    if (userSettings) {
+      return userSettings;
+    }
+  }
+
+  return settingsCollection.findOne(
+    {},
+    {
+      sort: {
+        updatedAt: -1,
+        createdAt: -1,
+        _id: -1,
+      },
+    },
+  );
+};
 
 const sanitizeBackupSettings = (value = {}) => {
   if (!value || typeof value !== "object") {
@@ -197,15 +238,69 @@ const sanitizeSettingsPayload = (payload = {}) => {
   return sanitized;
 };
 
+const getFirstDefined = (document, keys = []) => {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(document, key)) {
+      return document[key];
+    }
+  }
+  return undefined;
+};
+
+const normalizeLegacySettings = (document = {}) => {
+  if (!document || typeof document !== "object") return {};
+
+  const normalized = {};
+
+  const fieldAliases = {
+    companyName: ["companyName", "businessName", "name"],
+    gstin: ["gstin", "GSTIN", "companyGstin", "gstNumber"],
+    companyAddress: ["companyAddress", "address", "company_location"],
+    companyPhone: ["companyPhone", "phone", "mobile", "phoneNumber"],
+    companyEmail: ["companyEmail", "email", "officialEmail"],
+    bankName: ["bankName", "bank"],
+    ifscCode: ["ifscCode", "ifsc", "ifsc_code"],
+    accountNumber: ["accountNumber", "accountNo", "bankAccountNumber"],
+    accountName: ["accountName", "beneficiaryName", "accountHolderName"],
+    branchAddress: ["branchAddress", "bankAddress", "branch"],
+    invoiceTermsConditions: [
+      "invoiceTermsConditions",
+      "invoiceTerms",
+      "termsConditions",
+    ],
+    selfInvoiceTermsConditions: [
+      "selfInvoiceTermsConditions",
+      "selfInvoiceTerms",
+      "selfTermsConditions",
+    ],
+    services: ["services", "serviceMaster", "serviceList"],
+    backupSettings: ["backupSettings", "driveConfig", "googleDriveConfig"],
+  };
+
+  for (const [targetField, aliases] of Object.entries(fieldAliases)) {
+    const value = getFirstDefined(document, aliases);
+    if (value !== undefined) {
+      normalized[targetField] = value;
+    }
+  }
+
+  return normalized;
+};
+
 const mapSettingsForClient = (document, event) => {
   if (!document) return null;
+
+  const legacyNormalized = normalizeLegacySettings(document);
 
   const response = {};
 
   for (const field of ALLOWED_FIELDS) {
     if (!Object.prototype.hasOwnProperty.call(document, field)) continue;
 
-    const value = document[field];
+    const value =
+      legacyNormalized[field] !== undefined
+        ? legacyNormalized[field]
+        : document[field];
 
     if (!IMAGE_FIELDS.includes(field)) {
       response[field] = value;
@@ -246,18 +341,21 @@ const mapSettingsForClient = (document, event) => {
     response[field] = "";
   }
 
-  if (
-    !Object.prototype.hasOwnProperty.call(response, "gstin") &&
-    typeof document.GSTIN === "string"
-  ) {
-    response.gstin = document.GSTIN;
+  if (!Array.isArray(response.services)) {
+    response.services = [];
   }
 
-  if (
-    !Object.prototype.hasOwnProperty.call(response, "gstin") &&
-    typeof document.companyGstin === "string"
-  ) {
-    response.gstin = document.companyGstin;
+  if (!response.backupSettings || typeof response.backupSettings !== "object") {
+    response.backupSettings = {
+      enabled: false,
+      frequency: "daily",
+      backupTime: "20:00",
+      everyHours: 4,
+      dayOfWeek: "monday",
+      dayOfMonth: 1,
+      monthOfYear: 1,
+      timezone: "Asia/Kolkata",
+    };
   }
 
   return response;
@@ -509,9 +607,7 @@ export async function handler(event) {
     const settingsCollection = db.collection(SETTINGS_COLLECTION);
 
     if (event.httpMethod === "GET") {
-      const settings = await settingsCollection.findOne({
-        userId: user.userId,
-      });
+      const settings = await getSharedSettings(settingsCollection, user.userId);
 
       return createResponse(
         200,
@@ -523,6 +619,17 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === "PUT") {
+      if (!isSuperAdminRole(user?.role)) {
+        return createResponse(
+          403,
+          {
+            error:
+              "Only Super Admin can update business settings. These settings are shared for all users.",
+          },
+          origin,
+        );
+      }
+
       const payload = event.body ? JSON.parse(event.body) : {};
       const sanitizedPayload = sanitizeSettingsPayload(payload);
 
@@ -548,21 +655,27 @@ export async function handler(event) {
       }
 
       await settingsCollection.updateOne(
-        { userId: user.userId },
+        { scope: GLOBAL_SETTINGS_SCOPE },
         {
           $set: {
             ...sanitizedPayload,
+            scope: GLOBAL_SETTINGS_SCOPE,
             userId: user.userId,
+            updatedByUserId: user.userId,
+            updatedByRole: user.role || "",
             updatedAt: new Date(),
           },
           $setOnInsert: {
             createdAt: new Date(),
+            createdByUserId: user.userId,
           },
         },
         { upsert: true },
       );
 
-      const updated = await settingsCollection.findOne({ userId: user.userId });
+      const updated = await settingsCollection.findOne({
+        scope: GLOBAL_SETTINGS_SCOPE,
+      });
 
       return createResponse(
         200,

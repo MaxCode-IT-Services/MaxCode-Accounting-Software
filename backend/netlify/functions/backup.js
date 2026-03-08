@@ -29,6 +29,38 @@ const DEFAULT_BACKUP_COLLECTIONS = [
   "backup_runs",
 ];
 
+const GLOBAL_SETTINGS_SCOPE = "global";
+
+const getSharedBusinessSettings = async (db, fallbackUserId) => {
+  const collection = db.collection("business_settings");
+
+  const globalSettings = await collection.findOne({
+    scope: GLOBAL_SETTINGS_SCOPE,
+  });
+
+  if (globalSettings) {
+    return globalSettings;
+  }
+
+  if (fallbackUserId) {
+    const userSettings = await collection.findOne({ userId: fallbackUserId });
+    if (userSettings) {
+      return userSettings;
+    }
+  }
+
+  return collection.findOne(
+    {},
+    {
+      sort: {
+        updatedAt: -1,
+        createdAt: -1,
+        _id: -1,
+      },
+    },
+  );
+};
+
 const getDynamicCollectionNames = async (db) => {
   try {
     const allCollections = await db
@@ -204,7 +236,7 @@ const restoreBackupData = async (db, backupData, userId) => {
   await db.collection(UNDO_BACKUP_COLLECTION).deleteMany({ userId });
   await db.collection(UNDO_BACKUP_COLLECTION).insertOne({
     ...undoBackup,
-    _id: new (await import('mongodb')).ObjectId(),
+    _id: new (await import("mongodb")).ObjectId(),
   });
 
   // 2. Restore the new backup
@@ -527,9 +559,7 @@ export async function handler(event) {
       }
 
       const { db } = await connectToDatabase();
-      const businessSettings = await db
-        .collection("business_settings")
-        .findOne({});
+      const businessSettings = await getSharedBusinessSettings(db);
       const backupSettings = businessSettings?.backupSettings || {
         enabled: false,
         frequency: "daily",
@@ -637,10 +667,15 @@ export async function handler(event) {
         await restoreBackupData(db, undoDoc.data, user.userId);
         // Remove the undo backup after use
         // Ensure _id is ObjectId for delete
-        const { ObjectId } = await import('mongodb');
+        const { ObjectId } = await import("mongodb");
         await db
           .collection(UNDO_BACKUP_COLLECTION)
-          .deleteOne({ _id: typeof undoDoc._id === 'string' ? new ObjectId(undoDoc._id) : undoDoc._id });
+          .deleteOne({
+            _id:
+              typeof undoDoc._id === "string"
+                ? new ObjectId(undoDoc._id)
+                : undoDoc._id,
+          });
         return createResponse(
           200,
           {
@@ -665,10 +700,15 @@ export async function handler(event) {
         if (diffHours > UNDO_BACKUP_EXPIRY_HOURS) {
           // Expired, remove it
           // Ensure _id is ObjectId for delete
-          const { ObjectId } = await import('mongodb');
+          const { ObjectId } = await import("mongodb");
           await db
             .collection(UNDO_BACKUP_COLLECTION)
-            .deleteOne({ _id: typeof undoDoc._id === 'string' ? new ObjectId(undoDoc._id) : undoDoc._id });
+            .deleteOne({
+              _id:
+                typeof undoDoc._id === "string"
+                  ? new ObjectId(undoDoc._id)
+                  : undoDoc._id,
+            });
           return createResponse(200, { available: false }, origin);
         }
         return createResponse(
@@ -789,9 +829,10 @@ export async function handler(event) {
 
       if (action === "run-now") {
         // Get backup settings from database
-        const businessSettings = await db
-          .collection("business_settings")
-          .findOne({ userId: user.userId });
+        const businessSettings = await getSharedBusinessSettings(
+          db,
+          user.userId,
+        );
 
         const driveConfig = businessSettings?.backupSettings;
 
@@ -900,9 +941,7 @@ export async function handler(event) {
         }
 
         // Get backup settings from database (first user or system-wide settings)
-        const businessSettings = await db
-          .collection("business_settings")
-          .findOne({});
+        const businessSettings = await getSharedBusinessSettings(db);
 
         const driveConfig = businessSettings?.backupSettings;
 

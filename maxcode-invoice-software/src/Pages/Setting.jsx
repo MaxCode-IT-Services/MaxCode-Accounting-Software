@@ -149,6 +149,24 @@ const Settings = () => {
     "selfInvoiceTermsConditions",
   ];
 
+  const normalizeRole = (role = "") =>
+    String(role || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[_\s]+/g, "-");
+
+  const isSuperAdmin =
+    normalizeRole(formData?.role) === "super-admin" ||
+    normalizeRole(formData?.role) === "superadmin";
+
+  const ensureSuperAdminAccess = (actionLabel = "make changes") => {
+    if (isSuperAdmin) return true;
+    showWarning(
+      `Only Super Admin can ${actionLabel}. This tab is shared for all users.`,
+    );
+    return false;
+  };
+
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [showResetTermsConfirm, setShowResetTermsConfirm] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState(null);
@@ -610,9 +628,62 @@ const Settings = () => {
 
   const mergeBusinessSettings = (settings = {}) => {
     if (!settings || typeof settings !== "object") return;
+
+    const normalizedSettings = {
+      ...settings,
+      companyName:
+        settings.companyName || settings.businessName || settings.name || "",
+      gstin: settings.gstin || settings.GSTIN || settings.companyGstin || "",
+      companyAddress:
+        settings.companyAddress ||
+        settings.address ||
+        settings.company_location ||
+        "",
+      companyPhone:
+        settings.companyPhone ||
+        settings.phone ||
+        settings.mobile ||
+        settings.phoneNumber ||
+        "",
+      companyEmail:
+        settings.companyEmail || settings.email || settings.officialEmail || "",
+      invoiceTermsConditions:
+        settings.invoiceTermsConditions ||
+        settings.invoiceTerms ||
+        settings.termsConditions ||
+        DEFAULT_INVOICE_TERMS,
+      selfInvoiceTermsConditions:
+        settings.selfInvoiceTermsConditions ||
+        settings.selfInvoiceTerms ||
+        settings.selfTermsConditions ||
+        DEFAULT_SELF_INVOICE_TERMS,
+    };
+
+    const resolvedServices = Array.isArray(settings.services)
+      ? settings.services
+      : Array.isArray(settings.serviceMaster)
+        ? settings.serviceMaster
+        : Array.isArray(settings.serviceList)
+          ? settings.serviceList
+          : null;
+
+    if (resolvedServices) {
+      normalizedSettings.services = resolvedServices;
+    }
+
+    const resolvedBackupSettings =
+      settings.backupSettings ||
+      settings.driveConfig ||
+      settings.googleDriveConfig ||
+      null;
+
+    if (resolvedBackupSettings) {
+      normalizedSettings.backupSettings = resolvedBackupSettings;
+    }
+
     setBusinessSettings((prev) => ({
       ...prev,
-      ...settings,
+      ...normalizedSettings,
     }));
   };
 
@@ -656,6 +727,8 @@ const Settings = () => {
   };
 
   const handleBusinessChange = (field, value) => {
+    if (!isSuperAdmin) return;
+
     setBusinessSettings((prev) => ({
       ...prev,
       [field]: value,
@@ -663,6 +736,8 @@ const Settings = () => {
   };
 
   const handleResetTermsToDefault = () => {
+    if (!ensureSuperAdminAccess("reset terms")) return;
+
     setBusinessSettings((prev) => ({
       ...prev,
       invoiceTermsConditions: DEFAULT_INVOICE_TERMS,
@@ -673,6 +748,8 @@ const Settings = () => {
   };
 
   const syncServicesToBackend = async (nextServices) => {
+    if (!ensureSuperAdminAccess("update service master")) return null;
+
     const normalizedServices = nextServices.map((service) => ({
       id: String(service.id),
       name: service.name?.trim() || "",
@@ -696,6 +773,8 @@ const Settings = () => {
   };
 
   const handleImageUpload = async (field, e) => {
+    if (!ensureSuperAdminAccess("upload branding assets")) return;
+
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -741,6 +820,8 @@ const Settings = () => {
   };
 
   const handleSaveAll = async () => {
+    if (!ensureSuperAdminAccess("save shared business settings")) return;
+
     setIsSaving(true);
 
     try {
@@ -789,12 +870,16 @@ const Settings = () => {
   const getServiceStatus = (service) => service.status || "active";
 
   const openAddServiceModal = () => {
+    if (!ensureSuperAdminAccess("add service")) return;
+
     setEditingServiceId(null);
     setServiceFormData(DEFAULT_SERVICE_FORM);
     setIsServiceModalOpen(true);
   };
 
   const openEditServiceModal = (service) => {
+    if (!ensureSuperAdminAccess("edit service")) return;
+
     setEditingServiceId(service.id);
     setServiceFormData({
       name: service.name,
@@ -818,6 +903,8 @@ const Settings = () => {
   };
 
   const saveService = async () => {
+    if (!ensureSuperAdminAccess("save service")) return;
+
     const serviceName = serviceFormData.name.trim();
     const serviceHsnCode = serviceFormData.hsnCode.trim();
 
@@ -868,6 +955,8 @@ const Settings = () => {
   };
 
   const removeService = async (id) => {
+    if (!ensureSuperAdminAccess("remove service")) return;
+
     const remainingServices = businessSettings.services.filter(
       (s) => s.id !== id,
     );
@@ -881,6 +970,8 @@ const Settings = () => {
   };
 
   const handleBulkDeleteServices = async () => {
+    if (!ensureSuperAdminAccess("remove selected services")) return;
+
     if (confirmDeleteServices.length === 0) return;
 
     const remaining = businessSettings.services.filter(
@@ -920,6 +1011,8 @@ const Settings = () => {
   };
 
   const toggleServiceStatus = async (id) => {
+    if (!ensureSuperAdminAccess("change service status")) return;
+
     let updatedStatus = "inactive";
     const updatedServices = businessSettings.services.map((service) =>
       service.id === id
@@ -1045,6 +1138,8 @@ const Settings = () => {
   // Import Backup Handler
   // Import Backup Handler - Direct File Upload Version
   const handleImportBackup = async (event) => {
+    if (!ensureSuperAdminAccess("restore backup")) return;
+
     const file = event.target.files?.[0];
     if (!file) {
       showError("No file selected for import.");
@@ -1156,6 +1251,8 @@ const Settings = () => {
 
   // Google Drive Configuration Handlers
   const handleSaveDriveConfig = async () => {
+    if (!ensureSuperAdminAccess("save backup configuration")) return;
+
     if (
       driveConfig.enabled &&
       (!driveConfig.clientId ||
@@ -1231,6 +1328,8 @@ const Settings = () => {
   };
 
   const handleTestDriveConnection = async () => {
+    if (!ensureSuperAdminAccess("test drive connection")) return;
+
     if (
       !driveConfig.clientId ||
       !driveConfig.clientSecret ||
@@ -1268,6 +1367,8 @@ const Settings = () => {
   };
 
   const handleRunBackupNow = async () => {
+    if (!ensureSuperAdminAccess("run backup now")) return;
+
     try {
       setIsDriveSaving(true);
       showInfo("⏳ Creating backup and uploading to Google Drive...");
@@ -1326,6 +1427,8 @@ const Settings = () => {
   }, []);
 
   const handleUndoImport = async () => {
+    if (!ensureSuperAdminAccess("undo imported data")) return;
+
     if (!undoAvailable) return;
     setIsUndoing(true);
     try {
@@ -1431,6 +1534,15 @@ const Settings = () => {
 
             {/* Tab Content */}
             <div className="tab-content">
+              {!["profile", "pin", "2fa"].includes(activeTab) &&
+                !isSuperAdmin && (
+                  <div className="alert alert-info mb-4" role="alert">
+                    <i className="fas fa-lock me-2"></i>
+                    These settings are shared for all users and can only be
+                    edited by Super Admin.
+                  </div>
+                )}
+
               {/* Profile Management Tab */}
               {activeTab === "profile" && (
                 <div className="card modern-card">
@@ -2034,7 +2146,9 @@ const Settings = () => {
                         {/* Button */}
                         <button
                           onClick={handleSaveAll}
-                          disabled={isSaving || isBusinessLoading}
+                          disabled={
+                            isSaving || isBusinessLoading || !isSuperAdmin
+                          }
                           className="btn btn-success px-4 px-md-5 py-2 py-md-3 rounded-4 fw-bold d-flex align-items-center justify-content-center gap-2 settings-responsive-btn"
                         >
                           {isSaving || isBusinessLoading ? (
@@ -2140,6 +2254,7 @@ const Settings = () => {
                                     onChange={(e) =>
                                       handleImageUpload(asset.field, e)
                                     }
+                                    disabled={!isSuperAdmin}
                                     title={`Upload ${asset.label}`}
                                   />
                                 </div>
@@ -2174,6 +2289,7 @@ const Settings = () => {
                                   e.target.value,
                                 )
                               }
+                              disabled={!isSuperAdmin}
                             />
                           </div>
                           <div className="col-md-6">
@@ -2187,6 +2303,7 @@ const Settings = () => {
                                 handleBusinessChange("gstin", e.target.value)
                               }
                               placeholder="Enter GSTIN"
+                              disabled={!isSuperAdmin}
                             />
                           </div>
                           <div className="col-md-6">
@@ -2202,6 +2319,7 @@ const Settings = () => {
                                   e.target.value,
                                 )
                               }
+                              disabled={!isSuperAdmin}
                             />
                           </div>
                           <div className="col-md-6">
@@ -2217,6 +2335,7 @@ const Settings = () => {
                                   e.target.value,
                                 )
                               }
+                              disabled={!isSuperAdmin}
                             />
                           </div>
                           <div className="col-12">
@@ -2233,6 +2352,7 @@ const Settings = () => {
                                   e.target.value,
                                 )
                               }
+                              disabled={!isSuperAdmin}
                             />
                           </div>
                         </div>
@@ -2260,6 +2380,7 @@ const Settings = () => {
                               onChange={(e) =>
                                 handleBusinessChange("bankName", e.target.value)
                               }
+                              disabled={!isSuperAdmin}
                             />
                           </div>
                           <div className="col-md-6">
@@ -2275,6 +2396,7 @@ const Settings = () => {
                                   e.target.value,
                                 )
                               }
+                              disabled={!isSuperAdmin}
                             />
                           </div>
                           <div className="col-md-6">
@@ -2290,6 +2412,7 @@ const Settings = () => {
                                   e.target.value,
                                 )
                               }
+                              disabled={!isSuperAdmin}
                             />
                           </div>
                           <div className="col-md-6">
@@ -2302,6 +2425,7 @@ const Settings = () => {
                               onChange={(e) =>
                                 handleBusinessChange("ifscCode", e.target.value)
                               }
+                              disabled={!isSuperAdmin}
                             />
                           </div>
                           <div className="col-12">
@@ -2318,6 +2442,7 @@ const Settings = () => {
                                   e.target.value,
                                 )
                               }
+                              disabled={!isSuperAdmin}
                             />
                           </div>
                         </div>
@@ -2352,6 +2477,7 @@ const Settings = () => {
                                   e.target.checked,
                                 )
                               }
+                              disabled={!isSuperAdmin}
                               style={{ width: "3rem", height: "1.5rem" }}
                             />
                           </div>
@@ -2383,6 +2509,7 @@ const Settings = () => {
                                     )
                                   }
                                   placeholder="mongodb+srv://username:password@cluster.mongodb.net/database"
+                                  disabled={!isSuperAdmin}
                                 />
                               </div>
 
@@ -2416,6 +2543,7 @@ const Settings = () => {
                                     )
                                   }
                                   placeholder="https://your-app.netlify.app/.netlify/functions/sync"
+                                  disabled={!isSuperAdmin}
                                 />
                               </div>
 
@@ -2428,7 +2556,7 @@ const Settings = () => {
                             <div className="col-12">
                               <button
                                 onClick={handleTestConnection}
-                                disabled={isTesting}
+                                disabled={isTesting || !isSuperAdmin}
                                 className="btn btn-outline-success px-4 py-2 fw-bold"
                               >
                                 {isTesting ? (
@@ -2473,7 +2601,9 @@ const Settings = () => {
                         <div className="d-flex flex-column flex-sm-row gap-2 settings-action-group">
                           <button
                             onClick={() => setShowResetTermsConfirm(true)}
-                            disabled={isSaving || isBusinessLoading}
+                            disabled={
+                              isSaving || isBusinessLoading || !isSuperAdmin
+                            }
                             className="btn btn-outline-secondary px-4 py-2 fw-bold settings-responsive-btn"
                           >
                             <i className="fas fa-rotate-left me-2"></i>
@@ -2482,7 +2612,9 @@ const Settings = () => {
 
                           <button
                             onClick={handleSaveAll}
-                            disabled={isSaving || isBusinessLoading}
+                            disabled={
+                              isSaving || isBusinessLoading || !isSuperAdmin
+                            }
                             className="btn btn-success px-4 py-2 fw-bold settings-responsive-btn d-flex align-items-center justify-content-center gap-2"
                           >
                             {isSaving || isBusinessLoading ? (
@@ -2530,6 +2662,7 @@ const Settings = () => {
                             )
                           }
                           placeholder="Invoice terms yahan likhein (one line per term)"
+                          disabled={!isSuperAdmin}
                         />
                       </div>
                     </div>
@@ -2559,6 +2692,7 @@ const Settings = () => {
                             )
                           }
                           placeholder="Self invoice terms yahan likhein (one line per term)"
+                          disabled={!isSuperAdmin}
                         />
                       </div>
                     </div>
@@ -2619,6 +2753,7 @@ const Settings = () => {
                             )}
                             <button
                               onClick={openAddServiceModal}
+                              disabled={!isSuperAdmin}
                               className="btn btn-primary"
                             >
                               <i className="fas fa-plus-circle"></i> Add New Row
@@ -2696,6 +2831,7 @@ const Settings = () => {
                                               onChange={() =>
                                                 toggleServiceStatus(service.id)
                                               }
+                                              disabled={!isSuperAdmin}
                                             />
                                             <span className="status-slider"></span>
                                           </label>
@@ -2714,6 +2850,7 @@ const Settings = () => {
                                             onClick={() =>
                                               openEditServiceModal(service)
                                             }
+                                            disabled={!isSuperAdmin}
                                             className="icon-action-btn edit"
                                             title="Edit"
                                           >
@@ -2723,6 +2860,7 @@ const Settings = () => {
                                             onClick={() =>
                                               removeService(service.id)
                                             }
+                                            disabled={!isSuperAdmin}
                                             className="icon-action-btn delete"
                                             title="Delete"
                                           >
@@ -2861,7 +2999,7 @@ const Settings = () => {
                       <button
                         className="btn btn-danger ms-3"
                         onClick={handleUndoImport}
-                        disabled={isUndoing}
+                        disabled={isUndoing || !isSuperAdmin}
                       >
                         {isUndoing ? (
                           <span className="spinner-border spinner-border-sm me-2"></span>
@@ -3056,12 +3194,13 @@ const Settings = () => {
                             accept=".bson,.json"
                             style={{ display: "none" }}
                             onChange={handleImportBackup}
+                            disabled={!isSuperAdmin}
                           />
 
                           <button
                             className="btn btn-success btn-lg w-100"
                             onClick={() => backupFileInputRef.current?.click()}
-                            disabled={isImporting}
+                            disabled={isImporting || !isSuperAdmin}
                           >
                             {isImporting ? (
                               <>
@@ -3675,7 +3814,7 @@ const Settings = () => {
                                   <button
                                     className="btn btn-success btn-lg w-100 w-md-auto d-flex align-items-center justify-content-center gap-2"
                                     onClick={handleSaveDriveConfig}
-                                    disabled={isDriveSaving}
+                                    disabled={isDriveSaving || !isSuperAdmin}
                                   >
                                     {isDriveSaving ? (
                                       <>
@@ -3694,7 +3833,7 @@ const Settings = () => {
                                   <button
                                     className="btn btn-primary btn-lg w-100 w-md-auto d-flex align-items-center justify-content-center gap-2"
                                     onClick={handleRunBackupNow}
-                                    disabled={isDriveSaving}
+                                    disabled={isDriveSaving || !isSuperAdmin}
                                   >
                                     <i className="fas fa-play"></i>
                                     Run Backup Now
@@ -3704,7 +3843,7 @@ const Settings = () => {
                                   <button
                                     className="btn btn-info btn-lg w-100 w-md-auto d-flex align-items-center justify-content-center gap-2"
                                     onClick={handleTestDriveConnection}
-                                    disabled={isDriveSaving}
+                                    disabled={isDriveSaving || !isSuperAdmin}
                                   >
                                     <i className="fas fa-plug"></i>
                                     Test Connection
