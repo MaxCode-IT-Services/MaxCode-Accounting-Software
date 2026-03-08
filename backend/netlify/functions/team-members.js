@@ -395,6 +395,7 @@ export async function handler(event) {
         status,
         jwtTokenExpiryDays,
         sendEmail: payload.sendEmail === true,
+        showNotification: payload.showNotification === true,
         permissions: normalizePermissions(payload.permissions),
         userType: "team-member",
         createdAt: new Date(),
@@ -477,6 +478,16 @@ export async function handler(event) {
         ...payload,
         updatedAt: new Date(),
       };
+
+      if (payload.showNotification !== undefined) {
+        if (typeof payload.showNotification !== "boolean") {
+          return createResponse(
+            400,
+            { error: "showNotification must be boolean" },
+            origin,
+          );
+        }
+      }
 
       if (payload.role !== undefined) {
         const role = normalizeRole(payload.role);

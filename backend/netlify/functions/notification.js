@@ -49,16 +49,6 @@ const findApplicableFinancialYear = (expiryDate, financialYears = []) => {
   });
 };
 
-const getUserKey = (decodedToken) => {
-  return String(
-    decodedToken?.id ||
-      decodedToken?.userId ||
-      decodedToken?._id ||
-      decodedToken?.email ||
-      "anonymous",
-  );
-};
-
 const buildServiceExpiryNotifications = ({
   serviceRecords = [],
   financialYears = [],
@@ -141,23 +131,23 @@ export async function handler(event) {
 
   try {
     const decodedToken = verifyRequestToken(event);
-    const userKey = getUserKey(decodedToken);
 
     const { db } = await connectToDatabase();
     const notificationsCollection = db.collection("notifications");
     const notificationRunsCollection = db.collection("notificationRuns");
     const servicesCollection = db.collection("services");
     const yearsCollection = db.collection("financialYears");
+    const usersCollection = db.collection("users");
 
     if (event.httpMethod === "GET") {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const dateKey = getDateString(today);
+      const notificationType = "service-expiry";
 
       const runRecord = await notificationRunsCollection.findOne({
-        userKey,
         dateKey,
-        notificationType: "service-expiry",
+        notificationType,
       });
 
       if (!runRecord) {
@@ -173,31 +163,73 @@ export async function handler(event) {
         });
 
         if (generatedNotifications.length > 0) {
-          const now = new Date();
-          const docs = generatedNotifications.map((notification) => ({
-            ...notification,
-            userKey,
-            dateKey,
-            read: false,
-            isDeleted: false,
-            createdAt: now,
-            updatedAt: now,
-          }));
+          const existingToday = await notificationsCollection
+            .find(
+              {
+                dateKey,
+                templateType: notificationType,
+                isDeleted: { $ne: true },
+              },
+              { projection: { dedupeKey: 1 } },
+            )
+            .toArray();
 
-          await notificationsCollection.insertMany(docs);
+          const existingKeys = new Set(
+            existingToday
+              .map((row) => row?.dedupeKey)
+              .filter((dedupeKey) => typeof dedupeKey === "string"),
+          );
+
+          const now = new Date();
+          const docsToInsert = generatedNotifications
+            .filter((notification) => !existingKeys.has(notification.dedupeKey))
+            .map((notification) => ({
+              ...notification,
+              dateKey,
+              read: false,
+              isDeleted: false,
+              createdAt: now,
+              updatedAt: now,
+            }));
+
+          if (docsToInsert.length > 0) {
+            await notificationsCollection.insertMany(docsToInsert);
+          }
         }
 
         await notificationRunsCollection.insertOne({
-          userKey,
           dateKey,
-          notificationType: "service-expiry",
+          notificationType,
           generatedCount: generatedNotifications.length,
+          generatedByUserId: decodedToken?.userId || null,
+          generatedByRole: decodedToken?.role || "unknown",
           createdAt: new Date(),
+          updatedAt: new Date(),
         });
       }
 
+      const userId = decodedToken?.userId;
+      if (userId && ObjectId.isValid(userId)) {
+        const loggedInUser = await usersCollection.findOne(
+          { _id: new ObjectId(userId) },
+          { projection: { showNotification: 1 } },
+        );
+
+        if (loggedInUser?.showNotification === false) {
+          return createResponse(
+            200,
+            {
+              dateKey,
+              unreadCount: 0,
+              notifications: [],
+            },
+            origin,
+          );
+        }
+      }
+
       const notifications = await notificationsCollection
-        .find({ userKey, isDeleted: { $ne: true } })
+        .find({ isDeleted: { $ne: true } })
         .sort({ read: 1, createdAt: -1 })
         .toArray();
 
@@ -237,7 +269,6 @@ export async function handler(event) {
       if (action === "markAllRead") {
         await notificationsCollection.updateMany(
           {
-            userKey,
             isDeleted: { $ne: true },
             read: { $ne: true },
           },
@@ -270,7 +301,6 @@ export async function handler(event) {
       const result = await notificationsCollection.updateOne(
         {
           _id: new ObjectId(id),
-          userKey,
           isDeleted: { $ne: true },
         },
         {
@@ -307,7 +337,6 @@ export async function handler(event) {
       const result = await notificationsCollection.updateOne(
         {
           _id: new ObjectId(id),
-          userKey,
           isDeleted: { $ne: true },
         },
         {

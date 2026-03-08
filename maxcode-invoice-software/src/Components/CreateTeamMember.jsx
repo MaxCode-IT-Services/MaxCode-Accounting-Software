@@ -43,6 +43,7 @@ const CreateTeamMember = ({
     jwtTokenExpiryDays: "",
     pin: "",
     sendEmail: true,
+    showNotification: false,
     status: "Active",
   });
   const [permissions, setPermissions] = useState(createDefaultPermissions());
@@ -76,6 +77,7 @@ const CreateTeamMember = ({
           editingRecord.jwtTokenExpiryDays?.toString?.() || "",
         pin: "",
         sendEmail: editingRecord.sendEmail === true,
+        showNotification: editingRecord.showNotification !== false,
         status: editingRecord.status === "Inactive" ? "Inactive" : "Active",
       });
 
@@ -105,6 +107,7 @@ const CreateTeamMember = ({
         jwtTokenExpiryDays: "",
         pin: "",
         sendEmail: true,
+        showNotification: false,
         status: "Active",
       });
       setPermissions(createDefaultPermissions());
@@ -617,21 +620,40 @@ const CreateTeamMember = ({
 
                     {!isViewMode && (
                       <div className="col-12">
-                        <div className="form-check form-switch">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            id="sendEmail"
-                            name="sendEmail"
-                            checked={formData.sendEmail}
-                            onChange={handleInputChange}
-                          />
-                          <label
-                            className="form-check-label fw-semibold"
-                            htmlFor="sendEmail"
-                          >
-                            Send login credentials on email
-                          </label>
+                        <div className="d-flex flex-wrap align-items-center gap-4">
+                          <div className="form-check form-switch mb-0">
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              id="sendEmail"
+                              name="sendEmail"
+                              checked={formData.sendEmail}
+                              onChange={handleInputChange}
+                            />
+                            <label
+                              className="form-check-label fw-semibold"
+                              htmlFor="sendEmail"
+                            >
+                              Send login credentials on email
+                            </label>
+                          </div>
+
+                          <div className="form-check form-switch mb-0">
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              id="showNotification"
+                              name="showNotification"
+                              checked={formData.showNotification}
+                              onChange={handleInputChange}
+                            />
+                            <label
+                              className="form-check-label fw-semibold"
+                              htmlFor="showNotification"
+                            >
+                              Show notification
+                            </label>
+                          </div>
                         </div>
                       </div>
                     )}
