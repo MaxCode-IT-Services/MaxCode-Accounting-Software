@@ -122,6 +122,35 @@ const buildServiceExpiryNotifications = ({
   return notifications;
 };
 
+const resolveCurrentUserId = (decodedToken = {}) => {
+  const resolved =
+    decodedToken?.userId || decodedToken?.id || decodedToken?._id || null;
+  return resolved ? String(resolved) : null;
+};
+
+const normalizeReadBy = (readBy = []) => {
+  if (!Array.isArray(readBy)) return [];
+
+  return readBy
+    .map((entry) => {
+      const userId = entry?.userId ? String(entry.userId) : "";
+      if (!userId) return null;
+
+      return {
+        userId,
+        name: entry?.name || "",
+        role: entry?.role || "",
+        readAt: entry?.readAt || null,
+      };
+    })
+    .filter(Boolean);
+};
+
+const hasUserReadNotification = (readBy = [], userId = "") => {
+  if (!userId) return false;
+  return readBy.some((entry) => String(entry?.userId || "") === userId);
+};
+
 export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
@@ -144,6 +173,27 @@ export async function handler(event) {
       today.setHours(0, 0, 0, 0);
       const dateKey = getDateString(today);
       const notificationType = "service-expiry";
+      const currentUserId = resolveCurrentUserId(decodedToken);
+
+      let loggedInUser = null;
+      if (currentUserId && ObjectId.isValid(currentUserId)) {
+        loggedInUser = await usersCollection.findOne(
+          { _id: new ObjectId(currentUserId) },
+          { projection: { showNotification: 1, name: 1, role: 1 } },
+        );
+
+        if (loggedInUser?.showNotification === false) {
+          return createResponse(
+            200,
+            {
+              dateKey,
+              unreadCount: 0,
+              notifications: [],
+            },
+            origin,
+          );
+        }
+      }
 
       const runRecord = await notificationRunsCollection.findOne({
         dateKey,
@@ -187,6 +237,7 @@ export async function handler(event) {
               ...notification,
               dateKey,
               read: false,
+              readBy: [],
               isDeleted: false,
               createdAt: now,
               updatedAt: now,
@@ -201,51 +252,43 @@ export async function handler(event) {
           dateKey,
           notificationType,
           generatedCount: generatedNotifications.length,
-          generatedByUserId: decodedToken?.userId || null,
+          generatedByUserId: currentUserId,
           generatedByRole: decodedToken?.role || "unknown",
           createdAt: new Date(),
           updatedAt: new Date(),
         });
       }
 
-      const userId = decodedToken?.userId;
-      if (userId && ObjectId.isValid(userId)) {
-        const loggedInUser = await usersCollection.findOne(
-          { _id: new ObjectId(userId) },
-          { projection: { showNotification: 1 } },
-        );
-
-        if (loggedInUser?.showNotification === false) {
-          return createResponse(
-            200,
-            {
-              dateKey,
-              unreadCount: 0,
-              notifications: [],
-            },
-            origin,
-          );
-        }
-      }
-
       const notifications = await notificationsCollection
         .find({ isDeleted: { $ne: true } })
-        .sort({ read: 1, createdAt: -1 })
+        .sort({ createdAt: -1 })
         .toArray();
 
-      const responseNotifications = notifications.map((item) => ({
-        id: String(item._id),
-        title: item.title,
-        description: item.description,
-        icon: item.icon,
-        type: item.type,
-        image: item.image,
-        templateType: item.templateType,
-        templateData: item.templateData || {},
-        links: Array.isArray(item.links) ? item.links : [],
-        read: Boolean(item.read),
-        createdAt: item.createdAt,
-      }));
+      const responseNotifications = notifications
+        .map((item) => {
+          const readBy = normalizeReadBy(item.readBy);
+          return {
+            id: String(item._id),
+            title: item.title,
+            description: item.description,
+            icon: item.icon,
+            type: item.type,
+            image: item.image,
+            templateType: item.templateType,
+            templateData: item.templateData || {},
+            links: Array.isArray(item.links) ? item.links : [],
+            read: hasUserReadNotification(readBy, currentUserId),
+            readBy,
+            createdAt: item.createdAt,
+          };
+        })
+        .sort((a, b) => {
+          if (a.read !== b.read) return a.read ? 1 : -1;
+          return (
+            new Date(b.createdAt || 0).getTime() -
+            new Date(a.createdAt || 0).getTime()
+          );
+        });
 
       const unreadCount = responseNotifications.filter(
         (item) => !item.read,
@@ -265,25 +308,66 @@ export async function handler(event) {
     if (event.httpMethod === "PATCH") {
       const body = JSON.parse(event.body || "{}");
       const { action, id, read } = body;
+      const currentUserId = resolveCurrentUserId(decodedToken);
+
+      if (!currentUserId) {
+        return createResponse(
+          401,
+          { error: "Unauthorized: user id missing in token" },
+          origin,
+        );
+      }
+
+      let actor = null;
+      if (ObjectId.isValid(currentUserId)) {
+        actor = await usersCollection.findOne(
+          { _id: new ObjectId(currentUserId) },
+          { projection: { name: 1, role: 1 } },
+        );
+      }
+
+      const readEntry = {
+        userId: currentUserId,
+        name: actor?.name || decodedToken?.name || "",
+        role: actor?.role || decodedToken?.role || "",
+        readAt: new Date(),
+      };
 
       if (action === "markAllRead") {
-        await notificationsCollection.updateMany(
-          {
-            isDeleted: { $ne: true },
-            read: { $ne: true },
-          },
-          {
-            $set: {
-              read: true,
-              readAt: new Date(),
-              updatedAt: new Date(),
+        const unreadNotifications = await notificationsCollection
+          .find(
+            {
+              isDeleted: { $ne: true },
+              "readBy.userId": { $ne: currentUserId },
             },
-          },
-        );
+            { projection: { _id: 1 } },
+          )
+          .toArray();
+
+        if (unreadNotifications.length > 0) {
+          await notificationsCollection.bulkWrite(
+            unreadNotifications.map((item) => ({
+              updateOne: {
+                filter: {
+                  _id: item._id,
+                  isDeleted: { $ne: true },
+                  "readBy.userId": { $ne: currentUserId },
+                },
+                update: {
+                  $push: { readBy: readEntry },
+                  $set: { updatedAt: new Date() },
+                },
+              },
+            })),
+          );
+        }
 
         return createResponse(
           200,
-          { message: "All notifications marked as read" },
+          {
+            message: "All notifications marked as read",
+            markedCount: unreadNotifications.length,
+          },
           origin,
         );
       }
@@ -298,19 +382,44 @@ export async function handler(event) {
 
       const shouldRead = read !== false;
 
-      const result = await notificationsCollection.updateOne(
-        {
-          _id: new ObjectId(id),
-          isDeleted: { $ne: true },
-        },
-        {
-          $set: {
-            read: shouldRead,
-            readAt: shouldRead ? new Date() : null,
-            updatedAt: new Date(),
+      let result;
+
+      if (shouldRead) {
+        result = await notificationsCollection.updateOne(
+          {
+            _id: new ObjectId(id),
+            isDeleted: { $ne: true },
+            "readBy.userId": { $ne: currentUserId },
           },
-        },
-      );
+          {
+            $push: { readBy: readEntry },
+            $set: { updatedAt: new Date() },
+          },
+        );
+
+        if (result.matchedCount === 0) {
+          result = await notificationsCollection.updateOne(
+            {
+              _id: new ObjectId(id),
+              isDeleted: { $ne: true },
+            },
+            {
+              $set: { updatedAt: new Date() },
+            },
+          );
+        }
+      } else {
+        result = await notificationsCollection.updateOne(
+          {
+            _id: new ObjectId(id),
+            isDeleted: { $ne: true },
+          },
+          {
+            $pull: { readBy: { userId: currentUserId } },
+            $set: { updatedAt: new Date() },
+          },
+        );
+      }
 
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "Notification not found" }, origin);
