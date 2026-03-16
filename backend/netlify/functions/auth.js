@@ -20,6 +20,7 @@ import {
   resetLoginRateLimit,
   checkUserRateLimit,
 } from "./utils/rate-limit.js";
+import crypto from "crypto";
 
 const DEFAULT_JWT_EXPIRY_DAYS = 1;
 
@@ -80,7 +81,8 @@ export async function handler(event) {
           b.action !== "login" &&
           b.action !== "register" &&
           b.action !== "verify-2fa" &&
-          b.action !== "verify-fingerprint"
+          b.action !== "verify-fingerprint" &&
+          b.action !== "verify-usb-key"
         );
       } catch {
         return false;
@@ -232,11 +234,15 @@ export async function handler(event) {
           user?.biometricCredentialId,
         );
         let biometricCredentialId = biometricCredentialIds[0] || null;
+        let usbKeyLoginEnabled = user?.usbKeyLoginEnabled === true;
+        let usbKeyTokenHash = user?.usbKeyTokenHash || "";
 
         // Backward compatibility: fallback to legacy userPreferences document.
         if (
           user?.fingerprintLoginEnabled === undefined ||
-          biometricCredentialIds.length === 0
+          biometricCredentialIds.length === 0 ||
+          user?.usbKeyLoginEnabled === undefined ||
+          !usbKeyTokenHash
         ) {
           const legacyPreferences = await preferencesCollection.findOne({
             userId: user._id.toString(),
@@ -255,11 +261,21 @@ export async function handler(event) {
             biometricCredentialId =
               biometricCredentialIds[0] || biometricCredentialId;
           }
+
+          if (user?.usbKeyLoginEnabled === undefined) {
+            usbKeyLoginEnabled = legacyPreferences?.usbKeyLoginEnabled === true;
+          }
+
+          if (!usbKeyTokenHash) {
+            usbKeyTokenHash = legacyPreferences?.usbKeyTokenHash || "";
+          }
         }
 
-        // Check if 2FA is enabled
-        if (user.twoFactor?.enabled === true) {
-          // Generate temporary token for 2FA verification (valid for 5 minutes)
+        const requiresSecondFactor =
+          user.twoFactor?.enabled === true ||
+          (usbKeyLoginEnabled === true && Boolean(usbKeyTokenHash));
+
+        if (requiresSecondFactor) {
           const tempToken = generateTempToken(
             {
               userId: user._id.toString(),
@@ -273,12 +289,17 @@ export async function handler(event) {
           return createResponse(
             200,
             {
-              message: "PIN verified. Please provide 2FA code.",
-              needs2FA: true,
+              message:
+                "PIN verified. Please complete second-factor verification.",
+              needs2FA: user.twoFactor?.enabled === true,
+              needsUSBKey:
+                usbKeyLoginEnabled === true && Boolean(usbKeyTokenHash),
               tempToken,
               fingerprintLoginEnabled,
               biometricCredentialId,
               biometricCredentialIds,
+              usbKeyLoginEnabled:
+                usbKeyLoginEnabled === true && Boolean(usbKeyTokenHash),
             },
             origin,
           );
@@ -311,6 +332,8 @@ export async function handler(event) {
             fingerprintLoginEnabled,
             biometricCredentialId,
             biometricCredentialIds,
+            usbKeyLoginEnabled: false,
+            needsUSBKey: false,
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
           },
           origin,
@@ -464,14 +487,6 @@ export async function handler(event) {
           return createResponse(401, { error: "User not found" }, origin);
         }
 
-        if (!user.twoFactor?.enabled) {
-          return createResponse(
-            400,
-            { error: "Two-factor authentication is not enabled" },
-            origin,
-          );
-        }
-
         let isFingerprintEnabled = user?.fingerprintLoginEnabled === true;
         let biometricCredentialIds = normalizeCredentialIds(
           user?.biometricCredentialIds,
@@ -537,6 +552,120 @@ export async function handler(event) {
           200,
           {
             message: "Fingerprint verified. Login successful!",
+            ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
+          },
+          origin,
+          {
+            "Set-Cookie": createAuthCookie(
+              token,
+              tokenExpiryConfig.cookieMaxAgeSeconds,
+            ),
+          },
+        );
+      }
+
+      // VERIFY USB KEY (encrypted token from MaxCode-Accounting.sec file)
+      if (action === "verify-usb-key") {
+        const { tempToken, usbToken } = body;
+
+        if (!tempToken || !usbToken) {
+          return createResponse(
+            400,
+            { error: "Temporary token and USB key token are required" },
+            origin,
+          );
+        }
+
+        let decoded;
+        try {
+          decoded = verifyToken(tempToken);
+        } catch {
+          return createResponse(
+            401,
+            { error: "Invalid or expired temporary token" },
+            origin,
+          );
+        }
+
+        if (!decoded?.temp) {
+          return createResponse(401, { error: "Invalid token type" }, origin);
+        }
+
+        const user = await usersCollection.findOne({
+          _id: new ObjectId(decoded.userId),
+        });
+
+        if (!user) {
+          return createResponse(401, { error: "User not found" }, origin);
+        }
+
+        let usbKeyLoginEnabled = user?.usbKeyLoginEnabled === true;
+        let usbKeyTokenHash = user?.usbKeyTokenHash || "";
+
+        if (user?.usbKeyLoginEnabled === undefined || !usbKeyTokenHash) {
+          const legacyPreferences = await preferencesCollection.findOne({
+            userId: user._id.toString(),
+          });
+
+          if (user?.usbKeyLoginEnabled === undefined) {
+            usbKeyLoginEnabled = legacyPreferences?.usbKeyLoginEnabled === true;
+          }
+
+          if (!usbKeyTokenHash) {
+            usbKeyTokenHash = legacyPreferences?.usbKeyTokenHash || "";
+          }
+        }
+
+        if (!usbKeyLoginEnabled || !usbKeyTokenHash) {
+          return createResponse(
+            403,
+            { error: "USB key login is not enabled for this account" },
+            origin,
+          );
+        }
+
+        const incomingHash = crypto
+          .createHash("sha256")
+          .update(String(usbToken))
+          .digest("hex");
+
+        const storedBuffer = Buffer.from(String(usbKeyTokenHash), "utf8");
+        const incomingBuffer = Buffer.from(String(incomingHash), "utf8");
+
+        const hashMatches =
+          storedBuffer.length === incomingBuffer.length &&
+          crypto.timingSafeEqual(storedBuffer, incomingBuffer);
+
+        if (!hashMatches) {
+          return createResponse(
+            401,
+            { error: "Invalid USB security key" },
+            origin,
+          );
+        }
+
+        const tokenPayload = {
+          userId: user._id.toString(),
+          email: user.email,
+          phone: user.phone,
+          role: user.role || "user",
+        };
+
+        const tokenExpiryConfig = getTokenExpiryConfig(user);
+        const token = generateToken(
+          tokenPayload,
+          tokenExpiryConfig.jwtExpiresIn,
+        );
+
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { $set: { lastLogin: new Date() } },
+        );
+
+        return createResponse(
+          200,
+          {
+            message: "USB key verified. Login successful!",
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
           },
           origin,

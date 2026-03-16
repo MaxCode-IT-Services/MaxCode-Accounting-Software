@@ -62,12 +62,13 @@ export async function handler(event) {
       "teamManagementServerSide",
       "vendorManagementServerSide",
       "fingerprintLoginEnabled",
+      "usbKeyLoginEnabled",
     ];
 
     // Fields that store a string value (not boolean)
-    const stringPreferenceFields = ["biometricCredentialId"];
-    const userBooleanFields = ["fingerprintLoginEnabled"];
-    const userStringFields = ["biometricCredentialId"];
+    const stringPreferenceFields = ["biometricCredentialId", "usbKeyTokenHash"];
+    const userBooleanFields = ["fingerprintLoginEnabled", "usbKeyLoginEnabled"];
+    const userStringFields = ["biometricCredentialId", "usbKeyTokenHash"];
     const userStringArrayFields = ["biometricCredentialIds"];
 
     const mergePreferenceValues = (document = {}) => {
@@ -112,6 +113,8 @@ export async function handler(event) {
                 fingerprintLoginEnabled: 1,
                 biometricCredentialId: 1,
                 biometricCredentialIds: 1,
+                usbKeyLoginEnabled: 1,
+                usbKeyTokenHash: 1,
               },
             },
           )
@@ -139,6 +142,14 @@ export async function handler(event) {
           [],
           userDoc.biometricCredentialId,
         );
+      }
+
+      if (typeof userDoc?.usbKeyLoginEnabled === "boolean") {
+        mergedPreferences.usbKeyLoginEnabled = userDoc.usbKeyLoginEnabled;
+      }
+
+      if (typeof userDoc?.usbKeyTokenHash === "string") {
+        mergedPreferences.usbKeyTokenHash = userDoc.usbKeyTokenHash;
       }
 
       return createResponse(200, mergedPreferences, origin);

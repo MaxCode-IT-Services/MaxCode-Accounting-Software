@@ -15,6 +15,7 @@ import {
   registerBiometricForDevice,
   removeStoredBiometricConfig,
 } from "../utils/biometricAuth";
+import { createUsbKeyFileForUser } from "../utils/usbKeyAuth";
 
 const Settings = () => {
   useEffect(() => {
@@ -79,6 +80,11 @@ const Settings = () => {
     hasCredential: false,
   });
   const [isBiometricLoading, setIsBiometricLoading] = useState(false);
+  const [usbKeyLogin, setUsbKeyLogin] = useState({
+    enabled: false,
+    configured: false,
+  });
+  const [isUsbKeyLoading, setIsUsbKeyLoading] = useState(false);
 
   // Business Details State
   const [businessSettings, setBusinessSettings] = useState({
@@ -271,6 +277,8 @@ const Settings = () => {
     try {
       const response = await apiGet(API_ENDPOINTS.USER_PREFERENCES.GET);
       const enabled = response?.data?.fingerprintLoginEnabled === true;
+      const usbEnabled = response?.data?.usbKeyLoginEnabled === true;
+      const usbConfigured = Boolean(response?.data?.usbKeyTokenHash);
 
       setBiometricLogin((prev) => ({
         ...prev,
@@ -278,6 +286,11 @@ const Settings = () => {
         supported: isBiometricSupported(),
         hasCredential: Boolean(localCredential?.credentialId),
       }));
+
+      setUsbKeyLogin({
+        enabled: usbEnabled,
+        configured: usbConfigured,
+      });
     } catch {
       // Keep local state as fallback when preference API is unavailable
       setBiometricLogin((prev) => ({
@@ -286,6 +299,11 @@ const Settings = () => {
         supported: isBiometricSupported(),
         hasCredential: Boolean(localCredential?.credentialId),
       }));
+
+      setUsbKeyLogin({
+        enabled: false,
+        configured: false,
+      });
     }
   };
 
@@ -703,6 +721,71 @@ const Settings = () => {
       await loadBiometricLoginStatus();
     } finally {
       setIsBiometricLoading(false);
+    }
+  };
+
+  const handleUsbKeyToggle = async (enabled) => {
+    const phone = resolveCurrentUserPhone();
+
+    if (!phone) {
+      showError(
+        "Please add your mobile number in profile before enabling USB key login",
+      );
+      return;
+    }
+
+    setIsUsbKeyLoading(true);
+
+    try {
+      if (enabled) {
+        const cachedUser = JSON.parse(
+          localStorage.getItem("user_info") || "{}",
+        );
+
+        const usbKeyFile = await createUsbKeyFileForUser({
+          phone,
+          userId: cachedUser?.id || cachedUser?._id || cachedUser?.userId,
+          userName: cachedUser?.name || formData?.name || phone,
+        });
+
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          usbKeyLoginEnabled: true,
+          usbKeyTokenHash: usbKeyFile.tokenHash,
+        });
+
+        setUsbKeyLogin({
+          enabled: true,
+          configured: true,
+        });
+
+        showSuccess(
+          "USB key login enabled. Save MaxCode-Accounting.sec file inside your pen drive safely.",
+        );
+        showInfo(
+          "Login time: plug pen drive and select MaxCode-Accounting.sec file to verify.",
+        );
+      } else {
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          usbKeyLoginEnabled: false,
+          usbKeyTokenHash: "",
+        });
+
+        setUsbKeyLogin({
+          enabled: false,
+          configured: false,
+        });
+
+        showInfo("USB key login disabled");
+      }
+    } catch (error) {
+      const message =
+        error?.response?.data?.error ||
+        error?.message ||
+        "Unable to update USB key login";
+      showError(message);
+      await loadBiometricLoginStatus();
+    } finally {
+      setIsUsbKeyLoading(false);
     }
   };
 
@@ -2189,6 +2272,99 @@ const Settings = () => {
                                   aria-hidden="true"
                                 ></span>
                                 Updating fingerprint settings...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* USB Key Login Status & Toggle */}
+                    <div className="row mb-4">
+                      <div className="col-12">
+                        <div className="card bg-light border-start border-4 border-warning">
+                          <div className="card-body">
+                            <div className="mb-3">
+                              <h6 className="mb-1 d-flex align-items-center gap-2">
+                                <i className="fa-brands fa-usb text-warning"></i>
+                                {usbKeyLogin.enabled
+                                  ? "USB Key Login is Active"
+                                  : "USB Key Login is Inactive"}
+                              </h6>
+                              <small className="text-muted d-block">
+                                Create encrypted token file and store it inside
+                                your pen drive.
+                              </small>
+                              <small className="text-muted d-block mt-1">
+                                Login time you can verify by selecting
+                                MaxCode-Accounting.sec from USB drive.
+                              </small>
+                              {usbKeyLogin.enabled &&
+                                !usbKeyLogin.configured && (
+                                  <small className="text-danger d-block mt-1">
+                                    USB key token is missing. Disable and enable
+                                    again to generate a new key file.
+                                  </small>
+                                )}
+                            </div>
+
+                            <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                              <div
+                                className={`badge badge-pill ${
+                                  usbKeyLogin.enabled
+                                    ? "bg-success"
+                                    : "bg-danger"
+                                }`}
+                                style={{ padding: "10px 15px" }}
+                              >
+                                <i
+                                  className={`fas ${
+                                    usbKeyLogin.enabled
+                                      ? "fa-check-circle"
+                                      : "fa-times-circle"
+                                  } me-2`}
+                                ></i>
+                                {usbKeyLogin.enabled ? "ENABLED" : "DISABLED"}
+                              </div>
+
+                              <div
+                                className="form-check form-switch"
+                                style={{
+                                  transform: "scale(1.3)",
+                                  transformOrigin: "right",
+                                }}
+                              >
+                                <input
+                                  className="form-check-input"
+                                  type="checkbox"
+                                  id="usbKeyToggle"
+                                  checked={usbKeyLogin.enabled}
+                                  onChange={(e) =>
+                                    handleUsbKeyToggle(e.target.checked)
+                                  }
+                                  disabled={isUsbKeyLoading}
+                                  style={{
+                                    cursor: "pointer",
+                                    width: "50px",
+                                    height: "28px",
+                                  }}
+                                />
+                                <label
+                                  className="form-check-label"
+                                  htmlFor="usbKeyToggle"
+                                  style={{ cursor: "pointer" }}
+                                ></label>
+                              </div>
+                            </div>
+
+                            {isUsbKeyLoading && (
+                              <div className="mt-3 text-muted small d-flex align-items-center gap-2">
+                                <span
+                                  className="spinner-border spinner-border-sm"
+                                  role="status"
+                                  aria-hidden="true"
+                                ></span>
+                                Updating USB key settings...
                               </div>
                             )}
                           </div>

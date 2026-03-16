@@ -13,6 +13,7 @@ import {
   getStoredBiometricConfig,
   verifyDeviceBiometric,
 } from "../utils/biometricAuth";
+import { extractTokenFromUsbKeyFile } from "../utils/usbKeyAuth";
 
 const Login = ({ settings }) => {
   const navigate = useNavigate();
@@ -41,11 +42,16 @@ const Login = ({ settings }) => {
   const [needsFingerprint, setNeedsFingerprint] = useState(false);
   const [isVerifyingFingerprint, setIsVerifyingFingerprint] = useState(false);
   const [fingerprintError, setFingerprintError] = useState("");
+  const [needsUsbKey, setNeedsUsbKey] = useState(false);
+  const [isVerifyingUsbKey, setIsVerifyingUsbKey] = useState(false);
+  const [usbKeyError, setUsbKeyError] = useState("");
+  const [selectedUsbFile, setSelectedUsbFile] = useState(null);
   const [pendingLoginData, setPendingLoginData] = useState(null);
 
   const pinRefs = useRef([]);
   const twoFACodeRefs = useRef([]);
   const backupCodeRefs = useRef([]);
+  const usbFileInputRef = useRef(null);
 
   // Remove auto-focus completely - user must click to focus
   useEffect(() => {
@@ -193,6 +199,50 @@ const Login = ({ settings }) => {
     localStorage.removeItem("user_info");
   };
 
+  const getBiometricAvailability = (phone, responseData = {}) => {
+    let localBiometric = getStoredBiometricConfig(phone);
+    const backendCredentialIds = [
+      ...(Array.isArray(responseData?.biometricCredentialIds)
+        ? responseData.biometricCredentialIds
+        : []),
+      ...(responseData?.biometricCredentialId
+        ? [responseData.biometricCredentialId]
+        : []),
+    ].filter(Boolean);
+
+    if (
+      !localBiometric?.credentialId &&
+      (!Array.isArray(localBiometric?.credentialIds) ||
+        localBiometric.credentialIds.length === 0) &&
+      backendCredentialIds.length > 0
+    ) {
+      const stored = JSON.parse(
+        localStorage.getItem("maxcode_biometric_credentials") || "{}",
+      );
+      stored[phone] = {
+        credentialId: backendCredentialIds[0],
+        credentialIds: [...new Set(backendCredentialIds)],
+        enabled: true,
+        updatedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(
+        "maxcode_biometric_credentials",
+        JSON.stringify(stored),
+      );
+      localBiometric = stored[phone];
+    }
+
+    const hasBiometricCredential =
+      Boolean(localBiometric?.credentialId) ||
+      (Array.isArray(localBiometric?.credentialIds) &&
+        localBiometric.credentialIds.length > 0);
+
+    return {
+      localBiometric,
+      hasBiometricCredential,
+    };
+  };
+
   const switchFromFingerprintTo2FA = () => {
     if (!pendingLoginData?.tempToken) {
       showError("2FA token not available. Please login again.");
@@ -200,11 +250,60 @@ const Login = ({ settings }) => {
     }
 
     setNeedsFingerprint(false);
+    setNeedsUsbKey(false);
     setNeeds2FA(true);
     setTempToken(pendingLoginData.tempToken);
     setShowBackupOption(false);
     setFingerprintError("");
+    setUsbKeyError("");
     showInfo("Enter your Two-Factor code to continue login");
+  };
+
+  const switchFromFingerprintToUsbKey = () => {
+    if (!pendingLoginData?.tempToken) {
+      showError("USB key token not available. Please login again.");
+      return;
+    }
+
+    setNeedsFingerprint(false);
+    setNeeds2FA(false);
+    setNeedsUsbKey(true);
+    setTempToken(pendingLoginData.tempToken);
+    setFingerprintError("");
+    setUsbKeyError("");
+    setSelectedUsbFile(null);
+    showInfo("Please Verify USB Security Key.");
+  };
+
+  const switchFromUsbKeyToFingerprint = () => {
+    if (!pendingLoginData?.canUseFingerprint) {
+      showError("Fingerprint is not configured on this device.");
+      return;
+    }
+
+    setNeedsUsbKey(false);
+    setNeeds2FA(false);
+    setNeedsFingerprint(true);
+    setUsbKeyError("");
+    setSelectedUsbFile(null);
+    showInfo("Please verify fingerprint to continue login.");
+  };
+
+  const switchToUsbKeyFrom2FA = () => {
+    if (!tempToken && !pendingLoginData?.tempToken) {
+      showError("USB key token not available. Please login again.");
+      return;
+    }
+
+    setNeeds2FA(false);
+    setNeedsFingerprint(false);
+    setNeedsUsbKey(true);
+    setTempToken(tempToken || pendingLoginData?.tempToken || null);
+    setShowBackupOption(false);
+    setErrors({});
+    setUsbKeyError("");
+    setSelectedUsbFile(null);
+    showInfo("Please Verify USB Security Key.");
   };
 
   const handleFingerprintSubmit = async (e) => {
@@ -228,7 +327,7 @@ const Login = ({ settings }) => {
         credentialIds: localBiometric?.credentialIds,
       });
 
-      if (pendingLoginData.requires2FA) {
+      if (pendingLoginData?.tempToken) {
         const response = await apiPost(API_ENPOINTS.AUTH.LOGIN, {
           action: "verify-fingerprint",
           tempToken: pendingLoginData.tempToken,
@@ -256,6 +355,59 @@ const Login = ({ settings }) => {
       showError(message);
     } finally {
       setIsVerifyingFingerprint(false);
+    }
+  };
+
+  const handleUsbKeySubmit = async (e) => {
+    e.preventDefault();
+
+    const tokenForVerification =
+      pendingLoginData?.tempToken ||
+      tempToken ||
+      pendingLoginData?.responseData?.tempToken;
+
+    if (!tokenForVerification) {
+      showError("USB key session expired. Please login again.");
+      setNeedsUsbKey(false);
+      return;
+    }
+
+    if (!selectedUsbFile) {
+      setUsbKeyError(
+        "Please select MaxCode-Accounting.sec from your pen drive",
+      );
+      return;
+    }
+
+    setIsVerifyingUsbKey(true);
+    setUsbKeyError("");
+
+    try {
+      const fileText = await selectedUsbFile.text();
+      const usbToken = await extractTokenFromUsbKeyFile({
+        fileText,
+        phone: pendingLoginData?.phone || mobile,
+      });
+
+      const response = await apiPost(API_ENPOINTS.AUTH.LOGIN, {
+        action: "verify-usb-key",
+        tempToken: tokenForVerification,
+        usbToken,
+      });
+
+      completeLogin(
+        response.data,
+        response.data?.message || "USB key verified! Login successful",
+      );
+    } catch (error) {
+      const message =
+        error?.response?.data?.error ||
+        error?.message ||
+        "USB key verification failed";
+      setUsbKeyError(message);
+      showError(message);
+    } finally {
+      setIsVerifyingUsbKey(false);
     }
   };
 
@@ -376,53 +528,33 @@ const Login = ({ settings }) => {
 
       const fingerprintLoginEnabled =
         response?.data?.fingerprintLoginEnabled === true;
+      const usbKeyLoginEnabled = response?.data?.usbKeyLoginEnabled === true;
+      const biometricState = fingerprintLoginEnabled
+        ? getBiometricAvailability(mobile, response.data)
+        : { localBiometric: null, hasBiometricCredential: false };
 
       if (fingerprintLoginEnabled) {
-        let localBiometric = getStoredBiometricConfig(mobile);
-        const backendCredentialIds = [
-          ...(Array.isArray(response?.data?.biometricCredentialIds)
-            ? response.data.biometricCredentialIds
-            : []),
-          ...(response?.data?.biometricCredentialId
-            ? [response.data.biometricCredentialId]
-            : []),
-        ].filter(Boolean);
-
-        // If not in localStorage but backend has credentialId, sync it
-        if (
-          !localBiometric?.credentialId &&
-          (!Array.isArray(localBiometric?.credentialIds) ||
-            localBiometric.credentialIds.length === 0) &&
-          backendCredentialIds.length > 0
-        ) {
-          const stored = JSON.parse(
-            localStorage.getItem("maxcode_biometric_credentials") || "{}",
-          );
-          stored[mobile] = {
-            credentialId: backendCredentialIds[0],
-            credentialIds: [...new Set(backendCredentialIds)],
-            enabled: true,
-            updatedAt: new Date().toISOString(),
-          };
-          localStorage.setItem(
-            "maxcode_biometric_credentials",
-            JSON.stringify(stored),
-          );
-          localBiometric = stored[mobile];
-        }
-
-        const hasBiometricCredential =
-          Boolean(localBiometric?.credentialId) ||
-          (Array.isArray(localBiometric?.credentialIds) &&
-            localBiometric.credentialIds.length > 0);
+        const { hasBiometricCredential } = biometricState;
 
         if (!hasBiometricCredential) {
           if (response.data.needs2FA && response.data.tempToken) {
             setTempToken(response.data.tempToken);
+            setPendingLoginData({
+              phone: mobile,
+              requires2FA: true,
+              requiresUSBKey: response.data.needsUSBKey === true,
+              requiresFingerprint: true,
+              canUseFingerprint: false,
+              tempToken: response.data.tempToken,
+              responseData: response.data,
+            });
             setNeeds2FA(true);
+            setNeedsUsbKey(false);
             setShowBackupOption(false);
             showInfo(
-              "Fingerprint is enabled but this device is not registered. Continue with Two-Factor code.",
+              response.data.needsUSBKey
+                ? "Fingerprint not configured on this device. Continue with 2FA or USB key."
+                : "Fingerprint is enabled but this device is not registered. Continue with Two-Factor code.",
             );
             return;
           }
@@ -433,22 +565,54 @@ const Login = ({ settings }) => {
           setPin(["", "", "", "", "", ""]);
           return;
         }
+      }
 
+      if (usbKeyLoginEnabled && response.data.tempToken) {
         setPendingLoginData({
           phone: mobile,
           requires2FA: response.data.needs2FA === true,
+          requiresUSBKey: true,
+          requiresFingerprint: fingerprintLoginEnabled,
+          canUseFingerprint: biometricState.hasBiometricCredential,
+          tempToken: response.data.tempToken,
+          responseData: response.data,
+        });
+        setTempToken(response.data.tempToken);
+        setNeedsUsbKey(true);
+        setNeeds2FA(false);
+        setNeedsFingerprint(false);
+        setShowBackupOption(false);
+        setUsbKeyError("");
+        setSelectedUsbFile(null);
+        showInfo(
+          "PIN verified. Select MaxCode-Accounting.sec from your pen drive to continue login.",
+        );
+        return;
+      }
+
+      if (fingerprintLoginEnabled) {
+        setPendingLoginData({
+          phone: mobile,
+          requires2FA: response.data.needs2FA === true,
+          requiresUSBKey: response.data.needsUSBKey === true,
+          requiresFingerprint: true,
+          canUseFingerprint: biometricState.hasBiometricCredential,
           tempToken: response.data.tempToken || null,
           responseData: response.data,
         });
         setNeedsFingerprint(true);
+        setNeedsUsbKey(false);
         setNeeds2FA(false);
         setShowBackupOption(false);
         setTwoFACode(["", "", "", "", "", ""]);
         setBackupCode(["", "", "", "", "", "", "", ""]);
         setFingerprintError("");
+        setUsbKeyError("");
         showInfo(
           response.data.needs2FA
-            ? "PIN verified. Verify fingerprint to login, or choose Login using 2 Factor."
+            ? response.data.needsUSBKey
+              ? "PIN verified. Verify fingerprint, or choose 2FA / USB key login."
+              : "PIN verified. Verify fingerprint to login, or choose Login using 2 Factor."
             : "PIN verified. Please verify fingerprint to login.",
         );
         return;
@@ -457,10 +621,23 @@ const Login = ({ settings }) => {
       // If 2FA is required
       if (response.data.needs2FA && response.data.tempToken) {
         setTempToken(response.data.tempToken);
+        setPendingLoginData({
+          phone: mobile,
+          requires2FA: true,
+          requiresUSBKey: response.data.needsUSBKey === true,
+          requiresFingerprint: false,
+          canUseFingerprint: false,
+          tempToken: response.data.tempToken,
+          responseData: response.data,
+        });
         setNeeds2FA(true);
+        setNeedsUsbKey(false);
+        setNeedsFingerprint(false);
         setShowBackupOption(false); // Reset to 2FA mode
         showInfo(
-          "✓ PIN verified! Please enter your 2FA code from your authenticator app",
+          response.data.needsUSBKey
+            ? "PIN verified! Enter 2FA code or choose USB key option."
+            : "✓ PIN verified! Please enter your 2FA code from your authenticator app",
         );
         setPin(["", "", "", "", "", ""]);
         return;
@@ -657,13 +834,15 @@ const Login = ({ settings }) => {
                 onSubmit={
                   needsFingerprint
                     ? handleFingerprintSubmit
-                    : needs2FA
-                      ? handle2FASubmit
-                      : handleSubmit
+                    : needsUsbKey
+                      ? handleUsbKeySubmit
+                      : needs2FA
+                        ? handle2FASubmit
+                        : handleSubmit
                 }
                 className="flex-grow-1"
               >
-                {!needs2FA && !needsFingerprint ? (
+                {!needs2FA && !needsFingerprint && !needsUsbKey ? (
                   <>
                     {/* Mobile Number Field */}
                     <div className="mb-4">
@@ -882,7 +1061,7 @@ const Login = ({ settings }) => {
                       )}
                     </button>
 
-                    <div className="d-flex justify-content-between mt-3">
+                    <div className="d-flex justify-content-between mt-3 flex-wrap gap-2">
                       {pendingLoginData?.requires2FA && (
                         <button
                           type="button"
@@ -895,16 +1074,157 @@ const Login = ({ settings }) => {
                         </button>
                       )}
 
+                      {pendingLoginData?.requiresUSBKey && (
+                        <button
+                          type="button"
+                          onClick={switchFromFingerprintToUsbKey}
+                          className="btn btn-link text-decoration-none p-0 fw-bold"
+                          style={{ color: "#007026" }}
+                        >
+                          <i className="fa-brands fa-usb me-2"></i>
+                          Login using USB Key
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => {
                           setNeedsFingerprint(false);
+                          setNeedsUsbKey(false);
                           setPendingLoginData(null);
                           setFingerprintError("");
+                          setUsbKeyError("");
+                          setSelectedUsbFile(null);
                           setPin(["", "", "", "", "", ""]);
                           setErrors({});
                         }}
-                        className="btn btn-link text-muted p-0 fw-bold"
+                        className="btn btn-link p-0 fw-bold"
+                        style={{ color: "#c17c00" }}
+                      >
+                        <i className="fas fa-arrow-left me-2"></i>
+                        Back to Login
+                      </button>
+                    </div>
+                  </>
+                ) : needsUsbKey ? (
+                  <>
+                    <div className="mb-4 text-center">
+                      <h4 className="fw-semibold mb-2">
+                        Verify USB Security Key
+                      </h4>
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="card bg-light">
+                        <div
+                          className="card-body text-center py-3"
+                          style={{ border: "2px dashed #007026" }}
+                        >
+                          <i
+                            className="fa-brands fa-usb fs-1 mb-3"
+                            style={{ color: "#007026" }}
+                          ></i>
+                          <input
+                            ref={usbFileInputRef}
+                            type="file"
+                            accept=".sec,.txt,application/octet-stream"
+                            className="form-control"
+                            onChange={(event) => {
+                              const selectedFile =
+                                event.target.files?.[0] || null;
+                              setSelectedUsbFile(selectedFile);
+                              setUsbKeyError("");
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {selectedUsbFile && (
+                        <div className="small text-success mt-2 text-center">
+                          <i className="fas fa-check-circle me-1"></i>
+                          Selected: {selectedUsbFile.name}
+                        </div>
+                      )}
+
+                      {usbKeyError && (
+                        <div className="error-message mt-2 text-center">
+                          <i className="fas fa-exclamation-circle me-1"></i>
+                          {usbKeyError}
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isVerifyingUsbKey}
+                      className="btn btn-lg w-100 py-2 rounded-3 fw-semibold text-white position-relative overflow-hidden"
+                      style={{
+                        background: "var(--header-gradient)",
+                        border: "none",
+                        opacity: isVerifyingUsbKey ? 0.8 : 1,
+                        transition: "all 0.3s ease",
+                      }}
+                    >
+                      {isVerifyingUsbKey ? (
+                        <div className="d-flex align-items-center justify-content-center gap-3">
+                          <div
+                            className="spinner-border spinner-border-sm"
+                            role="status"
+                          ></div>
+                          <span>Verifying USB key...</span>
+                        </div>
+                      ) : (
+                        <div className="d-flex align-items-center justify-content-center gap-3">
+                          <i className="fa-brands fa-usb"></i>
+                          <span>Verify USB Key</span>
+                        </div>
+                      )}
+                    </button>
+
+                    <div className="d-flex justify-content-between mt-3 flex-wrap gap-2">
+                      {pendingLoginData?.requiresFingerprint &&
+                        pendingLoginData?.canUseFingerprint && (
+                          <button
+                            type="button"
+                            onClick={switchFromUsbKeyToFingerprint}
+                            className="btn btn-link text-decoration-none p-0 fw-bold"
+                            style={{ color: "#007026" }}
+                          >
+                            <i className="fas fa-fingerprint me-1"></i>
+                            Login using Fingerprint
+                          </button>
+                        )}
+
+                      {pendingLoginData?.requires2FA && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNeedsUsbKey(false);
+                            setNeeds2FA(true);
+                            setShowBackupOption(false);
+                            setUsbKeyError("");
+                            setErrors({});
+                          }}
+                          className="btn btn-link text-decoration-none p-0 fw-bold"
+                          style={{ color: "var(--primary-color)" }}
+                        >
+                          <i className="fas fa-shield-alt me-1"></i>
+                          Login using 2 Factor
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNeedsUsbKey(false);
+                          setPendingLoginData(null);
+                          setUsbKeyError("");
+                          setSelectedUsbFile(null);
+                          setPin(["", "", "", "", "", ""]);
+                          setErrors({});
+                        }}
+                        className="btn btn-link p-0 fw-bold"
+                        style={{ color: "#c17c00" }}
                       >
                         <i className="fas fa-arrow-left me-2"></i>
                         Back to Login
@@ -1010,20 +1330,37 @@ const Login = ({ settings }) => {
                         </span>
 
                         {/* Try Other Option Link */}
-                        <button
-                          type="button"
-                          onClick={toggleBackupOption}
-                          className="btn btn-link p-0 text-decoration-none"
-                          style={{
-                            color: "var(--primary-color)",
-                            fontSize: "0.875rem",
-                          }}
-                        >
-                          <i className="fas fa-exchange-alt me-1"></i>
-                          {showBackupOption
-                            ? "Try 2FA Code"
-                            : "Try Other Option"}
-                        </button>
+                        <div className="d-flex align-items-center gap-3 flex-wrap justify-content-end">
+                          <button
+                            type="button"
+                            onClick={toggleBackupOption}
+                            className="btn btn-link p-0 text-decoration-none"
+                            style={{
+                              color: "var(--primary-color)",
+                              fontSize: "0.875rem",
+                            }}
+                          >
+                            <i className="fas fa-exchange-alt me-1"></i>
+                            {showBackupOption
+                              ? "Try 2FA Code"
+                              : "Try Other Option"}
+                          </button>
+
+                          {pendingLoginData?.requiresUSBKey && (
+                            <button
+                              type="button"
+                              onClick={switchToUsbKeyFrom2FA}
+                              className="btn btn-link p-0 text-decoration-none"
+                              style={{
+                                color: "#c17c00",
+                                fontSize: "0.875rem",
+                              }}
+                            >
+                              <i className="fa-brands fa-usb me-1"></i>
+                              Use USB Key
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {!showBackupOption && errors.twoFACode && (
@@ -1075,15 +1412,19 @@ const Login = ({ settings }) => {
                       onClick={() => {
                         setNeeds2FA(false);
                         setNeedsFingerprint(false);
+                        setNeedsUsbKey(false);
                         setTempToken(null);
                         setPendingLoginData(null);
                         setTwoFACode(["", "", "", "", "", ""]);
                         setBackupCode(["", "", "", "", "", "", "", ""]);
                         setShowBackupOption(false);
                         setFingerprintError("");
+                        setUsbKeyError("");
+                        setSelectedUsbFile(null);
                         setErrors({});
                       }}
-                      className="btn btn-link w-100 mt-3 text-muted"
+                      className="btn btn-link w-100 mt-3"
+                      style={{ color: "#c17c00" }}
                     >
                       <i className="fas fa-arrow-left me-2"></i>
                       Back to Login
