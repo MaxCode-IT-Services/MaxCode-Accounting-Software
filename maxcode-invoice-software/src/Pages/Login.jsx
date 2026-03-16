@@ -225,6 +225,7 @@ const Login = ({ settings }) => {
       await verifyDeviceBiometric({
         phone: pendingLoginData.phone,
         credentialId: localBiometric?.credentialId,
+        credentialIds: localBiometric?.credentialIds,
       });
 
       if (pendingLoginData.requires2FA) {
@@ -378,17 +379,28 @@ const Login = ({ settings }) => {
 
       if (fingerprintLoginEnabled) {
         let localBiometric = getStoredBiometricConfig(mobile);
+        const backendCredentialIds = [
+          ...(Array.isArray(response?.data?.biometricCredentialIds)
+            ? response.data.biometricCredentialIds
+            : []),
+          ...(response?.data?.biometricCredentialId
+            ? [response.data.biometricCredentialId]
+            : []),
+        ].filter(Boolean);
 
         // If not in localStorage but backend has credentialId, sync it
         if (
           !localBiometric?.credentialId &&
-          response?.data?.biometricCredentialId
+          (!Array.isArray(localBiometric?.credentialIds) ||
+            localBiometric.credentialIds.length === 0) &&
+          backendCredentialIds.length > 0
         ) {
           const stored = JSON.parse(
             localStorage.getItem("maxcode_biometric_credentials") || "{}",
           );
           stored[mobile] = {
-            credentialId: response.data.biometricCredentialId,
+            credentialId: backendCredentialIds[0],
+            credentialIds: [...new Set(backendCredentialIds)],
             enabled: true,
             updatedAt: new Date().toISOString(),
           };
@@ -399,7 +411,12 @@ const Login = ({ settings }) => {
           localBiometric = stored[mobile];
         }
 
-        if (!localBiometric?.credentialId) {
+        const hasBiometricCredential =
+          Boolean(localBiometric?.credentialId) ||
+          (Array.isArray(localBiometric?.credentialIds) &&
+            localBiometric.credentialIds.length > 0);
+
+        if (!hasBiometricCredential) {
           if (response.data.needs2FA && response.data.tempToken) {
             setTempToken(response.data.tempToken);
             setNeeds2FA(true);

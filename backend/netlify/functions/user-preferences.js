@@ -29,6 +29,18 @@ export async function handler(event) {
     const usersCollection = db.collection("users");
     const userObjectId = ObjectId.isValid(userId) ? new ObjectId(userId) : null;
 
+    const normalizeCredentialIds = (ids = [], singleId = "") => {
+      const merged = Array.isArray(ids) ? [...ids] : [];
+
+      if (typeof singleId === "string" && singleId.trim()) {
+        merged.unshift(singleId.trim());
+      }
+
+      return [
+        ...new Set(merged.filter((id) => typeof id === "string" && id.trim())),
+      ];
+    };
+
     const preferenceFields = [
       "clientManagementServerSide",
       "ownerInvestmentServerSide",
@@ -56,6 +68,7 @@ export async function handler(event) {
     const stringPreferenceFields = ["biometricCredentialId"];
     const userBooleanFields = ["fingerprintLoginEnabled"];
     const userStringFields = ["biometricCredentialId"];
+    const userStringArrayFields = ["biometricCredentialIds"];
 
     const mergePreferenceValues = (document = {}) => {
       const merged = {};
@@ -78,6 +91,13 @@ export async function handler(event) {
         }
       });
 
+      if (Array.isArray(document?.biometricCredentialIds)) {
+        merged.biometricCredentialIds = normalizeCredentialIds(
+          document.biometricCredentialIds,
+          document?.biometricCredentialId,
+        );
+      }
+
       return merged;
     };
 
@@ -91,6 +111,7 @@ export async function handler(event) {
               projection: {
                 fingerprintLoginEnabled: 1,
                 biometricCredentialId: 1,
+                biometricCredentialIds: 1,
               },
             },
           )
@@ -106,6 +127,18 @@ export async function handler(event) {
 
       if (typeof userDoc?.biometricCredentialId === "string") {
         mergedPreferences.biometricCredentialId = userDoc.biometricCredentialId;
+      }
+
+      if (Array.isArray(userDoc?.biometricCredentialIds)) {
+        mergedPreferences.biometricCredentialIds = normalizeCredentialIds(
+          userDoc.biometricCredentialIds,
+          userDoc?.biometricCredentialId,
+        );
+      } else if (typeof userDoc?.biometricCredentialId === "string") {
+        mergedPreferences.biometricCredentialIds = normalizeCredentialIds(
+          [],
+          userDoc.biometricCredentialId,
+        );
       }
 
       return createResponse(200, mergedPreferences, origin);
@@ -128,6 +161,22 @@ export async function handler(event) {
             return;
           }
           userUpdateFields[key] = value ?? "";
+        } else if (userStringArrayFields.includes(key)) {
+          if (value !== null && !Array.isArray(value)) {
+            invalidField = key;
+            return;
+          }
+
+          const normalized = value
+            ? value.filter((id) => typeof id === "string" && id.trim())
+            : [];
+
+          if (value && normalized.length !== value.length) {
+            invalidField = key;
+            return;
+          }
+
+          userUpdateFields[key] = normalized;
         } else if (userBooleanFields.includes(key)) {
           if (typeof value !== "boolean") {
             invalidField = key;
@@ -207,6 +256,74 @@ export async function handler(event) {
         if (!userObjectId) {
           return createResponse(400, { error: "Invalid user id" }, origin);
         }
+
+        if (
+          Object.prototype.hasOwnProperty.call(
+            userUpdateFields,
+            "biometricCredentialId",
+          ) ||
+          Object.prototype.hasOwnProperty.call(
+            userUpdateFields,
+            "biometricCredentialIds",
+          )
+        ) {
+          const currentUserDoc = await usersCollection.findOne(
+            { _id: userObjectId },
+            {
+              projection: {
+                biometricCredentialId: 1,
+                biometricCredentialIds: 1,
+              },
+            },
+          );
+
+          let nextCredentialIds = normalizeCredentialIds(
+            currentUserDoc?.biometricCredentialIds,
+            currentUserDoc?.biometricCredentialId,
+          );
+
+          if (
+            Object.prototype.hasOwnProperty.call(
+              userUpdateFields,
+              "biometricCredentialIds",
+            )
+          ) {
+            nextCredentialIds = normalizeCredentialIds(
+              userUpdateFields.biometricCredentialIds,
+              "",
+            );
+          }
+
+          if (
+            Object.prototype.hasOwnProperty.call(
+              userUpdateFields,
+              "biometricCredentialId",
+            )
+          ) {
+            const incomingSingleId = userUpdateFields.biometricCredentialId;
+
+            if (
+              typeof incomingSingleId === "string" &&
+              incomingSingleId.trim()
+            ) {
+              nextCredentialIds = normalizeCredentialIds(
+                nextCredentialIds,
+                incomingSingleId,
+              );
+            } else if (
+              !Object.prototype.hasOwnProperty.call(
+                userUpdateFields,
+                "biometricCredentialIds",
+              )
+            ) {
+              nextCredentialIds = [];
+            }
+          }
+
+          userUpdateFields.biometricCredentialIds = nextCredentialIds;
+          userUpdateFields.biometricCredentialId = nextCredentialIds[0] || "";
+        }
+
         await usersCollection.updateOne(
           { _id: userObjectId },
           {

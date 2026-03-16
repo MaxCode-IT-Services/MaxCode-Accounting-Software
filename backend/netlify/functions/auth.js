@@ -39,6 +39,18 @@ const getTokenExpiryConfig = (user = {}) => {
   };
 };
 
+const normalizeCredentialIds = (ids = [], singleId = null) => {
+  const merged = Array.isArray(ids) ? [...ids] : [];
+
+  if (typeof singleId === "string" && singleId.trim()) {
+    merged.unshift(singleId.trim());
+  }
+
+  return [
+    ...new Set(merged.filter((id) => typeof id === "string" && id.trim())),
+  ];
+};
+
 /**
  * Authentication API
  * Handles login, register, logout, and password/pin changes
@@ -215,12 +227,16 @@ export async function handler(event) {
         await resetLoginRateLimit(ip);
 
         let fingerprintLoginEnabled = user?.fingerprintLoginEnabled === true;
-        let biometricCredentialId = user?.biometricCredentialId || null;
+        let biometricCredentialIds = normalizeCredentialIds(
+          user?.biometricCredentialIds,
+          user?.biometricCredentialId,
+        );
+        let biometricCredentialId = biometricCredentialIds[0] || null;
 
         // Backward compatibility: fallback to legacy userPreferences document.
         if (
           user?.fingerprintLoginEnabled === undefined ||
-          !user?.biometricCredentialId
+          biometricCredentialIds.length === 0
         ) {
           const legacyPreferences = await preferencesCollection.findOne({
             userId: user._id.toString(),
@@ -231,9 +247,13 @@ export async function handler(event) {
               legacyPreferences?.fingerprintLoginEnabled === true;
           }
 
-          if (!user?.biometricCredentialId) {
+          if (biometricCredentialIds.length === 0) {
+            biometricCredentialIds = normalizeCredentialIds(
+              legacyPreferences?.biometricCredentialIds,
+              legacyPreferences?.biometricCredentialId,
+            );
             biometricCredentialId =
-              legacyPreferences?.biometricCredentialId || biometricCredentialId;
+              biometricCredentialIds[0] || biometricCredentialId;
           }
         }
 
@@ -258,6 +278,7 @@ export async function handler(event) {
               tempToken,
               fingerprintLoginEnabled,
               biometricCredentialId,
+              biometricCredentialIds,
             },
             origin,
           );
@@ -289,6 +310,7 @@ export async function handler(event) {
             message: "Welcome back! Login successful",
             fingerprintLoginEnabled,
             biometricCredentialId,
+            biometricCredentialIds,
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
           },
           origin,
@@ -451,19 +473,44 @@ export async function handler(event) {
         }
 
         let isFingerprintEnabled = user?.fingerprintLoginEnabled === true;
+        let biometricCredentialIds = normalizeCredentialIds(
+          user?.biometricCredentialIds,
+          user?.biometricCredentialId,
+        );
 
-        if (user?.fingerprintLoginEnabled === undefined) {
+        if (
+          user?.fingerprintLoginEnabled === undefined ||
+          biometricCredentialIds.length === 0
+        ) {
           const legacyPreferences = await preferencesCollection.findOne({
             userId: user._id.toString(),
           });
-          isFingerprintEnabled =
-            legacyPreferences?.fingerprintLoginEnabled === true;
+
+          if (user?.fingerprintLoginEnabled === undefined) {
+            isFingerprintEnabled =
+              legacyPreferences?.fingerprintLoginEnabled === true;
+          }
+
+          if (biometricCredentialIds.length === 0) {
+            biometricCredentialIds = normalizeCredentialIds(
+              legacyPreferences?.biometricCredentialIds,
+              legacyPreferences?.biometricCredentialId,
+            );
+          }
         }
 
         if (!isFingerprintEnabled) {
           return createResponse(
             403,
             { error: "Fingerprint login is not enabled for this account" },
+            origin,
+          );
+        }
+
+        if (biometricCredentialIds.length === 0) {
+          return createResponse(
+            403,
+            { error: "No fingerprint credential registered for this account" },
             origin,
           );
         }

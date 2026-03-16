@@ -656,9 +656,16 @@ const Settings = () => {
         });
 
         // Save credentialId to backend so all devices can use it
+        const credentialIds = Array.isArray(biometricResult?.credentialIds)
+          ? biometricResult.credentialIds
+          : biometricResult?.credentialId
+            ? [biometricResult.credentialId]
+            : [];
+
         await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
           fingerprintLoginEnabled: true,
           biometricCredentialId: biometricResult?.credentialId || "",
+          biometricCredentialIds: credentialIds,
         });
       } else {
         removeStoredBiometricConfig(phone);
@@ -666,6 +673,7 @@ const Settings = () => {
         await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
           fingerprintLoginEnabled: false,
           biometricCredentialId: "",
+          biometricCredentialIds: [],
         });
       }
 

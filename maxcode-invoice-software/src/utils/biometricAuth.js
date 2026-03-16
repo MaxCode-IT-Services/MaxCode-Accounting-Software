@@ -46,6 +46,29 @@ const writeStoredCredentials = (data) => {
   localStorage.setItem(BIOMETRIC_STORAGE_KEY, JSON.stringify(data));
 };
 
+const normalizeCredentialIds = (
+  config = {},
+  explicitIds = [],
+  explicitId = "",
+) => {
+  const merged = [
+    ...(Array.isArray(explicitIds) ? explicitIds : []),
+    ...(Array.isArray(config?.credentialIds) ? config.credentialIds : []),
+  ];
+
+  if (typeof explicitId === "string" && explicitId.trim()) {
+    merged.unshift(explicitId.trim());
+  }
+
+  if (typeof config?.credentialId === "string" && config.credentialId.trim()) {
+    merged.unshift(config.credentialId.trim());
+  }
+
+  return [
+    ...new Set(merged.filter((id) => typeof id === "string" && id.trim())),
+  ];
+};
+
 export const isBiometricSupported = () => {
   return (
     typeof window !== "undefined" &&
@@ -119,9 +142,16 @@ export const registerBiometricForDevice = async ({
 
   const credentialId = toBase64Url(credential.rawId);
   const credentials = readStoredCredentials();
+  const existing = credentials[phone] || {};
+  const credentialIds = normalizeCredentialIds(
+    existing,
+    [credentialId],
+    credentialId,
+  );
 
   credentials[phone] = {
-    credentialId,
+    credentialId: credentialIds[0],
+    credentialIds,
     enabled: true,
     updatedAt: new Date().toISOString(),
   };
@@ -131,7 +161,11 @@ export const registerBiometricForDevice = async ({
   return credentials[phone];
 };
 
-export const verifyDeviceBiometric = async ({ phone, credentialId }) => {
+export const verifyDeviceBiometric = async ({
+  phone,
+  credentialId,
+  credentialIds,
+}) => {
   if (!isBiometricSupported()) {
     throw new Error(
       "Fingerprint authentication is not supported on this device",
@@ -139,9 +173,13 @@ export const verifyDeviceBiometric = async ({ phone, credentialId }) => {
   }
 
   const storedConfig = getStoredBiometricConfig(phone);
-  const resolvedCredentialId = credentialId || storedConfig?.credentialId;
+  const resolvedCredentialIds = normalizeCredentialIds(
+    storedConfig,
+    credentialIds,
+    credentialId,
+  );
 
-  if (!resolvedCredentialId) {
+  if (resolvedCredentialIds.length === 0) {
     throw new Error("No fingerprint setup found for this device");
   }
 
@@ -149,13 +187,11 @@ export const verifyDeviceBiometric = async ({ phone, credentialId }) => {
     publicKey: {
       challenge: randomChallenge(32),
       rpId: window.location.hostname,
-      allowCredentials: [
-        {
-          id: fromBase64Url(resolvedCredentialId),
-          type: "public-key",
-          transports: PASSKEY_TRANSPORTS,
-        },
-      ],
+      allowCredentials: resolvedCredentialIds.map((id) => ({
+        id: fromBase64Url(id),
+        type: "public-key",
+        transports: PASSKEY_TRANSPORTS,
+      })),
       timeout: 60000,
       userVerification: "required",
       hints: ["client-device", "hybrid"],
