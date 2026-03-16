@@ -48,7 +48,8 @@ const modules = [
   {
     icon: "fas fa-balance-scale",
     title: "Ledger Control",
-    description: "Ledger, detailed ledger aur audit-ready transaction history.",
+    description:
+      "Ledger, books of accounts aur audit-ready transaction history.",
   },
   {
     icon: "fas fa-receipt",
@@ -107,7 +108,7 @@ const moduleList = [
   "Project Management",
   "RCM Management",
   "Ledger Management",
-  "Detailed Ledger",
+  "Books of Accounts",
   "Balance Sheet",
   "Financial Year Management",
   "Business Settings",

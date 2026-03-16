@@ -169,9 +169,9 @@ const API_ENDPOINTS = {
     UPDATE: "/user-preferences",
   },
 
-  DETAILED_LEDGER: {
-    LIST: "/detailed-ledger",
-    STATISTICS: "/detailed-ledger/statistics",
+  BOOKS_OF_ACCOUNTS: {
+    LIST: "/books-of-accounts",
+    STATISTICS: "/books-of-accounts/statistics",
   },
 
   // Owner Investments endpoints

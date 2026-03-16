@@ -32,6 +32,7 @@ export async function handler(event) {
       "personalFundManagementServerSide",
       "qutationManagementServerSide",
       "companyExpenseManagementServerSide",
+      "booksOfAccountsServerSide",
       "detailedLedgerManagementServerSide",
       "developerPayoutManagementServerSide",
       "financialYearManagementServerSide",

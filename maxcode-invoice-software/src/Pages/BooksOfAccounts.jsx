@@ -9,11 +9,11 @@ import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiGet, apiPost } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
-const DetailedLedgerManagement = () => {
-  const moduleKey = "detailedLedgerManagement";
+const BooksOfAccounts = () => {
+  const moduleKey = "booksOfAccounts";
 
   useEffect(() => {
-    document.title = "Detailed Ledger | MaxCode IT Services";
+    document.title = "Books of Accounts | MaxCode IT Services";
   }, []);
 
   // Server-side mode state, fetched from backend user preferences
@@ -25,8 +25,11 @@ const DetailedLedgerManagement = () => {
     const fetchPreference = async () => {
       try {
         const res = await apiGet("/user-preferences");
-        if (typeof res.data?.detailedLedgerManagementServerSide === "boolean") {
-          setServerSide(res.data.detailedLedgerManagementServerSide);
+        const prefValue =
+          res.data?.booksOfAccountsServerSide ??
+          res.data?.detailedLedgerManagementServerSide;
+        if (typeof prefValue === "boolean") {
+          setServerSide(prefValue);
         }
       } catch (e) {
         // fallback: do nothing, keep default
@@ -43,6 +46,7 @@ const DetailedLedgerManagement = () => {
     const savePreference = async () => {
       try {
         await apiPost("/user-preferences", {
+          booksOfAccountsServerSide: serverSide,
           detailedLedgerManagementServerSide: serverSide,
         });
       } catch (e) {
@@ -366,8 +370,8 @@ const DetailedLedgerManagement = () => {
       if (err.name === "CanceledError" || err.name === "AbortError") {
         return;
       }
-      console.error("Failed to fetch detailed ledger data:", err);
-      showError("Failed to fetch detailed ledger data");
+      console.error("Failed to fetch books of accounts data:", err);
+      showError("Failed to fetch books of accounts data");
     } finally {
       setLoading(false);
     }
@@ -376,7 +380,7 @@ const DetailedLedgerManagement = () => {
   // Server-side data fetching
   const fetchServerSideLedgerData = async (signal) => {
     try {
-      let url = API_ENDPOINTS.DETAILED_LEDGER.LIST;
+      let url = API_ENDPOINTS.BOOKS_OF_ACCOUNTS.LIST;
       const params = new URLSearchParams();
 
       // Add pagination params
@@ -598,7 +602,7 @@ const DetailedLedgerManagement = () => {
         projectsResult.status === "rejected"
       ) {
         showInfo(
-          "Some detailed ledger data could not be loaded. Please refresh.",
+          "Some books of accounts data could not be loaded. Please refresh.",
         );
       }
     } catch (err) {
@@ -1255,7 +1259,7 @@ const DetailedLedgerManagement = () => {
     // Reset to first page
     setCurrentPage(1);
     await fetchAllData();
-    showInfo("Detailed ledger refreshed!");
+    showInfo("Books of accounts refreshed!");
   };
 
   // Server-side handlers
@@ -1363,7 +1367,7 @@ const DetailedLedgerManagement = () => {
       >
         {/* Left Side - Heading */}
         <div className="flex-grow-1">
-          <h4 className="fs-18 fw-semibold m-0">Detailed Ledger Register</h4>
+          <h4 className="fs-18 fw-semibold m-0">Books of Accounts Register</h4>
           <small className="text-muted">
             Combined Sales, Purchase, Company Expense, RCM and Developer payout
             ledger records
@@ -1469,15 +1473,15 @@ const DetailedLedgerManagement = () => {
         columnsWithDropdownFilter={columnsWithDropdownFilter}
         columnsWithDateFilter={columnsWithDateFilter}
         filterOptions={getFilterOptions()}
-        tableTitle="Detailed Ledger"
+        tableTitle="Books of Accounts"
         showColumnSelector={true}
         showExport={true}
         showRefresh={true}
         showAdvancedFilter={true}
         showSearch={true}
         onRefresh={handleRefresh}
-        exportFileName="Detailed_Ledger"
-        exportTitle="Detailed Ledger Report"
+        exportFileName="Books_Of_Accounts"
+        exportTitle="Books of Accounts Report"
         serverSide={serverSide}
         onServerSideSearch={handleServerSideSearch}
         onServerSideFilter={handleServerSideFilter}
@@ -1489,7 +1493,7 @@ const DetailedLedgerManagement = () => {
         onPageChange={setCurrentPage}
         onRecordsPerPageChange={setRecordsPerPage}
         onColumnFilterChange={handleDebouncedColumnFilterChange}
-        exportApi={API_ENDPOINTS.DETAILED_LEDGER?.LIST}
+        exportApi={API_ENDPOINTS.BOOKS_OF_ACCOUNTS?.LIST}
         getBadgeClass={(value) => {
           if (value === "Paid") return "bg-success";
           if (value === "Unpaid") return "bg-danger";
@@ -1501,4 +1505,4 @@ const DetailedLedgerManagement = () => {
   );
 };
 
-export default DetailedLedgerManagement;
+export default BooksOfAccounts;

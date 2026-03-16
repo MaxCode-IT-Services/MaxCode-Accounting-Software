@@ -372,10 +372,10 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "ledgerManagement",
     },
     {
-      to: "/admin/detailed-ledger-management",
+      to: "/admin/books-of-accounts",
       icon: "fa-solid fa-table-list",
-      label: "Detailed Ledger",
-      permissionKey: "detailedLedgerManagement",
+      label: "Books of Accounts",
+      permissionKey: "booksOfAccounts",
     },
     {
       to: "/admin/balance-sheet",
@@ -415,7 +415,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     },
     {
       to: "/admin/owner-investment",
-      icon: "fa-solid fa-piggy-bank",
+      icon: "fa-solid fa-sack-dollar",
       label: "Owner Investment",
       permissionKey: "ownerInvestment",
     },

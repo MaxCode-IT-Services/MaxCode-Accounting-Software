@@ -3,7 +3,7 @@ import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
 /**
- * Detailed Ledger API
+ * Books of Accounts API
  * Provides combined ledger data from multiple collections with pagination
  * Requires JWT authentication
  */
@@ -642,7 +642,7 @@ export async function handler(event) {
 
     return createResponse(405, { error: "Method not allowed" }, origin);
   } catch (error) {
-    console.error("Detailed Ledger API Error:", error);
+    console.error("Books of Accounts API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
       return createResponse(

@@ -495,9 +495,9 @@ const Dashboard = () => {
       route: "/admin/ledger-management",
     },
     {
-      label: "Detailed Ledger",
+      label: "Books of Accounts",
       icon: "fa-solid fa-table-list",
-      route: "/admin/detailed-ledger-management",
+      route: "/admin/books-of-accounts",
     },
     {
       label: "Balance Sheet",

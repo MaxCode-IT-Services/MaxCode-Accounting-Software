@@ -66,11 +66,11 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
-    key: "detailedLedgerManagement",
-    label: "Detailed Ledger",
-    description: "Detailed ledger access",
+    key: "booksOfAccounts",
+    label: "Books of Accounts",
+    description: "Journal-style detailed books and accounting register",
     icon: "fa-solid fa-table-list",
-    route: "/admin/detailed-ledger-management",
+    route: "/admin/books-of-accounts",
     detailed: true,
   },
   {
@@ -125,7 +125,7 @@ export const PERMISSION_MODULES = [
     key: "ownerInvestment",
     label: "Owner Investment",
     description: "Track owner capital or investment added to business",
-    icon: "fa-solid fa-piggy-bank",
+    icon: "fa-solid fa-sack-dollar",
     route: "/admin/owner-investment",
     detailed: true,
   },
@@ -258,6 +258,18 @@ export const getDefaultDashboardRoute = (userInfo = null) => {
   return `${getRoleRoutePrefix(userInfo)}/dashboard`;
 };
 
+const PERMISSION_KEY_ALIASES = {
+  booksOfAccounts: ["booksOfAccounts", "detailedLedgerManagement"],
+};
+
+const getPermissionAliasKeys = (moduleKey) => {
+  if (PERMISSION_KEY_ALIASES[moduleKey]) {
+    return PERMISSION_KEY_ALIASES[moduleKey];
+  }
+
+  return [moduleKey];
+};
+
 export const getFirstAllowedRoute = (userInfo = null) => {
   const resolvedUser = userInfo || getStoredUserInfo();
 
@@ -292,7 +304,9 @@ export const hasModuleAccess = (moduleKey, userInfo = null) => {
   if (!isTeamMember) return true;
 
   const permissions = resolvedUser.permissions || {};
-  return permissions[moduleKey]?.active === true;
+  const candidateKeys = getPermissionAliasKeys(moduleKey);
+
+  return candidateKeys.some((key) => permissions[key]?.active === true);
 };
 
 export const hasActionPermission = (moduleKey, action, userInfo = null) => {
@@ -304,7 +318,12 @@ export const hasActionPermission = (moduleKey, action, userInfo = null) => {
   if (!isTeamMember) return true;
 
   const permissions = resolvedUser.permissions || {};
-  const modulePermission = permissions[moduleKey];
+  const candidateKeys = getPermissionAliasKeys(moduleKey);
+  const modulePermission =
+    candidateKeys
+      .map((key) => permissions[key])
+      .find((permission) => permission?.active === true) ||
+    permissions[moduleKey];
 
   if (!modulePermission?.active) return false;
   if (!modulePermission.pages) return action === "read";

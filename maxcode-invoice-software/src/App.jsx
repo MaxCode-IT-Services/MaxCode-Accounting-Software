@@ -44,9 +44,7 @@ const ProjectCredentials = lazy(
 );
 const RcmManagement = lazy(() => import("../src/Pages/RcmManagement"));
 const LedgerManagement = lazy(() => import("../src/Pages/LedgerManagement"));
-const DetailedLedgerManagement = lazy(
-  () => import("../src/Pages/DetailedLedgerManagement"),
-);
+const BooksOfAccounts = lazy(() => import("../src/Pages/BooksOfAccounts"));
 const DeveloperPayoutManagement = lazy(
   () => import("../src/Pages/DeveloperPayoutManagement"),
 );
@@ -343,11 +341,11 @@ const dashboardChildRoutes = (
     />
 
     <Route
-      path="detailed-ledger-management"
+      path="books-of-accounts"
       element={
-        <PermissionRoute moduleKey="detailedLedgerManagement">
+        <PermissionRoute moduleKey="booksOfAccounts">
           <Suspense fallback={<Loading />}>
-            <DetailedLedgerManagement />
+            <BooksOfAccounts />
           </Suspense>
         </PermissionRoute>
       }
