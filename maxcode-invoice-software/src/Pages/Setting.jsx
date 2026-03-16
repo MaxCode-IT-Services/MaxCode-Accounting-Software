@@ -9,6 +9,12 @@ import ConfirmationModal from "../Components/ConfirmationModal";
 import { apiGet, apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { serialize, deserialize } from "bson";
+import {
+  getStoredBiometricConfig,
+  isBiometricSupported,
+  registerBiometricForDevice,
+  removeStoredBiometricConfig,
+} from "../utils/biometricAuth";
 
 const Settings = () => {
   useEffect(() => {
@@ -67,6 +73,12 @@ const Settings = () => {
   const [is2FALoading, setIs2FALoading] = useState(false);
   const [show2FAVerification, setShow2FAVerification] = useState(false);
   const [disable2FACode, setDisable2FACode] = useState("");
+  const [biometricLogin, setBiometricLogin] = useState({
+    enabled: false,
+    supported: false,
+    hasCredential: false,
+  });
+  const [isBiometricLoading, setIsBiometricLoading] = useState(false);
 
   // Business Details State
   const [businessSettings, setBusinessSettings] = useState({
@@ -218,7 +230,19 @@ const Settings = () => {
     loadBusinessSettings();
     loadGoogleDriveConfig();
     load2FAStatus();
+    loadBiometricLoginStatus();
   }, []);
+
+  const resolveCurrentUserPhone = () => {
+    if (formData?.phone) return String(formData.phone);
+
+    try {
+      const cached = JSON.parse(localStorage.getItem("user_info") || "{}");
+      return String(cached?.phone || cached?.mobile || "");
+    } catch {
+      return "";
+    }
+  };
 
   const load2FAStatus = async () => {
     try {
@@ -231,6 +255,37 @@ const Settings = () => {
     } catch (error) {
       console.error("Failed to load 2FA status:", error);
       setTwoFAData((prev) => ({ ...prev, enabled: false }));
+    }
+  };
+
+  const loadBiometricLoginStatus = async () => {
+    const phone = resolveCurrentUserPhone();
+    const localCredential = getStoredBiometricConfig(phone);
+
+    setBiometricLogin((prev) => ({
+      ...prev,
+      supported: isBiometricSupported(),
+      hasCredential: Boolean(localCredential?.credentialId),
+    }));
+
+    try {
+      const response = await apiGet(API_ENDPOINTS.USER_PREFERENCES.GET);
+      const enabled = response?.data?.fingerprintLoginEnabled === true;
+
+      setBiometricLogin((prev) => ({
+        ...prev,
+        enabled,
+        supported: isBiometricSupported(),
+        hasCredential: Boolean(localCredential?.credentialId),
+      }));
+    } catch {
+      // Keep local state as fallback when preference API is unavailable
+      setBiometricLogin((prev) => ({
+        ...prev,
+        enabled: false,
+        supported: isBiometricSupported(),
+        hasCredential: Boolean(localCredential?.credentialId),
+      }));
     }
   };
 
@@ -326,6 +381,12 @@ const Settings = () => {
       console.error("Error loading profile settings:", error);
     }
   };
+
+  useEffect(() => {
+    if (formData?.phone) {
+      loadBiometricLoginStatus();
+    }
+  }, [formData?.phone]);
 
   // Toggle password visibility for PIN fields
   const togglePasswordVisibility = (field) => {
@@ -560,6 +621,80 @@ const Settings = () => {
       );
     } finally {
       setIs2FALoading(false);
+    }
+  };
+
+  const handleBiometricToggle = async (enabled) => {
+    const phone = resolveCurrentUserPhone();
+
+    if (!phone) {
+      showError(
+        "Please add your mobile number in profile before enabling fingerprint login",
+      );
+      return;
+    }
+
+    if (enabled && !isBiometricSupported()) {
+      showError(
+        "Fingerprint authentication is not supported on this device/browser",
+      );
+      return;
+    }
+
+    setIsBiometricLoading(true);
+
+    try {
+      if (enabled) {
+        const cachedUser = JSON.parse(
+          localStorage.getItem("user_info") || "{}",
+        );
+
+        const biometricResult = await registerBiometricForDevice({
+          phone,
+          userId: cachedUser?.id || cachedUser?._id || cachedUser?.userId,
+          displayName: cachedUser?.name || formData?.name || phone,
+        });
+
+        // Save credentialId to backend so all devices can use it
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          fingerprintLoginEnabled: true,
+          biometricCredentialId: biometricResult?.credentialId || "",
+        });
+      } else {
+        removeStoredBiometricConfig(phone);
+
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          fingerprintLoginEnabled: false,
+          biometricCredentialId: "",
+        });
+      }
+
+      const localCredential = getStoredBiometricConfig(phone);
+
+      setBiometricLogin((prev) => ({
+        ...prev,
+        enabled,
+        hasCredential: Boolean(localCredential?.credentialId),
+        supported: isBiometricSupported(),
+      }));
+
+      if (enabled) {
+        showSuccess("Fingerprint login enabled for this device");
+      } else {
+        showInfo("Fingerprint login disabled");
+      }
+    } catch (error) {
+      const message =
+        error?.name === "NotAllowedError"
+          ? "Fingerprint verification was cancelled"
+          : error?.response?.data?.error ||
+            error?.message ||
+            "Unable to update fingerprint login";
+
+      showError(message);
+      await loadBiometricLoginStatus();
+    } finally {
+      setIsBiometricLoading(false);
     }
   };
 
@@ -1947,6 +2082,107 @@ const Settings = () => {
                                 ></label>
                               </div>
                             </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Fingerprint Login Status & Toggle */}
+                    <div className="row mb-4">
+                      <div className="col-12">
+                        <div className="card bg-light border-start border-4 border-primary">
+                          <div className="card-body">
+                            <div className="mb-3">
+                              <h6 className="mb-1 d-flex align-items-center gap-2">
+                                <i className="fas fa-fingerprint text-primary"></i>
+                                {biometricLogin.enabled
+                                  ? "Fingerprint Login is Active"
+                                  : "Fingerprint Login is Inactive"}
+                              </h6>
+                              <small className="text-muted d-block">
+                                After PIN verification, login will continue with
+                                device fingerprint.
+                              </small>
+                              <small className="text-muted d-block mt-1">
+                                On laptop, choose phone passkey in browser
+                                prompt to verify using mobile fingerprint.
+                              </small>
+                              {biometricLogin.enabled &&
+                                !biometricLogin.hasCredential && (
+                                  <small className="text-danger d-block mt-1">
+                                    This device is not registered for
+                                    fingerprint. Please re-enable to setup.
+                                  </small>
+                                )}
+                              {!biometricLogin.supported && (
+                                <small className="text-warning d-block mt-1">
+                                  This browser/device does not support
+                                  fingerprint authentication.
+                                </small>
+                              )}
+                            </div>
+
+                            <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                              <div
+                                className={`badge badge-pill ${
+                                  biometricLogin.enabled
+                                    ? "bg-success"
+                                    : "bg-danger"
+                                }`}
+                                style={{ padding: "10px 15px" }}
+                              >
+                                <i
+                                  className={`fas ${
+                                    biometricLogin.enabled
+                                      ? "fa-check-circle"
+                                      : "fa-times-circle"
+                                  } me-2`}
+                                ></i>
+                                {biometricLogin.enabled
+                                  ? "ENABLED"
+                                  : "DISABLED"}
+                              </div>
+
+                              <div
+                                className="form-check form-switch"
+                                style={{
+                                  transform: "scale(1.3)",
+                                  transformOrigin: "right",
+                                }}
+                              >
+                                <input
+                                  className="form-check-input"
+                                  type="checkbox"
+                                  id="fingerprintToggle"
+                                  checked={biometricLogin.enabled}
+                                  onChange={(e) =>
+                                    handleBiometricToggle(e.target.checked)
+                                  }
+                                  disabled={isBiometricLoading}
+                                  style={{
+                                    cursor: "pointer",
+                                    width: "50px",
+                                    height: "28px",
+                                  }}
+                                />
+                                <label
+                                  className="form-check-label"
+                                  htmlFor="fingerprintToggle"
+                                  style={{ cursor: "pointer" }}
+                                ></label>
+                              </div>
+                            </div>
+
+                            {isBiometricLoading && (
+                              <div className="mt-3 text-muted small d-flex align-items-center gap-2">
+                                <span
+                                  className="spinner-border spinner-border-sm"
+                                  role="status"
+                                  aria-hidden="true"
+                                ></span>
+                                Updating fingerprint settings...
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

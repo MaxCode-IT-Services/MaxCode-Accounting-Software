@@ -67,7 +67,8 @@ export async function handler(event) {
         return (
           b.action !== "login" &&
           b.action !== "register" &&
-          b.action !== "verify-2fa"
+          b.action !== "verify-2fa" &&
+          b.action !== "verify-fingerprint"
         );
       } catch {
         return false;
@@ -99,6 +100,7 @@ export async function handler(event) {
   try {
     const { db } = await connectToDatabase();
     const usersCollection = db.collection("users");
+    const preferencesCollection = db.collection("userPreferences");
 
     const queryAction = event.queryStringParameters?.action;
     const isVerifySessionRequest =
@@ -212,6 +214,29 @@ export async function handler(event) {
         // On successful login, reset rate limit for this IP
         await resetLoginRateLimit(ip);
 
+        let fingerprintLoginEnabled = user?.fingerprintLoginEnabled === true;
+        let biometricCredentialId = user?.biometricCredentialId || null;
+
+        // Backward compatibility: fallback to legacy userPreferences document.
+        if (
+          user?.fingerprintLoginEnabled === undefined ||
+          !user?.biometricCredentialId
+        ) {
+          const legacyPreferences = await preferencesCollection.findOne({
+            userId: user._id.toString(),
+          });
+
+          if (user?.fingerprintLoginEnabled === undefined) {
+            fingerprintLoginEnabled =
+              legacyPreferences?.fingerprintLoginEnabled === true;
+          }
+
+          if (!user?.biometricCredentialId) {
+            biometricCredentialId =
+              legacyPreferences?.biometricCredentialId || biometricCredentialId;
+          }
+        }
+
         // Check if 2FA is enabled
         if (user.twoFactor?.enabled === true) {
           // Generate temporary token for 2FA verification (valid for 5 minutes)
@@ -222,7 +247,7 @@ export async function handler(event) {
               phone: user.phone,
               temp: true,
             },
-            "5m",
+            "10m",
           );
 
           return createResponse(
@@ -231,6 +256,8 @@ export async function handler(event) {
               message: "PIN verified. Please provide 2FA code.",
               needs2FA: true,
               tempToken,
+              fingerprintLoginEnabled,
+              biometricCredentialId,
             },
             origin,
           );
@@ -260,6 +287,8 @@ export async function handler(event) {
           200,
           {
             message: "Welcome back! Login successful",
+            fingerprintLoginEnabled,
+            biometricCredentialId,
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
           },
           origin,
@@ -366,6 +395,101 @@ export async function handler(event) {
           200,
           {
             message: "2FA verified. Login successful!",
+            ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
+          },
+          origin,
+          {
+            "Set-Cookie": createAuthCookie(
+              token,
+              tokenExpiryConfig.cookieMaxAgeSeconds,
+            ),
+          },
+        );
+      }
+
+      // VERIFY FINGERPRINT (used as alternative second factor when enabled on user account)
+      if (action === "verify-fingerprint") {
+        const { tempToken } = body;
+
+        if (!tempToken) {
+          return createResponse(
+            400,
+            { error: "Temporary token is required" },
+            origin,
+          );
+        }
+
+        let decoded;
+        try {
+          decoded = verifyToken(tempToken);
+        } catch {
+          return createResponse(
+            401,
+            { error: "Invalid or expired temporary token" },
+            origin,
+          );
+        }
+
+        if (!decoded?.temp) {
+          return createResponse(401, { error: "Invalid token type" }, origin);
+        }
+
+        const user = await usersCollection.findOne({
+          _id: new ObjectId(decoded.userId),
+        });
+
+        if (!user) {
+          return createResponse(401, { error: "User not found" }, origin);
+        }
+
+        if (!user.twoFactor?.enabled) {
+          return createResponse(
+            400,
+            { error: "Two-factor authentication is not enabled" },
+            origin,
+          );
+        }
+
+        let isFingerprintEnabled = user?.fingerprintLoginEnabled === true;
+
+        if (user?.fingerprintLoginEnabled === undefined) {
+          const legacyPreferences = await preferencesCollection.findOne({
+            userId: user._id.toString(),
+          });
+          isFingerprintEnabled =
+            legacyPreferences?.fingerprintLoginEnabled === true;
+        }
+
+        if (!isFingerprintEnabled) {
+          return createResponse(
+            403,
+            { error: "Fingerprint login is not enabled for this account" },
+            origin,
+          );
+        }
+
+        const tokenPayload = {
+          userId: user._id.toString(),
+          email: user.email,
+          phone: user.phone,
+          role: user.role || "user",
+        };
+
+        const tokenExpiryConfig = getTokenExpiryConfig(user);
+        const token = generateToken(
+          tokenPayload,
+          tokenExpiryConfig.jwtExpiresIn,
+        );
+
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { $set: { lastLogin: new Date() } },
+        );
+
+        return createResponse(
+          200,
+          {
+            message: "Fingerprint verified. Login successful!",
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
           },
           origin,

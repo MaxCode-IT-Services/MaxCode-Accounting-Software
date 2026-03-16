@@ -1,5 +1,6 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
+import { ObjectId } from "mongodb";
 
 /**
  * User Preferences API
@@ -25,6 +26,8 @@ export async function handler(event) {
 
     const { db } = await connectToDatabase();
     const preferencesCollection = db.collection("userPreferences");
+    const usersCollection = db.collection("users");
+    const userObjectId = ObjectId.isValid(userId) ? new ObjectId(userId) : null;
 
     const preferenceFields = [
       "clientManagementServerSide",
@@ -46,7 +49,13 @@ export async function handler(event) {
       "staffManagementServerSide",
       "teamManagementServerSide",
       "vendorManagementServerSide",
+      "fingerprintLoginEnabled",
     ];
+
+    // Fields that store a string value (not boolean)
+    const stringPreferenceFields = ["biometricCredentialId"];
+    const userBooleanFields = ["fingerprintLoginEnabled"];
+    const userStringFields = ["biometricCredentialId"];
 
     const mergePreferenceValues = (document = {}) => {
       const merged = {};
@@ -62,15 +71,44 @@ export async function handler(event) {
         }
       });
 
+      stringPreferenceFields.forEach((field) => {
+        const val = document?.[field];
+        if (typeof val === "string") {
+          merged[field] = val;
+        }
+      });
+
       return merged;
     };
 
     // GET - Fetch user preferences
     if (event.httpMethod === "GET") {
       const pref = await preferencesCollection.findOne({ userId });
+      const userDoc = userObjectId
+        ? await usersCollection.findOne(
+            { _id: userObjectId },
+            {
+              projection: {
+                fingerprintLoginEnabled: 1,
+                biometricCredentialId: 1,
+              },
+            },
+          )
+        : null;
 
       // Return normalized preferences from top-level + legacy nested object
-      return createResponse(200, mergePreferenceValues(pref), origin);
+      const mergedPreferences = mergePreferenceValues(pref);
+
+      if (typeof userDoc?.fingerprintLoginEnabled === "boolean") {
+        mergedPreferences.fingerprintLoginEnabled =
+          userDoc.fingerprintLoginEnabled;
+      }
+
+      if (typeof userDoc?.biometricCredentialId === "string") {
+        mergedPreferences.biometricCredentialId = userDoc.biometricCredentialId;
+      }
+
+      return createResponse(200, mergedPreferences, origin);
     }
 
     // POST/PUT - Save/update user preferences
@@ -79,12 +117,31 @@ export async function handler(event) {
 
       // Build update object with only valid preference fields
       const updateFields = {};
+      const userUpdateFields = {};
       let invalidField = null;
 
       // Validate and collect preferences
       Object.entries(body).forEach(([key, value]) => {
-        // Only process known preference fields
-        if (preferenceFields.includes(key)) {
+        if (userStringFields.includes(key)) {
+          if (typeof value !== "string" && value !== null) {
+            invalidField = key;
+            return;
+          }
+          userUpdateFields[key] = value ?? "";
+        } else if (userBooleanFields.includes(key)) {
+          if (typeof value !== "boolean") {
+            invalidField = key;
+            return;
+          }
+          userUpdateFields[key] = value;
+        } else if (stringPreferenceFields.includes(key)) {
+          // Allow string or null (null = clear)
+          if (typeof value !== "string" && value !== null) {
+            invalidField = key;
+            return;
+          }
+          updateFields[key] = value ?? "";
+        } else if (preferenceFields.includes(key)) {
           // Validate boolean type
           if (typeof value !== "boolean") {
             invalidField = key;
@@ -98,13 +155,16 @@ export async function handler(event) {
         return createResponse(
           400,
           {
-            error: `Invalid value for ${invalidField}. Must be boolean.`,
+            error: `Invalid value for ${invalidField}. Must be boolean or string.`,
           },
           origin,
         );
       }
 
-      if (Object.keys(updateFields).length === 0) {
+      if (
+        Object.keys(updateFields).length === 0 &&
+        Object.keys(userUpdateFields).length === 0
+      ) {
         return createResponse(
           400,
           { error: "No valid preference provided" },
@@ -117,26 +177,46 @@ export async function handler(event) {
       const finalPreferences = {
         ...existingPreferences,
         ...updateFields,
+        ...userUpdateFields,
       };
 
-      // Update or insert preferences as top-level fields and remove legacy nested object
-      await preferencesCollection.updateOne(
-        { userId },
-        {
-          $set: {
-            userId,
-            ...finalPreferences,
-            updatedAt: new Date(),
+      // Update normal preferences in userPreferences collection
+      if (Object.keys(updateFields).length > 0) {
+        await preferencesCollection.updateOne(
+          { userId },
+          {
+            $set: {
+              userId,
+              ...existingPreferences,
+              ...updateFields,
+              updatedAt: new Date(),
+            },
+            $setOnInsert: {
+              createdAt: new Date(),
+            },
+            $unset: {
+              preferences: "",
+            },
           },
-          $setOnInsert: {
-            createdAt: new Date(),
+          { upsert: true },
+        );
+      }
+
+      // Store fingerprint fields directly on users collection
+      if (Object.keys(userUpdateFields).length > 0) {
+        if (!userObjectId) {
+          return createResponse(400, { error: "Invalid user id" }, origin);
+        }
+        await usersCollection.updateOne(
+          { _id: userObjectId },
+          {
+            $set: {
+              ...userUpdateFields,
+              updatedAt: new Date(),
+            },
           },
-          $unset: {
-            preferences: "",
-          },
-        },
-        { upsert: true },
-      );
+        );
+      }
 
       return createResponse(
         200,

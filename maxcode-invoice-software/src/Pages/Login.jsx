@@ -9,6 +9,10 @@ import {
   showError,
   showInfo,
 } from "../Components/ToastNotification";
+import {
+  getStoredBiometricConfig,
+  verifyDeviceBiometric,
+} from "../utils/biometricAuth";
 
 const Login = ({ settings }) => {
   const navigate = useNavigate();
@@ -34,6 +38,10 @@ const Login = ({ settings }) => {
   ]); // 8-digit backup code
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
   const [showBackupOption, setShowBackupOption] = useState(false); // Toggle between 2FA and backup code
+  const [needsFingerprint, setNeedsFingerprint] = useState(false);
+  const [isVerifyingFingerprint, setIsVerifyingFingerprint] = useState(false);
+  const [fingerprintError, setFingerprintError] = useState("");
+  const [pendingLoginData, setPendingLoginData] = useState(null);
 
   const pinRefs = useRef([]);
   const twoFACodeRefs = useRef([]);
@@ -161,6 +169,95 @@ const Login = ({ settings }) => {
     }
   };
 
+  const completeLogin = (responseData, successMessage) => {
+    if (!responseData?.user) {
+      showError(responseData?.message || "Invalid credentials");
+      setPin(["", "", "", "", "", ""]);
+      setErrors({ pin: "Invalid PIN" });
+      return;
+    }
+
+    markSessionAuthenticated(responseData.user, responseData.token);
+    showSuccess(successMessage || responseData.message || "Welcome back!");
+
+    const loggedInUser = responseData.user || {};
+    const nextRoute = getFirstAllowedRoute(loggedInUser);
+
+    if (nextRoute !== "/login") {
+      navigate(nextRoute);
+      return;
+    }
+
+    showError("No module permission assigned to this user");
+    localStorage.removeItem("maxcode_auth");
+    localStorage.removeItem("user_info");
+  };
+
+  const switchFromFingerprintTo2FA = () => {
+    if (!pendingLoginData?.tempToken) {
+      showError("2FA token not available. Please login again.");
+      return;
+    }
+
+    setNeedsFingerprint(false);
+    setNeeds2FA(true);
+    setTempToken(pendingLoginData.tempToken);
+    setShowBackupOption(false);
+    setFingerprintError("");
+    showInfo("Enter your Two-Factor code to continue login");
+  };
+
+  const handleFingerprintSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!pendingLoginData?.phone) {
+      showError("Fingerprint session expired. Please login again.");
+      setNeedsFingerprint(false);
+      return;
+    }
+
+    setIsVerifyingFingerprint(true);
+    setFingerprintError("");
+
+    try {
+      const localBiometric = getStoredBiometricConfig(pendingLoginData.phone);
+
+      await verifyDeviceBiometric({
+        phone: pendingLoginData.phone,
+        credentialId: localBiometric?.credentialId,
+      });
+
+      if (pendingLoginData.requires2FA) {
+        const response = await apiPost(API_ENPOINTS.AUTH.LOGIN, {
+          action: "verify-fingerprint",
+          tempToken: pendingLoginData.tempToken,
+        });
+
+        completeLogin(
+          response.data,
+          response.data?.message || "Fingerprint verified! Login successful",
+        );
+      } else {
+        completeLogin(
+          pendingLoginData.responseData,
+          "Fingerprint verified! Login successful",
+        );
+      }
+    } catch (error) {
+      const message =
+        error?.name === "NotAllowedError"
+          ? "Fingerprint verification cancelled"
+          : error?.response?.data?.error ||
+            error?.message ||
+            "Fingerprint verification failed";
+
+      setFingerprintError(message);
+      showError(message);
+    } finally {
+      setIsVerifyingFingerprint(false);
+    }
+  };
+
   const handle2FASubmit = async (e) => {
     e.preventDefault();
 
@@ -276,6 +373,70 @@ const Login = ({ settings }) => {
         pin: enteredPin,
       });
 
+      const fingerprintLoginEnabled =
+        response?.data?.fingerprintLoginEnabled === true;
+
+      if (fingerprintLoginEnabled) {
+        let localBiometric = getStoredBiometricConfig(mobile);
+
+        // If not in localStorage but backend has credentialId, sync it
+        if (
+          !localBiometric?.credentialId &&
+          response?.data?.biometricCredentialId
+        ) {
+          const stored = JSON.parse(
+            localStorage.getItem("maxcode_biometric_credentials") || "{}",
+          );
+          stored[mobile] = {
+            credentialId: response.data.biometricCredentialId,
+            enabled: true,
+            updatedAt: new Date().toISOString(),
+          };
+          localStorage.setItem(
+            "maxcode_biometric_credentials",
+            JSON.stringify(stored),
+          );
+          localBiometric = stored[mobile];
+        }
+
+        if (!localBiometric?.credentialId) {
+          if (response.data.needs2FA && response.data.tempToken) {
+            setTempToken(response.data.tempToken);
+            setNeeds2FA(true);
+            setShowBackupOption(false);
+            showInfo(
+              "Fingerprint is enabled but this device is not registered. Continue with Two-Factor code.",
+            );
+            return;
+          }
+
+          showError(
+            "Fingerprint is enabled but not configured on this device. Login from registered device or disable fingerprint in settings.",
+          );
+          setPin(["", "", "", "", "", ""]);
+          return;
+        }
+
+        setPendingLoginData({
+          phone: mobile,
+          requires2FA: response.data.needs2FA === true,
+          tempToken: response.data.tempToken || null,
+          responseData: response.data,
+        });
+        setNeedsFingerprint(true);
+        setNeeds2FA(false);
+        setShowBackupOption(false);
+        setTwoFACode(["", "", "", "", "", ""]);
+        setBackupCode(["", "", "", "", "", "", "", ""]);
+        setFingerprintError("");
+        showInfo(
+          response.data.needs2FA
+            ? "PIN verified. Verify fingerprint to login, or choose Login using 2 Factor."
+            : "PIN verified. Please verify fingerprint to login.",
+        );
+        return;
+      }
+
       // If 2FA is required
       if (response.data.needs2FA && response.data.tempToken) {
         setTempToken(response.data.tempToken);
@@ -289,28 +450,10 @@ const Login = ({ settings }) => {
       }
 
       // If login successful, store the token
-      if (response.data.user) {
-        markSessionAuthenticated(response.data.user, response.data.token);
-
-        showSuccess(
-          response.data.message || "Welcome back! Authentication successful",
-        );
-
-        const loggedInUser = response.data.user || {};
-        const nextRoute = getFirstAllowedRoute(loggedInUser);
-
-        if (nextRoute !== "/login") {
-          navigate(nextRoute);
-        } else {
-          showError("No module permission assigned to this user");
-          localStorage.removeItem("maxcode_auth");
-          localStorage.removeItem("user_info");
-        }
-      } else {
-        showError(response.data.message || "Invalid credentials");
-        setPin(["", "", "", "", "", ""]);
-        setErrors({ pin: "Invalid PIN" });
-      }
+      completeLogin(
+        response.data,
+        response.data.message || "Welcome back! Authentication successful",
+      );
     } catch (error) {
       console.log(error);
       // Handle error from API
@@ -494,10 +637,16 @@ const Login = ({ settings }) => {
               </div>
 
               <form
-                onSubmit={needs2FA ? handle2FASubmit : handleSubmit}
+                onSubmit={
+                  needsFingerprint
+                    ? handleFingerprintSubmit
+                    : needs2FA
+                      ? handle2FASubmit
+                      : handleSubmit
+                }
                 className="flex-grow-1"
               >
-                {!needs2FA ? (
+                {!needs2FA && !needsFingerprint ? (
                   <>
                     {/* Mobile Number Field */}
                     <div className="mb-4">
@@ -651,6 +800,99 @@ const Login = ({ settings }) => {
                         </div>
                       )}
                     </button>
+                  </>
+                ) : needsFingerprint ? (
+                  <>
+                    <div className="mb-4 text-center">
+                      <h4 className="fw-semibold mb-2">Verify Fingerprint</h4>
+                    </div>
+
+                    <div className="mb-4">
+                      <div className="card border-0 bg-light">
+                        <div className="card-body text-center py-2">
+                          <div className="mx-auto mb-3 fingerprint-orb-wrap mt-2">
+                            <span className="fingerprint-ring ring-1"></span>
+                            <span className="fingerprint-ring ring-2"></span>
+                            <div
+                              className="d-flex align-items-center justify-content-center rounded-circle fingerprint-orb"
+                              style={{
+                                width: "72px",
+                                height: "72px",
+                                background: "var(--primary-light)",
+                              }}
+                            >
+                              <i className="fas fa-fingerprint fs-1 fingerprint-icon-animated"></i>
+                            </div>
+                          </div>
+                          <p className="text-muted small mb-0">
+                            Continue with fingerprint or passkey
+                          </p>
+                        </div>
+                      </div>
+
+                      {fingerprintError && (
+                        <div className="error-message mt-2 text-center">
+                          <i className="fas fa-exclamation-circle me-1"></i>
+                          {fingerprintError}
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isVerifyingFingerprint}
+                      className="btn btn-lg w-100 py-2 rounded-3 fw-semibold text-white position-relative overflow-hidden"
+                      style={{
+                        background: "var(--header-gradient)",
+                        border: "none",
+                        opacity: isVerifyingFingerprint ? 0.8 : 1,
+                        transition: "all 0.3s ease",
+                      }}
+                    >
+                      {isVerifyingFingerprint ? (
+                        <div className="d-flex align-items-center justify-content-center gap-3">
+                          <div
+                            className="spinner-border spinner-border-sm"
+                            role="status"
+                          ></div>
+                          <span>Verifying fingerprint...</span>
+                        </div>
+                      ) : (
+                        <div className="d-flex align-items-center justify-content-center gap-3">
+                          <i className="fas fa-fingerprint"></i>
+                          <span>Verify Fingerprint</span>
+                        </div>
+                      )}
+                    </button>
+
+                    <div className="d-flex justify-content-between mt-3">
+                      {pendingLoginData?.requires2FA && (
+                        <button
+                          type="button"
+                          onClick={switchFromFingerprintTo2FA}
+                          className="btn btn-link text-decoration-none p-0 fw-bold"
+                          style={{ color: "var(--primary-color)" }}
+                        >
+                          <i className="fas fa-shield-alt me-2"></i>
+                          Login using 2 Factor
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNeedsFingerprint(false);
+                          setPendingLoginData(null);
+                          setFingerprintError("");
+                          setPin(["", "", "", "", "", ""]);
+                          setErrors({});
+                        }}
+                        className="btn btn-link text-muted p-0 fw-bold"
+                      >
+                        <i className="fas fa-arrow-left me-2"></i>
+                        Back to Login
+                      </button>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -815,10 +1057,13 @@ const Login = ({ settings }) => {
                       type="button"
                       onClick={() => {
                         setNeeds2FA(false);
+                        setNeedsFingerprint(false);
                         setTempToken(null);
+                        setPendingLoginData(null);
                         setTwoFACode(["", "", "", "", "", ""]);
                         setBackupCode(["", "", "", "", "", "", "", ""]);
                         setShowBackupOption(false);
+                        setFingerprintError("");
                         setErrors({});
                       }}
                       className="btn btn-link w-100 mt-3 text-muted"
@@ -887,6 +1132,56 @@ const Login = ({ settings }) => {
           to {
             opacity: 1;
             transform: translateY(0);
+          }
+        }
+
+        @keyframes fingerprintPulse {
+          0%,
+          100% {
+            transform: scale(1);
+            opacity: 0.9;
+          }
+          50% {
+            transform: scale(1.08);
+            opacity: 1;
+          }
+        }
+
+        @keyframes fingerprintSweep {
+          0% {
+            background-position: 0% 0%;
+          }
+          100% {
+            background-position: 0% 220%;
+          }
+        }
+
+        @keyframes fingerprintRingPulse {
+          0% {
+            transform: scale(0.85);
+            opacity: 0.55;
+          }
+          70% {
+            transform: scale(1.2);
+            opacity: 0;
+          }
+          100% {
+            transform: scale(1.2);
+            opacity: 0;
+          }
+        }
+
+        @keyframes fingerprintOrbGlow {
+          0%,
+          100% {
+            box-shadow:
+              0 0 0 1px rgba(0, 112, 38, 0.12),
+              0 10px 24px rgba(0, 112, 38, 0.16);
+          }
+          50% {
+            box-shadow:
+              0 0 0 1px rgba(0, 112, 38, 0.25),
+              0 12px 30px rgba(0, 112, 38, 0.26);
           }
         }
 
@@ -968,6 +1263,52 @@ const Login = ({ settings }) => {
 
         .pin-input.error {
           border-color: var(--error);
+        }
+
+        .fingerprint-orb-wrap {
+          position: relative;
+          width: 72px;
+          height: 72px;
+        }
+
+        .fingerprint-orb {
+          position: relative;
+          z-index: 2;
+          animation: fingerprintOrbGlow 1.8s ease-in-out infinite;
+        }
+
+        .fingerprint-ring {
+          position: absolute;
+          inset: -8px;
+          border-radius: 50%;
+          border: 3px solid rgba(0, 112, 38, 0.28);
+          pointer-events: none;
+          z-index: 1;
+          animation: fingerprintRingPulse 2.1s ease-out infinite;
+        }
+
+        .fingerprint-ring.ring-2 {
+          animation-delay: 0.95s;
+          border-color: rgba(0, 112, 38, 0.18);
+        }
+
+        .fingerprint-icon-animated {
+          background: linear-gradient(
+            180deg,
+            rgba(0, 112, 38, 0.35) 0%,
+            rgba(0, 112, 38, 0.35) 42%,
+            rgba(0, 112, 38, 1) 52%,
+            rgba(0, 112, 38, 0.35) 62%,
+            rgba(0, 112, 38, 0.35) 100%
+          );
+          background-size: 100% 220%;
+          color: transparent;
+          -webkit-background-clip: text;
+          background-clip: text;
+          filter: drop-shadow(0 0 3px rgba(0, 112, 38, 0.35));
+          animation:
+            fingerprintPulse 1.8s ease-in-out infinite,
+            fingerprintSweep 1.55s linear infinite;
         }
 
         .pin-status {
