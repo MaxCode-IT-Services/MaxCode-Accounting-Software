@@ -1314,20 +1314,30 @@ const Login = ({ settings }) => {
 
                       {/* Status and "Try Other Option" Link */}
                       <div className="d-flex justify-content-between align-items-center">
-                        <span className="text-muted small">
-                          <i
-                            className="fas fa-info-circle me-1"
-                            style={{ color: "var(--primary-color)" }}
-                          ></i>
-                          {isCodeComplete
-                            ? "Code ready to verify"
-                            : `${
-                                (!showBackupOption ? 6 : 8) -
-                                (showBackupOption
-                                  ? backupCode.filter((d) => d).length
-                                  : twoFACode.filter((d) => d).length)
-                              } digits remaining`}
-                        </span>
+                        {pendingLoginData?.requiresUSBKey ? (
+                          <button
+                            type="button"
+                            onClick={switchToUsbKeyFrom2FA}
+                            className="btn btn-link p-0 text-decoration-none"
+                            style={{
+                              color: "#c17c00",
+                              fontSize: "0.875rem",
+                            }}
+                          >
+                            <i className="fa-brands fa-usb me-1"></i>
+                            Use USB Key
+                          </button>
+                        ) : (
+                          <span className="text-muted small">
+                            <i
+                              className="fas fa-info-circle me-1"
+                              style={{ color: "var(--primary-color)" }}
+                            ></i>
+                            {isCodeComplete
+                              ? "Code ready to verify"
+                              : "Enter your verification code"}
+                          </span>
+                        )}
 
                         {/* Try Other Option Link */}
                         <div className="d-flex align-items-center gap-3 flex-wrap justify-content-end">
@@ -1345,21 +1355,6 @@ const Login = ({ settings }) => {
                               ? "Try 2FA Code"
                               : "Try Other Option"}
                           </button>
-
-                          {pendingLoginData?.requiresUSBKey && (
-                            <button
-                              type="button"
-                              onClick={switchToUsbKeyFrom2FA}
-                              className="btn btn-link p-0 text-decoration-none"
-                              style={{
-                                color: "#c17c00",
-                                fontSize: "0.875rem",
-                              }}
-                            >
-                              <i className="fa-brands fa-usb me-1"></i>
-                              Use USB Key
-                            </button>
-                          )}
                         </div>
                       </div>
 
@@ -1382,7 +1377,7 @@ const Login = ({ settings }) => {
                     <button
                       type="submit"
                       disabled={isVerifying2FA || !isCodeComplete}
-                      className="btn btn-lg w-100 py-3 rounded-3 fw-semibold text-white position-relative overflow-hidden"
+                      className="btn btn-lg w-100 py-2 rounded-3 fw-semibold text-white position-relative overflow-hidden"
                       style={{
                         background: "var(--header-gradient)",
                         border: "none",
