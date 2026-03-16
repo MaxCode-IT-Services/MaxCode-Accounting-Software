@@ -1,15 +1,31 @@
 import React, { useState, useEffect } from "react";
 import { showSuccess, showError } from "./ToastNotification";
-import { apiPost, apiPut } from "../utils/api";
+import { apiGet, apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 
 const RequiredStar = () => <span className="text-danger ms-1">*</span>;
+
+const getDateOnly = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
+
+const isDateWithinRange = (value, startDate, endDate) => {
+  const targetDate = getDateOnly(value);
+  const start = getDateOnly(startDate);
+  const end = getDateOnly(endDate);
+
+  if (!targetDate || !start || !end) return false;
+  return targetDate >= start && targetDate <= end;
+};
 
 const getReferenceFieldMeta = (paymentMethod) => {
   if (paymentMethod === "Cash") {
     return {
       label: "Reference (Optional)",
-      placeholder: "Cash payment me isse blank chhod sakte ho",
+      placeholder: "Leave blank if payment is made in cash",
     };
   }
 
@@ -34,6 +50,11 @@ const getReferenceFieldMeta = (paymentMethod) => {
 };
 
 const AddCapital = ({ show, onClose, onSubmit, editingRecord = null }) => {
+  const [selectedFinancialYear, setSelectedFinancialYear] = useState(
+    localStorage.getItem("selectedFinancialYear") || "ALL",
+  );
+  const [financialYearRange, setFinancialYearRange] = useState(null);
+  const [financialYearLoading, setFinancialYearLoading] = useState(false);
   const [formData, setFormData] = useState({
     fundDate: "",
     amount: "",
@@ -86,6 +107,84 @@ const AddCapital = ({ show, onClose, onSubmit, editingRecord = null }) => {
     }
   }, [editingRecord, show]);
 
+  useEffect(() => {
+    const handleFinancialYearSelectionChanged = (event) => {
+      const selectedYear =
+        event?.detail?.selectedFinancialYear ||
+        localStorage.getItem("selectedFinancialYear") ||
+        "ALL";
+      setSelectedFinancialYear(selectedYear);
+    };
+
+    window.addEventListener(
+      "financialYearSelectionChanged",
+      handleFinancialYearSelectionChanged,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "financialYearSelectionChanged",
+        handleFinancialYearSelectionChanged,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!show?.show) {
+      setFinancialYearRange(null);
+      setFinancialYearLoading(false);
+      return;
+    }
+
+    if (!selectedFinancialYear || selectedFinancialYear === "ALL") {
+      setFinancialYearRange(null);
+      setFinancialYearLoading(false);
+      return;
+    }
+
+    let mounted = true;
+
+    const fetchFinancialYearRange = async () => {
+      setFinancialYearLoading(true);
+      try {
+        const response = await apiGet(API_ENDPOINTS.YEARS.LIST);
+        const yearsData = Array.isArray(response.data)
+          ? response.data
+          : response.data?.years || [];
+
+        const matchedYear = yearsData.find((yearRecord) => {
+          const value = yearRecord?.financialYear || yearRecord?.year || "";
+          return value === selectedFinancialYear;
+        });
+
+        if (!mounted) return;
+
+        if (matchedYear?.startDate && matchedYear?.endDate) {
+          setFinancialYearRange({
+            startDate: matchedYear.startDate,
+            endDate: matchedYear.endDate,
+          });
+        } else {
+          setFinancialYearRange(null);
+        }
+      } catch {
+        if (mounted) {
+          setFinancialYearRange(null);
+        }
+      } finally {
+        if (mounted) {
+          setFinancialYearLoading(false);
+        }
+      }
+    };
+
+    fetchFinancialYearRange();
+
+    return () => {
+      mounted = false;
+    };
+  }, [show?.show, selectedFinancialYear]);
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     if (name === "amount") {
@@ -109,8 +208,24 @@ const AddCapital = ({ show, onClose, onSubmit, editingRecord = null }) => {
   const validateForm = () => {
     const newErrors = {};
 
-    if (!formData.fundDate || formData.fundDate.trim() === "") {
+    if (!selectedFinancialYear || selectedFinancialYear === "ALL") {
+      newErrors.fundDate =
+        "Please select a specific Financial Year before adding capital";
+    } else if (financialYearLoading) {
+      newErrors.fundDate = "Financial Year range is loading. Please wait.";
+    } else if (!financialYearRange?.startDate || !financialYearRange?.endDate) {
+      newErrors.fundDate =
+        "Selected Financial Year date range could not be verified";
+    } else if (!formData.fundDate || formData.fundDate.trim() === "") {
       newErrors.fundDate = "Capital Date is required";
+    } else if (
+      !isDateWithinRange(
+        formData.fundDate,
+        financialYearRange.startDate,
+        financialYearRange.endDate,
+      )
+    ) {
+      newErrors.fundDate = "Capital date outside financial year";
     }
     if (!formData.amount || formData.amount.toString().trim() === "") {
       newErrors.amount = "Amount is required";
@@ -128,13 +243,7 @@ const AddCapital = ({ show, onClose, onSubmit, editingRecord = null }) => {
 
     if (Object.keys(newErrors).length > 0) {
       const firstKey = Object.keys(newErrors)[0];
-      const labels = {
-        fundDate: "Capital Date",
-        amount: "Amount",
-        fundSource: "Capital Source",
-        transferredTo: "Transferred To",
-      };
-      showError(`Please fill "${labels[firstKey] || firstKey}" correctly`);
+      showError(newErrors[firstKey] || "Please fix form errors before saving");
       return false;
     }
 
@@ -151,6 +260,7 @@ const AddCapital = ({ show, onClose, onSubmit, editingRecord = null }) => {
     try {
       const submitData = {
         ...formData,
+        financialYear: editingRecord?.financialYear || selectedFinancialYear,
         amount: parseFloat(formData.amount) || 0,
       };
 

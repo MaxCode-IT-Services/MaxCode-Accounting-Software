@@ -19,6 +19,84 @@ export async function handler(event) {
 
     const { db } = await connectToDatabase();
     const fundsCollection = db.collection("personalFunds");
+    const yearsCollection = db.collection("financialYears");
+
+    const getDateOnly = (value) => {
+      if (!value) return null;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return null;
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    };
+
+    const isDateWithinRange = (value, startDate, endDate) => {
+      const targetDate = getDateOnly(value);
+      const start = getDateOnly(startDate);
+      const end = getDateOnly(endDate);
+
+      if (!targetDate || !start || !end) return false;
+      return targetDate >= start && targetDate <= end;
+    };
+
+    const resolveFinancialYearRecord = async (financialYear, fundDate) => {
+      const normalizedYear = String(financialYear || "").trim();
+
+      if (normalizedYear && normalizedYear !== "ALL") {
+        return yearsCollection.findOne({
+          isDeleted: { $ne: true },
+          $or: [{ financialYear: normalizedYear }, { year: normalizedYear }],
+        });
+      }
+
+      const targetDate = getDateOnly(fundDate);
+      if (!targetDate) return null;
+
+      const yearRecords = await yearsCollection
+        .find({
+          isDeleted: { $ne: true },
+          startDate: { $exists: true, $ne: null },
+          endDate: { $exists: true, $ne: null },
+        })
+        .toArray();
+
+      return (
+        yearRecords.find((yearRecord) =>
+          isDateWithinRange(fundDate, yearRecord.startDate, yearRecord.endDate),
+        ) || null
+      );
+    };
+
+    const validateFundDateAgainstFinancialYear = async (fundData) => {
+      const fundDate = String(fundData?.fundDate || "").trim();
+      if (!fundDate) {
+        return "Capital Date is required";
+      }
+
+      const normalizedYear = String(fundData?.financialYear || "").trim();
+      if (normalizedYear === "ALL") {
+        return "Please select a specific Financial Year before saving capital";
+      }
+
+      const yearRecord = await resolveFinancialYearRecord(
+        normalizedYear,
+        fundDate,
+      );
+
+      if (!yearRecord?.startDate || !yearRecord?.endDate) {
+        return normalizedYear
+          ? `Financial Year range not found for ${normalizedYear}`
+          : "Could not determine Financial Year for selected Capital Date";
+      }
+
+      if (
+        !isDateWithinRange(fundDate, yearRecord.startDate, yearRecord.endDate)
+      ) {
+        const yearLabel =
+          yearRecord.financialYear || yearRecord.year || normalizedYear;
+        return `Capital Date must be within the selected Financial Year (${yearLabel})`;
+      }
+
+      return null;
+    };
 
     // GET - Fetch all owner investments or single by ID
     if (event.httpMethod === "GET") {
@@ -242,6 +320,12 @@ export async function handler(event) {
     if (event.httpMethod === "POST") {
       const fundData = JSON.parse(event.body);
 
+      const validationError =
+        await validateFundDateAgainstFinancialYear(fundData);
+      if (validationError) {
+        return createResponse(400, { error: validationError }, origin);
+      }
+
       const result = await fundsCollection.insertOne({
         ...fundData,
         createdAt: new Date(),
@@ -273,12 +357,12 @@ export async function handler(event) {
       const fundData = JSON.parse(event.body);
       const { _id, id: fundId, ...updateData } = fundData;
 
-      const result = await fundsCollection.updateOne(
-        { _id: new ObjectId(id), isDeleted: { $ne: true } },
-        { $set: { ...updateData, updatedAt: new Date() } },
-      );
+      const existingRecord = await fundsCollection.findOne({
+        _id: new ObjectId(id),
+        isDeleted: { $ne: true },
+      });
 
-      if (result.matchedCount === 0) {
+      if (!existingRecord) {
         return createResponse(
           404,
           { error: "Owner investment not found" },
@@ -286,6 +370,21 @@ export async function handler(event) {
         );
       }
 
+      const mergedData = {
+        ...existingRecord,
+        ...updateData,
+      };
+
+      const validationError =
+        await validateFundDateAgainstFinancialYear(mergedData);
+      if (validationError) {
+        return createResponse(400, { error: validationError }, origin);
+      }
+
+      const result = await fundsCollection.updateOne(
+        { _id: new ObjectId(id), isDeleted: { $ne: true } },
+        { $set: { ...updateData, updatedAt: new Date() } },
+      );
       return createResponse(
         200,
         { message: "Owner investment updated successfully" },
