@@ -18,6 +18,7 @@ const LedgerManagement = () => {
   const [companyExpenseRecords, setCompanyExpenseRecords] = useState([]);
   const [rcmRecords, setRcmRecords] = useState([]);
   const [projectRecords, setProjectRecords] = useState([]);
+  const [personalFundRecords, setPersonalFundRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly");
@@ -28,6 +29,7 @@ const LedgerManagement = () => {
     companyExpenses: "idle",
     rcm: "idle",
     projects: "idle",
+    personalFunds: "idle",
   });
 
   const toNumber = (value) => {
@@ -219,6 +221,13 @@ const LedgerManagement = () => {
     return normalizedType === "itc" || normalizedType === "rcm + itc";
   };
 
+  const isOwnerPersonalPayment = (record) => {
+    const source = String(record?.paymentSource || "")
+      .trim()
+      .toLowerCase();
+    return source.includes("owner") || source.includes("personal");
+  };
+
   const loadAllData = async (options = {}) => {
     const { forceRefresh = false } = options;
     setLoading(true);
@@ -229,6 +238,7 @@ const LedgerManagement = () => {
       companyExpenses: "loading",
       rcm: "loading",
       projects: "loading",
+      personalFunds: "loading",
     });
     try {
       const fetchSafe = async (config) => {
@@ -268,6 +278,11 @@ const LedgerManagement = () => {
         fallbackKeys: ["projects"],
       });
 
+      const personalFundsResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.OWNER_INVESTMENTS.LIST,
+        fallbackKeys: ["data", "personalFunds"],
+      });
+
       const yearsData =
         yearsResult.status === "fulfilled" ? yearsResult.value : [];
 
@@ -295,6 +310,11 @@ const LedgerManagement = () => {
       const projectsData =
         projectsResult.status === "fulfilled" ? projectsResult.value : [];
 
+      const personalFundsData =
+        personalFundsResult.status === "fulfilled"
+          ? personalFundsResult.value
+          : [];
+
       if (yearsResult.status === "rejected") {
         console.error("Failed to fetch financial years:", yearsResult.reason);
       }
@@ -315,6 +335,12 @@ const LedgerManagement = () => {
       }
       if (projectsResult.status === "rejected") {
         console.error("Failed to fetch projects:", projectsResult.reason);
+      }
+      if (personalFundsResult.status === "rejected") {
+        console.error(
+          "Failed to fetch personal funds:",
+          personalFundsResult.reason,
+        );
       }
 
       setFinancialYears(normalizedYears);
@@ -350,6 +376,14 @@ const LedgerManagement = () => {
         })),
       );
 
+      setPersonalFundRecords(
+        personalFundsData.map((record) => ({
+          ...record,
+          id: record._id || record.id,
+          invoiceDate: record.fundDate,
+        })),
+      );
+
       setApiStatus({
         years: yearsResult.status === "fulfilled" ? "loaded" : "failed",
         invoices: salesResult.status === "fulfilled" ? "loaded" : "failed",
@@ -358,6 +392,8 @@ const LedgerManagement = () => {
           companyExpenseResult.status === "fulfilled" ? "loaded" : "failed",
         rcm: rcmResult.status === "fulfilled" ? "loaded" : "failed",
         projects: projectsResult.status === "fulfilled" ? "loaded" : "failed",
+        personalFunds:
+          personalFundsResult.status === "fulfilled" ? "loaded" : "failed",
       });
 
       if (
@@ -366,7 +402,8 @@ const LedgerManagement = () => {
         purchaseResult.status === "rejected" ||
         companyExpenseResult.status === "rejected" ||
         rcmResult.status === "rejected" ||
-        projectsResult.status === "rejected"
+        projectsResult.status === "rejected" ||
+        personalFundsResult.status === "rejected"
       ) {
         showInfo("Some ledger data could not be loaded. Please refresh again.");
       }
@@ -379,6 +416,7 @@ const LedgerManagement = () => {
       setCompanyExpenseRecords([]);
       setRcmRecords([]);
       setProjectRecords([]);
+      setPersonalFundRecords([]);
       setApiStatus({
         years: "failed",
         invoices: "failed",
@@ -386,6 +424,7 @@ const LedgerManagement = () => {
         companyExpenses: "failed",
         rcm: "failed",
         projects: "failed",
+        personalFunds: "failed",
       });
     } finally {
       setLoading(false);
@@ -523,6 +562,21 @@ const LedgerManagement = () => {
         );
       }
 
+      if (apiKey === "personalFunds") {
+        const fundsData = await fetchAllPaginatedEntities({
+          endpoint: API_ENDPOINTS.OWNER_INVESTMENTS.LIST,
+          fallbackKeys: ["data", "personalFunds"],
+          forceRefresh: true,
+        });
+        setPersonalFundRecords(
+          fundsData.map((record) => ({
+            ...record,
+            id: record._id || record.id,
+            invoiceDate: record.fundDate,
+          })),
+        );
+      }
+
       setApiStatus((prev) => ({
         ...prev,
         [apiKey]: "loaded",
@@ -629,6 +683,15 @@ const LedgerManagement = () => {
     return filterByPeriodMode(filterByFinancialYear(rcmRecords));
   }, [rcmRecords, selectedFinancialYear, financialYears, financialPeriodMode]);
 
+  const filteredPersonalFunds = useMemo(() => {
+    return filterByPeriodMode(filterByFinancialYear(personalFundRecords));
+  }, [
+    personalFundRecords,
+    selectedFinancialYear,
+    financialYears,
+    financialPeriodMode,
+  ]);
+
   const projectPayoutEntries = useMemo(() => {
     const selectedRange = getSelectedYearRange();
     const today = getDateOnly(new Date());
@@ -676,6 +739,7 @@ const LedgerManagement = () => {
           return {
             amount: payoutAmount,
             paymentMethod: transaction.payoutMethod || "Bank Transfer",
+            payoutSource: transaction.payoutSource || "Business Account",
           };
         })
         .filter(Boolean);
@@ -700,6 +764,8 @@ const LedgerManagement = () => {
       gstInputDebit: 0,
       sundryDebtorsDebit: 0,
       sundryCreditorsCredit: 0,
+      ownerFundingCredit: 0,
+      personalFundCredit: 0,
       salesTaxOutput: 0,
       purchaseItcInput: 0,
       rcmTaxOutput: 0,
@@ -747,9 +813,19 @@ const LedgerManagement = () => {
       totals.sundryCreditorsCredit += Math.max(totalAmount - paidAmount, 0);
 
       if (isCashPayment(record.paymentMethod)) {
-        totals.cashCredit += paidAmount;
+        if (isOwnerPersonalPayment(record)) {
+          totals.ownerFundingCredit += paidAmount;
+        } else {
+          totals.cashCredit += paidAmount;
+        }
       } else if (isBankPayment(record.paymentMethod)) {
-        totals.bankCredit += paidAmount;
+        if (isOwnerPersonalPayment(record)) {
+          totals.ownerFundingCredit += paidAmount;
+        } else {
+          totals.bankCredit += paidAmount;
+        }
+      } else if (isOwnerPersonalPayment(record) && paidAmount > 0) {
+        totals.ownerFundingCredit += paidAmount;
       }
     });
 
@@ -763,9 +839,19 @@ const LedgerManagement = () => {
       totals.sundryCreditorsCredit += Math.max(totalAmount - paidAmount, 0);
 
       if (isCashPayment(record.paymentMethod)) {
-        totals.cashCredit += paidAmount;
+        if (isOwnerPersonalPayment(record)) {
+          totals.ownerFundingCredit += paidAmount;
+        } else {
+          totals.cashCredit += paidAmount;
+        }
       } else if (isBankPayment(record.paymentMethod)) {
-        totals.bankCredit += paidAmount;
+        if (isOwnerPersonalPayment(record)) {
+          totals.ownerFundingCredit += paidAmount;
+        } else {
+          totals.bankCredit += paidAmount;
+        }
+      } else if (isOwnerPersonalPayment(record) && paidAmount > 0) {
+        totals.ownerFundingCredit += paidAmount;
       }
 
       if (isPurchaseItcEligible(record.invoiceType)) {
@@ -790,19 +876,54 @@ const LedgerManagement = () => {
       totals.sundryCreditorsCredit += Math.max(totalAmount - paidAmount, 0);
 
       if (isCashPayment(record.paymentMethod)) {
-        totals.cashCredit += paidAmount;
+        if (isOwnerPersonalPayment(record)) {
+          totals.ownerFundingCredit += paidAmount;
+        } else {
+          totals.cashCredit += paidAmount;
+        }
       } else if (isBankPayment(record.paymentMethod)) {
-        totals.bankCredit += paidAmount;
+        if (isOwnerPersonalPayment(record)) {
+          totals.ownerFundingCredit += paidAmount;
+        } else {
+          totals.bankCredit += paidAmount;
+        }
+      } else if (isOwnerPersonalPayment(record) && paidAmount > 0) {
+        totals.ownerFundingCredit += paidAmount;
       }
     });
 
     projectPayoutEntries.forEach((entry) => {
       totals.projectPayoutDebit += entry.amount;
 
-      if (isCashPayment(entry.paymentMethod)) {
+      const isPersonalPayout =
+        String(entry.payoutSource || "")
+          .toLowerCase()
+          .includes("personal") ||
+        String(entry.payoutSource || "")
+          .toLowerCase()
+          .includes("owner");
+
+      if (isPersonalPayout) {
+        totals.ownerFundingCredit += entry.amount;
+      } else if (isCashPayment(entry.paymentMethod)) {
         totals.cashCredit += entry.amount;
       } else {
         totals.bankCredit += entry.amount;
+      }
+    });
+
+    filteredPersonalFunds.forEach((fund) => {
+      const amount = toNumber(fund.amount || 0);
+      if (amount <= 0) return;
+      totals.personalFundCredit += amount;
+      if (
+        String(fund.transferredTo || "")
+          .toLowerCase()
+          .includes("cash")
+      ) {
+        totals.cashDebit += amount;
+      } else {
+        totals.bankDebit += amount;
       }
     });
 
@@ -820,7 +941,9 @@ const LedgerManagement = () => {
       totals.bankCredit +
       totals.salesCredit +
       totals.gstOutputCredit +
-      totals.sundryCreditorsCredit;
+      totals.sundryCreditorsCredit +
+      totals.ownerFundingCredit +
+      totals.personalFundCredit;
 
     return totals;
   }, [
@@ -829,6 +952,7 @@ const LedgerManagement = () => {
     filteredRcm,
     filteredSales,
     projectPayoutEntries,
+    filteredPersonalFunds,
   ]);
 
   const getBalanceMeta = (debit, credit) => {
@@ -906,6 +1030,14 @@ const LedgerManagement = () => {
       return `Debit: GST receivable/refund side. Credit: net GST payable side. ${balanceMeaning}`;
     }
 
+    if (accountName === "Owner Funding Account") {
+      return `Credit: owner/personal account se ki gayi business payment. Debit: owner settlement ya reversal. ${balanceMeaning}`;
+    }
+
+    if (accountName === "Owner Investment Account") {
+      return `Credit: owner capital/investment jo business bank/cash account me transfer hua. Debit: reversal/adjustment (normally 0). ${balanceMeaning}`;
+    }
+
     return `Debit: left side posting. Credit: right side posting. ${balanceMeaning}`;
   };
 
@@ -972,6 +1104,18 @@ const LedgerManagement = () => {
         notes: "Purchase/RCM invoices not yet fully paid",
         selectedFinancialYear,
         financialYears,
+      },
+      {
+        accountName: "Owner Funding Account",
+        debit: 0,
+        credit: ledgerSummary.ownerFundingCredit,
+        notes: "Purchases/RCM/payouts paid from owner personal account",
+      },
+      {
+        accountName: "Owner Investment Account",
+        debit: 0,
+        credit: ledgerSummary.personalFundCredit,
+        notes: "Owner capital transferred to business bank/cash",
       },
       {
         accountName: "GST Payable/(Receivable)",
@@ -1086,6 +1230,8 @@ const LedgerManagement = () => {
           "Sales Account",
           "GST Output Account",
           "Sundry Creditors Account",
+          "Owner Funding Account",
+          "Personal Fund Account",
           "GST Payable/(Receivable)",
         ].includes(row.accountName),
       );

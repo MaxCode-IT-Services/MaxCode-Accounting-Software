@@ -18,6 +18,7 @@ const BalanceSheet = () => {
   const [companyExpenseRecords, setCompanyExpenseRecords] = useState([]);
   const [rcmRecords, setRcmRecords] = useState([]);
   const [projectRecords, setProjectRecords] = useState([]);
+  const [personalFundRecords, setPersonalFundRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeCardFilter, setActiveCardFilter] = useState("all");
 
@@ -196,6 +197,13 @@ const BalanceSheet = () => {
     return normalizedType === "itc" || normalizedType === "rcm + itc";
   };
 
+  const isOwnerPersonalPayment = (record) => {
+    const source = String(record?.paymentSource || "")
+      .trim()
+      .toLowerCase();
+    return source.includes("owner") || source.includes("personal");
+  };
+
   const loadAllData = async (options = {}) => {
     const { forceRefresh = false } = options;
     setLoading(true);
@@ -219,6 +227,7 @@ const BalanceSheet = () => {
         companyExpenseResult,
         rcmResult,
         projectsResult,
+        personalFundsResult,
       ] = await Promise.all([
         fetchSafe({
           endpoint: API_ENDPOINTS.YEARS.LIST,
@@ -243,6 +252,10 @@ const BalanceSheet = () => {
         fetchSafe({
           endpoint: API_ENDPOINTS.PROJECTS.LIST,
           fallbackKeys: ["projects"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.OWNER_INVESTMENTS.LIST,
+          fallbackKeys: ["data", "personalFunds"],
         }),
       ]);
 
@@ -272,6 +285,11 @@ const BalanceSheet = () => {
 
       const projectsData =
         projectsResult.status === "fulfilled" ? projectsResult.value : [];
+
+      const personalFundsData =
+        personalFundsResult.status === "fulfilled"
+          ? personalFundsResult.value
+          : [];
 
       setFinancialYears(normalizedYears);
       setSalesRecords(
@@ -306,13 +324,21 @@ const BalanceSheet = () => {
         })),
       );
 
+      setPersonalFundRecords(
+        personalFundsData.map((record) => ({
+          ...record,
+          id: record._id || record.id,
+        })),
+      );
+
       if (
         yearsResult.status === "rejected" ||
         salesResult.status === "rejected" ||
         purchaseResult.status === "rejected" ||
         companyExpenseResult.status === "rejected" ||
         rcmResult.status === "rejected" ||
-        projectsResult.status === "rejected"
+        projectsResult.status === "rejected" ||
+        personalFundsResult.status === "rejected"
       ) {
         showInfo("Some balance sheet data could not be loaded.");
       }
@@ -325,6 +351,7 @@ const BalanceSheet = () => {
       setCompanyExpenseRecords([]);
       setRcmRecords([]);
       setProjectRecords([]);
+      setPersonalFundRecords([]);
     } finally {
       setLoading(false);
     }
@@ -359,6 +386,12 @@ const BalanceSheet = () => {
     const purchases = filterByFinancialYear(purchaseRecords);
     const companyExpenses = filterByFinancialYear(companyExpenseRecords);
     const rcm = filterByFinancialYear(rcmRecords);
+    const personalFunds = filterByFinancialYear(
+      personalFundRecords.map((r) => ({
+        ...r,
+        invoiceDate: r.fundDate || r.invoiceDate,
+      })),
+    );
     const selectedRange = getSelectedYearRange();
 
     const projectPayoutEntries = projectRecords.flatMap((project) => {
@@ -388,6 +421,7 @@ const BalanceSheet = () => {
           return {
             amount,
             paymentMethod: transaction.payoutMethod || "Bank Transfer",
+            payoutSource: transaction.payoutSource || "Business Account",
           };
         })
         .filter(Boolean);
@@ -404,6 +438,7 @@ const BalanceSheet = () => {
       gstInputDebit: 0,
       sundryDebtorsDebit: 0,
       sundryCreditorsCredit: 0,
+      ownerFundingCredit: 0,
     };
 
     sales.forEach((record) => {
@@ -433,9 +468,19 @@ const BalanceSheet = () => {
       totals.sundryCreditorsCredit += Math.max(totalAmount - paidAmount, 0);
 
       if (isCashPayment(record.paymentMethod)) {
-        totals.cashCredit += paidAmount;
+        if (isOwnerPersonalPayment(record)) {
+          totals.ownerFundingCredit += paidAmount;
+        } else {
+          totals.cashCredit += paidAmount;
+        }
       } else if (isBankPayment(record.paymentMethod)) {
-        totals.bankCredit += paidAmount;
+        if (isOwnerPersonalPayment(record)) {
+          totals.ownerFundingCredit += paidAmount;
+        } else {
+          totals.bankCredit += paidAmount;
+        }
+      } else if (isOwnerPersonalPayment(record) && paidAmount > 0) {
+        totals.ownerFundingCredit += paidAmount;
       }
 
       if (isPurchaseItcEligible(record.invoiceType)) {
@@ -475,10 +520,34 @@ const BalanceSheet = () => {
     });
 
     projectPayoutEntries.forEach((entry) => {
-      if (isCashPayment(entry.paymentMethod)) {
+      const isPersonalPayout =
+        String(entry.payoutSource || "")
+          .toLowerCase()
+          .includes("personal") ||
+        String(entry.payoutSource || "")
+          .toLowerCase()
+          .includes("owner");
+
+      if (isPersonalPayout) {
+        totals.ownerFundingCredit += entry.amount;
+      } else if (isCashPayment(entry.paymentMethod)) {
         totals.cashCredit += entry.amount;
       } else {
         totals.bankCredit += entry.amount;
+      }
+    });
+
+    personalFunds.forEach((fund) => {
+      const amount = toNumber(fund.amount || 0);
+      if (amount <= 0) return;
+      if (
+        String(fund.transferredTo || "")
+          .toLowerCase()
+          .includes("cash")
+      ) {
+        totals.cashDebit += amount;
+      } else {
+        totals.bankDebit += amount;
       }
     });
 
@@ -541,6 +610,7 @@ const BalanceSheet = () => {
       payables: totals.sundryCreditorsCredit,
       gstPayable: Math.max(gstNet, 0),
       overdraft: cashOverdraft + bankOverdraft,
+      ownerFunding: totals.ownerFundingCredit,
     };
 
     const totalAssets =
@@ -550,7 +620,10 @@ const BalanceSheet = () => {
       assets.gstReceivable +
       assets.inventory;
     const totalLiabilities =
-      liabilities.payables + liabilities.gstPayable + liabilities.overdraft;
+      liabilities.payables +
+      liabilities.gstPayable +
+      liabilities.overdraft +
+      liabilities.ownerFunding;
     const equity = totalAssets - totalLiabilities - openingCapital;
 
     return {
@@ -567,6 +640,7 @@ const BalanceSheet = () => {
     companyExpenseRecords,
     rcmRecords,
     projectRecords,
+    personalFundRecords,
     selectedFinancialYear,
     financialYears,
   ]);
@@ -598,6 +672,10 @@ const BalanceSheet = () => {
           return "Net GST liability payable";
         case "Bank/Cash Overdraft":
           return "Negative cash/bank closing balance shown as liability";
+        case "Owner Funding (Personal Payments)":
+          return "Amount paid directly from owner's personal account for business purchases/RCM/developer payouts";
+        case "Owner Capital Contribution (Personal Fund In)":
+          return "Personal money transferred by owner into business current account or cash box";
         case "Capital (Opening)":
           return "Owner capital brought at year start";
         case "Owner's Equity (Calculated)":
@@ -675,6 +753,14 @@ const BalanceSheet = () => {
         section: "Liabilities",
         account: "Bank/Cash Overdraft",
         amount: balanceSummary.liabilities.overdraft,
+      });
+    }
+
+    if (balanceSummary.liabilities.ownerFunding > 0) {
+      liabilityRows.push({
+        section: "Liabilities",
+        account: "Owner Funding (Personal Payments)",
+        amount: balanceSummary.liabilities.ownerFunding,
       });
     }
 

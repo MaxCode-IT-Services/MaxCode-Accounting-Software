@@ -69,8 +69,10 @@ const CreatePurchase = ({
     placeOfSupply: "",
     roundingAmount: "0",
     paymentStatus: "Unpaid",
+    paymentSource: "Business Account",
     paymentMethod: "",
     paymentDate: "",
+    amountPaid: "",
     invoiceURL: "",
     invoiceType: "",
   });
@@ -149,8 +151,14 @@ const CreatePurchase = ({
         placeOfSupply: editingRecord.placeOfSupply || "",
         roundingAmount: editingRecord.roundingAmount || "0",
         paymentStatus: editingRecord.paymentStatus || "Unpaid",
+        paymentSource: editingRecord.paymentSource || "Business Account",
         paymentMethod: editingRecord.paymentMethod || "",
         paymentDate: editingRecord.paymentDate || "",
+        amountPaid:
+          editingRecord.amountPaid ||
+          editingRecord.amountReceived ||
+          editingRecord.paidAmount ||
+          "",
         invoiceURL: editingRecord.invoiceURL || "",
         invoiceType: editingRecord.invoiceType || "",
       });
@@ -188,8 +196,10 @@ const CreatePurchase = ({
       placeOfSupply: "",
       roundingAmount: "0",
       paymentStatus: "Unpaid",
+      paymentSource: "Business Account",
       paymentMethod: "",
       paymentDate: "",
+      amountPaid: "",
       invoiceURL: "",
       invoiceType: "",
     });
@@ -440,8 +450,10 @@ const CreatePurchase = ({
     address: "Address",
     placeOfSupply: "Place of Supply",
     paymentStatus: "Payment Status",
+    paymentSource: "Payment Source",
     paymentMethod: "Payment Method",
     paymentDate: "Payment Date",
+    amountPaid: "Amount Paid",
   };
 
   const validateForm = () => {
@@ -485,6 +497,23 @@ const CreatePurchase = ({
       newErrors.phoneNumber = "Phone number must be exactly 10 digits";
     }
 
+    const totalAmount = parseFloat(taxData.totalAmount || 0) || 0;
+    const enteredPaid = parseFloat(formData.amountPaid || 0) || 0;
+
+    if (formData.paymentStatus === "Partial") {
+      if (enteredPaid <= 0) {
+        newErrors.amountPaid = "Please enter partial paid amount";
+      } else if (enteredPaid >= totalAmount && totalAmount > 0) {
+        newErrors.amountPaid = "Partial paid amount must be less than total";
+      }
+    }
+
+    if (formData.paymentStatus === "Paid" && totalAmount > 0) {
+      if (enteredPaid > totalAmount) {
+        newErrors.amountPaid = "Paid amount cannot exceed total amount";
+      }
+    }
+
     setErrors(newErrors);
 
     if (Object.keys(newErrors).length > 0) {
@@ -506,8 +535,20 @@ const CreatePurchase = ({
     if (validateForm()) {
       setSubmitting(true);
       try {
+        const computedTotalAmount = parseFloat(taxData.totalAmount || 0) || 0;
+        const enteredPaidAmount = parseFloat(formData.amountPaid || 0) || 0;
+
+        let normalizedAmountPaid = enteredPaidAmount;
+        if (formData.paymentStatus === "Paid") {
+          normalizedAmountPaid =
+            enteredPaidAmount > 0 ? enteredPaidAmount : computedTotalAmount;
+        } else if (formData.paymentStatus === "Unpaid") {
+          normalizedAmountPaid = 0;
+        }
+
         const submitData = {
           ...formData,
+          amountPaid: normalizedAmountPaid,
           items: items,
           taxData: taxData,
           id: editingRecord?.id || Date.now(),
@@ -1171,6 +1212,33 @@ const CreatePurchase = ({
                           )}
                         </div>
 
+                        {/* Payment Source */}
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="paymentSource"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-user-tie me-2 text-secondary"></i>
+                            Payment Source
+                          </label>
+                          <select
+                            id="paymentSource"
+                            name="paymentSource"
+                            className="form-select modern-input"
+                            value={formData.paymentSource}
+                            onChange={handleInputChange}
+                            disabled={isViewMode}
+                            style={{ fontWeight: "500" }}
+                          >
+                            <option value="Business Current Account">
+                              Business Current Account
+                            </option>
+                            <option value="Owner Personal Account">
+                              Owner Personal Account
+                            </option>
+                          </select>
+                        </div>
+
                         {/* Payment Method */}
                         <div className="col-md-4 mb-3">
                           <label
@@ -1222,8 +1290,36 @@ const CreatePurchase = ({
                           />
                         </div>
 
+                        {/* Amount Paid */}
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="amountPaid"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-indian-rupee-sign me-2 text-success"></i>
+                            Amount Paid
+                          </label>
+                          <input
+                            type="text"
+                            className={`form-control modern-input ${errors.amountPaid ? "is-invalid" : ""}`}
+                            id="amountPaid"
+                            name="amountPaid"
+                            value={formData.amountPaid}
+                            onChange={handleInputChange}
+                            onInput={handleNumberInput}
+                            placeholder="0.00"
+                            readOnly={isViewMode}
+                            style={{ fontWeight: "500" }}
+                          />
+                          {errors.amountPaid && (
+                            <div className="invalid-feedback d-block">
+                              {errors.amountPaid}
+                            </div>
+                          )}
+                        </div>
+
                         {/* Invoice Type */}
-                        <div className="col-md-6 mb-3">
+                        <div className="col-md-4 mb-3">
                           <label
                             htmlFor="invoiceType"
                             className="form-label fw-bold"
@@ -1249,7 +1345,7 @@ const CreatePurchase = ({
                         </div>
 
                         {/* Invoice URL */}
-                        <div className="col-md-6 mb-3">
+                        <div className="col-md-12 mb-3">
                           <label
                             htmlFor="invoiceURL"
                             className="form-label fw-bold"

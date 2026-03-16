@@ -21,6 +21,7 @@ const CreateCompanyExpense = ({
     description: "",
     amount: "",
     paymentStatus: "Paid",
+    paymentSource: "Business Account",
     paymentMethod: "Cash",
     paymentDate: "",
     paidAmount: "",
@@ -87,6 +88,7 @@ const CreateCompanyExpense = ({
       description: "",
       amount: "",
       paymentStatus: "",
+      paymentSource: "Business Account",
       paymentMethod: "",
       paymentDate: new Date().toISOString().slice(0, 10),
       paidAmount: "",
@@ -120,6 +122,7 @@ const CreateCompanyExpense = ({
           editingRecord.amount || editingRecord?.taxData?.totalAmount || "",
         ),
         paymentStatus: editingRecord.paymentStatus || "",
+        paymentSource: editingRecord.paymentSource || "Business Account",
         paymentMethod: editingRecord.paymentMethod || "",
         paymentDate: editingRecord.paymentDate || "",
         paidAmount: String(
@@ -217,6 +220,13 @@ const CreateCompanyExpense = ({
 
     if (
       ["Paid", "Partial"].includes(formData.paymentStatus) &&
+      !String(formData.paymentSource || "").trim()
+    ) {
+      newErrors.paymentSource = "Payment source is required";
+    }
+
+    if (
+      ["Paid", "Partial"].includes(formData.paymentStatus) &&
       !String(formData.paymentMethod || "").trim()
     ) {
       newErrors.paymentMethod = "Payment method is required";
@@ -285,6 +295,7 @@ const CreateCompanyExpense = ({
         description: formData.description.trim(),
         amount,
         paymentStatus: formData.paymentStatus,
+        paymentSource: formData.paymentSource,
         paymentMethod: formData.paymentMethod,
         paymentDate: formData.paymentDate || "",
         paidAmount: resolvedPaidAmount,
@@ -499,6 +510,31 @@ const CreateCompanyExpense = ({
                   {errors.paymentStatus && (
                     <div className="invalid-feedback">
                       {errors.paymentStatus}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4">
+                  <label htmlFor="paymentSource" className="form-label">
+                    Payment Source
+                    {formData.paymentStatus !== "Unpaid" && <RequiredStar />}
+                  </label>
+                  <select
+                    id="paymentSource"
+                    name="paymentSource"
+                    className={`form-select modern-input ${errors.paymentSource ? "is-invalid" : ""}`}
+                    value={formData.paymentSource}
+                    onChange={handleInputChange}
+                    disabled={isViewMode}
+                  >
+                    <option value="Business Account">Business Account</option>
+                    <option value="Owner Personal Account">
+                      Owner Personal Account
+                    </option>
+                  </select>
+                  {errors.paymentSource && (
+                    <div className="invalid-feedback">
+                      {errors.paymentSource}
                     </div>
                   )}
                 </div>

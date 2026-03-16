@@ -173,6 +173,15 @@ const API_ENDPOINTS = {
     LIST: "/detailed-ledger",
     STATISTICS: "/detailed-ledger/statistics",
   },
+
+  // Owner Investments endpoints
+  OWNER_INVESTMENTS: {
+    LIST: "/owner-investments",
+    CREATE: "/owner-investments",
+    GET: (id) => `/owner-investments?id=${id}`,
+    UPDATE: (id) => `/owner-investments?id=${id}`,
+    DELETE: (id) => `/owner-investments?id=${id}`,
+  },
 };
 
 export default API_ENDPOINTS;

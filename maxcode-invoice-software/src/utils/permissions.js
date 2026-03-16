@@ -122,6 +122,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "ownerInvestment",
+    label: "Owner Investment",
+    description: "Track owner capital or investment added to business",
+    icon: "fa-solid fa-piggy-bank",
+    route: "/admin/owner-investment",
+    detailed: true,
+  },
+  {
     key: "projectCredentials",
     label: "Project Credentials",
     description: "Manage project credentials",

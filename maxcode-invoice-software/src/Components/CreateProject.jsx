@@ -27,6 +27,7 @@ const emptyDeveloperPayoutRow = (id = 1) => ({
   payoutDate: "",
   payoutAmount: "",
   payoutMethod: "Bank Transfer",
+  payoutSource: "Business Account",
 });
 
 const toNumber = (value) => {
@@ -258,6 +259,7 @@ const CreateProject = ({
             payoutDate: transaction.payoutDate || "",
             payoutAmount: String(transaction.payoutAmount ?? ""),
             payoutMethod: transaction.payoutMethod || "Bank Transfer",
+            payoutSource: transaction.payoutSource || "Business Account",
           }))
         : [emptyDeveloperPayoutRow(1)];
 
@@ -1307,6 +1309,7 @@ const CreateProject = ({
                           <th style={{ width: "140px" }}>Payout Date</th>
                           <th style={{ width: "140px" }}>Payout Amount (₹)</th>
                           <th style={{ width: "170px" }}>Payout Method</th>
+                          <th style={{ width: "170px" }}>Payment Source</th>
                           <th style={{ width: "80px" }}>Action</th>
                         </tr>
                       </thead>
@@ -1412,6 +1415,30 @@ const CreateProject = ({
                                       {option}
                                     </option>
                                   ))}
+                                </select>
+                              </td>
+                              <td>
+                                <select
+                                  className="form-select form-select-sm modern-input"
+                                  value={
+                                    transaction.payoutSource ||
+                                    "Business Account"
+                                  }
+                                  onChange={(e) =>
+                                    handlePayoutChange(
+                                      transaction.id,
+                                      "payoutSource",
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={isViewMode}
+                                >
+                                  <option value="Business Account">
+                                    🏦 Business Account
+                                  </option>
+                                  <option value="Owner Personal Account">
+                                    👤 Owner Personal Account
+                                  </option>
                                 </select>
                               </td>
                               <td className="text-center align-middle">

@@ -50,6 +50,7 @@ const DetailedLedgerManagement = lazy(
 const DeveloperPayoutManagement = lazy(
   () => import("../src/Pages/DeveloperPayoutManagement"),
 );
+const OwnerInvestment = lazy(() => import("../src/Pages/OwnerInvestment"));
 const BalanceSheet = lazy(() => import("../src/Pages/BalanceSheet"));
 const FinancialYearManagement = lazy(
   () => import("../src/Pages/FinancialYearManagement"),
@@ -358,6 +359,17 @@ const dashboardChildRoutes = (
         <PermissionRoute moduleKey="developerPayoutManagement">
           <Suspense fallback={<Loading />}>
             <DeveloperPayoutManagement />
+          </Suspense>
+        </PermissionRoute>
+      }
+    />
+
+    <Route
+      path="owner-investment"
+      element={
+        <PermissionRoute moduleKey="ownerInvestment">
+          <Suspense fallback={<Loading />}>
+            <OwnerInvestment />
           </Suspense>
         </PermissionRoute>
       }

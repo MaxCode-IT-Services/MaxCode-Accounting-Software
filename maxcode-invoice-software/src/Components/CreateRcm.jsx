@@ -22,6 +22,7 @@ const CreateRcm = ({
     roundingAmount: "0",
     paymentStatus: "Unpaid",
     paymentMethod: "",
+    paymentSource: "Business Account",
     paymentDate: "",
     paidAmount: "",
     tdsPercent: "0",
@@ -159,6 +160,7 @@ const CreateRcm = ({
         roundingAmount: editingRecord.roundingAmount || "0",
         paymentStatus: editingRecord.paymentStatus || "Unpaid",
         paymentMethod: editingRecord.paymentMethod || "",
+        paymentSource: editingRecord.paymentSource || "Business Account",
         paymentDate: editingRecord.paymentDate || "",
         paidAmount: editingRecord.paidAmount || "",
         tdsPercent: editingRecord.tdsPercent || "0",
@@ -226,6 +228,7 @@ const CreateRcm = ({
       roundingAmount: "0",
       paymentStatus: "Unpaid",
       paymentMethod: "",
+      paymentSource: "Business Account",
       paymentDate: "",
       paidAmount: "",
       tdsPercent: "0",
@@ -1259,6 +1262,32 @@ const CreateRcm = ({
                             <option value="Debit Card">💳 Debit Card</option>
                             <option value="UPI">📱 UPI</option>
                             <option value="Cheque">📝 Cheque</option>
+                          </select>
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="paymentSource"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-user-circle me-2 text-warning"></i>
+                            Payment Source
+                          </label>
+                          <select
+                            id="paymentSource"
+                            name="paymentSource"
+                            className="form-select modern-input"
+                            value={formData.paymentSource}
+                            onChange={handleInputChange}
+                            disabled={isViewMode}
+                            style={{ fontWeight: "500" }}
+                          >
+                            <option value="Business Account">
+                              🏦 Business Account
+                            </option>
+                            <option value="Owner Personal Account">
+                              👤 Owner Personal Account
+                            </option>
                           </select>
                         </div>
 

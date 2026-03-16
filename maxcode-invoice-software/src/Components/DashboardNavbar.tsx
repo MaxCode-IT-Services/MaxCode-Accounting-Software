@@ -414,6 +414,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "developerPayoutManagement",
     },
     {
+      to: "/admin/owner-investment",
+      icon: "fa-solid fa-piggy-bank",
+      label: "Owner Investment",
+      permissionKey: "ownerInvestment",
+    },
+    {
       to: "/admin/project-credentials",
       icon: "fa-solid fa-key",
       label: "Project Credentials",
