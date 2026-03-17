@@ -1,5 +1,15 @@
 export const CRUD_ACTIONS = ["create", "read", "update", "delete", "export"];
 
+export const SETTINGS_TABS = [
+  { key: "profile", label: "Profile", icon: "fa-solid fa-user" },
+  { key: "pin", label: "PIN", icon: "fa-solid fa-lock" },
+  { key: "2fa", label: "Two-Factor Auth", icon: "fa-solid fa-shield-alt" },
+  { key: "business", label: "Business Settings", icon: "fa-solid fa-building" },
+  { key: "terms", label: "Invoice Terms", icon: "fa-solid fa-file-contract" },
+  { key: "hsn", label: "HSN Codes", icon: "fa-solid fa-barcode" },
+  { key: "backup", label: "Backup & Security", icon: "fa-solid fa-database" },
+];
+
 export const PERMISSION_MODULES = [
   {
     key: "dashboard",
@@ -197,6 +207,15 @@ export const createDefaultPermissions = () => {
     }
   }
 
+  // Add settings tabs permissions
+  permissions.settingsTabs = {
+    active: false,
+    tabs: {},
+  };
+  for (const tab of SETTINGS_TABS) {
+    permissions.settingsTabs.tabs[tab.key] = false;
+  }
+
   return permissions;
 };
 
@@ -331,4 +350,38 @@ export const hasActionPermission = (moduleKey, action, userInfo = null) => {
   return Object.values(modulePermission.pages).some(
     (pagePermissions) => pagePermissions?.[action] === true,
   );
+};
+
+export const canAccessSettingsTab = (tabKey, userInfo = null) => {
+  const resolvedUser = userInfo || getStoredUserInfo();
+
+  if (!resolvedUser) return true;
+
+  const isTeamMember = resolvedUser.userType === "team-member";
+  if (!isTeamMember) return true;
+
+  const permissions = resolvedUser.permissions || {};
+  const settingsPerms = permissions.settingsTabs;
+
+  // If settingsTabs not configured, deny access
+  if (!settingsPerms) return false;
+
+  // Check if the specific tab is allowed
+  return settingsPerms.tabs?.[tabKey] === true;
+};
+
+export const getAccessibleSettingsTabs = (userInfo = null) => {
+  const resolvedUser = userInfo || getStoredUserInfo();
+
+  if (!resolvedUser) return SETTINGS_TABS;
+
+  const isTeamMember = resolvedUser.userType === "team-member";
+  if (!isTeamMember) return SETTINGS_TABS;
+
+  const permissions = resolvedUser.permissions || {};
+  const settingsPerms = permissions.settingsTabs;
+
+  if (!settingsPerms) return [];
+
+  return SETTINGS_TABS.filter((tab) => settingsPerms.tabs?.[tab.key] === true);
 };

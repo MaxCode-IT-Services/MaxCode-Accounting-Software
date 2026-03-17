@@ -5,6 +5,7 @@ import API_ENDPOINTS from "../utils/apiEndpoints";
 import {
   CRUD_ACTIONS,
   PERMISSION_MODULES,
+  SETTINGS_TABS,
   createDefaultPermissions,
 } from "../utils/permissions";
 
@@ -793,6 +794,62 @@ const CreateTeamMember = ({
                   )}
                 </div>
               </div>
+
+              {/* Settings Tabs Access Control - Only show if Setting module is enabled */}
+              {permissions.setting?.active === true && (
+                <div className="card modern-card mt-4">
+                  <div className="card-body">
+                    <h5 className="mb-2">
+                      <i className="fas fa-cog me-2 text-primary"></i>
+                      Settings Tab Access
+                    </h5>
+                    <small className="text-muted d-block mb-2">
+                      Select which settings tabs this team member can access.
+                    </small>
+
+                    <div className="row">
+                      {SETTINGS_TABS.map((tab) => (
+                        <div key={tab.key} className="col-md-6 col-lg-3 mb-3">
+                          <div className="form-check">
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              id={`settingsTab_${tab.key}`}
+                              checked={
+                                permissions.settingsTabs?.tabs?.[tab.key] ===
+                                true
+                              }
+                              onChange={(e) => {
+                                setPermissions((prev) => ({
+                                  ...prev,
+                                  settingsTabs: {
+                                    ...prev.settingsTabs,
+                                    tabs: {
+                                      ...prev.settingsTabs.tabs,
+                                      [tab.key]: e.target.checked,
+                                    },
+                                  },
+                                }));
+                              }}
+                              disabled={isViewMode}
+                            />
+                            <label
+                              className="form-check-label fw-semibold"
+                              htmlFor={`settingsTab_${tab.key}`}
+                            >
+                              <i
+                                className={`${tab.icon} me-2`}
+                                style={{ color: "var(--primary-color)" }}
+                              ></i>
+                              {tab.label}
+                            </label>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </form>
           </div>
 

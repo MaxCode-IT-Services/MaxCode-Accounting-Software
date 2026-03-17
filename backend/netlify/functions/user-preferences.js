@@ -70,6 +70,7 @@ export async function handler(event) {
     const userBooleanFields = ["fingerprintLoginEnabled", "usbKeyLoginEnabled"];
     const userStringFields = ["biometricCredentialId", "usbKeyTokenHash"];
     const userStringArrayFields = ["biometricCredentialIds"];
+    const userObjectFields = ["settingsTabs"]; // For nested object permissions
 
     const mergePreferenceValues = (document = {}) => {
       const merged = {};
@@ -115,6 +116,7 @@ export async function handler(event) {
                 biometricCredentialIds: 1,
                 usbKeyLoginEnabled: 1,
                 usbKeyTokenHash: 1,
+                "permissions.settingsTabs": 1,
               },
             },
           )
@@ -152,6 +154,13 @@ export async function handler(event) {
         mergedPreferences.usbKeyTokenHash = userDoc.usbKeyTokenHash;
       }
 
+      if (
+        userDoc?.permissions?.settingsTabs &&
+        typeof userDoc.permissions.settingsTabs === "object"
+      ) {
+        mergedPreferences.settingsTabs = userDoc.permissions.settingsTabs;
+      }
+
       return createResponse(200, mergedPreferences, origin);
     }
 
@@ -166,7 +175,21 @@ export async function handler(event) {
 
       // Validate and collect preferences
       Object.entries(body).forEach(([key, value]) => {
-        if (userStringFields.includes(key)) {
+        if (userObjectFields.includes(key)) {
+          // For object fields like settingsTabs
+          if (key === "settingsTabs") {
+            if (
+              value &&
+              typeof value === "object" &&
+              typeof value.tabs === "object"
+            ) {
+              // Store settingsTabs in permissions.settingsTabs
+              userUpdateFields["permissions.settingsTabs"] = value;
+            } else if (value === null) {
+              userUpdateFields["permissions.settingsTabs"] = null;
+            }
+          }
+        } else if (userStringFields.includes(key)) {
           if (typeof value !== "string" && value !== null) {
             invalidField = key;
             return;
