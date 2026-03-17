@@ -14,9 +14,9 @@ import { ObjectId } from "mongodb";
  * - GET: Check if 2FA is enabled
  */
 
-const generate2FASecret = (userEmail) => {
+const generate2FASecret = (userPhone) => {
   return speakeasy.generateSecret({
-    name: `MaxCode Accounting (${userEmail})`,
+    name: `MaxCode Accounting (${userPhone})`,
     issuer: "MaxCode IT Services",
     length: 32, // Standard length for TOTP
   });
@@ -93,14 +93,22 @@ export async function handler(event) {
 
       // Generate new 2FA secret
       if (action === "generate-2fa") {
-        const userEmail = user.email || user.userId;
-        const secret = generate2FASecret(userEmail);
+        const userObjectId = new ObjectId(user.userId);
+        const userData = await usersCollection.findOne({
+          _id: userObjectId,
+        });
+
+        const userPhone =
+          userData?.phone ||
+          userData?.phoneNumber ||
+          userData?.email ||
+          user.userId;
+        const secret = generate2FASecret(userPhone);
 
         const qrCode = await generateQRCode(secret);
         const backupCodes = backupCodesGenerator();
 
         // Store temporary secret (not yet verified/enabled)
-        const userObjectId = new ObjectId(user.userId);
         await usersCollection.updateOne(
           { _id: userObjectId },
           {
