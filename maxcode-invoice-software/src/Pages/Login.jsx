@@ -584,9 +584,7 @@ const Login = ({ settings }) => {
         setShowBackupOption(false);
         setUsbKeyError("");
         setSelectedUsbFile(null);
-        showInfo(
-          "PIN verified. Select MaxCode-Accounting.sec from your pen drive to continue login.",
-        );
+        showInfo("PIN verified. Please verify your USB Security Key.");
         return;
       }
 

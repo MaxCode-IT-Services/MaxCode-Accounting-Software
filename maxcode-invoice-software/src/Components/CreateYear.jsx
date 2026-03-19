@@ -30,6 +30,16 @@ const CreateYear = ({
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
+  const getInvoiceYearPart = (financialYear) => {
+    if (!financialYear || !/^\d{4}-\d{2}$/.test(financialYear)) return "";
+    const [startYear, endYear] = financialYear.split("-");
+    return `${startYear.slice(-2)}-${endYear}`;
+  };
+
+  const isAutoInvoiceFormat = (value) => /^MC\/\d{2}-\d{2}\/0001$/.test(value);
+  const isAutoSelfInvoiceFormat = (value) =>
+    /^MCR\/\d{2}-\d{2}\/0001$/.test(value);
+
   useEffect(() => {
     if (show) {
       document.body.style.overflow = "hidden";
@@ -99,16 +109,42 @@ const CreateYear = ({
         ...prev,
         financialYear: financialYear,
       }));
-
-      // Auto-suggest invoice format based on financial year
-      if (!formData.invoiceFormat) {
-        setFormData((prev) => ({
-          ...prev,
-          invoiceFormat: `MC/${financialYear.replace("-", "-")}/0001`,
-        }));
-      }
     }
   }, [formData.startDate, editingRecord]);
+
+  // Auto-fill invoice formats from financial year for new records
+  useEffect(() => {
+    if (editingRecord || !formData.financialYear) return;
+
+    const yearPart = getInvoiceYearPart(formData.financialYear);
+    if (!yearPart) return;
+
+    const nextInvoiceFormat = `MC/${yearPart}/0001`;
+    const nextSelfInvoiceFormat = `MCR/${yearPart}/0001`;
+
+    const shouldUpdateInvoiceFormat =
+      !formData.invoiceFormat || isAutoInvoiceFormat(formData.invoiceFormat);
+    const shouldUpdateSelfInvoiceFormat =
+      !formData.selfInvoiceFormat ||
+      isAutoSelfInvoiceFormat(formData.selfInvoiceFormat);
+
+    if (!shouldUpdateInvoiceFormat && !shouldUpdateSelfInvoiceFormat) return;
+
+    setFormData((prev) => ({
+      ...prev,
+      invoiceFormat: shouldUpdateInvoiceFormat
+        ? nextInvoiceFormat
+        : prev.invoiceFormat,
+      selfInvoiceFormat: shouldUpdateSelfInvoiceFormat
+        ? nextSelfInvoiceFormat
+        : prev.selfInvoiceFormat,
+    }));
+  }, [
+    formData.financialYear,
+    formData.invoiceFormat,
+    formData.selfInvoiceFormat,
+    editingRecord,
+  ]);
 
   // Auto-set end date based on start date (March 31 of next year)
   useEffect(() => {
@@ -565,7 +601,7 @@ const CreateYear = ({
                     name="selfInvoiceFormat"
                     value={formData.selfInvoiceFormat}
                     onChange={handleInputChange}
-                    placeholder="e.g., MC/RCM/25-26/0001"
+                    placeholder="e.g., MCR/25-26/0001"
                     readOnly={isViewMode}
                   />
                   {errors.selfInvoiceFormat && (
