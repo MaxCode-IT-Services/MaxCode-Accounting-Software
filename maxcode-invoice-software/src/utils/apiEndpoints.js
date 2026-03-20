@@ -20,6 +20,14 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/clients?id=${id}`,
   },
 
+  // File management endpoints
+  FILES: {
+    LIST: "/files",
+    CREATE: "/files",
+    GET: (id) => `/files?id=${id}`,
+    DELETE: (id) => `/files?id=${id}`,
+  },
+
   // Vendor endpoints
   VENDORS: {
     LIST: "/vendors",

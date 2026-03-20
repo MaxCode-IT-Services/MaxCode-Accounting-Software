@@ -22,6 +22,7 @@ import { verifyServerSession } from "../src/utils/api";
 // Lazy load User Dashboard pages
 const AdminDashboard = lazy(() => import("../src/Pages/Dashboard.jsx"));
 const ClientManagement = lazy(() => import("../src/Pages/ClientManagement"));
+const FileManagement = lazy(() => import("../src/Pages/FileManagement"));
 const QutationManagement = lazy(
   () => import("../src/Pages/QutationManagement"),
 );
@@ -193,6 +194,16 @@ const dashboardChildRoutes = (
         <PermissionRoute moduleKey="clientManagement">
           <Suspense fallback={<Loading />}>
             <ClientManagement />
+          </Suspense>
+        </PermissionRoute>
+      }
+    />
+    <Route
+      path="file-management"
+      element={
+        <PermissionRoute moduleKey="fileManagement">
+          <Suspense fallback={<Loading />}>
+            <FileManagement />
           </Suspense>
         </PermissionRoute>
       }

@@ -44,6 +44,7 @@ const ALLOWED_FIELDS = [
   "selfInvoiceTermsConditions",
   "services",
   "backupSettings",
+  "cloudflareSettings",
 ];
 
 const normalizeRole = (role = "") =>
@@ -146,6 +147,36 @@ const sanitizeBackupSettings = (value = {}) => {
   };
 };
 
+const sanitizeCloudflareSettings = (value = {}) => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const normalizeUrl = (urlValue = "") => {
+    const trimmed = String(urlValue || "").trim();
+    if (!trimmed) return "";
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed.replace(/\/+$/, "");
+    }
+    return `https://${trimmed}`.replace(/\/+$/, "");
+  };
+
+  return {
+    storeUrl: normalizeUrl(value.storeUrl),
+    publicDomain: normalizeUrl(value.publicDomain),
+    password: typeof value.password === "string" ? value.password.trim() : "",
+    defaultFolder:
+      typeof value.defaultFolder === "string" && value.defaultFolder.trim()
+        ? value.defaultFolder.trim()
+        : "general",
+    folderOptions:
+      typeof value.folderOptions === "string" && value.folderOptions.trim()
+        ? value.folderOptions.trim()
+        : "general,documents,invoices,purchases",
+    updatedAt: new Date(),
+  };
+};
+
 const getBaseUrl = (event) => {
   const host =
     event.headers["x-forwarded-host"] || event.headers.host || "localhost:8888";
@@ -229,6 +260,11 @@ const sanitizeSettingsPayload = (payload = {}) => {
         if (sanitizedBackupSettings) {
           sanitized[field] = sanitizedBackupSettings;
         }
+      } else if (field === "cloudflareSettings") {
+        const sanitizedCloudflareSettings = sanitizeCloudflareSettings(value);
+        if (sanitizedCloudflareSettings) {
+          sanitized[field] = sanitizedCloudflareSettings;
+        }
       } else {
         sanitized[field] = value;
       }
@@ -275,6 +311,11 @@ const normalizeLegacySettings = (document = {}) => {
     ],
     services: ["services", "serviceMaster", "serviceList"],
     backupSettings: ["backupSettings", "driveConfig", "googleDriveConfig"],
+    cloudflareSettings: [
+      "cloudflareSettings",
+      "r2Settings",
+      "cloudStorageSettings",
+    ],
   };
 
   for (const [targetField, aliases] of Object.entries(fieldAliases)) {
@@ -355,6 +396,19 @@ const mapSettingsForClient = (document, event) => {
       dayOfMonth: 1,
       monthOfYear: 1,
       timezone: "Asia/Kolkata",
+    };
+  }
+
+  if (
+    !response.cloudflareSettings ||
+    typeof response.cloudflareSettings !== "object"
+  ) {
+    response.cloudflareSettings = {
+      storeUrl: "",
+      publicDomain: "",
+      password: "",
+      defaultFolder: "general",
+      folderOptions: "general,documents,invoices,purchases",
     };
   }
 

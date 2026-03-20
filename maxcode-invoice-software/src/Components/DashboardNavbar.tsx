@@ -336,6 +336,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "clientManagement",
     },
     {
+      to: "/admin/file-management",
+      icon: "fa-solid fa-folder-open",
+      label: "File Management",
+      permissionKey: "fileManagement",
+    },
+    {
       to: "/admin/vendor-management",
       icon: "fa-solid fa-store",
       label: "Vendor Management",
