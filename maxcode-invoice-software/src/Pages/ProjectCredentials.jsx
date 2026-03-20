@@ -294,7 +294,7 @@ const ProjectCredentials = () => {
       }
 
       const response = await apiGet(
-        `${API_ENDPOINTS.PROJECT_CREDENTIALS.LIST}?page=1&limit=10000`,
+        `${API_ENDPOINTS.PROJECT_CREDENTIALS.LIST}?page=${currentPage}&limit=${recordsPerPage}`,
       );
       const source = (response.data?.data || []).map((record) => ({
         ...record,

@@ -201,62 +201,91 @@ export async function handler(event) {
       });
 
       if (!runRecord) {
-        const [serviceRecords, financialYears] = await Promise.all([
-          servicesCollection.find({ isDeleted: { $ne: true } }).toArray(),
-          yearsCollection.find({ isDeleted: { $ne: true } }).toArray(),
-        ]);
-
-        const generatedNotifications = buildServiceExpiryNotifications({
-          serviceRecords,
-          financialYears,
-          today,
-        });
-
-        if (generatedNotifications.length > 0) {
-          const existingToday = await notificationsCollection
-            .find(
-              {
-                dateKey,
-                templateType: notificationType,
-                isDeleted: { $ne: true },
-              },
-              { projection: { dedupeKey: 1 } },
-            )
-            .toArray();
-
-          const existingKeys = new Set(
-            existingToday
-              .map((row) => row?.dedupeKey)
-              .filter((dedupeKey) => typeof dedupeKey === "string"),
-          );
-
-          const now = new Date();
-          const docsToInsert = generatedNotifications
-            .filter((notification) => !existingKeys.has(notification.dedupeKey))
-            .map((notification) => ({
-              ...notification,
+        const lockTime = new Date();
+        const runUpsertResult = await notificationRunsCollection.updateOne(
+          { dateKey, notificationType },
+          {
+            $setOnInsert: {
               dateKey,
-              read: false,
-              readBy: [],
-              isDeleted: false,
-              createdAt: now,
-              updatedAt: now,
-            }));
+              notificationType,
+              generatedCount: 0,
+              generatedByUserId: currentUserId,
+              generatedByRole: decodedToken?.role || "unknown",
+              createdAt: lockTime,
+            },
+            $set: {
+              updatedAt: lockTime,
+            },
+          },
+          { upsert: true },
+        );
 
-          if (docsToInsert.length > 0) {
-            await notificationsCollection.insertMany(docsToInsert);
+        const shouldGenerateNotifications =
+          runUpsertResult.upsertedCount === 1 ||
+          runUpsertResult.upsertedId !== null;
+
+        if (shouldGenerateNotifications) {
+          const [serviceRecords, financialYears] = await Promise.all([
+            servicesCollection.find({ isDeleted: { $ne: true } }).toArray(),
+            yearsCollection.find({ isDeleted: { $ne: true } }).toArray(),
+          ]);
+
+          const generatedNotifications = buildServiceExpiryNotifications({
+            serviceRecords,
+            financialYears,
+            today,
+          });
+
+          if (generatedNotifications.length > 0) {
+            const existingToday = await notificationsCollection
+              .find(
+                {
+                  dateKey,
+                  templateType: notificationType,
+                  isDeleted: { $ne: true },
+                },
+                { projection: { dedupeKey: 1 } },
+              )
+              .toArray();
+
+            const existingKeys = new Set(
+              existingToday
+                .map((row) => row?.dedupeKey)
+                .filter((dedupeKey) => typeof dedupeKey === "string"),
+            );
+
+            const now = new Date();
+            const docsToInsert = generatedNotifications
+              .filter(
+                (notification) => !existingKeys.has(notification.dedupeKey),
+              )
+              .map((notification) => ({
+                ...notification,
+                dateKey,
+                read: false,
+                readBy: [],
+                isDeleted: false,
+                createdAt: now,
+                updatedAt: now,
+              }));
+
+            if (docsToInsert.length > 0) {
+              await notificationsCollection.insertMany(docsToInsert);
+            }
           }
-        }
 
-        await notificationRunsCollection.insertOne({
-          dateKey,
-          notificationType,
-          generatedCount: generatedNotifications.length,
-          generatedByUserId: currentUserId,
-          generatedByRole: decodedToken?.role || "unknown",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
+          await notificationRunsCollection.updateOne(
+            { dateKey, notificationType },
+            {
+              $set: {
+                generatedCount: generatedNotifications.length,
+                generatedByUserId: currentUserId,
+                generatedByRole: decodedToken?.role || "unknown",
+                updatedAt: new Date(),
+              },
+            },
+          );
+        }
       }
 
       const notifications = await notificationsCollection

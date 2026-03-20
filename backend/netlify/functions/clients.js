@@ -29,6 +29,7 @@ export async function handler(event) {
         id,
         page = 1,
         limit = 10,
+        includeMeta = "true",
         search,
         status,
         gstStatus,
@@ -184,6 +185,7 @@ export async function handler(event) {
       // Build sort object
       const sortObject = {};
       sortObject[sortBy] = sortOrder === "asc" ? 1 : -1;
+      const shouldIncludeMeta = includeMeta !== "false";
 
       // Get total count for pagination
       const totalRecords = await clientsCollection.countDocuments(filterQuery);
@@ -196,47 +198,64 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
-      // Get distinct placeOfSupply values for dynamic filter options
-      // Get distinct values dynamically for dropdown filters
-      const placeOfSupplyValues = await clientsCollection.distinct(
-        "placeOfSupply",
-        { isDeleted: { $ne: true }, placeOfSupply: { $exists: true, $ne: "" } },
-      );
+      let placeOfSupplyValues = [];
+      let statusValues = [];
+      let gstStatusValues = [];
+      let totalActive = 0;
+      let totalInactive = 0;
+      let totalWithGST = 0;
+      let totalWithoutGST = 0;
 
-      const statusValues = await clientsCollection.distinct("status", {
-        isDeleted: { $ne: true },
-        status: { $exists: true, $ne: "" },
-      });
+      if (shouldIncludeMeta) {
+        const [
+          distinctPlaceValues,
+          distinctStatusValues,
+          gstStatusRaw,
+          activeCount,
+          inactiveCount,
+          withGstCount,
+          withoutGstCount,
+        ] = await Promise.all([
+          clientsCollection.distinct("placeOfSupply", {
+            isDeleted: { $ne: true },
+            placeOfSupply: { $exists: true, $ne: "" },
+          }),
+          clientsCollection.distinct("status", {
+            isDeleted: { $ne: true },
+            status: { $exists: true, $ne: "" },
+          }),
+          clientsCollection.distinct("hasGSTIN", {
+            isDeleted: { $ne: true },
+            hasGSTIN: { $exists: true },
+          }),
+          clientsCollection.countDocuments({
+            isDeleted: { $ne: true },
+            status: "Active",
+          }),
+          clientsCollection.countDocuments({
+            isDeleted: { $ne: true },
+            status: "Inactive",
+          }),
+          clientsCollection.countDocuments({
+            isDeleted: { $ne: true },
+            hasGSTIN: true,
+          }),
+          clientsCollection.countDocuments({
+            isDeleted: { $ne: true },
+            hasGSTIN: false,
+          }),
+        ]);
 
-      const gstStatusRaw = await clientsCollection.distinct("hasGSTIN", {
-        isDeleted: { $ne: true },
-        hasGSTIN: { $exists: true },
-      });
-
-      const gstStatusValues = gstStatusRaw.map((val) =>
-        val ? "Registered" : "Unregistered",
-      );
-
-      // Get statistics for dashboard cards
-      const totalActive = await clientsCollection.countDocuments({
-        isDeleted: { $ne: true },
-        status: "Active",
-      });
-
-      const totalInactive = await clientsCollection.countDocuments({
-        isDeleted: { $ne: true },
-        status: "Inactive",
-      });
-
-      const totalWithGST = await clientsCollection.countDocuments({
-        isDeleted: { $ne: true },
-        hasGSTIN: true,
-      });
-
-      const totalWithoutGST = await clientsCollection.countDocuments({
-        isDeleted: { $ne: true },
-        hasGSTIN: false,
-      });
+        placeOfSupplyValues = distinctPlaceValues;
+        statusValues = distinctStatusValues;
+        gstStatusValues = gstStatusRaw.map((val) =>
+          val ? "Registered" : "Unregistered",
+        );
+        totalActive = activeCount;
+        totalInactive = inactiveCount;
+        totalWithGST = withGstCount;
+        totalWithoutGST = withoutGstCount;
+      }
 
       // Return paginated response with metadata
       return createResponse(
@@ -249,18 +268,22 @@ export async function handler(event) {
             totalRecords,
             totalPages: Math.ceil(totalRecords / limitNum),
           },
-          statistics: {
-            total: totalRecords,
-            active: totalActive,
-            inactive: totalInactive,
-            withGST: totalWithGST,
-            withoutGST: totalWithoutGST,
-          },
-          filterOptions: {
-            placeOfSupply: ["All", ...placeOfSupplyValues.sort()],
-            status: ["All", ...statusValues.sort()],
-            gstStatus: ["All", ...gstStatusValues],
-          },
+          ...(shouldIncludeMeta
+            ? {
+                statistics: {
+                  total: totalRecords,
+                  active: totalActive,
+                  inactive: totalInactive,
+                  withGST: totalWithGST,
+                  withoutGST: totalWithoutGST,
+                },
+                filterOptions: {
+                  placeOfSupply: ["All", ...placeOfSupplyValues.sort()],
+                  status: ["All", ...statusValues.sort()],
+                  gstStatus: ["All", ...gstStatusValues],
+                },
+              }
+            : {}),
           // Debug info for troubleshooting
           debug: {
             filterQuery,

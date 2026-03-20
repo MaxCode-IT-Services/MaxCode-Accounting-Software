@@ -43,6 +43,7 @@ export async function handler(event) {
         id,
         page,
         limit,
+        includeMeta = "true",
         search,
         sortBy = "startDate",
         sortOrder = "desc",
@@ -224,6 +225,7 @@ export async function handler(event) {
       const sortObject = {};
       sortObject[sortFieldMapping[sortBy] || sortBy] =
         sortOrder === "asc" ? 1 : -1;
+      const shouldIncludeMeta = includeMeta !== "false";
 
       const totalRecords = await yearsCollection.countDocuments(filterQuery);
 
@@ -234,43 +236,52 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
-      const [
-        statusValues,
-        totalAll,
-        totalActive,
-        totalInactive,
-        totalCurrentYear,
-        totalUpcomingYear,
-      ] = await Promise.all([
-        yearsCollection.distinct("status", {
-          isDeleted: { $ne: true },
-          status: { $exists: true, $ne: "" },
-        }),
-        yearsCollection.countDocuments({
-          isDeleted: { $ne: true },
-        }),
-        yearsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          status: "Active",
-        }),
-        yearsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          status: "Inactive",
-        }),
-        yearsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          financialYear: currentFY,
-        }),
-        yearsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          $expr: {
-            $gt: [
-              { $toInt: { $substr: ["$financialYear", 0, 4] } },
-              currentFYStart,
-            ],
-          },
-        }),
-      ]);
+      let statusValues = [];
+      let totalAll = 0;
+      let totalActive = 0;
+      let totalInactive = 0;
+      let totalCurrentYear = 0;
+      let totalUpcomingYear = 0;
+
+      if (shouldIncludeMeta) {
+        [
+          statusValues,
+          totalAll,
+          totalActive,
+          totalInactive,
+          totalCurrentYear,
+          totalUpcomingYear,
+        ] = await Promise.all([
+          yearsCollection.distinct("status", {
+            isDeleted: { $ne: true },
+            status: { $exists: true, $ne: "" },
+          }),
+          yearsCollection.countDocuments({
+            isDeleted: { $ne: true },
+          }),
+          yearsCollection.countDocuments({
+            isDeleted: { $ne: true },
+            status: "Active",
+          }),
+          yearsCollection.countDocuments({
+            isDeleted: { $ne: true },
+            status: "Inactive",
+          }),
+          yearsCollection.countDocuments({
+            isDeleted: { $ne: true },
+            financialYear: currentFY,
+          }),
+          yearsCollection.countDocuments({
+            isDeleted: { $ne: true },
+            $expr: {
+              $gt: [
+                { $toInt: { $substr: ["$financialYear", 0, 4] } },
+                currentFYStart,
+              ],
+            },
+          }),
+        ]);
+      }
 
       return createResponse(
         200,
@@ -283,17 +294,21 @@ export async function handler(event) {
             totalRecords,
             totalPages: Math.ceil(totalRecords / limitNum),
           },
-          statistics: {
-            total: totalAll,
-            active: totalActive,
-            inactive: totalInactive,
-            currentYear: totalCurrentYear,
-            upcomingYear: totalUpcomingYear,
-          },
-          filterOptions: {
-            status: ["All", ...statusValues.sort()],
-            isDefaultDisplay: ["All", "Yes", "No"],
-          },
+          ...(shouldIncludeMeta
+            ? {
+                statistics: {
+                  total: totalAll,
+                  active: totalActive,
+                  inactive: totalInactive,
+                  currentYear: totalCurrentYear,
+                  upcomingYear: totalUpcomingYear,
+                },
+                filterOptions: {
+                  status: ["All", ...statusValues.sort()],
+                  isDefaultDisplay: ["All", "Yes", "No"],
+                },
+              }
+            : {}),
         },
         origin,
       );

@@ -308,7 +308,6 @@ const guessMimeTypeFromFileName = (name = "") => {
     docx: "documents",
     xls: "excel",
     xlsx: "excel",
-    csv: "text/csv",
     js: "javascript",
     wav: "audio/wav",
     apk: "apk",

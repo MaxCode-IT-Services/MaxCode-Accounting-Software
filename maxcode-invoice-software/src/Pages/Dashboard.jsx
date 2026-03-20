@@ -130,6 +130,10 @@ const Dashboard = () => {
         try {
           const value = await fetchAllPaginatedEntities({
             ...config,
+            queryParams: {
+              includeMeta: "false",
+              ...(config.queryParams || {}),
+            },
             forceRefresh,
           });
           return { status: "fulfilled", value };
@@ -138,42 +142,54 @@ const Dashboard = () => {
         }
       };
 
-      const yearsResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.YEARS.LIST,
-        fallbackKeys: ["years"],
-      });
-      const clientsResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.CLIENTS.LIST,
-        fallbackKeys: ["clients"],
-      });
-      const vendorsResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.VENDORS.LIST,
-        fallbackKeys: ["vendors"],
-      });
-      const staffResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.STAFF.LIST,
-        fallbackKeys: ["staff"],
-      });
-      const servicesResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.SERVICES.LIST,
-        fallbackKeys: ["services"],
-      });
-      const salesResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.INVOICES.LIST,
-        fallbackKeys: ["invoices"],
-      });
-      const purchasesResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.PURCHASES.LIST,
-        fallbackKeys: ["purchases"],
-      });
-      const rcmResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.RCM.LIST,
-        fallbackKeys: ["rcm", "records"],
-      });
-      const projectsResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.PROJECTS.LIST,
-        fallbackKeys: ["projects"],
-      });
+      const [
+        yearsResult,
+        clientsResult,
+        vendorsResult,
+        staffResult,
+        servicesResult,
+        salesResult,
+        purchasesResult,
+        rcmResult,
+        projectsResult,
+      ] = await Promise.all([
+        fetchSafe({
+          endpoint: API_ENDPOINTS.YEARS.LIST,
+          fallbackKeys: ["years"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.CLIENTS.LIST,
+          fallbackKeys: ["clients"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.VENDORS.LIST,
+          fallbackKeys: ["vendors"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.STAFF.LIST,
+          fallbackKeys: ["staff"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.SERVICES.LIST,
+          fallbackKeys: ["services"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.INVOICES.LIST,
+          fallbackKeys: ["invoices"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.PURCHASES.LIST,
+          fallbackKeys: ["purchases"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.RCM.LIST,
+          fallbackKeys: ["rcm", "records"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.PROJECTS.LIST,
+          fallbackKeys: ["projects"],
+        }),
+      ]);
 
       const yearData =
         yearsResult.status === "fulfilled" ? yearsResult.value : [];

@@ -35,11 +35,19 @@ const uniqueById = (rows = []) => {
 export const fetchAllPaginatedEntities = async ({
   endpoint,
   fallbackKeys = [],
-  pageSize = 1000,
+  pageSize = 10,
+  fetchAll = false,
+  queryParams = {},
   useCache = true,
   forceRefresh = false,
 }) => {
-  const cacheKey = JSON.stringify({ endpoint, fallbackKeys, pageSize });
+  const cacheKey = JSON.stringify({
+    endpoint,
+    fallbackKeys,
+    pageSize,
+    fetchAll,
+    queryParams,
+  });
   const now = Date.now();
 
   if (useCache && !forceRefresh) {
@@ -60,8 +68,18 @@ export const fetchAllPaginatedEntities = async ({
   const fetchPromise = (async () => {
     for (let attempts = 0; attempts < MAX_PAGES; attempts += 1) {
       const separator = endpoint.includes("?") ? "&" : "?";
+      const mergedParams = new URLSearchParams({
+        page: String(page),
+        limit: String(pageSize),
+      });
+
+      Object.entries(queryParams || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === "") return;
+        mergedParams.set(key, String(value));
+      });
+
       const response = await apiGet(
-        `${endpoint}${separator}page=${page}&limit=${pageSize}`,
+        `${endpoint}${separator}${mergedParams.toString()}`,
       );
 
       const payload = response?.data;
@@ -70,6 +88,10 @@ export const fetchAllPaginatedEntities = async ({
 
       const totalPages = Number(payload?.pagination?.totalPages || 0);
       const totalRecords = Number(payload?.pagination?.totalRecords || 0);
+
+      if (!fetchAll) {
+        break;
+      }
 
       if (totalPages > 0) {
         if (page >= totalPages) break;
@@ -121,6 +143,7 @@ export const fetchAllClients = async (options = {}) => {
   return fetchAllPaginatedEntities({
     endpoint: API_ENDPOINTS.CLIENTS.LIST,
     fallbackKeys: ["clients"],
+    fetchAll: true,
     ...options,
   });
 };
@@ -129,6 +152,7 @@ export const fetchAllVendors = async (options = {}) => {
   return fetchAllPaginatedEntities({
     endpoint: API_ENDPOINTS.VENDORS.LIST,
     fallbackKeys: ["vendors"],
+    fetchAll: true,
     ...options,
   });
 };

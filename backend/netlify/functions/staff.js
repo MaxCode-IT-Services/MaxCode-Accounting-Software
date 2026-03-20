@@ -93,6 +93,7 @@ export async function handler(event) {
         asset,
         page = 1,
         limit = 10,
+        includeMeta = "true",
         search,
         sortBy = "createdAt",
         sortOrder = "desc",
@@ -327,6 +328,7 @@ export async function handler(event) {
       const sortObject = {};
       sortObject[sortFieldMapping[sortBy] || sortBy] =
         sortOrder === "asc" ? 1 : -1;
+      const shouldIncludeMeta = includeMeta !== "false";
 
       const totalRecords = await staffCollection.countDocuments(filterQuery);
 
@@ -337,38 +339,46 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
-      const [
-        statusValues,
-        totalActive,
-        totalInactive,
-        totalWithPhoto,
-        totalWithoutPhoto,
-      ] = await Promise.all([
-        staffCollection.distinct("status", {
-          isDeleted: { $ne: true },
-          status: { $exists: true, $ne: "" },
-        }),
-        staffCollection.countDocuments({
-          isDeleted: { $ne: true },
-          status: "Active",
-        }),
-        staffCollection.countDocuments({
-          isDeleted: { $ne: true },
-          status: "Inactive",
-        }),
-        staffCollection.countDocuments({
-          isDeleted: { $ne: true },
-          profilePhotoUrl: { $exists: true, $nin: ["", null] },
-        }),
-        staffCollection.countDocuments({
-          isDeleted: { $ne: true },
-          $or: [
-            { profilePhotoUrl: { $exists: false } },
-            { profilePhotoUrl: "" },
-            { profilePhotoUrl: null },
-          ],
-        }),
-      ]);
+      let statusValues = [];
+      let totalActive = 0;
+      let totalInactive = 0;
+      let totalWithPhoto = 0;
+      let totalWithoutPhoto = 0;
+
+      if (shouldIncludeMeta) {
+        [
+          statusValues,
+          totalActive,
+          totalInactive,
+          totalWithPhoto,
+          totalWithoutPhoto,
+        ] = await Promise.all([
+          staffCollection.distinct("status", {
+            isDeleted: { $ne: true },
+            status: { $exists: true, $ne: "" },
+          }),
+          staffCollection.countDocuments({
+            isDeleted: { $ne: true },
+            status: "Active",
+          }),
+          staffCollection.countDocuments({
+            isDeleted: { $ne: true },
+            status: "Inactive",
+          }),
+          staffCollection.countDocuments({
+            isDeleted: { $ne: true },
+            profilePhotoUrl: { $exists: true, $nin: ["", null] },
+          }),
+          staffCollection.countDocuments({
+            isDeleted: { $ne: true },
+            $or: [
+              { profilePhotoUrl: { $exists: false } },
+              { profilePhotoUrl: "" },
+              { profilePhotoUrl: null },
+            ],
+          }),
+        ]);
+      }
 
       const mappedStaff = staffList.map((staff) =>
         mapStaffForClient(staff, event),
@@ -384,17 +394,21 @@ export async function handler(event) {
             totalRecords,
             totalPages: Math.ceil(totalRecords / limitNum),
           },
-          statistics: {
-            total: totalRecords,
-            active: totalActive,
-            inactive: totalInactive,
-            withPhoto: totalWithPhoto,
-            withoutPhoto: totalWithoutPhoto,
-          },
-          filterOptions: {
-            status: ["All", ...statusValues.sort()],
-            photoStatus: ["All", "Available", "Not Available"],
-          },
+          ...(shouldIncludeMeta
+            ? {
+                statistics: {
+                  total: totalRecords,
+                  active: totalActive,
+                  inactive: totalInactive,
+                  withPhoto: totalWithPhoto,
+                  withoutPhoto: totalWithoutPhoto,
+                },
+                filterOptions: {
+                  status: ["All", ...statusValues.sort()],
+                  photoStatus: ["All", "Available", "Not Available"],
+                },
+              }
+            : {}),
         },
         origin,
       );

@@ -7,19 +7,21 @@ let cachedClient = null;
 let cachedDb = null;
 let cachedClientPromise = null;
 let isDbSetupCompleted = false;
+let cachedSetupPromise = null;
 
 const globalMongo = globalThis.__maxcodeMongo || {
   client: null,
   db: null,
   clientPromise: null,
   isDbSetupCompleted: false,
+  setupPromise: null,
 };
 globalThis.__maxcodeMongo = globalMongo;
 
 const getPoolSize = () => {
   const envValue = Number(process.env.MONGODB_MAX_POOL_SIZE);
   if (!Number.isFinite(envValue) || envValue <= 0) {
-    return 1;
+    return 20;
   }
   return envValue;
 };
@@ -27,7 +29,7 @@ const getPoolSize = () => {
 const getMaxConnecting = () => {
   const envValue = Number(process.env.MONGODB_MAX_CONNECTING);
   if (!Number.isFinite(envValue) || envValue <= 0) {
-    return 1;
+    return 4;
   }
   return envValue;
 };
@@ -64,7 +66,7 @@ export async function connectToDatabase() {
       const client = new MongoClient(MONGODB_URI, {
         maxPoolSize: poolSize,
         maxConnecting,
-        minPoolSize: 0,
+        minPoolSize: 1,
         maxIdleTimeMS: 10000,
         serverSelectionTimeoutMS: 5000,
         waitQueueTimeoutMS: 5000,
@@ -82,7 +84,7 @@ export async function connectToDatabase() {
     }
 
     const client = await connectedClient;
-    const db = client.db(process.env.DB_NAME);
+    const db = client.db(process.env.DB_NAME || "maxcode");
 
     // Cache the connection
     cachedClient = client;
@@ -91,16 +93,29 @@ export async function connectToDatabase() {
     globalMongo.db = db;
 
     if (!isDbSetupCompleted && !globalMongo.isDbSetupCompleted) {
-      await setupDb(db);
+      if (!cachedSetupPromise && !globalMongo.setupPromise) {
+        cachedSetupPromise = setupDb(db);
+        globalMongo.setupPromise = cachedSetupPromise;
+      }
+
+      const setupPromise = cachedSetupPromise || globalMongo.setupPromise;
+      if (setupPromise) {
+        await setupPromise;
+      }
+
       isDbSetupCompleted = true;
       globalMongo.isDbSetupCompleted = true;
+      cachedSetupPromise = null;
+      globalMongo.setupPromise = null;
     }
 
     return { client, db };
   } catch (error) {
     console.error("MongoDB connection error:", error);
     cachedClientPromise = null;
+    cachedSetupPromise = null;
     globalMongo.clientPromise = null;
+    globalMongo.setupPromise = null;
     throw error;
   }
 }
