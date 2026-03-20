@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { showError, showSuccess } from "./ToastNotification";
-import { apiPost } from "../utils/api";
+import { apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 
 const toBase64 = (file) =>
@@ -43,18 +43,25 @@ const normalizeFolderOptions = (settings = {}) => {
   ];
 };
 
-const Createfile = ({ show, onClose, onSubmit, cloudflareSettings = {} }) => {
-  const [uploadMode, setUploadMode] = useState("file");
+const Createfile = ({
+  show,
+  onClose,
+  onSubmit,
+  cloudflareSettings = {},
+  mode = "create",
+  initialData = null,
+}) => {
+  const isEditMode = mode === "edit";
+
+  const [uploadMode, setUploadMode] = useState("single");
   const [formData, setFormData] = useState({
     fileName: "",
     folderName: "general",
     uploadDate: new Date().toISOString().slice(0, 10),
-    fileSizeBytes: 0,
-    fileSize: "0 B",
-    fileType: "",
   });
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [selectedFolderFiles, setSelectedFolderFiles] = useState([]);
+  const [folderUploadName, setFolderUploadName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const folderOptions = useMemo(
@@ -62,136 +69,245 @@ const Createfile = ({ show, onClose, onSubmit, cloudflareSettings = {} }) => {
     [cloudflareSettings],
   );
 
+  const selectionSummary = useMemo(() => {
+    if (isEditMode) {
+      return {
+        size: String(initialData?.fileSize || "-") || "-",
+        type: String(initialData?.fileType || "-") || "-",
+      };
+    }
+
+    if (uploadMode === "folder") {
+      const total = selectedFolderFiles.reduce(
+        (sum, file) => sum + (file.size || 0),
+        0,
+      );
+      return {
+        size: formatBytes(total),
+        type: selectedFolderFiles.length
+          ? `folder (${selectedFolderFiles.length} files)`
+          : "-",
+      };
+    }
+
+    const total = selectedFiles.reduce(
+      (sum, item) => sum + (item.file?.size || 0),
+      0,
+    );
+
+    const uniqueTypes = [
+      ...new Set(
+        selectedFiles
+          .map((item) => item.file?.type || "application/octet-stream")
+          .filter(Boolean),
+      ),
+    ];
+
+    return {
+      size: formatBytes(total),
+      type: uniqueTypes.length
+        ? uniqueTypes.length === 1
+          ? uniqueTypes[0]
+          : `${uniqueTypes.length} file types`
+        : "-",
+    };
+  }, [isEditMode, initialData, selectedFiles, selectedFolderFiles, uploadMode]);
+
   useEffect(() => {
     if (!show) return;
 
-    setFormData((prev) => ({
-      ...prev,
+    if (isEditMode && initialData) {
+      setFormData({
+        fileName: String(initialData.fileName || ""),
+        folderName:
+          String(initialData.folderName || "").trim() ||
+          String(cloudflareSettings?.defaultFolder || "").trim() ||
+          folderOptions[0] ||
+          "general",
+        uploadDate:
+          String(initialData.uploadDate || "").slice(0, 10) ||
+          new Date().toISOString().slice(0, 10),
+      });
+      setSelectedFiles([]);
+      setSelectedFolderFiles([]);
+      setFolderUploadName("");
+      setUploadMode("single");
+      return;
+    }
+
+    setFormData({
       fileName: "",
       folderName:
         String(cloudflareSettings?.defaultFolder || "").trim() ||
         folderOptions[0] ||
         "general",
       uploadDate: new Date().toISOString().slice(0, 10),
-      fileSizeBytes: 0,
-      fileSize: "0 B",
-      fileType: "",
-    }));
-    setUploadMode("file");
-    setSelectedFile(null);
+    });
+    setUploadMode("single");
+    setSelectedFiles([]);
     setSelectedFolderFiles([]);
-  }, [show, cloudflareSettings, folderOptions]);
-
-  if (!show) return null;
+    setFolderUploadName("");
+  }, [show, isEditMode, initialData, cloudflareSettings, folderOptions]);
 
   const handleFileChange = (event) => {
-    const file = event.target.files?.[0] || null;
-    setSelectedFile(file);
+    const files = Array.from(event.target.files || []);
+    const prepared = (uploadMode === "single" ? files.slice(0, 1) : files).map(
+      (file) => ({
+        file,
+        customName: file.name,
+      }),
+    );
 
-    if (!file) {
-      setFormData((prev) => ({
-        ...prev,
-        fileSizeBytes: 0,
-        fileSize: "0 B",
-        fileType: "",
-      }));
-      return;
-    }
-
-    const derivedName = file.name.replace(/\.[^/.]+$/, "");
-
+    setSelectedFiles(prepared);
+    setSelectedFolderFiles([]);
+    setFolderUploadName("");
     setFormData((prev) => ({
       ...prev,
-      fileName: prev.fileName || derivedName,
       uploadDate: new Date().toISOString().slice(0, 10),
-      fileSizeBytes: file.size,
-      fileSize: formatBytes(file.size),
-      fileType: file.type || "application/octet-stream",
+      fileName:
+        uploadMode === "single" && prepared[0]
+          ? prepared[0].customName
+          : prev.fileName,
     }));
+  };
+
+  const handleCustomNameChange = (index, value) => {
+    setSelectedFiles((prev) =>
+      prev.map((item, idx) =>
+        idx === index ? { ...item, customName: value } : item,
+      ),
+    );
   };
 
   const handleFolderChange = (event) => {
     const files = Array.from(event.target.files || []);
     setSelectedFolderFiles(files);
-    setSelectedFile(null);
+    setSelectedFiles([]);
 
     if (!files.length) {
-      setFormData((prev) => ({
-        ...prev,
-        fileName: "",
-        fileSizeBytes: 0,
-        fileSize: "0 B",
-        fileType: "",
-      }));
+      setFolderUploadName("");
       return;
     }
 
     const rootFolderName =
       files[0]?.webkitRelativePath?.split("/")?.[0] || "SelectedFolder";
-    const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0);
-
+    setFolderUploadName(rootFolderName);
     setFormData((prev) => ({
       ...prev,
-      fileName: rootFolderName,
       uploadDate: new Date().toISOString().slice(0, 10),
-      fileSizeBytes: totalBytes,
-      fileSize: formatBytes(totalBytes),
-      fileType: `folder (${files.length} files)`,
     }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-      showError(
-        "Cloudflare settings missing. Please configure it in Settings tab.",
-      );
-      return;
-    }
-
     if (!formData.folderName.trim()) {
       showError("Please select folder");
       return;
     }
 
-    if (uploadMode === "file") {
+    if (isEditMode) {
+      if (!initialData?._id && !initialData?.id) {
+        showError("Invalid file record");
+        return;
+      }
       if (!formData.fileName.trim()) {
         showError("Please enter file name");
         return;
       }
-
-      if (!selectedFile) {
-        showError("Please choose file");
+    } else {
+      if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+        showError(
+          "Cloudflare settings missing. Please configure it in Settings tab.",
+        );
         return;
       }
-    } else if (selectedFolderFiles.length === 0) {
-      showError("Please choose folder");
-      return;
+
+      if (uploadMode !== "folder") {
+        if (!selectedFiles.length) {
+          showError("Please choose file");
+          return;
+        }
+
+        const invalidName = selectedFiles.some(
+          (item) => !String(item.customName || "").trim(),
+        );
+        if (invalidName) {
+          showError("Each selected file must have a file name");
+          return;
+        }
+      } else if (selectedFolderFiles.length === 0) {
+        showError("Please choose folder");
+        return;
+      } else if (!folderUploadName.trim()) {
+        showError("Please enter folder name");
+        return;
+      }
     }
 
     setSubmitting(true);
-
     try {
+      if (isEditMode) {
+        const fileId = initialData._id || initialData.id;
+        const response = await apiPut(API_ENDPOINTS.FILES.UPDATE(fileId), {
+          fileName: formData.fileName.trim(),
+          folderName: formData.folderName.trim(),
+        });
+
+        showSuccess(response?.data?.message || "File updated successfully");
+        if (onSubmit) onSubmit(response?.data?.data || null);
+        onClose();
+        return;
+      }
+
       let payload;
 
-      if (uploadMode === "file") {
-        const fileDataBase64 = await toBase64(selectedFile);
-
+      if (uploadMode === "single") {
+        const item = selectedFiles[0];
+        const fileDataBase64 = await toBase64(item.file);
         payload = {
           action: "upload",
-          fileName: formData.fileName.trim(),
-          originalName: selectedFile.name,
+          fileName: String(item.customName || "").trim(),
+          originalName: item.file.name,
           folderName: formData.folderName.trim(),
           uploadDate: formData.uploadDate,
-          fileType: formData.fileType,
-          fileSizeBytes: formData.fileSizeBytes,
+          fileType: item.file.type || "application/octet-stream",
+          fileSizeBytes: item.file.size,
           fileDataBase64,
         };
+      } else if (uploadMode === "multiple") {
+        const files = await Promise.all(
+          selectedFiles.map(async (item) => ({
+            fileName: String(item.customName || "").trim(),
+            originalName: item.file.name,
+            fileType: item.file.type || "application/octet-stream",
+            fileSizeBytes: item.file.size,
+            fileDataBase64: await toBase64(item.file),
+          })),
+        );
+
+        payload = {
+          action: "upload-files",
+          folderName: formData.folderName.trim(),
+          uploadDate: formData.uploadDate,
+          files,
+        };
       } else {
+        const selectedRootName =
+          selectedFolderFiles[0]?.webkitRelativePath?.split("/")?.[0] || "";
+
         const folderFiles = await Promise.all(
           selectedFolderFiles.map(async (file) => ({
-            relativePath: file.webkitRelativePath || file.name,
+            relativePath: (() => {
+              const raw = String(file.webkitRelativePath || file.name || "");
+              if (
+                !selectedRootName ||
+                !raw.startsWith(`${selectedRootName}/`)
+              ) {
+                return `${folderUploadName.trim()}/${file.name}`;
+              }
+              return `${folderUploadName.trim()}/${raw.slice(selectedRootName.length + 1)}`;
+            })(),
             originalName: file.name,
             fileType: file.type || "application/octet-stream",
             fileSizeBytes: file.size,
@@ -210,25 +326,27 @@ const Createfile = ({ show, onClose, onSubmit, cloudflareSettings = {} }) => {
       const response = await apiPost(API_ENDPOINTS.FILES.CREATE, payload);
       showSuccess(
         response?.data?.message ||
-          (uploadMode === "file"
-            ? "File uploaded successfully"
-            : "Folder uploaded successfully"),
+          (uploadMode === "folder"
+            ? "Folder uploaded successfully"
+            : uploadMode === "multiple"
+              ? "Files uploaded successfully"
+              : "File uploaded successfully"),
       );
 
-      if (onSubmit) {
-        onSubmit(response?.data?.data || null);
-      }
+      if (onSubmit) onSubmit(response?.data?.data || null);
       onClose();
     } catch (error) {
       showError(
         error?.response?.data?.error ||
           error?.response?.data?.message ||
-          "Failed to upload file",
+          (isEditMode ? "Failed to update file" : "Failed to upload file"),
       );
     } finally {
       setSubmitting(false);
     }
   };
+
+  if (!show) return null;
 
   return (
     <div
@@ -239,8 +357,16 @@ const Createfile = ({ show, onClose, onSubmit, cloudflareSettings = {} }) => {
     >
       <div className="modal-dialog modal-lg" role="document">
         <div className="modal-content">
-          <div className="modal-header">
-            <h5 className="modal-title">Upload File</h5>
+          <div
+            className="modal-header border-0"
+            style={{
+              background:
+                "linear-gradient(120deg, rgba(14,116,144,0.12), rgba(22,163,74,0.12))",
+            }}
+          >
+            <h5 className="modal-title fw-bold">
+              {isEditMode ? "Edit File" : "Smart Upload Studio"}
+            </h5>
             <button
               type="button"
               className="btn-close"
@@ -251,89 +377,100 @@ const Createfile = ({ show, onClose, onSubmit, cloudflareSettings = {} }) => {
           <form onSubmit={handleSubmit}>
             <div className="modal-body">
               <div className="row g-3">
-                <div className="col-12">
-                  <label className="form-label fw-semibold d-block">
-                    Upload Type
-                  </label>
-                  <div className="d-flex gap-4">
-                    <div className="form-check">
-                      <input
-                        className="form-check-input"
-                        type="radio"
-                        id="uploadTypeFile"
-                        name="uploadType"
-                        checked={uploadMode === "file"}
-                        onChange={() => {
-                          setUploadMode("file");
-                          setSelectedFolderFiles([]);
-                          setFormData((prev) => ({
-                            ...prev,
-                            fileName: "",
-                            fileType: "",
-                            fileSizeBytes: 0,
-                            fileSize: "0 B",
-                          }));
-                        }}
-                      />
-                      <label
-                        className="form-check-label"
-                        htmlFor="uploadTypeFile"
-                      >
-                        Single File (pdf, zip, doc, image, etc.)
-                      </label>
-                    </div>
+                {!isEditMode && (
+                  <div className="col-12">
+                    <label className="form-label fw-semibold d-block">
+                      Upload Type
+                    </label>
+                    <div className="d-flex gap-4">
+                      <div className="form-check">
+                        <input
+                          className="form-check-input"
+                          type="radio"
+                          id="uploadTypeSingle"
+                          name="uploadType"
+                          checked={uploadMode === "single"}
+                          onChange={() => {
+                            setUploadMode("single");
+                            setSelectedFolderFiles([]);
+                            setSelectedFiles([]);
+                            setFolderUploadName("");
+                          }}
+                        />
+                        <label
+                          className="form-check-label"
+                          htmlFor="uploadTypeSingle"
+                        >
+                          Single File
+                        </label>
+                      </div>
 
-                    <div className="form-check">
-                      <input
-                        className="form-check-input"
-                        type="radio"
-                        id="uploadTypeFolder"
-                        name="uploadType"
-                        checked={uploadMode === "folder"}
-                        onChange={() => {
-                          setUploadMode("folder");
-                          setSelectedFile(null);
-                          setFormData((prev) => ({
-                            ...prev,
-                            fileName: "",
-                            fileType: "",
-                            fileSizeBytes: 0,
-                            fileSize: "0 B",
-                          }));
-                        }}
-                      />
-                      <label
-                        className="form-check-label"
-                        htmlFor="uploadTypeFolder"
-                      >
-                        Complete Folder
-                      </label>
+                      <div className="form-check">
+                        <input
+                          className="form-check-input"
+                          type="radio"
+                          id="uploadTypeMultiple"
+                          name="uploadType"
+                          checked={uploadMode === "multiple"}
+                          onChange={() => {
+                            setUploadMode("multiple");
+                            setSelectedFolderFiles([]);
+                            setSelectedFiles([]);
+                            setFolderUploadName("");
+                          }}
+                        />
+                        <label
+                          className="form-check-label"
+                          htmlFor="uploadTypeMultiple"
+                        >
+                          Multiple Files
+                        </label>
+                      </div>
+
+                      <div className="form-check">
+                        <input
+                          className="form-check-input"
+                          type="radio"
+                          id="uploadTypeFolder"
+                          name="uploadType"
+                          checked={uploadMode === "folder"}
+                          onChange={() => {
+                            setUploadMode("folder");
+                            setSelectedFiles([]);
+                            setSelectedFolderFiles([]);
+                            setFolderUploadName("");
+                          }}
+                        />
+                        <label
+                          className="form-check-label"
+                          htmlFor="uploadTypeFolder"
+                        >
+                          Complete Folder
+                        </label>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
-                <div className="col-md-6">
-                  <label className="form-label fw-semibold">File Name</label>
-                  <input
-                    type="text"
-                    className="form-control modern-input"
-                    value={formData.fileName}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        fileName: e.target.value,
-                      }))
-                    }
-                    placeholder={
-                      uploadMode === "file"
-                        ? "Enter file name"
-                        : "Folder name auto from selected folder"
-                    }
-                    readOnly={uploadMode === "folder"}
-                  />
-                </div>
+                {isEditMode && (
+                  <div className="col-12">
+                    <label className="form-label fw-semibold">File Name</label>
+                    <input
+                      type="text"
+                      className="form-control modern-input"
+                      value={formData.fileName}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          fileName: e.target.value,
+                        }))
+                      }
+                      placeholder="Enter file name"
+                    />
+                  </div>
+                )}
 
-                <div className="col-md-6">
+                <div className="col-md-12">
                   <label className="form-label fw-semibold">
                     Select Folder
                   </label>
@@ -355,34 +492,93 @@ const Createfile = ({ show, onClose, onSubmit, cloudflareSettings = {} }) => {
                   </select>
                 </div>
 
-                <div className="col-12">
-                  <label className="form-label fw-semibold">
-                    {uploadMode === "file" ? "Choose File" : "Choose Folder"}
-                  </label>
-                  {uploadMode === "file" ? (
-                    <input
-                      type="file"
-                      className="form-control modern-input"
-                      onChange={handleFileChange}
-                    />
-                  ) : (
-                    <>
+                {!isEditMode && (
+                  <div className="col-12">
+                    <label className="form-label fw-semibold">
+                      {uploadMode === "folder"
+                        ? "Choose Folder"
+                        : "Choose File"}
+                    </label>
+                    {uploadMode !== "folder" ? (
                       <input
                         type="file"
                         className="form-control modern-input"
-                        onChange={handleFolderChange}
-                        webkitdirectory=""
-                        directory=""
-                        multiple
+                        onChange={handleFileChange}
+                        multiple={uploadMode === "multiple"}
                       />
-                      {selectedFolderFiles.length > 0 && (
-                        <div className="small text-success mt-2">
-                          Selected folder files: {selectedFolderFiles.length}
+                    ) : (
+                      <>
+                        <input
+                          type="file"
+                          className="form-control modern-input"
+                          onChange={handleFolderChange}
+                          webkitdirectory=""
+                          directory=""
+                          multiple
+                        />
+                        {selectedFolderFiles.length > 0 && (
+                          <div className="small text-success mt-2">
+                            Selected folder files: {selectedFolderFiles.length}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {!isEditMode && uploadMode === "folder" && (
+                  <div className="col-12">
+                    <label className="form-label fw-semibold">
+                      Folder Name
+                    </label>
+                    <input
+                      type="text"
+                      className="form-control modern-input"
+                      value={folderUploadName}
+                      onChange={(e) => setFolderUploadName(e.target.value)}
+                      placeholder="Enter folder name to save in Cloudflare"
+                    />
+                  </div>
+                )}
+
+                {!isEditMode &&
+                  uploadMode !== "folder" &&
+                  selectedFiles.length > 0 && (
+                    <div className="col-12">
+                      <div
+                        className="p-3 rounded-3"
+                        style={{
+                          background: "rgba(14,116,144,0.06)",
+                          border: "1px solid rgba(14,116,144,0.2)",
+                        }}
+                      >
+                        <div className="fw-semibold mb-2">
+                          File Name Options
                         </div>
-                      )}
-                    </>
+                        <div className="row g-2">
+                          {selectedFiles.map((item, index) => (
+                            <div
+                              className="col-12"
+                              key={`${item.file.name}-${index}`}
+                            >
+                              <label className="form-label mb-1 small text-muted">
+                                {item.file.name}
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={item.customName}
+                                onChange={(e) =>
+                                  handleCustomNameChange(index, e.target.value)
+                                }
+                                placeholder="Enter file name"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   )}
-                </div>
 
                 <div className="col-md-4">
                   <label className="form-label fw-semibold">Upload Date</label>
@@ -399,7 +595,7 @@ const Createfile = ({ show, onClose, onSubmit, cloudflareSettings = {} }) => {
                   <input
                     type="text"
                     className="form-control modern-input"
-                    value={formData.fileSize}
+                    value={selectionSummary.size}
                     readOnly
                   />
                 </div>
@@ -409,7 +605,7 @@ const Createfile = ({ show, onClose, onSubmit, cloudflareSettings = {} }) => {
                   <input
                     type="text"
                     className="form-control modern-input"
-                    value={formData.fileType}
+                    value={selectionSummary.type}
                     readOnly
                   />
                 </div>
@@ -426,7 +622,7 @@ const Createfile = ({ show, onClose, onSubmit, cloudflareSettings = {} }) => {
               </button>
               <button
                 type="submit"
-                className="btn btn-success"
+                className={`btn ${isEditMode ? "btn-primary" : "btn-success"}`}
                 disabled={submitting}
               >
                 {submitting ? (
@@ -436,12 +632,18 @@ const Createfile = ({ show, onClose, onSubmit, cloudflareSettings = {} }) => {
                       role="status"
                       aria-hidden="true"
                     ></span>
-                    Uploading...
+                    {isEditMode ? "Saving..." : "Uploading..."}
                   </>
                 ) : (
                   <>
-                    <i className="fas fa-upload me-2"></i>
-                    Upload File
+                    <i
+                      className={`fas ${isEditMode ? "fa-save" : "fa-upload"} me-2`}
+                    ></i>
+                    {isEditMode
+                      ? "Save Changes"
+                      : uploadMode === "folder"
+                        ? "Upload Folder"
+                        : "Upload File"}
                   </>
                 )}
               </button>

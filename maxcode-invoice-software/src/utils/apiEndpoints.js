@@ -25,6 +25,7 @@ const API_ENDPOINTS = {
     LIST: "/files",
     CREATE: "/files",
     GET: (id) => `/files?id=${id}`,
+    UPDATE: (id) => `/files?id=${id}`,
     DELETE: (id) => `/files?id=${id}`,
   },
 

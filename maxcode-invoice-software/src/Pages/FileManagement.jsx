@@ -28,6 +28,9 @@ const FileManagement = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [fileToDelete, setFileToDelete] = useState(null);
+  const [deleteFromCloudflare, setDeleteFromCloudflare] = useState(false);
+  const [formMode, setFormMode] = useState("create");
+  const [editingRecord, setEditingRecord] = useState(null);
   const [cloudflareSettings, setCloudflareSettings] = useState({});
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -288,7 +291,7 @@ const FileManagement = () => {
           <span className="text-muted">-</span>
         ),
     },
-    { key: "action", label: "Actions", width: 120 },
+    { key: "action", label: "Actions", width: 160 },
   ];
 
   const handleCardClick = (cardKey) => {
@@ -297,6 +300,8 @@ const FileManagement = () => {
         showError("You don't have permission to upload files");
         return;
       }
+      setFormMode("create");
+      setEditingRecord(null);
       setShowCreateForm(true);
       return;
     }
@@ -307,17 +312,41 @@ const FileManagement = () => {
 
   const handleDelete = (id) => {
     setFileToDelete(id);
+    setDeleteFromCloudflare(false);
     setShowDeleteConfirm(true);
+  };
+
+  const handleOpenFile = (record) => {
+    if (!record?.fileUrl) {
+      showError("File URL not available");
+      return;
+    }
+
+    window.open(record.fileUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const handleEditOpen = (record) => {
+    setFormMode("edit");
+    setEditingRecord(record);
+    setShowCreateForm(true);
   };
 
   const confirmDelete = async () => {
     if (!fileToDelete) return;
 
     try {
-      await apiDelete(API_ENDPOINTS.FILES.DELETE(fileToDelete));
-      showSuccess("File record deleted successfully");
-      setShowDeleteConfirm(false);
+      await apiDelete(API_ENDPOINTS.FILES.DELETE(fileToDelete), {
+        data: {
+          deleteFromCloudflare,
+        },
+      });
+      showSuccess(
+        deleteFromCloudflare
+          ? "File deleted from database and Cloudflare"
+          : "File record deleted successfully",
+      );
       setFileToDelete(null);
+      setDeleteFromCloudflare(false);
       fetchFiles();
     } catch (error) {
       showError(error?.response?.data?.error || "Failed to delete file record");
@@ -418,9 +447,11 @@ const FileManagement = () => {
         loading={loading}
         totalRecords={totalRecords}
         onDelete={handleDelete}
+        onEdit={handleEditOpen}
+        onView={handleOpenFile}
         onRefresh={handleRefresh}
         showActions={true}
-        actions={["delete"]}
+        actions={["view", "edit", "delete"]}
         skipDeleteConfirmation={true}
         fixedColumns={["sn"]}
         defaultVisibleColumns={[
@@ -474,12 +505,20 @@ const FileManagement = () => {
 
       <Createfile
         show={showCreateForm}
-        onClose={() => setShowCreateForm(false)}
+        onClose={() => {
+          setShowCreateForm(false);
+          setFormMode("create");
+          setEditingRecord(null);
+        }}
         onSubmit={() => {
           fetchFiles();
           setShowCreateForm(false);
+          setFormMode("create");
+          setEditingRecord(null);
         }}
         cloudflareSettings={cloudflareSettings}
+        mode={formMode}
+        initialData={editingRecord}
       />
 
       <ConfirmationModal
@@ -487,10 +526,30 @@ const FileManagement = () => {
         onHide={() => {
           setShowDeleteConfirm(false);
           setFileToDelete(null);
+          setDeleteFromCloudflare(false);
         }}
         onConfirm={confirmDelete}
         title="Delete File"
-        message="Are you sure you want to delete this file record?"
+        message={
+          <div>
+            <div>Are you sure you want to delete this file record?</div>
+            <div className="form-check form-switch mt-3">
+              <input
+                className="form-check-input"
+                type="checkbox"
+                id="deleteFromCloudflareToggle"
+                checked={deleteFromCloudflare}
+                onChange={(e) => setDeleteFromCloudflare(e.target.checked)}
+              />
+              <label
+                className="form-check-label"
+                htmlFor="deleteFromCloudflareToggle"
+              >
+                Also delete file from Cloudflare
+              </label>
+            </div>
+          </div>
+        }
         confirmText="Delete"
         cancelText="Cancel"
         variant="danger"

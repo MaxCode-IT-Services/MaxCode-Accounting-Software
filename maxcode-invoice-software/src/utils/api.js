@@ -37,6 +37,10 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (axios.isCancel(error) || error?.code === "ERR_CANCELED") {
+      return Promise.reject(error);
+    }
+
     // Handle different error scenarios
     if (error.response) {
       // Server responded with error status

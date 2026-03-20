@@ -40,9 +40,7 @@ const ensureFolder = (value, fallback = "general") => {
 const safeFileName = (value = "") =>
   String(value || "")
     .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "") || `file-${Date.now()}`;
+    .replace(/[\\/]+/g, "-") || `file-${Date.now()}`;
 
 const sanitizePathSegment = (value = "") =>
   String(value || "")
@@ -55,7 +53,13 @@ const normalizeRelativePath = (value = "") => {
   const normalized = String(value || "")
     .replace(/\\+/g, "/")
     .split("/")
-    .map((segment) => sanitizePathSegment(segment))
+    .map((segment) =>
+      String(segment || "")
+        .replace(/[\u0000-\u001f]/g, "")
+        .trim(),
+    )
+    .filter((segment) => segment && segment !== "." && segment !== "..")
+    .map((segment) => segment.replace(/[\\/]+/g, "-"))
     .filter(Boolean)
     .join("/");
 
@@ -166,6 +170,56 @@ const uploadToCloudflareStore = async ({
     fileUrl: responseUrl || buildPublicUrl(publicDomain, cleanedPath),
     providerResponse: postJson,
   };
+};
+
+const deleteFromCloudflareStore = async ({
+  storeUrl,
+  password,
+  objectPath,
+}) => {
+  const cleanedStoreUrl = String(storeUrl || "").replace(/\/+$/, "");
+  const cleanedPath = String(objectPath || "").replace(/^\/+/, "");
+  if (!cleanedStoreUrl || !cleanedPath) {
+    throw new Error("Cloudflare delete path not available");
+  }
+
+  const commonHeaders = {
+    "x-upload-password": password,
+    "x-api-key": password,
+    "x-password": password,
+    Authorization: `Bearer ${password}`,
+  };
+
+  const deleteResponse = await fetch(`${cleanedStoreUrl}/${cleanedPath}`, {
+    method: "DELETE",
+    headers: commonHeaders,
+  });
+
+  if (deleteResponse.ok) {
+    return;
+  }
+
+  const fallbackResponse = await fetch(cleanedStoreUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...commonHeaders,
+    },
+    body: JSON.stringify({
+      action: "delete",
+      password,
+      path: cleanedPath,
+      filePath: cleanedPath,
+    }),
+  });
+
+  if (!fallbackResponse.ok) {
+    const first = await deleteResponse.text();
+    const second = await fallbackResponse.text();
+    throw new Error(
+      `Cloudflare delete failed. DELETE: ${deleteResponse.status} ${first || ""}; POST: ${fallbackResponse.status} ${second || ""}`,
+    );
+  }
 };
 
 const ensureCloudflareFolder = async ({
@@ -446,7 +500,7 @@ export async function handler(event) {
         .trim()
         .toLowerCase();
 
-      if (!["upload", "upload-folder"].includes(action)) {
+      if (!["upload", "upload-files", "upload-folder"].includes(action)) {
         return createResponse(400, { error: "Unsupported action" }, origin);
       }
 
@@ -547,6 +601,110 @@ export async function handler(event) {
           {
             message: "File uploaded successfully",
             data: saved,
+          },
+          origin,
+        );
+      }
+
+      if (action === "upload-files") {
+        const files = Array.isArray(body.files) ? body.files : [];
+        if (files.length === 0) {
+          return createResponse(
+            400,
+            { error: "At least one file is required" },
+            origin,
+          );
+        }
+
+        const preparedFiles = files
+          .map((item) => {
+            const fileName = safeFileName(
+              item?.fileName || item?.originalName || "",
+            );
+            const originalName =
+              String(item?.originalName || fileName).trim() || fileName;
+            const fileDataBase64 = String(item?.fileDataBase64 || "").trim();
+            const fileType =
+              String(item?.fileType || "application/octet-stream").trim() ||
+              "application/octet-stream";
+            const fileSizeBytes = Number(item?.fileSizeBytes) || 0;
+
+            return {
+              fileName,
+              originalName,
+              fileDataBase64,
+              fileType,
+              fileSizeBytes,
+            };
+          })
+          .filter((item) => item.fileName && item.fileDataBase64);
+
+        if (preparedFiles.length === 0) {
+          return createResponse(400, { error: "No valid files found" }, origin);
+        }
+
+        const paths = preparedFiles.map(
+          (item) => `${folderName}/${item.fileName}`,
+        );
+        const seen = new Set();
+        for (const path of paths) {
+          const key = path.toLowerCase();
+          if (seen.has(key)) {
+            return createResponse(
+              409,
+              { error: `Duplicate file name in selection: ${path}` },
+              origin,
+            );
+          }
+          seen.add(key);
+        }
+
+        for (const path of paths) {
+          await assertNoExistingFilePath(filesCollection, path);
+        }
+
+        const uploaded = [];
+        for (const item of preparedFiles) {
+          const objectPath = `${folderName}/${item.fileName}`;
+          const fileBuffer = Buffer.from(item.fileDataBase64, "base64");
+          if (!fileBuffer.length) {
+            return createResponse(
+              400,
+              { error: `Invalid file data for: ${item.fileName}` },
+              origin,
+            );
+          }
+
+          const uploadResult = await uploadToCloudflareStore({
+            storeUrl: cloudflareSettings.storeUrl,
+            publicDomain: cloudflareSettings.publicDomain,
+            password: cloudflareSettings.password,
+            objectPath,
+            mimeType: item.fileType,
+            fileBuffer,
+          });
+
+          const saved = await saveFileRecord({
+            filesCollection,
+            fileName: item.fileName,
+            originalName: item.originalName,
+            folderName,
+            filePath: objectPath,
+            fileUrl: uploadResult.fileUrl,
+            fileType: item.fileType,
+            fileSizeBytes: item.fileSizeBytes || fileBuffer.length,
+            uploadDate,
+            user,
+          });
+
+          uploaded.push(saved);
+        }
+
+        return createResponse(
+          201,
+          {
+            message: `${uploaded.length} files uploaded successfully`,
+            data: uploaded,
           },
           origin,
         );
@@ -677,9 +835,61 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === "DELETE") {
+      const payload = event.body ? JSON.parse(event.body) : {};
       const { id } = event.queryStringParameters || {};
       if (!id) {
         return createResponse(400, { error: "File id is required" }, origin);
+      }
+
+      const existing = await filesCollection.findOne({
+        _id: new ObjectId(id),
+        isDeleted: { $ne: true },
+      });
+
+      if (!existing) {
+        return createResponse(404, { error: "File record not found" }, origin);
+      }
+
+      const deleteFromCloudflare =
+        payload?.deleteFromCloudflare === true ||
+        String(payload?.deleteFromCloudflare || "").toLowerCase() === "true";
+
+      if (deleteFromCloudflare) {
+        const settingsCollection = db.collection(SETTINGS_COLLECTION);
+        const settingsDocument = await settingsCollection.findOne({
+          scope: GLOBAL_SETTINGS_SCOPE,
+        });
+        const cloudflareSettings = normalizeCloudflareSettings(
+          settingsDocument?.cloudflareSettings,
+        );
+
+        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Cloudflare settings are missing. Please configure Store URL and Password in Settings > Cloudflare.",
+            },
+            origin,
+          );
+        }
+
+        try {
+          await deleteFromCloudflareStore({
+            storeUrl: cloudflareSettings.storeUrl,
+            password: cloudflareSettings.password,
+            objectPath: existing.filePath,
+          });
+        } catch (cloudError) {
+          return createResponse(
+            500,
+            {
+              error: "Failed to delete file from Cloudflare",
+              message: cloudError.message,
+            },
+            origin,
+          );
+        }
       }
 
       const result = await filesCollection.updateOne(
@@ -699,6 +909,63 @@ export async function handler(event) {
       }
 
       return createResponse(200, { message: "File record deleted" }, origin);
+    }
+
+    if (event.httpMethod === "PUT") {
+      const { id } = event.queryStringParameters || {};
+      if (!id) {
+        return createResponse(400, { error: "File id is required" }, origin);
+      }
+
+      const body = event.body ? JSON.parse(event.body) : {};
+      const updates = {};
+
+      if (Object.prototype.hasOwnProperty.call(body, "fileName")) {
+        const nextName = safeFileName(body.fileName || "");
+        if (!nextName) {
+          return createResponse(
+            400,
+            { error: "File name is required" },
+            origin,
+          );
+        }
+        updates.fileName = nextName;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(body, "folderName")) {
+        updates.folderName = ensureFolder(body.folderName, "general");
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return createResponse(
+          400,
+          { error: "No valid fields to update" },
+          origin,
+        );
+      }
+
+      updates.updatedAt = new Date();
+
+      const result = await filesCollection.updateOne(
+        { _id: new ObjectId(id), isDeleted: { $ne: true } },
+        {
+          $set: updates,
+        },
+      );
+
+      if (!result.matchedCount) {
+        return createResponse(404, { error: "File record not found" }, origin);
+      }
+
+      const updated = await filesCollection.findOne({ _id: new ObjectId(id) });
+      return createResponse(
+        200,
+        {
+          message: "File record updated successfully",
+          data: updated,
+        },
+        origin,
+      );
     }
 
     return createResponse(405, { error: "Method not allowed" }, origin);
