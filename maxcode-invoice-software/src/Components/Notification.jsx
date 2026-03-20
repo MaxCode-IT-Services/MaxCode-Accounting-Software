@@ -883,7 +883,7 @@ const Notification = ({ onUnreadCountChange }) => {
       )}
 
       {/* Custom CSS */}
-      <style jsx>{`
+      <style>{`
         .list-group-item {
           transition:
             transform 0.3s ease,

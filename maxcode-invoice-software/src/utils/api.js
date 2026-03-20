@@ -41,6 +41,11 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    if (error?.code === "ECONNABORTED") {
+      console.error("Request timeout:", error?.config?.url || "unknown-url");
+      return Promise.reject(error);
+    }
+
     // Handle different error scenarios
     if (error.response) {
       // Server responded with error status
@@ -66,7 +71,10 @@ api.interceptors.response.use(
       }
     } else if (error.request) {
       // Request made but no response received
-      console.error("Network error - no response received");
+      console.error(
+        "Network error - no response received:",
+        error?.config?.url || "unknown-url",
+      );
     } else {
       // Something else happened
       console.error("Error:", error.message);

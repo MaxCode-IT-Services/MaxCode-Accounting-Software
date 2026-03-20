@@ -29,14 +29,6 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
-    key: "fileManagement",
-    label: "File Management",
-    description: "Upload and manage files",
-    icon: "fa-solid fa-folder-open",
-    route: "/admin/file-management",
-    detailed: true,
-  },
-  {
     key: "vendorManagement",
     label: "Vendor Management",
     description: "Manage vendors",
@@ -154,6 +146,14 @@ export const PERMISSION_MODULES = [
     description: "Manage project credentials",
     icon: "fa-solid fa-key",
     route: "/admin/project-credentials",
+    detailed: true,
+  },
+  {
+    key: "fileManagement",
+    label: "File Management",
+    description: "Upload and manage files",
+    icon: "fa-solid fa-folder-open",
+    route: "/admin/file-management",
     detailed: true,
   },
   {

@@ -214,6 +214,22 @@ const ReusableTable = ({
   const canDelete = moduleKey ? hasActionPermission(moduleKey, "delete") : true;
   const canExport = moduleKey ? hasActionPermission(moduleKey, "export") : true;
 
+  const isSortableColumn = (column) => {
+    if (!column) return false;
+    if (column.key === "action") return false;
+    if (column.sortable === false || column.disableSort === true) return false;
+    return true;
+  };
+
+  const isFilterableColumn = (column) => {
+    if (!column) return false;
+    if (column.key === "action" || column.key === "sn") return false;
+    if (column.filterable === false || column.disableFilter === true) {
+      return false;
+    }
+    return true;
+  };
+
   const getDisabledActionStyle = (isAllowed) => ({
     opacity: isAllowed ? 1 : 0.5,
     cursor: isAllowed ? "pointer" : "not-allowed",
@@ -2071,8 +2087,9 @@ const ReusableTable = ({
                           scope="col"
                           data-column-key={column.key}
                           style={{
-                            cursor:
-                              column.key !== "action" ? "pointer" : "default",
+                            cursor: isSortableColumn(column)
+                              ? "pointer"
+                              : "default",
                             width: column.width,
                             minWidth: column.width,
                             whiteSpace: "nowrap",
@@ -2097,20 +2114,25 @@ const ReusableTable = ({
                           <div className="d-flex flex-column">
                             <div
                               className="d-flex align-items-center"
-                              onClick={(e) => handleSort(column.key, e)}
+                              onClick={(e) => {
+                                if (isSortableColumn(column)) {
+                                  handleSort(column.key, e);
+                                }
+                              }}
                               onMouseDown={(e) => startDragging(column.key, e)}
                               style={{
-                                cursor:
-                                  column.key !== "action"
-                                    ? "pointer"
-                                    : "default",
+                                cursor: isSortableColumn(column)
+                                  ? "pointer"
+                                  : "default",
                               }}
                             >
                               {column.label}
-                              {getSortIcon(column.key)}
+                              {isSortableColumn(column)
+                                ? getSortIcon(column.key)
+                                : null}
                             </div>
 
-                            {column.key !== "action" && column.key !== "sn" && (
+                            {isFilterableColumn(column) && (
                               <>
                                 {columnsWithDateFilter.includes(column.key) ? (
                                   <div className="d-flex gap-1 mt-1 position-relative">
@@ -2277,7 +2299,15 @@ const ReusableTable = ({
                                 }}
                               >
                                 {column.key === "sn" ? (
-                                  displayIndex
+                                  column.render ? (
+                                    column.render(
+                                      record[column.key],
+                                      record,
+                                      displayIndex,
+                                    )
+                                  ) : (
+                                    displayIndex
+                                  )
                                 ) : column.key === "action" && showActions ? (
                                   <div className="d-flex">
                                     {actions.includes("view") && onView && (
@@ -2329,7 +2359,11 @@ const ReusableTable = ({
                                     {customActions && customActions(record)}
                                   </div>
                                 ) : column.render ? (
-                                  column.render(record[column.key], record)
+                                  column.render(
+                                    record[column.key],
+                                    record,
+                                    displayIndex,
+                                  )
                                 ) : column.key === "status" &&
                                   actions.includes("status") &&
                                   onStatusToggle ? (

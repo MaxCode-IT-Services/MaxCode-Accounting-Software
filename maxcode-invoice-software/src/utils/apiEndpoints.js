@@ -24,9 +24,9 @@ const API_ENDPOINTS = {
   FILES: {
     LIST: "/files",
     CREATE: "/files",
-    GET: (id) => `/files?id=${id}`,
-    UPDATE: (id) => `/files?id=${id}`,
-    DELETE: (id) => `/files?id=${id}`,
+    GET: (id) => `/files?id=${encodeURIComponent(id)}`,
+    UPDATE: (id) => `/files?id=${encodeURIComponent(id)}`,
+    DELETE: (id) => `/files?id=${encodeURIComponent(id)}`,
   },
 
   // Vendor endpoints

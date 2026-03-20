@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { showError, showSuccess } from "./ToastNotification";
+import { showError, showInfo, showSuccess } from "./ToastNotification";
 import { apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 
@@ -117,9 +117,14 @@ const Createfile = ({
     if (!show) return;
 
     if (isEditMode && initialData) {
+      const fullPath = String(initialData.filePath || "").trim();
+      const inferredFolderFromPath = fullPath.includes("/")
+        ? fullPath.slice(0, fullPath.lastIndexOf("/"))
+        : "";
       setFormData({
         fileName: String(initialData.fileName || ""),
         folderName:
+          inferredFolderFromPath ||
           String(initialData.folderName || "").trim() ||
           String(cloudflareSettings?.defaultFolder || "").trim() ||
           folderOptions[0] ||
@@ -177,6 +182,21 @@ const Createfile = ({
         idx === index ? { ...item, customName: value } : item,
       ),
     );
+  };
+
+  const handleRemoveSelectedFile = (indexToRemove) => {
+    setSelectedFiles((prev) => {
+      const next = prev.filter((_, idx) => idx !== indexToRemove);
+
+      if (uploadMode === "single") {
+        setFormData((current) => ({
+          ...current,
+          fileName: next[0]?.customName || "",
+        }));
+      }
+
+      return next;
+    });
   };
 
   const handleFolderChange = (event) => {
@@ -249,10 +269,21 @@ const Createfile = ({
     try {
       if (isEditMode) {
         const fileId = initialData._id || initialData.id;
-        const response = await apiPut(API_ENDPOINTS.FILES.UPDATE(fileId), {
-          fileName: formData.fileName.trim(),
-          folderName: formData.folderName.trim(),
-        });
+        const isCloudRecord = String(fileId || "").startsWith("cloud:");
+        if (isCloudRecord) {
+          showInfo("Cloud rename in progress, please wait...");
+        }
+
+        const response = await apiPut(
+          API_ENDPOINTS.FILES.UPDATE(fileId),
+          {
+            fileName: formData.fileName.trim(),
+            folderName: formData.folderName.trim(),
+          },
+          {
+            timeout: isCloudRecord ? 120000 : 30000,
+          },
+        );
 
         showSuccess(response?.data?.message || "File updated successfully");
         if (onSubmit) onSubmit(response?.data?.data || null);
@@ -365,7 +396,7 @@ const Createfile = ({
             }}
           >
             <h5 className="modal-title fw-bold">
-              {isEditMode ? "Edit File" : "Smart Upload Studio"}
+              {isEditMode ? "Edit File" : "Smart File Upload Studio"}
             </h5>
             <button
               type="button"
@@ -470,7 +501,7 @@ const Createfile = ({
                   </div>
                 )}
 
-                <div className="col-md-12">
+                <div className={isEditMode ? "col-md-12" : "col-md-6"}>
                   <label className="form-label fw-semibold">
                     Select Folder
                   </label>
@@ -484,7 +515,12 @@ const Createfile = ({
                       }))
                     }
                   >
-                    {folderOptions.map((folder) => (
+                    {[
+                      ...new Set([
+                        ...(folderOptions || []),
+                        formData.folderName,
+                      ]),
+                    ].map((folder) => (
                       <option key={folder} value={folder}>
                         {folder}
                       </option>
@@ -493,7 +529,7 @@ const Createfile = ({
                 </div>
 
                 {!isEditMode && (
-                  <div className="col-12">
+                  <div className="col-md-6">
                     <label className="form-label fw-semibold">
                       {uploadMode === "folder"
                         ? "Choose Folder"
@@ -502,7 +538,7 @@ const Createfile = ({
                     {uploadMode !== "folder" ? (
                       <input
                         type="file"
-                        className="form-control modern-input"
+                        className="form-control modern-input file-picker-input"
                         onChange={handleFileChange}
                         multiple={uploadMode === "multiple"}
                       />
@@ -510,7 +546,7 @@ const Createfile = ({
                       <>
                         <input
                           type="file"
-                          className="form-control modern-input"
+                          className="form-control modern-input file-picker-input"
                           onChange={handleFolderChange}
                           webkitdirectory=""
                           directory=""
@@ -545,34 +581,45 @@ const Createfile = ({
                   uploadMode !== "folder" &&
                   selectedFiles.length > 0 && (
                     <div className="col-12">
-                      <div
-                        className="p-3 rounded-3"
-                        style={{
-                          background: "rgba(14,116,144,0.06)",
-                          border: "1px solid rgba(14,116,144,0.2)",
-                        }}
-                      >
-                        <div className="fw-semibold mb-2">
-                          File Name Options
-                        </div>
+                      <div className="fw-semibold mb-2">File Name Options</div>
+                      <div className="file-name-options-scroll pe-1">
                         <div className="row g-2">
                           {selectedFiles.map((item, index) => (
                             <div
-                              className="col-12"
+                              className={
+                                uploadMode === "multiple"
+                                  ? "col-md-6"
+                                  : "col-12"
+                              }
                               key={`${item.file.name}-${index}`}
                             >
                               <label className="form-label mb-1 small text-muted">
                                 {item.file.name}
                               </label>
-                              <input
-                                type="text"
-                                className="form-control modern-input"
-                                value={item.customName}
-                                onChange={(e) =>
-                                  handleCustomNameChange(index, e.target.value)
-                                }
-                                placeholder="Enter file name"
-                              />
+                              <div className="input-group">
+                                <input
+                                  type="text"
+                                  className="form-control modern-input"
+                                  value={item.customName}
+                                  onChange={(e) =>
+                                    handleCustomNameChange(
+                                      index,
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="Enter file name"
+                                />
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-danger"
+                                  onClick={() =>
+                                    handleRemoveSelectedFile(index)
+                                  }
+                                  title="Remove file"
+                                >
+                                  <i className="fa-solid fa-trash"></i>
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -651,6 +698,36 @@ const Createfile = ({
           </form>
         </div>
       </div>
+
+      <style>{`
+        .file-picker-input::file-selector-button,
+        .file-picker-input::-webkit-file-upload-button {
+          margin-right: 10px;
+          border: 0;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #007026 0, #09a98d 100%);
+          color: #fff;
+          padding: 8px 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .file-picker-input::file-selector-button:hover,
+        .file-picker-input::-webkit-file-upload-button:hover {
+          filter: brightness(1.08);
+        }
+
+        .file-name-options-scroll {
+          height: 200px;
+          overflow-y: auto;
+          overflow-x: hidden;
+          border: 1px solid rgba(14, 116, 144, 0.2);
+          border-radius: 10px;
+          padding: 10px;
+          background: rgba(14, 116, 144, 0.04);
+        }
+      `}</style>
     </div>
   );
 };
