@@ -708,28 +708,48 @@ export async function handler(event) {
         }
       }
 
-      await settingsCollection.updateOne(
-        { scope: GLOBAL_SETTINGS_SCOPE },
-        {
-          $set: {
-            ...sanitizedPayload,
-            scope: GLOBAL_SETTINGS_SCOPE,
-            userId: user.userId,
-            updatedByUserId: user.userId,
-            updatedByRole: user.role || "",
-            updatedAt: new Date(),
-          },
-          $setOnInsert: {
-            createdAt: new Date(),
-            createdByUserId: user.userId,
-          },
-        },
-        { upsert: true },
+      const existingSharedSettings = await getSharedSettings(
+        settingsCollection,
+        user.userId,
       );
 
-      const updated = await settingsCollection.findOne({
+      const baseUpdate = {
+        ...sanitizedPayload,
         scope: GLOBAL_SETTINGS_SCOPE,
-      });
+        userId: user.userId,
+        updatedByUserId: user.userId,
+        updatedByRole: user.role || "",
+        updatedAt: new Date(),
+      };
+
+      let updated = null;
+
+      if (existingSharedSettings?._id) {
+        await settingsCollection.updateOne(
+          { _id: existingSharedSettings._id },
+          {
+            $set: baseUpdate,
+            $setOnInsert: {
+              createdAt: new Date(),
+              createdByUserId: user.userId,
+            },
+          },
+        );
+
+        updated = await settingsCollection.findOne({
+          _id: existingSharedSettings._id,
+        });
+      } else {
+        const insertResult = await settingsCollection.insertOne({
+          ...baseUpdate,
+          createdAt: new Date(),
+          createdByUserId: user.userId,
+        });
+
+        updated = await settingsCollection.findOne({
+          _id: insertResult.insertedId,
+        });
+      }
 
       return createResponse(
         200,

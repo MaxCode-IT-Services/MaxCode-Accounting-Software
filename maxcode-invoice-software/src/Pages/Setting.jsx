@@ -3191,7 +3191,7 @@ const Settings = () => {
                           className="form-control modern-input"
                           value={
                             businessSettings.cloudflareSettings
-                              ?.defaultFolder || "general"
+                              ?.defaultFolder || "MaxCode"
                           }
                           onChange={(e) =>
                             handleCloudflareChange(
@@ -3213,8 +3213,7 @@ const Settings = () => {
                           className="form-control modern-input"
                           value={
                             businessSettings.cloudflareSettings
-                              ?.folderOptions ||
-                            "general,documents,invoices,purchases"
+                              ?.folderOptions || "MaxCode,Other"
                           }
                           onChange={(e) =>
                             handleCloudflareChange(

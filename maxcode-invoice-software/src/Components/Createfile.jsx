@@ -155,6 +155,25 @@ const Createfile = ({
     setFolderUploadName("");
   }, [show, isEditMode, initialData, cloudflareSettings, folderOptions]);
 
+  useEffect(() => {
+    if (!show) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth =
+      window.innerWidth - document.documentElement.clientWidth;
+
+    document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
+    };
+  }, [show]);
+
   const handleFileChange = (event) => {
     const files = Array.from(event.target.files || []);
     const prepared = (uploadMode === "single" ? files.slice(0, 1) : files).map(

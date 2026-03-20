@@ -1095,6 +1095,7 @@ export async function handler(event) {
         filter,
         uploadDate_start,
         uploadDate_end,
+        export: exportFlag,
         sortBy = "uploadDate",
         sortOrder = "desc",
       } = query;
@@ -1211,7 +1212,12 @@ export async function handler(event) {
       const limitNum = Number.parseInt(limit, 10) || 10;
       const skip = (pageNum - 1) * limitNum;
       const totalRecords = filtered.length;
-      const rows = filtered.slice(skip, skip + limitNum);
+      const shouldExportAll =
+        String(exportFlag || "").toLowerCase() === "1" ||
+        String(exportFlag || "").toLowerCase() === "true";
+      const rows = shouldExportAll
+        ? filtered
+        : filtered.slice(skip, skip + limitNum);
 
       const folderSet = new Set();
       const typeSet = new Set();
@@ -1245,10 +1251,12 @@ export async function handler(event) {
         {
           data: rows,
           pagination: {
-            page: pageNum,
-            limit: limitNum,
+            page: shouldExportAll ? 1 : pageNum,
+            limit: shouldExportAll ? totalRecords || limitNum : limitNum,
             totalRecords,
-            totalPages: Math.ceil(totalRecords / limitNum),
+            totalPages: shouldExportAll
+              ? 1
+              : Math.ceil(totalRecords / limitNum),
           },
           statistics: {
             total: stats.total,

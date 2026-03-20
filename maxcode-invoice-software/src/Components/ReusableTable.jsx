@@ -16,6 +16,7 @@ dayjs.extend(customParseFormat);
 async function fetchAllServerDataForExport({
   exportApi,
   filterParams,
+  requestHeaders = {},
   onExportStart,
   onExportEnd,
 }) {
@@ -23,7 +24,16 @@ async function fetchAllServerDataForExport({
     if (onExportStart) onExportStart();
     // You may need to adjust this API call as per your backend
     const params = new URLSearchParams({ ...filterParams, export: 1 });
-    const res = await fetch(`${exportApi}?${params.toString()}`);
+    const token = localStorage.getItem("access_token");
+    const mergedHeaders = {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...requestHeaders,
+    };
+
+    const res = await fetch(`${exportApi}?${params.toString()}`, {
+      headers: mergedHeaders,
+      credentials: "include",
+    });
     if (!res.ok) throw new Error("Export data fetch failed");
     const json = await res.json();
     if (onExportEnd) onExportEnd();
@@ -87,6 +97,7 @@ const ReusableTable = ({
   exportFileName = "export",
   exportTitle = "Report",
   extraExportItems = [],
+  exportRequestHeaders = {},
 
   // Additional
   customActions,
@@ -1565,6 +1576,7 @@ const ReusableTable = ({
         exportRows = await fetchAllServerDataForExport({
           exportApi,
           filterParams,
+          requestHeaders: exportRequestHeaders,
         });
       }
       const visibleColumnKeys = getOrderedColumns()
@@ -1661,6 +1673,7 @@ const ReusableTable = ({
         exportRows = await fetchAllServerDataForExport({
           exportApi,
           filterParams,
+          requestHeaders: exportRequestHeaders,
         });
       }
       const visibleColumnKeys = getOrderedColumns()
@@ -1716,6 +1729,7 @@ const ReusableTable = ({
         exportRows = await fetchAllServerDataForExport({
           exportApi,
           filterParams,
+          requestHeaders: exportRequestHeaders,
         });
       }
       const visibleColumnKeys = getOrderedColumns()
@@ -1778,6 +1792,9 @@ const ReusableTable = ({
       activeCardFilter !== "addNew"
     ) {
       filterParams.filter = activeCardFilter;
+    }
+    if (searchTerm && searchTerm.trim() !== "") {
+      filterParams.search = searchTerm.trim();
     }
     return filterParams;
   }

@@ -477,7 +477,6 @@ const FileManagement = () => {
     try {
       const pageNum = Math.max(1, Number(currentPage || 1));
       const limitNum = Math.max(1, Number(recordsPerPage || 10));
-      const maxExtraPagesToFill = 50;
 
       const nameFilterTerm =
         typeof filters?.fileName === "string" ? filters.fileName.trim() : "";
@@ -541,12 +540,6 @@ const FileManagement = () => {
         return params;
       };
 
-      const collectedRows = [];
-      let totalFromApi = 0;
-      let currentFetchPage = pageNum;
-      let extraPagesFetched = 0;
-      let firstResponseData = null;
-
       const cloudHeaders = {
         "x-cloud-store-url": String(cloudflareSettings?.storeUrl || ""),
         "x-cloud-public-domain": String(cloudflareSettings?.publicDomain || ""),
@@ -556,60 +549,44 @@ const FileManagement = () => {
         ),
       };
 
-      while (true) {
-        const params = buildParams(currentFetchPage);
-        const response = await apiGet(
-          `${API_ENDPOINTS.FILES.LIST}?${params.toString()}`,
-          {
-            signal: controller.signal,
-            headers: cloudHeaders,
-          },
+      const params = buildParams(pageNum);
+      const response = await apiGet(
+        `${API_ENDPOINTS.FILES.LIST}?${params.toString()}`,
+        {
+          signal: controller.signal,
+          headers: cloudHeaders,
+        },
+      );
+
+      const firstResponseData = response?.data || {};
+      const sourceMeta = String(firstResponseData?.meta?.source || "");
+      if (sourceMeta === "mongodb-fallback") {
+        const fallbackReason = String(
+          firstResponseData?.meta?.cloudFallbackReason || "",
+        ).trim();
+        const fallbackAttempts = Array.isArray(
+          firstResponseData?.meta?.cloudFallbackAttempts,
+        )
+          ? firstResponseData.meta.cloudFallbackAttempts
+          : [];
+
+        showInfo(
+          fallbackReason
+            ? `Cloudflare listing unavailable (${fallbackReason}). Showing database fallback data.`
+            : "Cloudflare listing unavailable. Showing database fallback data.",
         );
 
-        const sourceMeta = String(response?.data?.meta?.source || "");
-        if (!firstResponseData) {
-          firstResponseData = response?.data || {};
-
-          if (sourceMeta === "mongodb-fallback") {
-            const fallbackReason = String(
-              response?.data?.meta?.cloudFallbackReason || "",
-            ).trim();
-            const fallbackAttempts = Array.isArray(
-              response?.data?.meta?.cloudFallbackAttempts,
-            )
-              ? response.data.meta.cloudFallbackAttempts
-              : [];
-
-            showInfo(
-              fallbackReason
-                ? `Cloudflare listing unavailable (${fallbackReason}). Showing database fallback data.`
-                : "Cloudflare listing unavailable. Showing database fallback data.",
-            );
-
-            if (fallbackAttempts.length > 0) {
-              console.warn("Cloudflare listing attempts:", fallbackAttempts);
-            }
-          }
+        if (fallbackAttempts.length > 0) {
+          console.warn("Cloudflare listing attempts:", fallbackAttempts);
         }
-
-        const chunk = Array.isArray(response?.data?.data)
-          ? response.data.data
-          : [];
-        totalFromApi = Number(response?.data?.pagination?.totalRecords || 0);
-        collectedRows.push(...chunk);
-
-        const visibleCollapsedCount = buildTreeRows(collectedRows, {}).length;
-        const reachedVisibleTarget = visibleCollapsedCount >= limitNum;
-        const reachedDataEnd = collectedRows.length >= totalFromApi;
-        const canFetchMore = extraPagesFetched < maxExtraPagesToFill;
-
-        if (reachedVisibleTarget || reachedDataEnd || !canFetchMore) {
-          break;
-        }
-
-        currentFetchPage += 1;
-        extraPagesFetched += 1;
       }
+
+      const collectedRows = Array.isArray(firstResponseData?.data)
+        ? firstResponseData.data
+        : [];
+      const totalFromApi = Number(
+        firstResponseData?.pagination?.totalRecords || 0,
+      );
 
       setRecords(
         collectedRows.map((item) => ({
@@ -1142,6 +1119,16 @@ const FileManagement = () => {
         onPageChange={setCurrentPage}
         onRecordsPerPageChange={setRecordsPerPage}
         exportApi={API_ENDPOINTS.FILES.LIST}
+        exportRequestHeaders={{
+          "x-cloud-store-url": String(cloudflareSettings?.storeUrl || ""),
+          "x-cloud-public-domain": String(
+            cloudflareSettings?.publicDomain || "",
+          ),
+          "x-cloud-password": String(cloudflareSettings?.password || ""),
+          "x-cloud-default-folder": String(
+            cloudflareSettings?.defaultFolder || "",
+          ),
+        }}
       />
 
       <Createfile
