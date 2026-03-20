@@ -477,6 +477,7 @@ const FileManagement = () => {
     try {
       const pageNum = Math.max(1, Number(currentPage || 1));
       const limitNum = Math.max(1, Number(recordsPerPage || 10));
+      const maxPagesToScan = 20;
 
       const nameFilterTerm =
         typeof filters?.fileName === "string" ? filters.fileName.trim() : "";
@@ -549,52 +550,83 @@ const FileManagement = () => {
         ),
       };
 
-      const params = buildParams(pageNum);
-      const response = await apiGet(
-        `${API_ENDPOINTS.FILES.LIST}?${params.toString()}`,
-        {
-          signal: controller.signal,
-          headers: cloudHeaders,
-        },
-      );
-
-      const firstResponseData = response?.data || {};
-      const sourceMeta = String(firstResponseData?.meta?.source || "");
-      if (sourceMeta === "mongodb-fallback") {
-        const fallbackReason = String(
-          firstResponseData?.meta?.cloudFallbackReason || "",
-        ).trim();
-        const fallbackAttempts = Array.isArray(
-          firstResponseData?.meta?.cloudFallbackAttempts,
-        )
-          ? firstResponseData.meta.cloudFallbackAttempts
-          : [];
-
-        showInfo(
-          fallbackReason
-            ? `Cloudflare listing unavailable (${fallbackReason}). Showing database fallback data.`
-            : "Cloudflare listing unavailable. Showing database fallback data.",
-        );
-
-        if (fallbackAttempts.length > 0) {
-          console.warn("Cloudflare listing attempts:", fallbackAttempts);
-        }
-      }
-
-      const collectedRows = Array.isArray(firstResponseData?.data)
-        ? firstResponseData.data
-        : [];
-      const totalFromApi = Number(
-        firstResponseData?.pagination?.totalRecords || 0,
-      );
-
-      setRecords(
-        collectedRows.map((item) => ({
+      const normalizeRows = (rows = []) =>
+        rows.map((item) => ({
           ...item,
           id: item._id || item.id,
           uploadDate: item.uploadDate || item.createdAt,
-        })),
-      );
+        }));
+
+      const getVisibleRowCount = (rows = []) =>
+        buildTreeRows(normalizeRows(rows), {}).length;
+
+      let firstResponseData = null;
+      let totalFromApi = 0;
+      let fetchPage = pageNum;
+      let fetchedPageCount = 0;
+      let collectedRows = [];
+
+      while (fetchedPageCount < maxPagesToScan) {
+        const params = buildParams(fetchPage);
+        const response = await apiGet(
+          `${API_ENDPOINTS.FILES.LIST}?${params.toString()}`,
+          {
+            signal: controller.signal,
+            headers: cloudHeaders,
+          },
+        );
+
+        const responseData = response?.data || {};
+        if (!firstResponseData) {
+          firstResponseData = responseData;
+          totalFromApi = Number(responseData?.pagination?.totalRecords || 0);
+
+          const sourceMeta = String(responseData?.meta?.source || "");
+          if (sourceMeta === "mongodb-fallback") {
+            const fallbackReason = String(
+              responseData?.meta?.cloudFallbackReason || "",
+            ).trim();
+            const fallbackAttempts = Array.isArray(
+              responseData?.meta?.cloudFallbackAttempts,
+            )
+              ? responseData.meta.cloudFallbackAttempts
+              : [];
+
+            showInfo(
+              fallbackReason
+                ? `Cloudflare listing unavailable (${fallbackReason}). Showing database fallback data.`
+                : "Cloudflare listing unavailable. Showing database fallback data.",
+            );
+
+            if (fallbackAttempts.length > 0) {
+              console.warn("Cloudflare listing attempts:", fallbackAttempts);
+            }
+          }
+        }
+
+        const pageRows = Array.isArray(responseData?.data)
+          ? responseData.data
+          : [];
+        collectedRows = [...collectedRows, ...pageRows];
+        fetchedPageCount += 1;
+
+        const totalPages = Number(responseData?.pagination?.totalPages || 0);
+        const reachedLastPage =
+          totalPages > 0 ? fetchPage >= totalPages : false;
+        const reachedDataEnd =
+          pageRows.length < limitNum ||
+          (totalFromApi > 0 && collectedRows.length >= totalFromApi);
+        const hasEnoughVisibleRows =
+          getVisibleRowCount(collectedRows) >= limitNum;
+
+        if (hasEnoughVisibleRows || reachedLastPage || reachedDataEnd) {
+          break;
+        }
+
+        fetchPage += 1;
+      }
+
+      setRecords(normalizeRows(collectedRows));
       setExpandedFolderKeys({});
       setTotalRecords(totalFromApi || collectedRows.length);
       setStatistics(
@@ -772,6 +804,7 @@ const FileManagement = () => {
       label: "S.No",
       width: 80,
       render: (_, record, displayIndex) => {
+        const rowSerial = Math.max(1, Number(displayIndex || record.sn || 1));
         const stateKey = String(record.expandKey || record.key || "");
         const isExpanded = Boolean(record.isExpanded);
         const canExpand =
@@ -781,7 +814,7 @@ const FileManagement = () => {
 
         return (
           <div className="d-flex align-items-center gap-2">
-            <span>{record.sn || displayIndex}</span>
+            <span>{rowSerial}</span>
 
             {canExpand && (
               <span

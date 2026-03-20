@@ -168,11 +168,11 @@ const sanitizeCloudflareSettings = (value = {}) => {
     defaultFolder:
       typeof value.defaultFolder === "string" && value.defaultFolder.trim()
         ? value.defaultFolder.trim()
-        : "general",
+        : "MaxCode",
     folderOptions:
       typeof value.folderOptions === "string" && value.folderOptions.trim()
         ? value.folderOptions.trim()
-        : "general,documents,invoices,purchases",
+        : "MaxCode,Other",
     updatedAt: new Date(),
   };
 };
@@ -407,8 +407,8 @@ const mapSettingsForClient = (document, event) => {
       storeUrl: "",
       publicDomain: "",
       password: "",
-      defaultFolder: "general",
-      folderOptions: "general,documents,invoices,purchases",
+      defaultFolder: "",
+      folderOptions: "",
     };
   }
 
