@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { showError, showInfo, showSuccess } from "./ToastNotification";
 import { apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
@@ -63,6 +63,7 @@ const Createfile = ({
   const [selectedFolderFiles, setSelectedFolderFiles] = useState([]);
   const [folderUploadName, setFolderUploadName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const fileInputRef = useRef(null);
 
   const folderOptions = useMemo(
     () => normalizeFolderOptions(cloudflareSettings),
@@ -174,6 +175,20 @@ const Createfile = ({
           ? prepared[0].customName
           : prev.fileName,
     }));
+
+    if (fileInputRef.current) {
+      if (!prepared.length) {
+        fileInputRef.current.value = "";
+      } else {
+        try {
+          const transfer = new DataTransfer();
+          prepared.forEach((item) => transfer.items.add(item.file));
+          fileInputRef.current.files = transfer.files;
+        } catch {
+          // If browser blocks programmatic FileList assignment, keep native selection as-is.
+        }
+      }
+    }
   };
 
   const handleCustomNameChange = (index, value) => {
@@ -193,6 +208,20 @@ const Createfile = ({
           ...current,
           fileName: next[0]?.customName || "",
         }));
+      }
+
+      if (fileInputRef.current) {
+        if (!next.length) {
+          fileInputRef.current.value = "";
+        } else {
+          try {
+            const transfer = new DataTransfer();
+            next.forEach((item) => transfer.items.add(item.file));
+            fileInputRef.current.files = transfer.files;
+          } catch {
+            // Fallback: native file input value remains unchanged.
+          }
+        }
       }
 
       return next;
@@ -279,6 +308,7 @@ const Createfile = ({
           {
             fileName: formData.fileName.trim(),
             folderName: formData.folderName.trim(),
+            cloudflareSettings,
           },
           {
             timeout: isCloudRecord ? 120000 : 30000,
@@ -305,6 +335,7 @@ const Createfile = ({
           fileType: item.file.type || "application/octet-stream",
           fileSizeBytes: item.file.size,
           fileDataBase64,
+          cloudflareSettings,
         };
       } else if (uploadMode === "multiple") {
         const files = await Promise.all(
@@ -322,6 +353,7 @@ const Createfile = ({
           folderName: formData.folderName.trim(),
           uploadDate: formData.uploadDate,
           files,
+          cloudflareSettings,
         };
       } else {
         const selectedRootName =
@@ -351,6 +383,7 @@ const Createfile = ({
           folderName: formData.folderName.trim(),
           uploadDate: formData.uploadDate,
           folderFiles,
+          cloudflareSettings,
         };
       }
 
@@ -426,6 +459,8 @@ const Createfile = ({
                             setSelectedFolderFiles([]);
                             setSelectedFiles([]);
                             setFolderUploadName("");
+                            if (fileInputRef.current)
+                              fileInputRef.current.value = "";
                           }}
                         />
                         <label
@@ -448,6 +483,8 @@ const Createfile = ({
                             setSelectedFolderFiles([]);
                             setSelectedFiles([]);
                             setFolderUploadName("");
+                            if (fileInputRef.current)
+                              fileInputRef.current.value = "";
                           }}
                         />
                         <label
@@ -470,6 +507,8 @@ const Createfile = ({
                             setSelectedFiles([]);
                             setSelectedFolderFiles([]);
                             setFolderUploadName("");
+                            if (fileInputRef.current)
+                              fileInputRef.current.value = "";
                           }}
                         />
                         <label
@@ -537,6 +576,7 @@ const Createfile = ({
                     </label>
                     {uploadMode !== "folder" ? (
                       <input
+                        ref={fileInputRef}
                         type="file"
                         className="form-control modern-input file-picker-input"
                         onChange={handleFileChange}
@@ -719,13 +759,13 @@ const Createfile = ({
         }
 
         .file-name-options-scroll {
-          height: 200px;
+          max-height: 200px;
           overflow-y: auto;
           overflow-x: hidden;
-          border: 1px solid rgba(14, 116, 144, 0.2);
+          border: 2px dashed rgb(0 118 61 / 88%);
           border-radius: 10px;
           padding: 10px;
-          background: rgba(14, 116, 144, 0.04);
+          background: rgb(14 144 60 / 5%);
         }
       `}</style>
     </div>

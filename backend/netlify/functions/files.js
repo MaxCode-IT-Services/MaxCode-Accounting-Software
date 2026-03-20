@@ -1,10 +1,40 @@
-import { connectToDatabase, createResponse } from "./utils/mongodb.js";
-import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
-const FILES_COLLECTION = "files";
-const SETTINGS_COLLECTION = "business_settings";
-const GLOBAL_SETTINGS_SCOPE = "global";
+const getCorsHeaders = (origin) => {
+  const allowedOrigins = [
+    "https://billing.maxcode.in",
+    "https://billing-dausa.netlify.app",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+  ];
+
+  const corsOrigin = allowedOrigins.includes(origin) ? origin : "null";
+
+  return {
+    "Access-Control-Allow-Origin": corsOrigin,
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization, x-cloud-store-url, x-cloud-public-domain, x-cloud-password, x-cloud-default-folder",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+    "Access-Control-Allow-Credentials": "true",
+  };
+};
+
+const createResponse = (
+  statusCode,
+  body,
+  origin = null,
+  extraHeaders = {},
+) => ({
+  statusCode,
+  headers: {
+    ...getCorsHeaders(origin),
+    ...extraHeaders,
+  },
+  body: JSON.stringify(body),
+});
+
 const CLOUD_LIST_CACHE_TTL_MS = 20 * 1000;
 const cloudListCache = new Map();
 const CLOUD_LIST_ATTEMPT_TIMEOUT_MS = 7000;
@@ -55,6 +85,42 @@ const normalizeCloudflareSettings = (settings = {}) => {
     password: String(settings.password || "").trim(),
     defaultFolder: String(settings.defaultFolder || "").trim() || "general",
   };
+};
+
+const getHeaderValue = (headers = {}, key = "") => {
+  const lookupKey = String(key || "").toLowerCase();
+  const matched = Object.keys(headers || {}).find(
+    (item) => String(item || "").toLowerCase() === lookupKey,
+  );
+  return matched ? headers[matched] : "";
+};
+
+const getCloudflareSettingsFromEvent = (event = {}, body = {}) => {
+  const query = event?.queryStringParameters || {};
+  const headerSettings = {
+    storeUrl: getHeaderValue(event?.headers, "x-cloud-store-url"),
+    publicDomain: getHeaderValue(event?.headers, "x-cloud-public-domain"),
+    password: getHeaderValue(event?.headers, "x-cloud-password"),
+    defaultFolder: getHeaderValue(event?.headers, "x-cloud-default-folder"),
+  };
+
+  const querySettings = {
+    storeUrl: query.storeUrl,
+    publicDomain: query.publicDomain,
+    password: query.password,
+    defaultFolder: query.defaultFolder,
+  };
+
+  const bodySettings =
+    body?.cloudflareSettings && typeof body.cloudflareSettings === "object"
+      ? body.cloudflareSettings
+      : {};
+
+  return normalizeCloudflareSettings({
+    ...querySettings,
+    ...headerSettings,
+    ...bodySettings,
+  });
 };
 
 const ensureFolder = (value, fallback = "general") => {
@@ -201,57 +267,6 @@ const getFileCategory = (record = {}) => {
   return "others";
 };
 
-const buildExtensionRegex = (extensions = []) =>
-  `\\.(${extensions.map((ext) => escapeRegExp(ext)).join("|")})$`;
-
-const buildMongoExtensionCondition = (extensions = []) => {
-  const extensionRegex = buildExtensionRegex(extensions);
-  return {
-    $or: [
-      { fileName: { $regex: extensionRegex, $options: "i" } },
-      { originalName: { $regex: extensionRegex, $options: "i" } },
-      { filePath: { $regex: extensionRegex, $options: "i" } },
-    ],
-  };
-};
-
-const getMongoCategoryCondition = (category = "") => {
-  const documentsCondition = {
-    $or: [
-      buildMongoExtensionCondition(FILE_CATEGORY_EXTENSIONS.documents),
-      {
-        fileType: {
-          $regex:
-            /(pdf|word|document|spreadsheet|excel|csv|text|zip|rar|7z|application\/)/i,
-        },
-      },
-    ],
-  };
-  const imagesCondition = {
-    $or: [
-      buildMongoExtensionCondition(FILE_CATEGORY_EXTENSIONS.images),
-      { fileType: { $regex: /^image\//i } },
-    ],
-  };
-  const videosCondition = {
-    $or: [
-      buildMongoExtensionCondition(FILE_CATEGORY_EXTENSIONS.videos),
-      { fileType: { $regex: /^video\//i } },
-    ],
-  };
-
-  if (category === "documents") return documentsCondition;
-  if (category === "images") return imagesCondition;
-  if (category === "videos") return videosCondition;
-  if (category === "others") {
-    return {
-      $nor: [documentsCondition, imagesCondition, videosCondition],
-    };
-  }
-
-  return null;
-};
-
 const formatBytes = (bytes) => {
   const numeric = Number(bytes || 0);
   if (!Number.isFinite(numeric) || numeric <= 0) return "0 B";
@@ -288,7 +303,7 @@ const guessMimeTypeFromFileName = (name = "") => {
     webp: "image/webp",
     html: "text/html",
     mp4: "video/mp4",
-    mp3: "audio/mpeg",
+    mp3: "audio/mp3",
     doc: "documents",
     docx: "documents",
     xls: "excel",
@@ -296,6 +311,7 @@ const guessMimeTypeFromFileName = (name = "") => {
     csv: "text/csv",
     js: "javascript",
     wav: "audio/wav",
+    apk: "apk",
   };
 
   return map[extension] || "application/octet-stream";
@@ -1009,56 +1025,6 @@ const parseUploadDate = (dateValue) => {
   return Number.isNaN(date.getTime()) ? new Date() : date;
 };
 
-const assertNoExistingFilePath = async (filesCollection, objectPath) => {
-  const escaped = escapeRegExp(objectPath);
-  const existing = await filesCollection.findOne({
-    isDeleted: { $ne: true },
-    filePath: { $regex: `^${escaped}$`, $options: "i" },
-  });
-
-  if (existing) {
-    throw new Error(`File already exists with name: ${objectPath}`);
-  }
-};
-
-const saveFileRecord = async ({
-  filesCollection,
-  fileName,
-  originalName,
-  folderName,
-  filePath,
-  fileUrl,
-  fileType,
-  fileSizeBytes,
-  uploadDate,
-  user,
-}) => {
-  const record = {
-    fileName,
-    originalName,
-    folderName,
-    filePath,
-    fileUrl,
-    fileType,
-    fileSizeBytes,
-    fileSize: formatBytes(fileSizeBytes),
-    uploadDate,
-    status: "Active",
-    isDeleted: false,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    createdByUserId: user.userId,
-    createdByRole: user.role || "",
-  };
-
-  const insert = await filesCollection.insertOne(record);
-
-  return {
-    ...record,
-    _id: insert.insertedId,
-  };
-};
-
 export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
@@ -1067,17 +1033,61 @@ export async function handler(event) {
   }
 
   try {
-    const user = verifyRequestToken(event);
+    verifyRequestToken(event);
 
-    const { db } = await connectToDatabase();
-    const filesCollection = db.collection(FILES_COLLECTION);
+    const query = event.queryStringParameters || {};
+    const parsedBody = event.body ? JSON.parse(event.body) : {};
+    const cloudflareSettings = getCloudflareSettingsFromEvent(
+      event,
+      parsedBody,
+    );
+
+    if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+      return createResponse(
+        400,
+        {
+          error:
+            "Cloudflare settings are required in request (storeUrl/publicDomain/password/defaultFolder).",
+        },
+        origin,
+      );
+    }
+
+    const cloudCacheKey = getCloudCacheKey(
+      cloudflareSettings.storeUrl,
+      cloudflareSettings.password,
+    );
+
+    const getCloudRows = async () => {
+      const cachedRows = getCachedCloudRows(cloudCacheKey);
+      if (cachedRows) return cachedRows;
+
+      const rows = await listFromCloudflareStore({
+        storeUrl: cloudflareSettings.storeUrl,
+        password: cloudflareSettings.password,
+        publicDomain: cloudflareSettings.publicDomain,
+      });
+      setCachedCloudRows(cloudCacheKey, rows);
+      return rows;
+    };
+
+    const ensureCloudPathNotExists = async (targetPath) => {
+      const allRows = await getCloudRows();
+      const exists = allRows.some(
+        (row) =>
+          String(row?.filePath || "").toLowerCase() ===
+          String(targetPath || "").toLowerCase(),
+      );
+      if (exists) {
+        throw new Error(`File already exists with name: ${targetPath}`);
+      }
+    };
 
     if (event.httpMethod === "GET") {
       const {
         id,
         page = 1,
         limit = 10,
-        source = "mongodb",
         search,
         folderName,
         fileType,
@@ -1087,361 +1097,147 @@ export async function handler(event) {
         uploadDate_end,
         sortBy = "uploadDate",
         sortOrder = "desc",
-      } = event.queryStringParameters || {};
+      } = query;
 
-      let cloudFallbackMeta = null;
-
-      if (String(source || "").toLowerCase() === "cloud") {
-        const settingsCollection = db.collection(SETTINGS_COLLECTION);
-        const settingsDocument = await settingsCollection.findOne({
-          scope: GLOBAL_SETTINGS_SCOPE,
-        });
-        const cloudflareSettings = normalizeCloudflareSettings(
-          settingsDocument?.cloudflareSettings,
-        );
-
-        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
-            {
-              error:
-                "Cloudflare settings are missing. Please configure Store URL and Password in Settings > Cloudflare.",
-            },
-            origin,
-          );
-        }
-
-        let allCloudRows = null;
-        const cloudCacheKey = getCloudCacheKey(
-          cloudflareSettings.storeUrl,
-          cloudflareSettings.password,
-        );
-        const cachedRows = getCachedCloudRows(cloudCacheKey);
-
-        try {
-          if (cachedRows) {
-            allCloudRows = cachedRows;
-          } else {
-            allCloudRows = await listFromCloudflareStore({
-              storeUrl: cloudflareSettings.storeUrl,
-              password: cloudflareSettings.password,
-              publicDomain: cloudflareSettings.publicDomain,
-            });
-            setCachedCloudRows(cloudCacheKey, allCloudRows);
-          }
-        } catch (cloudListError) {
-          cloudFallbackMeta = {
-            message: cloudListError?.message || "Cloudflare listing failed",
-            attempts: Array.isArray(cloudListError?.details)
-              ? cloudListError.details
-              : [],
-          };
-          console.warn(
-            "Cloudflare listing failed. Falling back to MongoDB source:",
-            cloudListError.message,
-          );
-        }
-
-        if (!Array.isArray(allCloudRows)) {
-          allCloudRows = null;
-        }
-
-        if (!allCloudRows) {
-          // Continue to MongoDB flow below without returning 500.
-        } else {
-          let filtered = [...allCloudRows];
-
-          if (id) {
-            const single = filtered.find(
-              (row) =>
-                String(row.id) === String(id) || String(row._id) === String(id),
-            );
-            if (!single) {
-              return createResponse(
-                404,
-                { error: "File record not found" },
-                origin,
-              );
-            }
-            return createResponse(200, single, origin);
-          }
-
-          if (folderName && folderName !== "All") {
-            filtered = filtered.filter(
-              (row) =>
-                String(row.folderName || "") === String(folderName).trim(),
-            );
-          }
-
-          if (fileType && fileType !== "All") {
-            filtered = filtered.filter(
-              (row) => String(row.fileType || "") === String(fileType).trim(),
-            );
-          }
-
-          if (fileSize && fileSize !== "All") {
-            const sizeTerm = String(fileSize).toLowerCase().trim();
-            filtered = filtered.filter((row) => {
-              const sizeText = String(row.fileSize || "").toLowerCase();
-              const sizeBytesText = String(
-                row.fileSizeBytes || "",
-              ).toLowerCase();
-              return (
-                sizeText.includes(sizeTerm) || sizeBytesText.includes(sizeTerm)
-              );
-            });
-          }
-
-          if (filter && filter !== "total") {
-            filtered = filtered.filter(
-              (row) => getFileCategory(row) === filter,
-            );
-          }
-
-          if (search) {
-            const term = String(search).toLowerCase();
-            filtered = filtered.filter((row) =>
-              [
-                row.fileName,
-                row.originalName,
-                row.folderName,
-                row.fileType,
-                row.filePath,
-              ]
-                .map((value) => String(value || "").toLowerCase())
-                .some((value) => value.includes(term)),
-            );
-          }
-
-          if (uploadDate_start || uploadDate_end) {
-            const start = uploadDate_start
-              ? new Date(`${uploadDate_start}T00:00:00.000Z`).getTime()
-              : null;
-            const end = uploadDate_end
-              ? new Date(`${uploadDate_end}T23:59:59.999Z`).getTime()
-              : null;
-            filtered = filtered.filter((row) => {
-              const ts = row.uploadDate
-                ? new Date(row.uploadDate).getTime()
-                : NaN;
-              if (!Number.isFinite(ts)) return false;
-              if (start && ts < start) return false;
-              if (end && ts > end) return false;
-              return true;
-            });
-          }
-
-          const sortDirectionNum = sortOrder === "asc" ? 1 : -1;
-          filtered.sort((a, b) => {
-            const av = a?.[sortBy];
-            const bv = b?.[sortBy];
-
-            if (av == null && bv == null) return 0;
-            if (av == null) return 1;
-            if (bv == null) return -1;
-
-            if (typeof av === "number" && typeof bv === "number") {
-              return (av - bv) * sortDirectionNum;
-            }
-
-            const aDate = new Date(av).getTime();
-            const bDate = new Date(bv).getTime();
-            if (Number.isFinite(aDate) && Number.isFinite(bDate)) {
-              return (aDate - bDate) * sortDirectionNum;
-            }
-
-            return (
-              String(av).localeCompare(String(bv), "en", {
-                sensitivity: "base",
-              }) * sortDirectionNum
-            );
-          });
-
-          const pageNum = Number.parseInt(page, 10) || 1;
-          const limitNum = Number.parseInt(limit, 10) || 10;
-          const skip = (pageNum - 1) * limitNum;
-          const totalRecords = filtered.length;
-          const rows = filtered.slice(skip, skip + limitNum);
-
-          const folderSet = new Set();
-          const typeSet = new Set();
-          const stats = {
-            total: 0,
-            documents: 0,
-            images: 0,
-            videos: 0,
-            others: 0,
-            totalSizeBytes: 0,
-          };
-
-          allCloudRows.forEach((row) => {
-            const folder = String(row.folderName || "").trim();
-            const fileTypeValue = String(row.fileType || "").trim();
-            if (folder) folderSet.add(folder);
-            if (fileTypeValue) typeSet.add(fileTypeValue);
-
-            stats.total += 1;
-            const category = getFileCategory(row);
-            if (category === "documents") stats.documents += 1;
-            else if (category === "images") stats.images += 1;
-            else if (category === "videos") stats.videos += 1;
-            else stats.others += 1;
-
-            stats.totalSizeBytes += Number(row.fileSizeBytes) || 0;
-          });
-
-          const folderValues = [...folderSet].sort();
-          const typeValues = [...typeSet].sort();
-
-          return createResponse(
-            200,
-            {
-              data: rows,
-              pagination: {
-                page: pageNum,
-                limit: limitNum,
-                totalRecords,
-                totalPages: Math.ceil(totalRecords / limitNum),
-              },
-              statistics: {
-                total: stats.total,
-                documents: stats.documents,
-                images: stats.images,
-                videos: stats.videos,
-                others: stats.others,
-                totalSizeBytes: stats.totalSizeBytes,
-                totalSize: formatBytes(stats.totalSizeBytes),
-              },
-              filterOptions: {
-                folderName: ["All", ...folderValues],
-                fileType: ["All", ...typeValues],
-              },
-              meta: {
-                source: "cloud",
-              },
-            },
-            origin,
-          );
-        }
-      }
+      const allCloudRows = await getCloudRows();
+      let filtered = [...allCloudRows];
 
       if (id) {
-        const record = await filesCollection.findOne({
-          _id: new ObjectId(id),
-          isDeleted: { $ne: true },
-        });
-
-        if (!record) {
+        const normalizedId = String(id).trim();
+        const normalizedPath = normalizedId.startsWith("cloud:")
+          ? normalizedId.slice("cloud:".length)
+          : normalizedId;
+        const single = filtered.find(
+          (row) =>
+            String(row.id) === normalizedId ||
+            String(row._id) === normalizedId ||
+            String(row.filePath || "") === normalizedPath,
+        );
+        if (!single) {
           return createResponse(
             404,
             { error: "File record not found" },
             origin,
           );
         }
-
-        return createResponse(200, record, origin);
+        return createResponse(200, single, origin);
       }
 
-      const query = { isDeleted: { $ne: true } };
-
       if (folderName && folderName !== "All") {
-        query.folderName = String(folderName).trim();
+        filtered = filtered.filter(
+          (row) => String(row.folderName || "") === String(folderName).trim(),
+        );
       }
 
       if (fileType && fileType !== "All") {
-        query.fileType = String(fileType).trim();
+        filtered = filtered.filter(
+          (row) => String(row.fileType || "") === String(fileType).trim(),
+        );
       }
 
       if (fileSize && fileSize !== "All") {
-        const sizeTerm = String(fileSize).trim();
-        query.$and = query.$and || [];
-        query.$and.push({
-          $or: [
-            { fileSize: { $regex: escapeRegExp(sizeTerm), $options: "i" } },
-            {
-              fileSizeBytes: {
-                $regex: escapeRegExp(sizeTerm),
-                $options: "i",
-              },
-            },
-          ],
+        const sizeTerm = String(fileSize).toLowerCase().trim();
+        filtered = filtered.filter((row) => {
+          const sizeText = String(row.fileSize || "").toLowerCase();
+          const sizeBytesText = String(row.fileSizeBytes || "").toLowerCase();
+          return (
+            sizeText.includes(sizeTerm) || sizeBytesText.includes(sizeTerm)
+          );
         });
       }
 
       if (filter && filter !== "total") {
-        const categoryCondition = getMongoCategoryCondition(String(filter));
-        if (categoryCondition) {
-          query.$and = query.$and || [];
-          query.$and.push(categoryCondition);
-        }
+        filtered = filtered.filter((row) => getFileCategory(row) === filter);
       }
 
       if (search) {
-        query.$or = [
-          { fileName: { $regex: search, $options: "i" } },
-          { originalName: { $regex: search, $options: "i" } },
-          { folderName: { $regex: search, $options: "i" } },
-          { fileType: { $regex: search, $options: "i" } },
-        ];
+        const term = String(search).toLowerCase();
+        filtered = filtered.filter((row) =>
+          [
+            row.fileName,
+            row.originalName,
+            row.folderName,
+            row.fileType,
+            row.filePath,
+          ]
+            .map((value) => String(value || "").toLowerCase())
+            .some((value) => value.includes(term)),
+        );
       }
 
       if (uploadDate_start || uploadDate_end) {
-        query.uploadDate = {};
-        if (uploadDate_start) {
-          query.uploadDate.$gte = new Date(`${uploadDate_start}T00:00:00.000Z`);
-        }
-        if (uploadDate_end) {
-          query.uploadDate.$lte = new Date(`${uploadDate_end}T23:59:59.999Z`);
-        }
+        const start = uploadDate_start
+          ? new Date(`${uploadDate_start}T00:00:00.000Z`).getTime()
+          : null;
+        const end = uploadDate_end
+          ? new Date(`${uploadDate_end}T23:59:59.999Z`).getTime()
+          : null;
+        filtered = filtered.filter((row) => {
+          const ts = row.uploadDate ? new Date(row.uploadDate).getTime() : NaN;
+          if (!Number.isFinite(ts)) return false;
+          if (start && ts < start) return false;
+          if (end && ts > end) return false;
+          return true;
+        });
       }
+
+      const sortDirectionNum = sortOrder === "asc" ? 1 : -1;
+      filtered.sort((a, b) => {
+        const av = a?.[sortBy];
+        const bv = b?.[sortBy];
+
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+
+        if (typeof av === "number" && typeof bv === "number") {
+          return (av - bv) * sortDirectionNum;
+        }
+
+        const aDate = new Date(av).getTime();
+        const bDate = new Date(bv).getTime();
+        if (Number.isFinite(aDate) && Number.isFinite(bDate)) {
+          return (aDate - bDate) * sortDirectionNum;
+        }
+
+        return (
+          String(av).localeCompare(String(bv), "en", {
+            sensitivity: "base",
+          }) * sortDirectionNum
+        );
+      });
 
       const pageNum = Number.parseInt(page, 10) || 1;
       const limitNum = Number.parseInt(limit, 10) || 10;
       const skip = (pageNum - 1) * limitNum;
+      const totalRecords = filtered.length;
+      const rows = filtered.slice(skip, skip + limitNum);
 
-      const sortObject = {
-        [sortBy]: sortOrder === "asc" ? 1 : -1,
+      const folderSet = new Set();
+      const typeSet = new Set();
+      const stats = {
+        total: 0,
+        documents: 0,
+        images: 0,
+        videos: 0,
+        others: 0,
+        totalSizeBytes: 0,
       };
 
-      const totalRecords = await filesCollection.countDocuments(query);
-      const rows = await filesCollection
-        .find(query)
-        .sort(sortObject)
-        .skip(skip)
-        .limit(limitNum)
-        .toArray();
+      allCloudRows.forEach((row) => {
+        const folder = String(row.folderName || "").trim();
+        const fileTypeValue = String(row.fileType || "").trim();
+        if (folder) folderSet.add(folder);
+        if (fileTypeValue) typeSet.add(fileTypeValue);
 
-      const folderValues = await filesCollection.distinct("folderName", {
-        isDeleted: { $ne: true },
-      });
-      const typeValues = await filesCollection.distinct("fileType", {
-        isDeleted: { $ne: true },
-      });
+        stats.total += 1;
+        const category = getFileCategory(row);
+        if (category === "documents") stats.documents += 1;
+        else if (category === "images") stats.images += 1;
+        else if (category === "videos") stats.videos += 1;
+        else stats.others += 1;
 
-      const totalSizeAgg = await filesCollection
-        .aggregate([
-          { $match: { isDeleted: { $ne: true } } },
-          { $group: { _id: null, totalSizeBytes: { $sum: "$fileSizeBytes" } } },
-        ])
-        .toArray();
-
-      const baseStatsQuery = { isDeleted: { $ne: true } };
-      const totalAll = await filesCollection.countDocuments(baseStatsQuery);
-      const totalDocuments = await filesCollection.countDocuments({
-        ...baseStatsQuery,
-        $and: [getMongoCategoryCondition("documents")],
-      });
-      const totalImages = await filesCollection.countDocuments({
-        ...baseStatsQuery,
-        $and: [getMongoCategoryCondition("images")],
-      });
-      const totalVideos = await filesCollection.countDocuments({
-        ...baseStatsQuery,
-        $and: [getMongoCategoryCondition("videos")],
-      });
-      const totalOthers = await filesCollection.countDocuments({
-        ...baseStatsQuery,
-        $and: [getMongoCategoryCondition("others")],
+        stats.totalSizeBytes += Number(row.fileSizeBytes) || 0;
       });
 
       return createResponse(
@@ -1455,25 +1251,20 @@ export async function handler(event) {
             totalPages: Math.ceil(totalRecords / limitNum),
           },
           statistics: {
-            total: totalAll,
-            documents: totalDocuments,
-            images: totalImages,
-            videos: totalVideos,
-            others: totalOthers,
-            totalSizeBytes: totalSizeAgg?.[0]?.totalSizeBytes || 0,
-            totalSize: formatBytes(totalSizeAgg?.[0]?.totalSizeBytes || 0),
+            total: stats.total,
+            documents: stats.documents,
+            images: stats.images,
+            videos: stats.videos,
+            others: stats.others,
+            totalSizeBytes: stats.totalSizeBytes,
+            totalSize: formatBytes(stats.totalSizeBytes),
           },
           filterOptions: {
-            folderName: ["All", ...folderValues.filter(Boolean).sort()],
-            fileType: ["All", ...typeValues.filter(Boolean).sort()],
+            folderName: ["All", ...[...folderSet].sort()],
+            fileType: ["All", ...[...typeSet].sort()],
           },
           meta: {
-            source:
-              String(source || "").toLowerCase() === "cloud"
-                ? "mongodb-fallback"
-                : "mongodb",
-            cloudFallbackReason: cloudFallbackMeta?.message || null,
-            cloudFallbackAttempts: cloudFallbackMeta?.attempts || [],
+            source: "cloud-only",
           },
         },
         origin,
@@ -1481,7 +1272,7 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === "POST") {
-      const body = event.body ? JSON.parse(event.body) : {};
+      const body = parsedBody;
       const action = String(body.action || "upload")
         .trim()
         .toLowerCase();
@@ -1491,26 +1282,6 @@ export async function handler(event) {
       }
 
       const uploadDate = parseUploadDate(body.uploadDate);
-
-      const settingsCollection = db.collection(SETTINGS_COLLECTION);
-      const settingsDocument = await settingsCollection.findOne({
-        scope: GLOBAL_SETTINGS_SCOPE,
-      });
-      const cloudflareSettings = normalizeCloudflareSettings(
-        settingsDocument?.cloudflareSettings,
-      );
-
-      if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-        return createResponse(
-          400,
-          {
-            error:
-              "Cloudflare settings are missing. Please configure Store URL and Password in Settings > Cloudflare.",
-          },
-          origin,
-        );
-      }
-
       const folderName = ensureFolder(
         body.folderName,
         ensureFolder(cloudflareSettings.defaultFolder || "general"),
@@ -1526,19 +1297,10 @@ export async function handler(event) {
       if (action === "upload") {
         const fileDataBase64 = String(body.fileDataBase64 || "").trim();
         const requestedFileName = String(body.fileName || "").trim();
-
-        if (!requestedFileName) {
+        if (!requestedFileName || !fileDataBase64) {
           return createResponse(
             400,
-            { error: "File name is required" },
-            origin,
-          );
-        }
-
-        if (!fileDataBase64) {
-          return createResponse(
-            400,
-            { error: "File data is required" },
+            { error: "File name and file data are required" },
             origin,
           );
         }
@@ -1550,9 +1312,9 @@ export async function handler(event) {
           String(
             body.fileType || body.mimeType || "application/octet-stream",
           ).trim() || "application/octet-stream";
-
         const objectPath = `${folderName}/${fileName}`;
-        await assertNoExistingFilePath(filesCollection, objectPath);
+
+        await ensureCloudPathNotExists(objectPath);
 
         const fileBuffer = Buffer.from(fileDataBase64, "base64");
         if (!fileBuffer.length) {
@@ -1568,27 +1330,29 @@ export async function handler(event) {
           fileBuffer,
         });
 
-        const fileSizeBytes = Number(body.fileSizeBytes) || fileBuffer.length;
-        const saved = await saveFileRecord({
-          filesCollection,
-          fileName,
-          originalName,
-          folderName,
-          filePath: objectPath,
-          fileUrl: uploadResult.fileUrl,
-          fileType,
-          fileSizeBytes,
-          uploadDate,
-          user,
-        });
-
         invalidateCloudListCache();
 
         return createResponse(
           201,
           {
             message: "File uploaded successfully",
-            data: saved,
+            data: {
+              _id: `cloud:${objectPath}`,
+              id: `cloud:${objectPath}`,
+              fileName,
+              originalName,
+              folderName,
+              filePath: objectPath,
+              fileUrl: uploadResult.fileUrl,
+              fileType,
+              fileSizeBytes: Number(body.fileSizeBytes) || fileBuffer.length,
+              fileSize: formatBytes(
+                Number(body.fileSizeBytes) || fileBuffer.length,
+              ),
+              uploadDate,
+              source: "cloud",
+              status: "Active",
+            },
           },
           origin,
         );
@@ -1605,37 +1369,26 @@ export async function handler(event) {
         }
 
         const preparedFiles = files
-          .map((item) => {
-            const fileName = safeFileName(
-              item?.fileName || item?.originalName || "",
-            );
-            const originalName =
-              String(item?.originalName || fileName).trim() || fileName;
-            const fileDataBase64 = String(item?.fileDataBase64 || "").trim();
-            const fileType =
+          .map((item) => ({
+            fileName: safeFileName(item?.fileName || item?.originalName || ""),
+            originalName: String(item?.originalName || "").trim(),
+            fileDataBase64: String(item?.fileDataBase64 || "").trim(),
+            fileType:
               String(item?.fileType || "application/octet-stream").trim() ||
-              "application/octet-stream";
-            const fileSizeBytes = Number(item?.fileSizeBytes) || 0;
-
-            return {
-              fileName,
-              originalName,
-              fileDataBase64,
-              fileType,
-              fileSizeBytes,
-            };
-          })
+              "application/octet-stream",
+            fileSizeBytes: Number(item?.fileSizeBytes) || 0,
+          }))
           .filter((item) => item.fileName && item.fileDataBase64);
 
-        if (preparedFiles.length === 0) {
+        if (!preparedFiles.length) {
           return createResponse(400, { error: "No valid files found" }, origin);
         }
 
-        const paths = preparedFiles.map(
+        const fullPaths = preparedFiles.map(
           (item) => `${folderName}/${item.fileName}`,
         );
         const seen = new Set();
-        for (const path of paths) {
+        for (const path of fullPaths) {
           const key = path.toLowerCase();
           if (seen.has(key)) {
             return createResponse(
@@ -1647,8 +1400,8 @@ export async function handler(event) {
           seen.add(key);
         }
 
-        for (const path of paths) {
-          await assertNoExistingFilePath(filesCollection, path);
+        for (const path of fullPaths) {
+          await ensureCloudPathNotExists(path);
         }
 
         const uploaded = [];
@@ -1672,24 +1425,24 @@ export async function handler(event) {
             fileBuffer,
           });
 
-          const saved = await saveFileRecord({
-            filesCollection,
+          uploaded.push({
+            _id: `cloud:${objectPath}`,
+            id: `cloud:${objectPath}`,
             fileName: item.fileName,
-            originalName: item.originalName,
+            originalName: item.originalName || item.fileName,
             folderName,
             filePath: objectPath,
             fileUrl: uploadResult.fileUrl,
             fileType: item.fileType,
             fileSizeBytes: item.fileSizeBytes || fileBuffer.length,
+            fileSize: formatBytes(item.fileSizeBytes || fileBuffer.length),
             uploadDate,
-            user,
+            source: "cloud",
+            status: "Active",
           });
-
-          uploaded.push(saved);
         }
 
         invalidateCloudListCache();
-
         return createResponse(
           201,
           {
@@ -1703,7 +1456,7 @@ export async function handler(event) {
       const folderFiles = Array.isArray(body.folderFiles)
         ? body.folderFiles
         : [];
-      if (folderFiles.length === 0) {
+      if (!folderFiles.length) {
         return createResponse(
           400,
           { error: "Folder files are required" },
@@ -1712,32 +1465,18 @@ export async function handler(event) {
       }
 
       const preparedFiles = folderFiles
-        .map((item) => {
-          const relativePath = normalizeRelativePath(item?.relativePath || "");
-          const fileDataBase64 = String(item?.fileDataBase64 || "").trim();
-          const fileType =
+        .map((item) => ({
+          relativePath: normalizeRelativePath(item?.relativePath || ""),
+          fileDataBase64: String(item?.fileDataBase64 || "").trim(),
+          fileType:
             String(item?.fileType || "application/octet-stream").trim() ||
-            "application/octet-stream";
-          const originalName =
-            String(item?.originalName || "").trim() ||
-            relativePath.split("/").pop() ||
-            "file";
-          const fileName = safeFileName(
-            relativePath.split("/").pop() || "file",
-          );
-
-          return {
-            relativePath,
-            fileDataBase64,
-            fileType,
-            originalName,
-            fileName,
-            fileSizeBytes: Number(item?.fileSizeBytes) || 0,
-          };
-        })
+            "application/octet-stream",
+          originalName: String(item?.originalName || "").trim(),
+          fileSizeBytes: Number(item?.fileSizeBytes) || 0,
+        }))
         .filter((item) => item.relativePath && item.fileDataBase64);
 
-      if (preparedFiles.length === 0) {
+      if (!preparedFiles.length) {
         return createResponse(
           400,
           { error: "No valid files found in selected folder" },
@@ -1748,7 +1487,6 @@ export async function handler(event) {
       const fullFolderPaths = preparedFiles.map(
         (item) => `${folderName}/${item.relativePath}`,
       );
-
       const seen = new Set();
       for (const path of fullFolderPaths) {
         const key = path.toLowerCase();
@@ -1763,7 +1501,7 @@ export async function handler(event) {
       }
 
       for (const path of fullFolderPaths) {
-        await assertNoExistingFilePath(filesCollection, path);
+        await ensureCloudPathNotExists(path);
       }
 
       const uploaded = [];
@@ -1798,24 +1536,25 @@ export async function handler(event) {
           fileBuffer,
         });
 
-        const saved = await saveFileRecord({
-          filesCollection,
-          fileName: item.fileName,
-          originalName: item.originalName,
+        uploaded.push({
+          _id: `cloud:${objectPath}`,
+          id: `cloud:${objectPath}`,
+          fileName: safeFileName(objectPath.split("/").pop() || "file"),
+          originalName:
+            item.originalName || objectPath.split("/").pop() || "file",
           folderName,
           filePath: objectPath,
           fileUrl: uploadResult.fileUrl,
           fileType: item.fileType,
           fileSizeBytes: item.fileSizeBytes || fileBuffer.length,
+          fileSize: formatBytes(item.fileSizeBytes || fileBuffer.length),
           uploadDate,
-          user,
+          source: "cloud",
+          status: "Active",
         });
-
-        uploaded.push(saved);
       }
 
       invalidateCloudListCache();
-
       return createResponse(
         201,
         {
@@ -1827,154 +1566,51 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === "DELETE") {
-      const payload = event.body ? JSON.parse(event.body) : {};
-      const { id } = event.queryStringParameters || {};
+      const { id } = query;
       if (!id) {
         return createResponse(400, { error: "File id is required" }, origin);
       }
 
-      if (String(id).startsWith("cloud:")) {
-        const cloudPath = String(id)
-          .slice("cloud:".length)
-          .replace(/^\/+/, "")
-          .trim();
-
-        if (!cloudPath) {
-          return createResponse(
-            400,
-            { error: "Invalid cloud file id" },
-            origin,
-          );
+      const decodedId = (() => {
+        try {
+          return decodeURIComponent(String(id));
+        } catch {
+          return String(id);
         }
+      })();
+      const objectPath = decodedId.startsWith("cloud:")
+        ? decodedId.slice("cloud:".length)
+        : decodedId;
 
-        const settingsCollection = db.collection(SETTINGS_COLLECTION);
-        const settingsDocument = await settingsCollection.findOne({
-          scope: GLOBAL_SETTINGS_SCOPE,
-        });
-        const cloudflareSettings = normalizeCloudflareSettings(
-          settingsDocument?.cloudflareSettings,
-        );
-
-        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
-            {
-              error:
-                "Cloudflare settings are missing. Please configure Store URL and Password in Settings > Cloudflare.",
-            },
-            origin,
-          );
-        }
-
-        await deleteFromCloudflareStore({
-          storeUrl: cloudflareSettings.storeUrl,
-          password: cloudflareSettings.password,
-          objectPath: cloudPath,
-        });
-
-        await filesCollection.updateMany(
-          {
-            filePath: { $regex: `^${escapeRegExp(cloudPath)}$`, $options: "i" },
-            isDeleted: { $ne: true },
-          },
-          {
-            $set: {
-              isDeleted: true,
-              deletedAt: new Date(),
-              deletedByUserId: user.userId,
-              updatedAt: new Date(),
-            },
-          },
-        );
-
-        invalidateCloudListCache();
-        return createResponse(
-          200,
-          { message: "Cloud file deleted successfully" },
-          origin,
-        );
+      const cleanedPath = String(objectPath || "")
+        .replace(/^\/+/, "")
+        .trim();
+      if (!cleanedPath) {
+        return createResponse(400, { error: "Invalid file id/path" }, origin);
       }
 
-      const existing = await filesCollection.findOne({
-        _id: new ObjectId(id),
-        isDeleted: { $ne: true },
+      await deleteFromCloudflareStore({
+        storeUrl: cloudflareSettings.storeUrl,
+        password: cloudflareSettings.password,
+        objectPath: cleanedPath,
       });
 
-      if (!existing) {
-        return createResponse(404, { error: "File record not found" }, origin);
-      }
-
-      const deleteFromCloudflare =
-        payload?.deleteFromCloudflare === true ||
-        String(payload?.deleteFromCloudflare || "").toLowerCase() === "true";
-
-      if (deleteFromCloudflare) {
-        const settingsCollection = db.collection(SETTINGS_COLLECTION);
-        const settingsDocument = await settingsCollection.findOne({
-          scope: GLOBAL_SETTINGS_SCOPE,
-        });
-        const cloudflareSettings = normalizeCloudflareSettings(
-          settingsDocument?.cloudflareSettings,
-        );
-
-        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
-            {
-              error:
-                "Cloudflare settings are missing. Please configure Store URL and Password in Settings > Cloudflare.",
-            },
-            origin,
-          );
-        }
-
-        try {
-          await deleteFromCloudflareStore({
-            storeUrl: cloudflareSettings.storeUrl,
-            password: cloudflareSettings.password,
-            objectPath: existing.filePath,
-          });
-          invalidateCloudListCache();
-        } catch (cloudError) {
-          return createResponse(
-            500,
-            {
-              error: "Failed to delete file from Cloudflare",
-              message: cloudError.message,
-            },
-            origin,
-          );
-        }
-      }
-
-      const result = await filesCollection.updateOne(
-        { _id: new ObjectId(id), isDeleted: { $ne: true } },
-        {
-          $set: {
-            isDeleted: true,
-            deletedAt: new Date(),
-            deletedByUserId: user.userId,
-            updatedAt: new Date(),
-          },
-        },
+      invalidateCloudListCache();
+      return createResponse(
+        200,
+        { message: "File deleted successfully" },
+        origin,
       );
-
-      if (!result.matchedCount) {
-        return createResponse(404, { error: "File record not found" }, origin);
-      }
-
-      return createResponse(200, { message: "File record deleted" }, origin);
     }
 
     if (event.httpMethod === "PUT") {
-      const { id } = event.queryStringParameters || {};
+      const { id } = query;
       if (!id) {
         return createResponse(400, { error: "File id is required" }, origin);
       }
 
-      const body = event.body ? JSON.parse(event.body) : {};
+      const body = parsedBody;
       const updates = {};
-
       if (Object.prototype.hasOwnProperty.call(body, "fileName")) {
         const nextName = safeFileName(body.fileName || "");
         if (!nextName) {
@@ -1986,12 +1622,10 @@ export async function handler(event) {
         }
         updates.fileName = nextName;
       }
-
       if (Object.prototype.hasOwnProperty.call(body, "folderName")) {
         updates.folderName = ensureFolder(body.folderName, "general");
       }
-
-      if (Object.keys(updates).length === 0) {
+      if (!Object.keys(updates).length) {
         return createResponse(
           400,
           { error: "No valid fields to update" },
@@ -1999,72 +1633,55 @@ export async function handler(event) {
         );
       }
 
-      if (String(id).startsWith("cloud:")) {
-        const decodedId = (() => {
-          try {
-            return decodeURIComponent(String(id));
-          } catch {
-            return String(id);
-          }
-        })();
-
-        const oldPath = String(decodedId)
-          .slice("cloud:".length)
-          .replace(/^\/+/, "")
-          .trim();
-        if (!oldPath) {
-          return createResponse(
-            400,
-            { error: "Invalid cloud file id" },
-            origin,
-          );
+      const decodedId = (() => {
+        try {
+          return decodeURIComponent(String(id));
+        } catch {
+          return String(id);
         }
+      })();
+      const oldPath = decodedId.startsWith("cloud:")
+        ? decodedId.slice("cloud:".length)
+        : decodedId;
 
-        const settingsCollection = db.collection(SETTINGS_COLLECTION);
-        const settingsDocument = await settingsCollection.findOne({
-          scope: GLOBAL_SETTINGS_SCOPE,
-        });
-        const cloudflareSettings = normalizeCloudflareSettings(
-          settingsDocument?.cloudflareSettings,
+      const cleanedOldPath = String(oldPath || "")
+        .replace(/^\/+/, "")
+        .trim();
+      if (!cleanedOldPath) {
+        return createResponse(400, { error: "Invalid cloud file id" }, origin);
+      }
+
+      const allCloudRows = await getCloudRows();
+      const currentRow =
+        allCloudRows.find(
+          (row) =>
+            String(row.filePath || "").toLowerCase() ===
+            cleanedOldPath.toLowerCase(),
+        ) || null;
+
+      if (
+        !currentRow &&
+        !(await doesCloudObjectExist({
+          storeUrl: cloudflareSettings.storeUrl,
+          password: cloudflareSettings.password,
+          objectPath: cleanedOldPath,
+        }))
+      ) {
+        return createResponse(404, { error: "File record not found" }, origin);
+      }
+
+      const oldSegments = cleanedOldPath.split("/").filter(Boolean);
+      const oldFileName = oldSegments[oldSegments.length - 1] || "";
+      const oldFolderName = oldSegments[0] || "general";
+      const nextFileName = updates.fileName || oldFileName;
+      const nextFolderName = updates.folderName || oldFolderName;
+      const nextPath = `${ensureFolder(nextFolderName, "general")}/${safeFileName(nextFileName)}`;
+
+      if (cleanedOldPath.toLowerCase() !== nextPath.toLowerCase()) {
+        const duplicateCloud = allCloudRows.some(
+          (row) =>
+            String(row.filePath || "").toLowerCase() === nextPath.toLowerCase(),
         );
-
-        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
-            {
-              error:
-                "Cloudflare settings are missing. Please configure Store URL and Password in Settings > Cloudflare.",
-            },
-            origin,
-          );
-        }
-
-        const oldSegments = oldPath.split("/").filter(Boolean);
-        const oldFileName = oldSegments[oldSegments.length - 1] || "";
-        const oldFolderName = oldSegments[0] || "general";
-
-        const nextFileName = updates.fileName || oldFileName;
-        const nextFolderName = updates.folderName || oldFolderName;
-        const nextPath = `${ensureFolder(nextFolderName, "general")}/${safeFileName(nextFileName)}`;
-
-        if (oldPath.toLowerCase() !== nextPath.toLowerCase()) {
-          await assertNoExistingFilePath(filesCollection, nextPath);
-        }
-
-        const cloudCacheKey = getCloudCacheKey(
-          cloudflareSettings.storeUrl,
-          cloudflareSettings.password,
-        );
-        const cloudRows = getCachedCloudRows(cloudCacheKey) || [];
-
-        const duplicateCloud =
-          oldPath.toLowerCase() !== nextPath.toLowerCase() &&
-          Array.isArray(cloudRows) &&
-          cloudRows.some(
-            (row) =>
-              String(row.filePath || "").toLowerCase() ===
-              nextPath.toLowerCase(),
-          );
         if (duplicateCloud) {
           return createResponse(
             409,
@@ -2072,100 +1689,47 @@ export async function handler(event) {
             origin,
           );
         }
+      }
 
-        const currentRow =
-          cloudRows.find(
-            (row) =>
-              String(row.filePath || "").toLowerCase() ===
-              oldPath.toLowerCase(),
-          ) || null;
+      let nextFileUrl =
+        buildPublicUrl(cloudflareSettings.publicDomain, nextPath) ||
+        `${cloudflareSettings.storeUrl}/${nextPath}`;
 
-        const existingDbRecord = await filesCollection.findOne({
-          filePath: { $regex: `^${escapeRegExp(oldPath)}$`, $options: "i" },
-          isDeleted: { $ne: true },
+      if (cleanedOldPath.toLowerCase() !== nextPath.toLowerCase()) {
+        const renameResult = await renameInCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          publicDomain: cloudflareSettings.publicDomain,
+          password: cloudflareSettings.password,
+          fromPath: cleanedOldPath,
+          toPath: nextPath,
+          currentFileUrl: currentRow?.fileUrl || "",
         });
-
-        let nextFileUrl =
-          buildPublicUrl(cloudflareSettings.publicDomain, nextPath) ||
-          `${cloudflareSettings.storeUrl}/${nextPath}`;
-
-        if (oldPath.toLowerCase() !== nextPath.toLowerCase()) {
-          const renameResult = await renameInCloudflareStore({
-            storeUrl: cloudflareSettings.storeUrl,
-            publicDomain: cloudflareSettings.publicDomain,
-            password: cloudflareSettings.password,
-            fromPath: oldPath,
-            toPath: nextPath,
-            currentFileUrl:
-              currentRow?.fileUrl || existingDbRecord?.fileUrl || "",
-          });
-          nextFileUrl = renameResult.fileUrl || nextFileUrl;
-        }
-
-        await filesCollection.updateOne(
-          {
-            filePath: { $regex: `^${escapeRegExp(oldPath)}$`, $options: "i" },
-            isDeleted: { $ne: true },
-          },
-          {
-            $set: {
-              fileName: safeFileName(nextFileName),
-              folderName: ensureFolder(nextFolderName, "general"),
-              filePath: nextPath,
-              fileUrl: nextFileUrl,
-              updatedAt: new Date(),
-            },
-          },
-        );
-
-        invalidateCloudListCache();
-
-        return createResponse(
-          200,
-          {
-            message: "Cloud file updated successfully",
-            data: {
-              _id: `cloud:${nextPath}`,
-              id: `cloud:${nextPath}`,
-              fileName: safeFileName(nextFileName),
-              folderName: ensureFolder(nextFolderName, "general"),
-              filePath: nextPath,
-              fileUrl: nextFileUrl,
-              fileType:
-                currentRow?.fileType ||
-                guessMimeTypeFromFileName(safeFileName(nextFileName)),
-              fileSizeBytes: Number(currentRow?.fileSizeBytes || 0) || 0,
-              fileSize:
-                currentRow?.fileSize ||
-                formatBytes(Number(currentRow?.fileSizeBytes || 0) || 0),
-              uploadDate: currentRow?.uploadDate || new Date(),
-              source: "cloud",
-              status: "Active",
-            },
-          },
-          origin,
-        );
+        nextFileUrl = renameResult.fileUrl || nextFileUrl;
       }
 
-      updates.updatedAt = new Date();
-
-      const result = await filesCollection.updateOne(
-        { _id: new ObjectId(id), isDeleted: { $ne: true } },
-        {
-          $set: updates,
-        },
-      );
-
-      if (!result.matchedCount) {
-        return createResponse(404, { error: "File record not found" }, origin);
-      }
-
-      const updated = await filesCollection.findOne({ _id: new ObjectId(id) });
+      invalidateCloudListCache();
       return createResponse(
         200,
         {
-          message: "File record updated successfully",
-          data: updated,
+          message: "Cloud file updated successfully",
+          data: {
+            _id: `cloud:${nextPath}`,
+            id: `cloud:${nextPath}`,
+            fileName: safeFileName(nextFileName),
+            folderName: ensureFolder(nextFolderName, "general"),
+            filePath: nextPath,
+            fileUrl: nextFileUrl,
+            fileType:
+              currentRow?.fileType ||
+              guessMimeTypeFromFileName(safeFileName(nextFileName)),
+            fileSizeBytes: Number(currentRow?.fileSizeBytes || 0) || 0,
+            fileSize:
+              currentRow?.fileSize ||
+              formatBytes(Number(currentRow?.fileSizeBytes || 0) || 0),
+            uploadDate: currentRow?.uploadDate || new Date(),
+            source: "cloud",
+            status: "Active",
+          },
         },
         origin,
       );

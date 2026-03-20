@@ -446,6 +446,7 @@ const FileManagement = () => {
     sortDirection,
     activeCardFilter,
     refreshNonce,
+    cloudflareSettings,
   ]);
 
   const loadCloudflareSettings = async () => {
@@ -458,6 +459,12 @@ const FileManagement = () => {
   };
 
   const fetchFiles = async () => {
+    if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+      setRecords([]);
+      setTotalRecords(0);
+      return;
+    }
+
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -540,12 +547,22 @@ const FileManagement = () => {
       let extraPagesFetched = 0;
       let firstResponseData = null;
 
+      const cloudHeaders = {
+        "x-cloud-store-url": String(cloudflareSettings?.storeUrl || ""),
+        "x-cloud-public-domain": String(cloudflareSettings?.publicDomain || ""),
+        "x-cloud-password": String(cloudflareSettings?.password || ""),
+        "x-cloud-default-folder": String(
+          cloudflareSettings?.defaultFolder || "",
+        ),
+      };
+
       while (true) {
         const params = buildParams(currentFetchPage);
         const response = await apiGet(
           `${API_ENDPOINTS.FILES.LIST}?${params.toString()}`,
           {
             signal: controller.signal,
+            headers: cloudHeaders,
           },
         );
 
@@ -758,6 +775,7 @@ const FileManagement = () => {
         await apiDelete(API_ENDPOINTS.FILES.DELETE(item.id || item._id), {
           data: {
             deleteFromCloudflare,
+            cloudflareSettings,
           },
         });
       }
@@ -960,12 +978,13 @@ const FileManagement = () => {
       await apiDelete(API_ENDPOINTS.FILES.DELETE(fileToDelete), {
         data: {
           deleteFromCloudflare,
+          cloudflareSettings,
         },
       });
       showSuccess(
         deleteFromCloudflare
-          ? "File deleted from database and Cloudflare"
-          : "File record deleted successfully",
+          ? "File deleted from Cloudflare"
+          : "File deleted successfully",
       );
       setFileToDelete(null);
       setDeleteFromCloudflare(false);
