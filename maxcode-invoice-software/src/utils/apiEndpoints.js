@@ -183,6 +183,10 @@ const API_ENDPOINTS = {
     STATISTICS: "/books-of-accounts/statistics",
   },
 
+  DASHBOARD: {
+    SUMMARY: "/dashboard-summary",
+  },
+
   // Owner Investments endpoints
   OWNER_INVESTMENTS: {
     LIST: "/owner-investments",

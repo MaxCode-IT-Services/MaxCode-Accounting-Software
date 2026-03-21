@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Select from "react-select";
+import SelectRightLoader from "./SelectRightLoader";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import {
-  fetchAllClients,
+  fetchSelectableClients,
+  filterRowsBySearch,
   filterActiveSelectableRows,
 } from "../utils/fetchAllEntities";
 
@@ -104,7 +106,12 @@ const CreateSales = ({
   const [errors, setErrors] = useState({});
   const [clientOptions, setClientOptions] = useState([]);
   const [serviceOptions, setServiceOptions] = useState([]);
+  const [isClientLoading, setIsClientLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const clientSearchDebounceRef = useRef(null);
+  const clientAbortControllerRef = useRef(null);
+  const clientLoadingResetRef = useRef(null);
+  const knownClientRowsRef = useRef([]);
 
   useEffect(() => {
     if (show) {
@@ -120,7 +127,9 @@ const CreateSales = ({
 
   useEffect(() => {
     if (Array.isArray(clients) && clients.length > 0) {
-      setClientOptions(filterActiveSelectableRows(clients));
+      const activeClients = filterActiveSelectableRows(clients);
+      knownClientRowsRef.current = activeClients;
+      setClientOptions(activeClients);
     }
   }, [clients]);
 
@@ -128,17 +137,140 @@ const CreateSales = ({
     if (!show) return;
 
     const fetchClients = async () => {
-      try {
-        const clientData = await fetchAllClients();
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
 
-        setClientOptions(filterActiveSelectableRows(clientData));
+      const controller = new AbortController();
+      clientAbortControllerRef.current = controller;
+      setIsClientLoading(true);
+
+      try {
+        const clientData = await fetchSelectableClients({
+          limit: 50,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const activeClients = filterActiveSelectableRows(clientData);
+        knownClientRowsRef.current = activeClients;
+        setClientOptions(activeClients);
       } catch (error) {
-        console.error("Failed to fetch clients:", error);
+        if (error?.name !== "CanceledError" && error?.code !== "ERR_CANCELED") {
+          console.error("Failed to fetch clients:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsClientLoading(false);
+        }
       }
     };
 
     fetchClients();
+
+    return () => {
+      if (clientSearchDebounceRef.current) {
+        clearTimeout(clientSearchDebounceRef.current);
+      }
+      if (clientLoadingResetRef.current) {
+        clearTimeout(clientLoadingResetRef.current);
+      }
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+    };
   }, [show]);
+
+  const handleClientSearchInput = (inputValue, meta) => {
+    if (meta?.action !== "input-change") {
+      return inputValue;
+    }
+
+    const searchText = String(inputValue || "").trim();
+
+    if (clientLoadingResetRef.current) {
+      clearTimeout(clientLoadingResetRef.current);
+    }
+
+    setIsClientLoading(Boolean(searchText));
+
+    if (clientSearchDebounceRef.current) {
+      clearTimeout(clientSearchDebounceRef.current);
+    }
+
+    if (!searchText) {
+      setClientOptions(knownClientRowsRef.current.slice(0, 50));
+      setIsClientLoading(false);
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+      return inputValue;
+    }
+
+    const localMatches = filterRowsBySearch(
+      knownClientRowsRef.current,
+      searchText,
+      [
+        "clientName",
+        "businessName",
+        "clientId",
+        "phoneNumber",
+        "email",
+        "gstin",
+      ],
+    );
+
+    if (localMatches.length > 0) {
+      setClientOptions(localMatches);
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+      clientLoadingResetRef.current = setTimeout(() => {
+        setIsClientLoading(false);
+      }, 180);
+      return inputValue;
+    }
+
+    clientSearchDebounceRef.current = setTimeout(async () => {
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      clientAbortControllerRef.current = controller;
+      setIsClientLoading(true);
+
+      try {
+        const rows = await fetchSelectableClients({
+          search: searchText,
+          limit: 50,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const activeRows = filterActiveSelectableRows(rows);
+        const mergedRows = filterActiveSelectableRows([
+          ...knownClientRowsRef.current,
+          ...activeRows,
+        ]);
+
+        knownClientRowsRef.current = mergedRows;
+        setClientOptions(activeRows);
+      } catch (error) {
+        if (error?.name !== "CanceledError" && error?.code !== "ERR_CANCELED") {
+          console.error("Failed to search clients:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsClientLoading(false);
+        }
+      }
+    }, 350);
+
+    return inputValue;
+  };
 
   useEffect(() => {
     if (!show) return;
@@ -403,24 +535,34 @@ const CreateSales = ({
     );
 
     if (selectedClient) {
-      const nextPlace = selectedClient.placeOfSupply || "";
-      setFormData((prev) => ({
-        ...prev,
-        clientRefId: selectedRefId,
-        clientId:
-          selectedClient.clientId ||
+      // Normalize and safely extract all fields
+      const clientId = String(
+        selectedClient.clientId ||
           selectedClient.id ||
           selectedClient._id ||
           "",
-        clientName: selectedClient.clientName || "",
-        businessName: selectedClient.businessName || "",
-        gstin:
-          selectedClient.gstin && String(selectedClient.gstin).trim() !== ""
-            ? selectedClient.gstin
-            : "Unregistered",
-        phoneNumber: selectedClient.phoneNumber || "",
-        email: selectedClient.email || "",
-        address: selectedClient.address || "",
+      ).trim();
+      const clientName = String(selectedClient.clientName || "").trim();
+      const businessName = String(selectedClient.businessName || "").trim();
+      const gstin =
+        selectedClient.gstin && String(selectedClient.gstin).trim() !== ""
+          ? String(selectedClient.gstin).trim()
+          : "Unregistered";
+      const phoneNumber = String(selectedClient.phoneNumber || "").trim();
+      const email = String(selectedClient.email || "").trim();
+      const address = String(selectedClient.address || "").trim();
+      const nextPlace = String(selectedClient.placeOfSupply || "").trim();
+
+      setFormData((prev) => ({
+        ...prev,
+        clientRefId: selectedRefId,
+        clientId: clientId,
+        clientName: clientName,
+        businessName: businessName,
+        gstin: gstin,
+        phoneNumber: phoneNumber,
+        email: email,
+        address: address,
         placeOfSupply: nextPlace,
       }));
       calculateTotals(items, taxData.taxPercentage, null, nextPlace);
@@ -648,6 +790,11 @@ const CreateSales = ({
     })
     .find((option) => String(option.value) === String(formData.clientRefId));
 
+  const selectComponents = {
+    LoadingIndicator: SelectRightLoader,
+    IndicatorSeparator: null,
+  };
+
   const clientSelectStyles = {
     control: (base, state) => ({
       ...base,
@@ -835,10 +982,13 @@ const CreateSales = ({
                     className={errors.clientRefId ? "is-invalid" : ""}
                     classNamePrefix="react-select"
                     styles={clientSelectStyles}
+                    components={selectComponents}
+                    isLoading={isClientLoading}
                     menuPortalTarget={selectMenuPortalTarget}
                     menuPosition="fixed"
                     value={selectedClientOption || null}
                     onChange={handleClientChange}
+                    onInputChange={handleClientSearchInput}
                     isDisabled={isViewMode}
                     isClearable
                     isSearchable
@@ -988,7 +1138,7 @@ const CreateSales = ({
                       value: `${s.name} (${s.code})`,
                       label: `${s.name} (${s.code})`,
                     }))}
-                    isDisabled={isViewMode}
+                    isDisabled={isViewMode || Boolean(formData.clientRefId)}
                     isClearable
                     isSearchable
                     placeholder="Select Place of Supply"

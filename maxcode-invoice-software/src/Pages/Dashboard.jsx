@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { showError, showInfo } from "../Components/ToastNotification";
+import { showError } from "../Components/ToastNotification";
+import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { fetchAllPaginatedEntities } from "../utils/fetchAllEntities";
 
 const toNumber = (value) => {
   const parsed = parseFloat(value);
@@ -126,75 +126,27 @@ const Dashboard = () => {
     const { forceRefresh = false } = options;
     setLoading(true);
     try {
-      const fetchSafe = async (config) => {
-        try {
-          const value = await fetchAllPaginatedEntities({
-            ...config,
-            queryParams: {
-              includeMeta: "false",
-              ...(config.queryParams || {}),
-            },
-            forceRefresh,
-          });
-          return { status: "fulfilled", value };
-        } catch (reason) {
-          return { status: "rejected", reason };
-        }
-      };
+      const cacheBuster = forceRefresh ? `?ts=${Date.now()}` : "";
+      const response = await apiGet(
+        `${API_ENDPOINTS.DASHBOARD.SUMMARY}${cacheBuster}`,
+      );
+      const payload = response?.data || {};
 
-      const [
-        yearsResult,
-        clientsResult,
-        vendorsResult,
-        staffResult,
-        servicesResult,
-        salesResult,
-        purchasesResult,
-        rcmResult,
-        projectsResult,
-      ] = await Promise.all([
-        fetchSafe({
-          endpoint: API_ENDPOINTS.YEARS.LIST,
-          fallbackKeys: ["years"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.CLIENTS.LIST,
-          fallbackKeys: ["clients"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.VENDORS.LIST,
-          fallbackKeys: ["vendors"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.STAFF.LIST,
-          fallbackKeys: ["staff"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.SERVICES.LIST,
-          fallbackKeys: ["services"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.INVOICES.LIST,
-          fallbackKeys: ["invoices"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.PURCHASES.LIST,
-          fallbackKeys: ["purchases"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.RCM.LIST,
-          fallbackKeys: ["rcm", "records"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.PROJECTS.LIST,
-          fallbackKeys: ["projects"],
-        }),
-      ]);
-
-      const yearData =
-        yearsResult.status === "fulfilled" ? yearsResult.value : [];
-
-      const rcmData = rcmResult.status === "fulfilled" ? rcmResult.value : [];
+      const yearData = Array.isArray(payload.years) ? payload.years : [];
+      const clientsData = Array.isArray(payload.clients) ? payload.clients : [];
+      const vendorsData = Array.isArray(payload.vendors) ? payload.vendors : [];
+      const staffData = Array.isArray(payload.staff) ? payload.staff : [];
+      const servicesData = Array.isArray(payload.services)
+        ? payload.services
+        : [];
+      const salesData = Array.isArray(payload.invoices) ? payload.invoices : [];
+      const purchasesData = Array.isArray(payload.purchases)
+        ? payload.purchases
+        : [];
+      const rcmData = Array.isArray(payload.rcm) ? payload.rcm : [];
+      const projectsData = Array.isArray(payload.projects)
+        ? payload.projects
+        : [];
 
       setFinancialYears(
         yearData
@@ -206,68 +158,23 @@ const Dashboard = () => {
           })),
       );
 
-      setClients(
-        (clientsResult.status === "fulfilled"
-          ? clientsResult.value
-          : []
-        ).filter((record) => record?.isDeleted !== true),
-      );
+      setClients(clientsData.filter((record) => record?.isDeleted !== true));
 
-      setVendors(
-        (vendorsResult.status === "fulfilled"
-          ? vendorsResult.value
-          : []
-        ).filter((record) => record?.isDeleted !== true),
-      );
+      setVendors(vendorsData.filter((record) => record?.isDeleted !== true));
 
-      setStaff(
-        (staffResult.status === "fulfilled" ? staffResult.value : []).filter(
-          (record) => record?.isDeleted !== true,
-        ),
-      );
+      setStaff(staffData.filter((record) => record?.isDeleted !== true));
 
-      setServices(
-        (servicesResult.status === "fulfilled"
-          ? servicesResult.value
-          : []
-        ).filter((record) => record?.isDeleted !== true),
-      );
+      setServices(servicesData.filter((record) => record?.isDeleted !== true));
 
-      setSales(
-        (salesResult.status === "fulfilled" ? salesResult.value : []).filter(
-          (record) => record?.isDeleted !== true,
-        ),
-      );
+      setSales(salesData.filter((record) => record?.isDeleted !== true));
 
       setPurchases(
-        (purchasesResult.status === "fulfilled"
-          ? purchasesResult.value
-          : []
-        ).filter((record) => record?.isDeleted !== true),
+        purchasesData.filter((record) => record?.isDeleted !== true),
       );
 
       setRcm(rcmData.filter((record) => record?.isDeleted !== true));
 
-      setProjects(
-        (projectsResult.status === "fulfilled"
-          ? projectsResult.value
-          : []
-        ).filter((record) => record?.isDeleted !== true),
-      );
-
-      if (
-        yearsResult.status === "rejected" ||
-        clientsResult.status === "rejected" ||
-        vendorsResult.status === "rejected" ||
-        staffResult.status === "rejected" ||
-        servicesResult.status === "rejected" ||
-        salesResult.status === "rejected" ||
-        purchasesResult.status === "rejected" ||
-        rcmResult.status === "rejected" ||
-        projectsResult.status === "rejected"
-      ) {
-        showInfo("Some dashboard data could not be loaded.");
-      }
+      setProjects(projectsData.filter((record) => record?.isDeleted !== true));
     } catch (error) {
       console.error("Failed to load dashboard data:", error);
       showError("Failed to fetch dashboard data");

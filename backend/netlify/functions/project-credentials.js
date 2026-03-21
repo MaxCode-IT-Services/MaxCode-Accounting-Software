@@ -228,7 +228,15 @@ export async function handler(event) {
     if (event.httpMethod === "POST") {
       const payload = JSON.parse(event.body || "{}");
 
-      if (!String(payload.clientRefId || "").trim()) {
+      const normalizedPayload = {
+        ...payload,
+        clientRefId: String(payload.clientRefId || "").trim(),
+        clientName: String(payload.clientName || "").trim(),
+        businessName: String(payload.businessName || "").trim(),
+        projectName: String(payload.projectName || "").trim(),
+      };
+
+      if (!normalizedPayload.clientRefId) {
         return createResponse(
           400,
           { error: "Select Client is required" },
@@ -236,7 +244,23 @@ export async function handler(event) {
         );
       }
 
-      if (!String(payload.projectName || "").trim()) {
+      if (!normalizedPayload.clientName) {
+        return createResponse(
+          400,
+          { error: "Client Name is required" },
+          origin,
+        );
+      }
+
+      if (!normalizedPayload.businessName) {
+        return createResponse(
+          400,
+          { error: "Business Name is required" },
+          origin,
+        );
+      }
+
+      if (!normalizedPayload.projectName) {
         return createResponse(
           400,
           { error: "Project Name is required" },
@@ -245,8 +269,8 @@ export async function handler(event) {
       }
 
       const existingRecord = await collection.findOne({
-        clientRefId: payload.clientRefId,
-        projectName: payload.projectName,
+        clientRefId: normalizedPayload.clientRefId,
+        projectName: normalizedPayload.projectName,
         isDeleted: { $ne: true },
       });
 
@@ -262,7 +286,7 @@ export async function handler(event) {
       }
 
       const result = await collection.insertOne({
-        ...payload,
+        ...normalizedPayload,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -285,7 +309,15 @@ export async function handler(event) {
 
       const payload = JSON.parse(event.body || "{}");
 
-      if (!String(payload.clientRefId || "").trim()) {
+      const normalizedPayload = {
+        ...payload,
+        clientRefId: String(payload.clientRefId || "").trim(),
+        clientName: String(payload.clientName || "").trim(),
+        businessName: String(payload.businessName || "").trim(),
+        projectName: String(payload.projectName || "").trim(),
+      };
+
+      if (!normalizedPayload.clientRefId) {
         return createResponse(
           400,
           { error: "Select Client is required" },
@@ -293,7 +325,23 @@ export async function handler(event) {
         );
       }
 
-      if (!String(payload.projectName || "").trim()) {
+      if (!normalizedPayload.clientName) {
+        return createResponse(
+          400,
+          { error: "Client Name is required" },
+          origin,
+        );
+      }
+
+      if (!normalizedPayload.businessName) {
+        return createResponse(
+          400,
+          { error: "Business Name is required" },
+          origin,
+        );
+      }
+
+      if (!normalizedPayload.projectName) {
         return createResponse(
           400,
           { error: "Project Name is required" },
@@ -303,8 +351,8 @@ export async function handler(event) {
 
       const duplicate = await collection.findOne({
         _id: { $ne: new ObjectId(id) },
-        clientRefId: payload.clientRefId,
-        projectName: payload.projectName,
+        clientRefId: normalizedPayload.clientRefId,
+        projectName: normalizedPayload.projectName,
         isDeleted: { $ne: true },
       });
 
@@ -323,7 +371,7 @@ export async function handler(event) {
         { _id: new ObjectId(id), isDeleted: { $ne: true } },
         {
           $set: {
-            ...payload,
+            ...normalizedPayload,
             updatedAt: new Date(),
           },
         },

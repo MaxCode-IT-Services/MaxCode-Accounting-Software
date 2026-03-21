@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Select from "react-select";
+import SelectRightLoader from "./SelectRightLoader";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import {
-  fetchAllVendors,
+  fetchSelectableVendors,
+  filterRowsBySearch,
   filterActiveSelectableRows,
 } from "../utils/fetchAllEntities";
 
@@ -100,7 +102,12 @@ const CreatePurchase = ({
 
   const [errors, setErrors] = useState({});
   const [vendorOptions, setVendorOptions] = useState([]);
+  const [isVendorLoading, setIsVendorLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const vendorSearchDebounceRef = useRef(null);
+  const vendorAbortControllerRef = useRef(null);
+  const vendorLoadingResetRef = useRef(null);
+  const knownVendorRowsRef = useRef([]);
 
   useEffect(() => {
     if (show) {
@@ -116,7 +123,9 @@ const CreatePurchase = ({
 
   useEffect(() => {
     if (Array.isArray(vendors) && vendors.length > 0) {
-      setVendorOptions(filterActiveSelectableRows(vendors));
+      const activeVendors = filterActiveSelectableRows(vendors);
+      knownVendorRowsRef.current = activeVendors;
+      setVendorOptions(activeVendors);
     }
   }, [vendors]);
 
@@ -124,17 +133,138 @@ const CreatePurchase = ({
     if (!show) return;
 
     const fetchVendors = async () => {
-      try {
-        const vendorData = await fetchAllVendors();
+      if (vendorAbortControllerRef.current) {
+        vendorAbortControllerRef.current.abort();
+      }
 
-        setVendorOptions(filterActiveSelectableRows(vendorData));
+      const controller = new AbortController();
+      vendorAbortControllerRef.current = controller;
+      setIsVendorLoading(true);
+
+      try {
+        const vendorData = await fetchSelectableVendors({
+          limit: 50,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const activeVendors = filterActiveSelectableRows(vendorData);
+        knownVendorRowsRef.current = activeVendors;
+        setVendorOptions(activeVendors);
       } catch (error) {
-        console.error("Failed to fetch vendors:", error);
+        if (error?.name !== "CanceledError" && error?.code !== "ERR_CANCELED") {
+          console.error("Failed to fetch vendors:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsVendorLoading(false);
+        }
       }
     };
 
     fetchVendors();
+
+    return () => {
+      if (vendorSearchDebounceRef.current) {
+        clearTimeout(vendorSearchDebounceRef.current);
+      }
+      if (vendorLoadingResetRef.current) {
+        clearTimeout(vendorLoadingResetRef.current);
+      }
+      if (vendorAbortControllerRef.current) {
+        vendorAbortControllerRef.current.abort();
+      }
+    };
   }, [show]);
+
+  const handleVendorSearchInput = (inputValue, meta) => {
+    if (meta?.action !== "input-change") {
+      return inputValue;
+    }
+
+    const searchText = String(inputValue || "").trim();
+
+    if (vendorLoadingResetRef.current) {
+      clearTimeout(vendorLoadingResetRef.current);
+    }
+
+    setIsVendorLoading(Boolean(searchText));
+
+    if (vendorSearchDebounceRef.current) {
+      clearTimeout(vendorSearchDebounceRef.current);
+    }
+
+    if (!searchText) {
+      setVendorOptions(knownVendorRowsRef.current.slice(0, 50));
+      setIsVendorLoading(false);
+      if (vendorAbortControllerRef.current) {
+        vendorAbortControllerRef.current.abort();
+      }
+      return inputValue;
+    }
+
+    const localMatches = filterRowsBySearch(
+      knownVendorRowsRef.current,
+      searchText,
+      [
+        "vendorName",
+        "businessName",
+        "phoneNumber",
+        "email",
+        "gstin",
+        "placeOfSupply",
+      ],
+    );
+
+    if (localMatches.length > 0) {
+      setVendorOptions(localMatches);
+      if (vendorAbortControllerRef.current) {
+        vendorAbortControllerRef.current.abort();
+      }
+      vendorLoadingResetRef.current = setTimeout(() => {
+        setIsVendorLoading(false);
+      }, 180);
+      return inputValue;
+    }
+
+    vendorSearchDebounceRef.current = setTimeout(async () => {
+      if (vendorAbortControllerRef.current) {
+        vendorAbortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      vendorAbortControllerRef.current = controller;
+      setIsVendorLoading(true);
+
+      try {
+        const rows = await fetchSelectableVendors({
+          search: searchText,
+          limit: 50,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const activeRows = filterActiveSelectableRows(rows);
+        knownVendorRowsRef.current = filterActiveSelectableRows([
+          ...knownVendorRowsRef.current,
+          ...activeRows,
+        ]);
+        setVendorOptions(activeRows);
+      } catch (error) {
+        if (error?.name !== "CanceledError" && error?.code !== "ERR_CANCELED") {
+          console.error("Failed to search vendors:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsVendorLoading(false);
+        }
+      }
+    }, 350);
+
+    return inputValue;
+  };
 
   // Initialize form with editing record data or empty form
   useEffect(() => {
@@ -233,18 +363,27 @@ const CreatePurchase = ({
     );
 
     if (selectedVendor) {
-      const selectedPlaceOfSupply = selectedVendor.placeOfSupply || "";
+      // Normalize and safely extract all fields
+      const businessName = String(selectedVendor.businessName || "").trim();
+      const gstin =
+        selectedVendor.gstin && String(selectedVendor.gstin).trim() !== ""
+          ? String(selectedVendor.gstin).trim()
+          : "Unregistered";
+      const phoneNumber = String(selectedVendor.phoneNumber || "").trim();
+      const email = String(selectedVendor.email || "").trim();
+      const address = String(selectedVendor.address || "").trim();
+      const selectedPlaceOfSupply = String(
+        selectedVendor.placeOfSupply || "",
+      ).trim();
+
       setFormData((prev) => ({
         ...prev,
         vendorId: vendorId,
-        businessName: selectedVendor.businessName || "",
-        gstin:
-          selectedVendor.gstin && selectedVendor.gstin.toString().trim() !== ""
-            ? selectedVendor.gstin
-            : "Unregistered",
-        phoneNumber: selectedVendor.phoneNumber || "",
-        email: selectedVendor.email || "",
-        address: selectedVendor.address || "",
+        businessName: businessName,
+        gstin: gstin,
+        phoneNumber: phoneNumber,
+        email: email,
+        address: address,
         placeOfSupply: selectedPlaceOfSupply,
       }));
 
@@ -586,6 +725,61 @@ const CreatePurchase = ({
     (option) => option.value === String(formData.vendorId || ""),
   );
 
+  const vendorSelectStyles = {
+    control: (base, state) => ({
+      ...base,
+      minHeight: "48px",
+      border: errors.vendorId
+        ? "2px solid #dc3545"
+        : state.isFocused
+          ? "2px solid #667eea"
+          : "2px solid #e9ecef",
+      borderColor: state.isHovered && !errors.vendorId ? "#d6dbe1" : undefined,
+      borderRadius: "10px",
+      boxShadow: state.isFocused
+        ? "0 0 0 .25rem rgba(102, 126, 234, 0.15)"
+        : "none",
+      backgroundColor: "#ffffff",
+      transition: "all 0.3s ease",
+    }),
+    valueContainer: (base) => ({
+      ...base,
+      padding: "6px 8px",
+    }),
+    input: (base) => ({
+      ...base,
+      margin: "2px",
+      padding: 0,
+    }),
+    indicatorsContainer: (base) => ({
+      ...base,
+      paddingRight: "8px",
+    }),
+    menu: (base) => ({
+      ...base,
+      zIndex: 20,
+    }),
+    menuPortal: (base) => ({
+      ...base,
+      zIndex: 9999,
+    }),
+    option: (base, state) => ({
+      ...base,
+      backgroundColor: state.isSelected
+        ? "#007026"
+        : state.isFocused
+          ? "rgba(0, 112, 38, 0.15)"
+          : base.backgroundColor,
+      color: state.isSelected ? "#fff" : "#212529",
+      cursor: "pointer",
+    }),
+  };
+
+  const selectComponents = {
+    LoadingIndicator: SelectRightLoader,
+    IndicatorSeparator: null,
+  };
+
   return (
     <div
       className={`modal ${show ? "show d-block" : "d-none"}`}
@@ -672,9 +866,13 @@ const CreatePurchase = ({
                   <Select
                     inputId="vendorId"
                     classNamePrefix="react-select"
+                    styles={vendorSelectStyles}
+                    components={selectComponents}
+                    isLoading={isVendorLoading}
                     options={vendorSelectOptions}
                     value={selectedVendorOption || null}
                     onChange={handleVendorChange}
+                    onInputChange={handleVendorSearchInput}
                     placeholder="Select Vendor"
                     isDisabled={isViewMode}
                     isClearable={!isViewMode}
@@ -810,7 +1008,7 @@ const CreatePurchase = ({
                       value: `${s.name} (${s.code})`,
                       label: `${s.name} (${s.code})`,
                     }))}
-                    isDisabled={isViewMode}
+                    isDisabled={isViewMode || Boolean(formData.vendorId)}
                     isClearable
                     isSearchable
                     placeholder="Select Place of Supply"

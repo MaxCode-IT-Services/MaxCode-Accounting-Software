@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
+import SelectRightLoader from "./SelectRightLoader";
 import { showError } from "./ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import {
-  fetchAllClients,
+  fetchSelectableClients,
+  fetchSelectableStaff,
   fetchAllPaginatedEntities,
+  filterRowsBySearch,
   filterActiveSelectableRows,
 } from "../utils/fetchAllEntities";
 
@@ -113,7 +116,17 @@ const CreateProject = ({
   const [years, setYears] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [errors, setErrors] = useState({});
+  const [isClientLoading, setIsClientLoading] = useState(false);
+  const [isStaffLoading, setIsStaffLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const clientSearchDebounceRef = useRef(null);
+  const clientAbortControllerRef = useRef(null);
+  const clientLoadingResetRef = useRef(null);
+  const knownClientRowsRef = useRef([]);
+  const staffSearchDebounceRef = useRef(null);
+  const staffAbortControllerRef = useRef(null);
+  const staffLoadingResetRef = useRef(null);
+  const knownStaffRowsRef = useRef([]);
 
   useEffect(() => {
     if (show) {
@@ -162,15 +175,19 @@ const CreateProject = ({
 
   useEffect(() => {
     if (Array.isArray(clients) && clients.length > 0) {
-      setClientOptions(filterActiveSelectableRows(clients));
+      const activeClients = filterActiveSelectableRows(clients);
+      knownClientRowsRef.current = activeClients;
+      setClientOptions(activeClients);
     }
   }, [clients]);
 
   useEffect(() => {
     if (Array.isArray(staffRecords) && staffRecords.length > 0) {
-      setStaffOptions(
-        staffRecords.filter((staff) => staff?.isDeleted !== true),
+      const activeStaff = staffRecords.filter(
+        (staff) => staff?.isDeleted !== true,
       );
+      knownStaffRowsRef.current = activeStaff;
+      setStaffOptions(activeStaff);
     }
   }, [staffRecords]);
 
@@ -185,12 +202,29 @@ const CreateProject = ({
 
     const fetchMetaData = async () => {
       try {
+        if (clientAbortControllerRef.current) {
+          clientAbortControllerRef.current.abort();
+        }
+        if (staffAbortControllerRef.current) {
+          staffAbortControllerRef.current.abort();
+        }
+
+        const clientController = new AbortController();
+        const staffController = new AbortController();
+        clientAbortControllerRef.current = clientController;
+        staffAbortControllerRef.current = staffController;
+        setIsClientLoading(true);
+        setIsStaffLoading(true);
+
         const [clientResponse, staffData, yearData, invoiceData] =
           await Promise.all([
-            fetchAllClients(),
-            fetchAllPaginatedEntities({
-              endpoint: API_ENDPOINTS.STAFF.LIST,
-              fallbackKeys: ["staff"],
+            fetchSelectableClients({
+              limit: 50,
+              signal: clientController.signal,
+            }),
+            fetchSelectableStaff({
+              limit: 50,
+              signal: staffController.signal,
             }),
             fetchAllPaginatedEntities({
               endpoint: API_ENDPOINTS.YEARS.LIST,
@@ -203,18 +237,226 @@ const CreateProject = ({
           ]);
 
         const clientData = Array.isArray(clientResponse) ? clientResponse : [];
+        const normalizedStaff = Array.isArray(staffData)
+          ? staffData.filter((item) => item?.isDeleted !== true)
+          : [];
 
-        setClientOptions(filterActiveSelectableRows(clientData));
-        setStaffOptions(staffData.filter((item) => item?.isDeleted !== true));
+        const activeClients = filterActiveSelectableRows(clientData);
+        knownClientRowsRef.current = activeClients;
+        setClientOptions(activeClients);
+        knownStaffRowsRef.current = normalizedStaff;
+        setStaffOptions(normalizedStaff);
         setYears(yearData.filter((item) => item?.isDeleted !== true));
         setInvoices(invoiceData.filter((item) => item?.isDeleted !== true));
       } catch (error) {
         console.error("Failed to fetch metadata:", error);
+      } finally {
+        setIsClientLoading(false);
+        setIsStaffLoading(false);
       }
     };
 
     fetchMetaData();
+
+    return () => {
+      if (clientSearchDebounceRef.current) {
+        clearTimeout(clientSearchDebounceRef.current);
+      }
+      if (clientLoadingResetRef.current) {
+        clearTimeout(clientLoadingResetRef.current);
+      }
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+      if (staffSearchDebounceRef.current) {
+        clearTimeout(staffSearchDebounceRef.current);
+      }
+      if (staffLoadingResetRef.current) {
+        clearTimeout(staffLoadingResetRef.current);
+      }
+      if (staffAbortControllerRef.current) {
+        staffAbortControllerRef.current.abort();
+      }
+    };
   }, [show]);
+
+  const handleClientSearchInput = (inputValue, meta) => {
+    if (meta?.action !== "input-change") {
+      return inputValue;
+    }
+
+    const searchText = String(inputValue || "").trim();
+
+    if (clientLoadingResetRef.current) {
+      clearTimeout(clientLoadingResetRef.current);
+    }
+
+    setIsClientLoading(Boolean(searchText));
+
+    if (clientSearchDebounceRef.current) {
+      clearTimeout(clientSearchDebounceRef.current);
+    }
+
+    if (!searchText) {
+      setClientOptions(knownClientRowsRef.current.slice(0, 50));
+      setIsClientLoading(false);
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+      return inputValue;
+    }
+
+    const localMatches = filterRowsBySearch(
+      knownClientRowsRef.current,
+      searchText,
+      [
+        "clientName",
+        "businessName",
+        "clientId",
+        "phoneNumber",
+        "email",
+        "gstin",
+      ],
+    );
+
+    if (localMatches.length > 0) {
+      setClientOptions(localMatches);
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+      clientLoadingResetRef.current = setTimeout(() => {
+        setIsClientLoading(false);
+      }, 180);
+      return inputValue;
+    }
+
+    clientSearchDebounceRef.current = setTimeout(async () => {
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      clientAbortControllerRef.current = controller;
+      setIsClientLoading(true);
+
+      try {
+        const rows = await fetchSelectableClients({
+          search: searchText,
+          limit: 50,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const activeRows = filterActiveSelectableRows(rows);
+        knownClientRowsRef.current = filterActiveSelectableRows([
+          ...knownClientRowsRef.current,
+          ...activeRows,
+        ]);
+        setClientOptions(activeRows);
+      } catch (error) {
+        if (error?.name !== "CanceledError" && error?.code !== "ERR_CANCELED") {
+          console.error("Failed to search clients:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsClientLoading(false);
+        }
+      }
+    }, 350);
+
+    return inputValue;
+  };
+
+  const handleStaffSearchInput = (inputValue, meta) => {
+    if (meta?.action !== "input-change") {
+      return inputValue;
+    }
+
+    const searchText = String(inputValue || "").trim();
+
+    if (staffLoadingResetRef.current) {
+      clearTimeout(staffLoadingResetRef.current);
+    }
+
+    setIsStaffLoading(Boolean(searchText));
+
+    if (staffSearchDebounceRef.current) {
+      clearTimeout(staffSearchDebounceRef.current);
+    }
+
+    if (!searchText) {
+      setStaffOptions(knownStaffRowsRef.current.slice(0, 50));
+      setIsStaffLoading(false);
+      if (staffAbortControllerRef.current) {
+        staffAbortControllerRef.current.abort();
+      }
+      return inputValue;
+    }
+
+    const localMatches = filterRowsBySearch(
+      knownStaffRowsRef.current,
+      searchText,
+      ["developerName", "phoneNumber", "email", "department", "designation"],
+    );
+
+    if (localMatches.length > 0) {
+      setStaffOptions(localMatches);
+      if (staffAbortControllerRef.current) {
+        staffAbortControllerRef.current.abort();
+      }
+      staffLoadingResetRef.current = setTimeout(() => {
+        setIsStaffLoading(false);
+      }, 180);
+      return inputValue;
+    }
+
+    staffSearchDebounceRef.current = setTimeout(async () => {
+      if (staffAbortControllerRef.current) {
+        staffAbortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      staffAbortControllerRef.current = controller;
+      setIsStaffLoading(true);
+
+      try {
+        const rows = await fetchSelectableStaff({
+          search: searchText,
+          limit: 50,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const activeRows = rows.filter((item) => item?.isDeleted !== true);
+        knownStaffRowsRef.current = [
+          ...knownStaffRowsRef.current,
+          ...activeRows,
+        ].filter((item, index, arr) => {
+          const id = String(item?.id || item?._id || "");
+          if (!id) return false;
+          return (
+            arr.findIndex(
+              (candidate) =>
+                String(candidate?.id || candidate?._id || "") === id,
+            ) === index
+          );
+        });
+        setStaffOptions(activeRows);
+      } catch (error) {
+        if (error?.name !== "CanceledError" && error?.code !== "ERR_CANCELED") {
+          console.error("Failed to search staff:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsStaffLoading(false);
+        }
+      }
+    }, 350);
+
+    return inputValue;
+  };
 
   useEffect(() => {
     if (!show) return;
@@ -301,23 +543,33 @@ const CreateProject = ({
     );
 
     if (selectedClient) {
-      setFormData((prev) => ({
-        ...prev,
-        clientRefId: selectedRefId,
-        clientId:
-          selectedClient.clientId ||
+      // Normalize and safely extract all fields
+      const clientId = String(
+        selectedClient.clientId ||
           selectedClient.id ||
           selectedClient._id ||
           "",
-        clientName: selectedClient.clientName || "",
-        businessName: selectedClient.businessName || "",
-        gstin:
-          selectedClient.gstin && String(selectedClient.gstin).trim() !== ""
-            ? selectedClient.gstin
-            : "Unregistered",
-        phoneNumber: selectedClient.phoneNumber || "",
-        email: selectedClient.email || "",
-        address: selectedClient.address || "",
+      ).trim();
+      const clientName = String(selectedClient.clientName || "").trim();
+      const businessName = String(selectedClient.businessName || "").trim();
+      const gstin =
+        selectedClient.gstin && String(selectedClient.gstin).trim() !== ""
+          ? String(selectedClient.gstin).trim()
+          : "Unregistered";
+      const phoneNumber = String(selectedClient.phoneNumber || "").trim();
+      const email = String(selectedClient.email || "").trim();
+      const address = String(selectedClient.address || "").trim();
+
+      setFormData((prev) => ({
+        ...prev,
+        clientRefId: selectedRefId,
+        clientId: clientId,
+        clientName: clientName,
+        businessName: businessName,
+        gstin: gstin,
+        phoneNumber: phoneNumber,
+        email: email,
+        address: address,
       }));
     } else {
       setFormData((prev) => ({
@@ -799,6 +1051,11 @@ const CreateProject = ({
     minHeight: "31px",
   });
 
+  const selectComponents = {
+    LoadingIndicator: SelectRightLoader,
+    IndicatorSeparator: null,
+  };
+
   const paymentMethodOptions = [
     "Cash",
     "UPI",
@@ -985,10 +1242,13 @@ const CreateProject = ({
                     className={errors.clientRefId ? "is-invalid" : ""}
                     classNamePrefix="react-select"
                     styles={clientSelectStyles}
+                    components={selectComponents}
+                    isLoading={isClientLoading}
                     menuPortalTarget={selectMenuPortalTarget}
                     menuPosition="fixed"
                     value={selectedClientOption || null}
                     onChange={handleClientChange}
+                    onInputChange={handleClientSearchInput}
                     isDisabled={isViewMode}
                     isClearable
                     isSearchable
@@ -1331,6 +1591,8 @@ const CreateProject = ({
                                 <Select
                                   classNamePrefix="react-select"
                                   styles={compactSelectStyles}
+                                  components={selectComponents}
+                                  isLoading={isStaffLoading}
                                   menuPortalTarget={selectMenuPortalTarget}
                                   menuPosition="fixed"
                                   value={selectedStaffOption}
@@ -1340,6 +1602,7 @@ const CreateProject = ({
                                       selectedOption,
                                     )
                                   }
+                                  onInputChange={handleStaffSearchInput}
                                   isDisabled={isViewMode}
                                   isClearable
                                   isSearchable

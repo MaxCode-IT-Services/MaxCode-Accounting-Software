@@ -3,6 +3,7 @@ import API_ENDPOINTS from "./apiEndpoints";
 
 const MAX_PAGES = 500;
 const CACHE_TTL_MS = 20 * 1000;
+const SELECTABLE_LIMIT = 50;
 const entityCache = new Map();
 
 const extractRows = (payload, fallbackKeys = []) => {
@@ -137,6 +138,121 @@ export const fetchAllPaginatedEntities = async ({
 
 export const clearFetchAllEntitiesCache = () => {
   entityCache.clear();
+};
+
+export const fetchSelectableEntities = async ({
+  endpoint,
+  fallbackKeys = [],
+  search = "",
+  limit = SELECTABLE_LIMIT,
+  queryParams = {},
+  useCache = true,
+  forceRefresh = false,
+  signal,
+}) => {
+  const normalizedSearch = String(search || "").trim();
+  const cacheKey = JSON.stringify({
+    endpoint,
+    fallbackKeys,
+    normalizedSearch,
+    limit,
+    queryParams,
+  });
+  const now = Date.now();
+
+  if (useCache && !forceRefresh) {
+    const cached = entityCache.get(cacheKey);
+
+    if (cached?.inFlightPromise) {
+      return cached.inFlightPromise;
+    }
+
+    if (cached?.data && now - cached.timestamp < CACHE_TTL_MS) {
+      return cached.data;
+    }
+  }
+
+  const fetchPromise = (async () => {
+    const separator = endpoint.includes("?") ? "&" : "?";
+    const mergedParams = new URLSearchParams({
+      page: "1",
+      limit: String(limit),
+    });
+
+    if (normalizedSearch) {
+      mergedParams.set("search", normalizedSearch);
+    }
+
+    Object.entries(queryParams || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      mergedParams.set(key, String(value));
+    });
+
+    const response = await apiGet(
+      `${endpoint}${separator}${mergedParams.toString()}`,
+      signal ? { signal } : {},
+    );
+
+    return uniqueById(extractRows(response?.data, fallbackKeys));
+  })();
+
+  entityCache.set(cacheKey, {
+    inFlightPromise: fetchPromise,
+    timestamp: now,
+    data: null,
+  });
+
+  try {
+    const data = await fetchPromise;
+    entityCache.set(cacheKey, {
+      inFlightPromise: null,
+      timestamp: Date.now(),
+      data,
+    });
+    return data;
+  } catch (error) {
+    entityCache.delete(cacheKey);
+    throw error;
+  }
+};
+
+export const fetchSelectableClients = async (options = {}) => {
+  return fetchSelectableEntities({
+    endpoint: API_ENDPOINTS.CLIENTS.LIST,
+    fallbackKeys: ["clients"],
+    ...options,
+  });
+};
+
+export const fetchSelectableVendors = async (options = {}) => {
+  return fetchSelectableEntities({
+    endpoint: API_ENDPOINTS.VENDORS.LIST,
+    fallbackKeys: ["vendors"],
+    ...options,
+  });
+};
+
+export const fetchSelectableStaff = async (options = {}) => {
+  return fetchSelectableEntities({
+    endpoint: API_ENDPOINTS.STAFF.LIST,
+    fallbackKeys: ["staff"],
+    ...options,
+  });
+};
+
+export const filterRowsBySearch = (rows = [], search = "", keys = []) => {
+  const normalizedSearch = String(search || "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalizedSearch) return Array.isArray(rows) ? rows : [];
+
+  return (Array.isArray(rows) ? rows : []).filter((row) =>
+    (Array.isArray(keys) ? keys : []).some((key) => {
+      const value = String(row?.[key] || "").toLowerCase();
+      return value.includes(normalizedSearch);
+    }),
+  );
 };
 
 export const fetchAllClients = async (options = {}) => {

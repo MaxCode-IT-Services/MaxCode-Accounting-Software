@@ -1,13 +1,57 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
+import SelectRightLoader from "./SelectRightLoader";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import {
-  fetchAllClients,
+  fetchSelectableClients,
+  filterRowsBySearch,
   filterActiveSelectableRows,
 } from "../utils/fetchAllEntities";
+
+// Indian states list for Place of Supply dropdown
+const INDIAN_STATES = [
+  { code: "01", name: "Jammu & Kashmir" },
+  { code: "02", name: "Himachal Pradesh" },
+  { code: "03", name: "Punjab" },
+  { code: "04", name: "Chandigarh" },
+  { code: "05", name: "Uttarakhand" },
+  { code: "06", name: "Haryana" },
+  { code: "07", name: "NCT of Delhi" },
+  { code: "08", name: "Rajasthan" },
+  { code: "09", name: "Uttar Pradesh" },
+  { code: "10", name: "Bihar" },
+  { code: "11", name: "Sikkim" },
+  { code: "12", name: "Arunachal Pradesh" },
+  { code: "13", name: "Nagaland" },
+  { code: "14", name: "Manipur" },
+  { code: "15", name: "Mizoram" },
+  { code: "16", name: "Tripura" },
+  { code: "17", name: "Meghalaya" },
+  { code: "18", name: "Assam" },
+  { code: "19", name: "West Bengal" },
+  { code: "20", name: "Jharkhand" },
+  { code: "21", name: "Odisha" },
+  { code: "22", name: "Chhattisgarh" },
+  { code: "23", name: "Madhya Pradesh" },
+  { code: "24", name: "Gujarat" },
+  { code: "25", name: "Daman and Diu" },
+  { code: "26", name: "Dadra and Nagar Haveli" },
+  { code: "27", name: "Maharashtra" },
+  { code: "28", name: "Andhra Pradesh" },
+  { code: "29", name: "Karnataka" },
+  { code: "30", name: "Goa" },
+  { code: "31", name: "Lakshadweep" },
+  { code: "32", name: "Kerala" },
+  { code: "33", name: "Tamil Nadu" },
+  { code: "34", name: "Puducherry" },
+  { code: "35", name: "Andaman and Nicobar Islands" },
+  { code: "36", name: "Telangana" },
+  { code: "37", name: "Andhra Pradesh (New)" },
+  { code: "38", name: "Ladakh" },
+];
 
 const emptyServiceRow = (id = 1) => ({
   id,
@@ -70,6 +114,7 @@ const CreateServices = ({
     phoneNumber: "",
     email: "",
     address: "",
+    placeOfSupply: "",
   });
 
   const [services, setServices] = useState([emptyServiceRow(1)]);
@@ -77,7 +122,12 @@ const CreateServices = ({
   const [clientOptions, setClientOptions] = useState([]);
   const [serviceNameOptions, setServiceNameOptions] = useState([]);
   const [errors, setErrors] = useState({});
+  const [isClientLoading, setIsClientLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const clientSearchDebounceRef = useRef(null);
+  const clientAbortControllerRef = useRef(null);
+  const clientLoadingResetRef = useRef(null);
+  const knownClientRowsRef = useRef([]);
 
   useEffect(() => {
     if (show) {
@@ -93,7 +143,9 @@ const CreateServices = ({
 
   useEffect(() => {
     if (Array.isArray(clients) && clients.length > 0) {
-      setClientOptions(filterActiveSelectableRows(clients));
+      const activeClients = filterActiveSelectableRows(clients);
+      knownClientRowsRef.current = activeClients;
+      setClientOptions(activeClients);
     }
   }, [clients]);
 
@@ -101,17 +153,138 @@ const CreateServices = ({
     if (!show) return;
 
     const fetchClients = async () => {
-      try {
-        const clientData = await fetchAllClients();
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
 
-        setClientOptions(filterActiveSelectableRows(clientData));
+      const controller = new AbortController();
+      clientAbortControllerRef.current = controller;
+      setIsClientLoading(true);
+
+      try {
+        const clientData = await fetchSelectableClients({
+          limit: 50,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const activeClients = filterActiveSelectableRows(clientData);
+        knownClientRowsRef.current = activeClients;
+        setClientOptions(activeClients);
       } catch (error) {
-        console.error("Failed to fetch clients:", error);
+        if (error?.name !== "CanceledError" && error?.code !== "ERR_CANCELED") {
+          console.error("Failed to fetch clients:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsClientLoading(false);
+        }
       }
     };
 
     fetchClients();
+
+    return () => {
+      if (clientSearchDebounceRef.current) {
+        clearTimeout(clientSearchDebounceRef.current);
+      }
+      if (clientLoadingResetRef.current) {
+        clearTimeout(clientLoadingResetRef.current);
+      }
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+    };
   }, [show]);
+
+  const handleClientSearchInput = (inputValue, meta) => {
+    if (meta?.action !== "input-change") {
+      return inputValue;
+    }
+
+    const searchText = String(inputValue || "").trim();
+
+    if (clientLoadingResetRef.current) {
+      clearTimeout(clientLoadingResetRef.current);
+    }
+
+    setIsClientLoading(Boolean(searchText));
+
+    if (clientSearchDebounceRef.current) {
+      clearTimeout(clientSearchDebounceRef.current);
+    }
+
+    if (!searchText) {
+      setClientOptions(knownClientRowsRef.current.slice(0, 50));
+      setIsClientLoading(false);
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+      return inputValue;
+    }
+
+    const localMatches = filterRowsBySearch(
+      knownClientRowsRef.current,
+      searchText,
+      [
+        "clientName",
+        "businessName",
+        "clientId",
+        "phoneNumber",
+        "email",
+        "gstin",
+      ],
+    );
+
+    if (localMatches.length > 0) {
+      setClientOptions(localMatches);
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+      clientLoadingResetRef.current = setTimeout(() => {
+        setIsClientLoading(false);
+      }, 180);
+      return inputValue;
+    }
+
+    clientSearchDebounceRef.current = setTimeout(async () => {
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      clientAbortControllerRef.current = controller;
+      setIsClientLoading(true);
+
+      try {
+        const rows = await fetchSelectableClients({
+          search: searchText,
+          limit: 50,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const activeRows = filterActiveSelectableRows(rows);
+        knownClientRowsRef.current = filterActiveSelectableRows([
+          ...knownClientRowsRef.current,
+          ...activeRows,
+        ]);
+        setClientOptions(activeRows);
+      } catch (error) {
+        if (error?.name !== "CanceledError" && error?.code !== "ERR_CANCELED") {
+          console.error("Failed to search clients:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsClientLoading(false);
+        }
+      }
+    }, 350);
+
+    return inputValue;
+  };
 
   useEffect(() => {
     if (!show) return;
@@ -163,6 +336,7 @@ const CreateServices = ({
       phoneNumber: "",
       email: "",
       address: "",
+      placeOfSupply: "",
     });
     setServices([emptyServiceRow(1)]);
     setTransactions([emptyTransactionRow(1)]);
@@ -184,6 +358,7 @@ const CreateServices = ({
         phoneNumber: editingRecord.phoneNumber || "",
         email: editingRecord.email || "",
         address: editingRecord.address || "",
+        placeOfSupply: editingRecord.placeOfSupply || "",
       });
 
       const mappedServices = Array.isArray(editingRecord.services)
@@ -264,23 +439,35 @@ const CreateServices = ({
     );
 
     if (selectedClient) {
-      setFormData((prev) => ({
-        ...prev,
-        clientRefId: selectedRefId,
-        clientId:
-          selectedClient.clientId ||
+      // Normalize and safely extract all fields
+      const clientId = String(
+        selectedClient.clientId ||
           selectedClient.id ||
           selectedClient._id ||
           "",
-        clientName: selectedClient.clientName || "",
-        businessName: selectedClient.businessName || "",
-        gstin:
-          selectedClient.gstin && String(selectedClient.gstin).trim() !== ""
-            ? selectedClient.gstin
-            : "Unregistered",
-        phoneNumber: selectedClient.phoneNumber || "",
-        email: selectedClient.email || "",
-        address: selectedClient.address || "",
+      ).trim();
+      const clientName = String(selectedClient.clientName || "").trim();
+      const businessName = String(selectedClient.businessName || "").trim();
+      const gstin =
+        selectedClient.gstin && String(selectedClient.gstin).trim() !== ""
+          ? String(selectedClient.gstin).trim()
+          : "Unregistered";
+      const phoneNumber = String(selectedClient.phoneNumber || "").trim();
+      const email = String(selectedClient.email || "").trim();
+      const address = String(selectedClient.address || "").trim();
+      const nextPlace = String(selectedClient.placeOfSupply || "").trim();
+
+      setFormData((prev) => ({
+        ...prev,
+        clientRefId: selectedRefId,
+        clientId: clientId,
+        clientName: clientName,
+        businessName: businessName,
+        gstin: gstin,
+        phoneNumber: phoneNumber,
+        email: email,
+        address: address,
+        placeOfSupply: nextPlace,
       }));
     } else {
       setFormData((prev) => ({
@@ -293,6 +480,7 @@ const CreateServices = ({
         phoneNumber: "",
         email: "",
         address: "",
+        placeOfSupply: "",
       }));
     }
 
@@ -572,6 +760,11 @@ const CreateServices = ({
     }))
     .find((option) => String(option.value) === String(formData.clientRefId));
 
+  const selectComponents = {
+    LoadingIndicator: SelectRightLoader,
+    IndicatorSeparator: null,
+  };
+
   const clientSelectStyles = {
     control: (base, state) => ({
       ...base,
@@ -771,10 +964,13 @@ const CreateServices = ({
                     className={errors.clientRefId ? "is-invalid" : ""}
                     classNamePrefix="react-select"
                     styles={clientSelectStyles}
+                    components={selectComponents}
+                    isLoading={isClientLoading}
                     menuPortalTarget={selectMenuPortalTarget}
                     menuPosition="fixed"
                     value={selectedClientOption || null}
                     onChange={handleClientChange}
+                    onInputChange={handleClientSearchInput}
                     isDisabled={isViewMode}
                     isClearable
                     isSearchable
@@ -888,6 +1084,41 @@ const CreateServices = ({
                     value={formData.address}
                     readOnly
                     style={{ backgroundColor: "#e9ecef" }}
+                  />
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="placeOfSupply" className="form-label">
+                    <i className="fas fa-map-marked-alt me-2 text-primary"></i>
+                    Place of Supply
+                  </label>
+                  <Select
+                    inputId="placeOfSupply"
+                    name="placeOfSupply"
+                    classNamePrefix="react-select"
+                    value={
+                      INDIAN_STATES.map((s) => ({
+                        value: `${s.name} (${s.code})`,
+                        label: `${s.name} (${s.code})`,
+                      })).find((opt) => opt.value === formData.placeOfSupply) ||
+                      null
+                    }
+                    onChange={(selectedOption) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        placeOfSupply: selectedOption
+                          ? selectedOption.value
+                          : "",
+                      }));
+                    }}
+                    options={INDIAN_STATES.map((s) => ({
+                      value: `${s.name} (${s.code})`,
+                      label: `${s.name} (${s.code})`,
+                    }))}
+                    isDisabled={Boolean(formData.clientRefId)}
+                    isClearable
+                    isSearchable
+                    placeholder="Select Place of Supply"
                   />
                 </div>
               </div>

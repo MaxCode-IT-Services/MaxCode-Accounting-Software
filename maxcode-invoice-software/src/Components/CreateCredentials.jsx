@@ -1,9 +1,16 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
+import SelectRightLoader from "./SelectRightLoader";
 import { showError, showSuccess } from "./ToastNotification";
+import {
+  fetchSelectableClients,
+  filterRowsBySearch,
+} from "../utils/fetchAllEntities";
 
 const INITIAL_FORM = {
   clientRefId: "",
+  clientName: "",
+  businessName: "",
   projectName: "",
   websiteGithubRepoName: "",
   websiteGithubUrl: "",
@@ -37,7 +44,13 @@ const CreateCredentials = ({
     databasePassword: false,
     appPassword: false,
   });
+  const [internalClientOptions, setInternalClientOptions] = useState([]);
+  const [isClientLoading, setIsClientLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const clientSearchDebounceRef = useRef(null);
+  const clientAbortControllerRef = useRef(null);
+  const clientLoadingResetRef = useRef(null);
+  const knownClientRowsRef = useRef([]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -54,6 +67,8 @@ const CreateCredentials = ({
     if (editingRecord) {
       setFormData({
         clientRefId: editingRecord.clientRefId || "",
+        clientName: editingRecord.clientName || "",
+        businessName: editingRecord.businessName || "",
         projectName: editingRecord.projectName || "",
         websiteGithubRepoName: editingRecord.websiteGithubRepoName || "",
         websiteGithubUrl: editingRecord.websiteGithubUrl || "",
@@ -79,6 +94,71 @@ const CreateCredentials = ({
       appPassword: false,
     });
   }, [editingRecord, isVisible]);
+
+  useEffect(() => {
+    const normalizedOptions = Array.isArray(clientOptions) ? clientOptions : [];
+    if (normalizedOptions.length > 0) {
+      knownClientRowsRef.current = normalizedOptions;
+      setInternalClientOptions(normalizedOptions);
+    }
+  }, [clientOptions]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const loadClients = async () => {
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      clientAbortControllerRef.current = controller;
+      setIsClientLoading(true);
+
+      try {
+        const rows = await fetchSelectableClients({
+          limit: 50,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const mappedRows = rows
+          .filter((item) => item?.isDeleted !== true)
+          .map((client) => ({
+            value: client._id || client.id || client.clientId,
+            label: `${client.clientName || ""} - ${client.businessName || ""}`,
+            clientName: client.clientName || "",
+            businessName: client.businessName || "",
+          }));
+
+        knownClientRowsRef.current = mappedRows;
+        setInternalClientOptions(mappedRows);
+      } catch (error) {
+        if (error?.name !== "CanceledError" && error?.code !== "ERR_CANCELED") {
+          console.error("Failed to fetch clients:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsClientLoading(false);
+        }
+      }
+    };
+
+    loadClients();
+
+    return () => {
+      if (clientSearchDebounceRef.current) {
+        clearTimeout(clientSearchDebounceRef.current);
+      }
+      if (clientLoadingResetRef.current) {
+        clearTimeout(clientLoadingResetRef.current);
+      }
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+    };
+  }, [isVisible]);
 
   const selectMenuPortalTarget =
     typeof document !== "undefined" ? document.body : null;
@@ -113,8 +193,16 @@ const CreateCredentials = ({
     [errors.clientRefId],
   );
 
+  const selectComponents = useMemo(
+    () => ({
+      LoadingIndicator: SelectRightLoader,
+      IndicatorSeparator: null,
+    }),
+    [],
+  );
+
   const selectValue =
-    clientOptions.find(
+    internalClientOptions.find(
       (option) => String(option.value) === String(formData.clientRefId),
     ) || null;
 
@@ -128,14 +216,133 @@ const CreateCredentials = ({
   };
 
   const handleClientChange = (option) => {
+    const selected =
+      internalClientOptions.find(
+        (item) => String(item.value) === String(option?.value || ""),
+      ) || null;
+
+    // Normalize and safely extract fields
+    const clientName = selected ? String(selected.clientName || "").trim() : "";
+    const businessName = selected
+      ? String(selected.businessName || "").trim()
+      : "";
+
     setFormData((prev) => ({
       ...prev,
       clientRefId: option?.value || "",
+      clientName: clientName,
+      businessName: businessName,
     }));
 
     if (errors.clientRefId) {
       setErrors((prev) => ({ ...prev, clientRefId: "" }));
     }
+
+    if (errors.clientName || errors.businessName) {
+      setErrors((prev) => ({
+        ...prev,
+        clientName: "",
+        businessName: "",
+      }));
+    }
+  };
+
+  const handleClientSearchInput = (inputValue, meta) => {
+    if (meta?.action !== "input-change") {
+      return inputValue;
+    }
+
+    const searchText = String(inputValue || "").trim();
+
+    if (clientLoadingResetRef.current) {
+      clearTimeout(clientLoadingResetRef.current);
+    }
+
+    setIsClientLoading(Boolean(searchText));
+
+    if (clientSearchDebounceRef.current) {
+      clearTimeout(clientSearchDebounceRef.current);
+    }
+
+    if (!searchText) {
+      setInternalClientOptions(knownClientRowsRef.current.slice(0, 50));
+      setIsClientLoading(false);
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+      return inputValue;
+    }
+
+    const localMatches = filterRowsBySearch(
+      knownClientRowsRef.current,
+      searchText,
+      ["label", "clientName", "businessName"],
+    );
+
+    if (localMatches.length > 0) {
+      setInternalClientOptions(localMatches);
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+      clientLoadingResetRef.current = setTimeout(() => {
+        setIsClientLoading(false);
+      }, 180);
+      return inputValue;
+    }
+
+    clientSearchDebounceRef.current = setTimeout(async () => {
+      if (clientAbortControllerRef.current) {
+        clientAbortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      clientAbortControllerRef.current = controller;
+      setIsClientLoading(true);
+
+      try {
+        const rows = await fetchSelectableClients({
+          search: searchText,
+          limit: 50,
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return;
+
+        const mappedRows = rows
+          .filter((item) => item?.isDeleted !== true)
+          .map((client) => ({
+            value: client._id || client.id || client.clientId,
+            label: `${client.clientName || ""} - ${client.businessName || ""}`,
+            clientName: client.clientName || "",
+            businessName: client.businessName || "",
+          }));
+
+        knownClientRowsRef.current = [
+          ...knownClientRowsRef.current,
+          ...mappedRows,
+        ].filter((item, index, arr) => {
+          const id = String(item?.value || "");
+          if (!id) return false;
+          return (
+            arr.findIndex(
+              (candidate) => String(candidate?.value || "") === id,
+            ) === index
+          );
+        });
+
+        setInternalClientOptions(mappedRows);
+      } catch (error) {
+        if (error?.name !== "CanceledError" && error?.code !== "ERR_CANCELED") {
+          console.error("Failed to search clients:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsClientLoading(false);
+        }
+      }
+    }, 350);
+
+    return inputValue;
   };
 
   const togglePasswordVisibility = (field) => {
@@ -167,6 +374,14 @@ const CreateCredentials = ({
       newErrors.clientRefId = "Please select client";
     }
 
+    if (!String(formData.clientName || "").trim()) {
+      newErrors.clientName = "Client name is required";
+    }
+
+    if (!String(formData.businessName || "").trim()) {
+      newErrors.businessName = "Business name is required";
+    }
+
     if (!String(formData.projectName || "").trim()) {
       newErrors.projectName = "Project name is required";
     }
@@ -176,14 +391,14 @@ const CreateCredentials = ({
   };
 
   const buildPayload = () => {
-    const selectedClient = clientOptions.find(
+    const selectedClient = internalClientOptions.find(
       (option) => String(option.value) === String(formData.clientRefId),
     );
 
     const payload = {
       ...formData,
-      clientName: selectedClient?.clientName || "",
-      businessName: selectedClient?.businessName || "",
+      clientName: formData.clientName || selectedClient?.clientName || "",
+      businessName: formData.businessName || selectedClient?.businessName || "",
     };
 
     if (editingRecord?.id) {
@@ -223,7 +438,13 @@ const CreateCredentials = ({
       : `Edit Credentials - ${editingRecord.projectName || ""}`
     : "Add Project Credentials";
 
-  const renderTextInput = (name, label, placeholder, required = false) => (
+  const renderTextInput = (
+    name,
+    label,
+    placeholder,
+    required = false,
+    forceReadOnly = false,
+  ) => (
     <div className="col-md-4 mb-3">
       <label htmlFor={name} className="form-label">
         {label} {required && <span className="text-danger">*</span>}
@@ -235,7 +456,7 @@ const CreateCredentials = ({
         className={`form-control modern-input ${errors[name] ? "is-invalid" : ""}`}
         value={formData[name] || ""}
         onChange={handleInputChange}
-        readOnly={isViewMode}
+        readOnly={isViewMode || forceReadOnly}
         placeholder={placeholder}
       />
       {errors[name] && (
@@ -313,15 +534,18 @@ const CreateCredentials = ({
                     inputId="clientRefId"
                     classNamePrefix="react-select"
                     styles={clientSelectStyles}
+                    components={selectComponents}
+                    isLoading={isClientLoading}
                     menuPortalTarget={selectMenuPortalTarget}
                     menuPosition="fixed"
                     value={selectValue}
                     onChange={handleClientChange}
+                    onInputChange={handleClientSearchInput}
                     isDisabled={isViewMode}
                     isSearchable
                     isClearable
                     placeholder="Select Client"
-                    options={clientOptions}
+                    options={internalClientOptions}
                   />
                   {errors.clientRefId && (
                     <div className="invalid-feedback d-block">
@@ -329,6 +553,22 @@ const CreateCredentials = ({
                     </div>
                   )}
                 </div>
+
+                {renderTextInput(
+                  "clientName",
+                  "Client Name",
+                  "Auto-filled client name",
+                  true,
+                  true,
+                )}
+
+                {renderTextInput(
+                  "businessName",
+                  "Business Name",
+                  "Auto-filled business name",
+                  true,
+                  true,
+                )}
 
                 {renderTextInput(
                   "projectName",

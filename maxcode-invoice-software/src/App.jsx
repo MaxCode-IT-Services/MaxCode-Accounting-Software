@@ -73,34 +73,17 @@ const getPostLoginRoute = () => {
   return getFirstAllowedRoute();
 };
 
-const ProtectedRoute = ({ children }) => {
+const ProtectedRoute = ({ children, authState }) => {
   const location = useLocation();
-  const [isChecking, setIsChecking] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
-
-    const verifySession = async () => {
-      const authenticated = await verifyServerSession();
-      if (mounted) {
-        setIsAuthenticated(authenticated);
-        setIsChecking(false);
-      }
-    };
-
-    verifySession();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const isChecking = authState?.isChecking ?? true;
+  const isUserAuthenticated = authState?.isAuthenticated ?? false;
 
   if (isChecking) {
     return <Loading />;
   }
 
-  if (!isAuthenticated) {
+  if (!isUserAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
@@ -120,33 +103,15 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-const PublicRoute = ({ children }) => {
-  const [isChecking, setIsChecking] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  useEffect(() => {
-    let mounted = true;
-
-    const verifySession = async () => {
-      const authenticated = await verifyServerSession();
-      if (mounted) {
-        setIsAuthenticated(authenticated);
-        setIsChecking(false);
-      }
-    };
-
-    verifySession();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+const PublicRoute = ({ children, authState }) => {
+  const isChecking = authState?.isChecking ?? true;
+  const isUserAuthenticated = authState?.isAuthenticated ?? false;
 
   if (isChecking) {
     return <Loading />;
   }
 
-  if (isAuthenticated) {
+  if (isUserAuthenticated) {
     return <Navigate to={getPostLoginRoute()} replace />;
   }
 
@@ -420,6 +385,31 @@ const dashboardChildRoutes = (
 );
 
 const App = () => {
+  const [authState, setAuthState] = useState({
+    isChecking: true,
+    isAuthenticated: isAuthenticated(),
+  });
+
+  useEffect(() => {
+    let mounted = true;
+
+    const verifySession = async () => {
+      const authenticated = await verifyServerSession();
+      if (!mounted) return;
+
+      setAuthState({
+        isChecking: false,
+        isAuthenticated: authenticated,
+      });
+    };
+
+    verifySession();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>
@@ -429,7 +419,7 @@ const App = () => {
         <Route
           path="/login"
           element={
-            <PublicRoute>
+            <PublicRoute authState={authState}>
               <Suspense fallback={<Loading />}>
                 <Login />
               </Suspense>
@@ -442,7 +432,7 @@ const App = () => {
             key={prefixPath}
             path={prefixPath}
             element={
-              <ProtectedRoute>
+              <ProtectedRoute authState={authState}>
                 <AdminDashboardLayout />
               </ProtectedRoute>
             }

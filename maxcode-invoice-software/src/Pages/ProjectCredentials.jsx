@@ -10,6 +10,7 @@ import {
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { hasActionPermission } from "../utils/permissions";
+import { fetchSelectableClients } from "../utils/fetchAllEntities";
 
 const CARD_FILTERS = {
   total: () => true,
@@ -109,11 +110,7 @@ const ProjectCredentials = () => {
 
   const fetchClients = async () => {
     try {
-      const response = await apiGet(API_ENDPOINTS.CLIENTS.LIST);
-      const clientsData =
-        response.data?.data ||
-        response.data?.clients ||
-        (Array.isArray(response.data) ? response.data : []);
+      const clientsData = await fetchSelectableClients({ limit: 50 });
 
       const mapped = clientsData
         .filter((item) => item?.isDeleted !== true)
