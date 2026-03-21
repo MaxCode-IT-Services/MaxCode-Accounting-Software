@@ -1,5 +1,6 @@
 const BIOMETRIC_STORAGE_KEY = "maxcode_biometric_credentials";
 const PASSKEY_TRANSPORTS = ["internal", "hybrid", "ble", "nfc", "usb"];
+const PASSKEY_HINTS = ["client-device", "hybrid"];
 
 const randomChallenge = (length = 32) => {
   const buffer = new Uint8Array(length);
@@ -131,7 +132,7 @@ export const registerBiometricForDevice = async ({
       userVerification: "required",
       residentKey: "preferred",
     },
-    hints: ["client-device", "hybrid"],
+    hints: PASSKEY_HINTS,
     attestation: "none",
   };
 
@@ -194,7 +195,7 @@ export const verifyDeviceBiometric = async ({
       })),
       timeout: 60000,
       userVerification: "required",
-      hints: ["client-device", "hybrid"],
+      hints: PASSKEY_HINTS,
     },
   });
 
