@@ -29,6 +29,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "leadManagement",
+    label: "Lead Management",
+    description: "Manage sales leads",
+    icon: "fa-solid fa-address-book",
+    route: "/admin/lead-management",
+    detailed: true,
+  },
+  {
     key: "vendorManagement",
     label: "Vendor Management",
     description: "Manage vendors",

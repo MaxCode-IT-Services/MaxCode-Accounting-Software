@@ -6,6 +6,7 @@ import {
   fetchSelectableClients,
   filterRowsBySearch,
 } from "../utils/fetchAllEntities";
+import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
 const INITIAL_FORM = {
   clientRefId: "",
@@ -164,32 +165,10 @@ const CreateCredentials = ({
     typeof document !== "undefined" ? document.body : null;
 
   const clientSelectStyles = useMemo(
-    () => ({
-      control: (base, state) => ({
-        ...base,
-        minHeight: "38px",
-        border: errors.clientRefId
-          ? "2px solid #dc3545"
-          : state.isFocused
-            ? "2px solid #667eea"
-            : "2px solid #e9ecef",
-        borderRadius: "10px",
-        boxShadow: state.isFocused
-          ? "0 0 0 .25rem rgba(102, 126, 234, 0.15)"
-          : "none",
+    () =>
+      getUnifiedSelectStyles({
+        hasError: Boolean(errors.clientRefId),
       }),
-      menu: (base) => ({ ...base, zIndex: 20 }),
-      menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-      option: (base, state) => ({
-        ...base,
-        backgroundColor: state.isSelected
-          ? "#007026"
-          : state.isFocused
-            ? "rgba(0, 112, 38, 0.15)"
-            : base.backgroundColor,
-        color: state.isSelected ? "#fff" : "#212529",
-      }),
-    }),
     [errors.clientRefId],
   );
 

@@ -22,6 +22,30 @@ export async function handler(event) {
     const { db } = await connectToDatabase();
 
     const notDeletedQuery = { isDeleted: { $ne: true } };
+    const idAndCreatedProjection = {
+      _id: 1,
+      id: 1,
+      createdAt: 1,
+      createdDate: 1,
+      date: 1,
+      isDeleted: 1,
+    };
+    const monetaryProjection = {
+      _id: 1,
+      id: 1,
+      invoiceDate: 1,
+      paymentDate: 1,
+      createdAt: 1,
+      createdDate: 1,
+      date: 1,
+      paymentStatus: 1,
+      amountReceived: 1,
+      amountPaid: 1,
+      paidAmount: 1,
+      totalAmount: 1,
+      taxData: 1,
+      isDeleted: 1,
+    };
 
     const [
       years,
@@ -35,14 +59,60 @@ export async function handler(event) {
       projects,
     ] = await Promise.all([
       db.collection("financialYears").find(notDeletedQuery).toArray(),
-      db.collection("clients").find(notDeletedQuery).toArray(),
-      db.collection("vendors").find(notDeletedQuery).toArray(),
-      db.collection("staff").find(notDeletedQuery).toArray(),
-      db.collection("services").find(notDeletedQuery).toArray(),
-      db.collection("invoices").find(notDeletedQuery).toArray(),
-      db.collection("purchases").find(notDeletedQuery).toArray(),
-      db.collection("rcm").find(notDeletedQuery).toArray(),
-      db.collection("projects").find(notDeletedQuery).toArray(),
+      db
+        .collection("clients")
+        .find(notDeletedQuery, { projection: idAndCreatedProjection })
+        .toArray(),
+      db
+        .collection("vendors")
+        .find(notDeletedQuery, { projection: idAndCreatedProjection })
+        .toArray(),
+      db
+        .collection("staff")
+        .find(notDeletedQuery, { projection: idAndCreatedProjection })
+        .toArray(),
+      db
+        .collection("services")
+        .find(notDeletedQuery, {
+          projection: {
+            _id: 1,
+            id: 1,
+            createdAt: 1,
+            createdDate: 1,
+            date: 1,
+            invoiceDate: 1,
+            isDeleted: 1,
+          },
+        })
+        .toArray(),
+      db
+        .collection("invoices")
+        .find(notDeletedQuery, { projection: monetaryProjection })
+        .toArray(),
+      db
+        .collection("purchases")
+        .find(notDeletedQuery, { projection: monetaryProjection })
+        .toArray(),
+      db
+        .collection("rcm")
+        .find(notDeletedQuery, { projection: monetaryProjection })
+        .toArray(),
+      db
+        .collection("projects")
+        .find(notDeletedQuery, {
+          projection: {
+            _id: 1,
+            id: 1,
+            projectDate: 1,
+            createdAt: 1,
+            createdDate: 1,
+            date: 1,
+            paymentDetails: 1,
+            developerTransactions: 1,
+            isDeleted: 1,
+          },
+        })
+        .toArray(),
     ]);
 
     return createResponse(
@@ -62,10 +132,23 @@ export async function handler(event) {
     );
   } catch (error) {
     console.error("Dashboard summary error:", error);
+
+    if (error.message.includes("token") || error.message.includes("Token")) {
+      return createResponse(
+        401,
+        {
+          error: "Unauthorized",
+          message: error.message,
+        },
+        origin,
+      );
+    }
+
     return createResponse(
       500,
       {
         error: "Failed to fetch dashboard summary",
+        message: error.message,
       },
       origin,
     );

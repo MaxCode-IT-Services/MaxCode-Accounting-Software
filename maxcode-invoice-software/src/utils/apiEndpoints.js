@@ -20,6 +20,15 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/clients?id=${id}`,
   },
 
+  // Lead endpoints
+  LEADS: {
+    LIST: "/leads",
+    CREATE: "/leads",
+    GET: (id) => `/leads?id=${id}`,
+    UPDATE: (id) => `/leads?id=${id}`,
+    DELETE: (id) => `/leads?id=${id}`,
+  },
+
   // File management endpoints
   FILES: {
     LIST: "/files",

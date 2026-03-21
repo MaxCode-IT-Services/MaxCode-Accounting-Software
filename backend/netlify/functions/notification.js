@@ -2,7 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
-const ALERT_DAYS = [15, 10, 7, 3, 2, 1];
+const ALERT_DAYS = [15, 10, 7, 3, 2, 1, 0];
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 const toNumber = (value) => {
@@ -226,8 +226,35 @@ export async function handler(event) {
 
         if (shouldGenerateNotifications) {
           const [serviceRecords, financialYears] = await Promise.all([
-            servicesCollection.find({ isDeleted: { $ne: true } }).toArray(),
-            yearsCollection.find({ isDeleted: { $ne: true } }).toArray(),
+            servicesCollection
+              .find(
+                { isDeleted: { $ne: true } },
+                {
+                  projection: {
+                    _id: 1,
+                    id: 1,
+                    serviceNumber: 1,
+                    businessName: 1,
+                    services: 1,
+                  },
+                },
+              )
+              .toArray(),
+            yearsCollection
+              .find(
+                { isDeleted: { $ne: true } },
+                {
+                  projection: {
+                    _id: 1,
+                    id: 1,
+                    startDate: 1,
+                    endDate: 1,
+                    taxPercentage: 1,
+                    isDeleted: 1,
+                  },
+                },
+              )
+              .toArray(),
           ]);
 
           const generatedNotifications = buildServiceExpiryNotifications({
@@ -289,7 +316,24 @@ export async function handler(event) {
       }
 
       const notifications = await notificationsCollection
-        .find({ isDeleted: { $ne: true } })
+        .find(
+          { isDeleted: { $ne: true } },
+          {
+            projection: {
+              _id: 1,
+              title: 1,
+              description: 1,
+              icon: 1,
+              type: 1,
+              image: 1,
+              templateType: 1,
+              templateData: 1,
+              links: 1,
+              readBy: 1,
+              createdAt: 1,
+            },
+          },
+        )
         .sort({ createdAt: -1 })
         .toArray();
 

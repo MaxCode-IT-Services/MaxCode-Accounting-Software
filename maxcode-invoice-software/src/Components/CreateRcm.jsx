@@ -3,6 +3,7 @@ import Select from "react-select";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
 const CreateRcm = ({
   show,
@@ -567,6 +568,9 @@ const CreateRcm = ({
     : "Add New RCM";
 
   const isViewMode = editingRecord?.isViewMode;
+  const placeOfSupplySelectStyles = getUnifiedSelectStyles({
+    hasError: Boolean(errors.placeOfSupply),
+  });
   const isRajasthan = false;
 
   return (
@@ -673,6 +677,7 @@ const CreateRcm = ({
                     inputId="placeOfSupply"
                     name="placeOfSupply"
                     classNamePrefix="react-select"
+                    styles={placeOfSupplySelectStyles}
                     value={
                       INDIAN_STATES.map((s) => ({
                         value: `${s.name} (${s.code})`,

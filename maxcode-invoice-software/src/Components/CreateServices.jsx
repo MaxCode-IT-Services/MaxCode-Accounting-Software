@@ -15,6 +15,7 @@ import {
   normalizeFinancialYearValue,
   resolveFinancialYearRecord,
 } from "../utils/financialYearUtils";
+import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
 // Indian states list for Place of Supply dropdown
 const INDIAN_STATES = [
@@ -845,107 +846,13 @@ const CreateServices = ({
     IndicatorSeparator: null,
   };
 
-  const clientSelectStyles = {
-    control: (base, state) => ({
-      ...base,
-      minHeight: "48px",
-      border: errors.clientRefId
-        ? "2px solid #dc3545"
-        : state.isFocused
-          ? "2px solid #667eea"
-          : "2px solid #e9ecef",
-      borderColor:
-        state.isHovered && !errors.clientRefId ? "#d6dbe1" : undefined,
-      borderRadius: "10px",
-      boxShadow: state.isFocused
-        ? "0 0 0 .25rem rgba(102, 126, 234, 0.15)"
-        : "none",
-      backgroundColor: "#ffffff",
-      transition: "all 0.3s ease",
-    }),
-    valueContainer: (base) => ({
-      ...base,
-      padding: "6px 8px",
-    }),
-    input: (base) => ({
-      ...base,
-      margin: "2px",
-      padding: 0,
-    }),
-    indicatorsContainer: (base) => ({
-      ...base,
-      paddingRight: "8px",
-    }),
-    menu: (base) => ({
-      ...base,
-      zIndex: 20,
-    }),
-    menuPortal: (base) => ({
-      ...base,
-      zIndex: 9999,
-    }),
-    option: (base, state) => ({
-      ...base,
-      backgroundColor: state.isSelected
-        ? "#007026"
-        : state.isFocused
-          ? "rgba(0, 112, 38, 0.15)"
-          : base.backgroundColor,
-      color: state.isSelected ? "#fff" : "#212529",
-      cursor: "pointer",
-    }),
-  };
+  const clientSelectStyles = getUnifiedSelectStyles({
+    hasError: Boolean(errors.clientRefId),
+  });
 
-  const serviceNameSelectStyles = {
-    control: (base, state) => ({
-      ...base,
-      minHeight: "34px",
-      border: state.isFocused ? "2px solid #667eea" : "2px solid #e9ecef",
-      borderColor: state.isHovered ? "#d6dbe1" : undefined,
-      borderRadius: "10px",
-      fontSize: "0.875rem",
-      boxShadow: state.isFocused
-        ? "0 0 0 .25rem rgba(102, 126, 234, 0.15)"
-        : "none",
-      backgroundColor: "#ffffff",
-      transition: "all 0.3s ease",
-    }),
-    valueContainer: (base) => ({
-      ...base,
-      paddingTop: "2px",
-      paddingBottom: "2px",
-      paddingLeft: "8px",
-    }),
-    input: (base) => ({
-      ...base,
-      margin: 0,
-      padding: 0,
-    }),
-    indicatorsContainer: (base) => ({
-      ...base,
-      height: "42px",
-      paddingRight: "4px",
-    }),
-    menu: (base) => ({
-      ...base,
-      zIndex: 20,
-      fontSize: "0.875rem",
-    }),
-    menuPortal: (base) => ({
-      ...base,
-      zIndex: 9999,
-    }),
-    option: (base, state) => ({
-      ...base,
-      backgroundColor: state.isSelected
-        ? "#007026"
-        : state.isFocused
-          ? "rgba(0, 112, 38, 0.15)"
-          : base.backgroundColor,
-      color: state.isSelected ? "#fff" : "#212529",
-      cursor: "pointer",
-    }),
-  };
+  const serviceNameSelectStyles = getUnifiedSelectStyles({
+    compact: true,
+  });
 
   const getServiceSelectValue = (serviceName) => {
     if (!serviceName) return null;

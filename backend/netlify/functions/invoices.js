@@ -2,6 +2,12 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const META_CACHE_TTL_MS = 30 * 1000;
+const invoiceMetaCache = {
+  value: null,
+  expiresAt: 0,
+};
+
 /**
  * Invoice Management API
  * Handles CRUD operations for invoices with pagination support
@@ -22,7 +28,6 @@ export async function handler(event) {
 
     const { db } = await connectToDatabase();
     const invoicesCollection = db.collection("invoices");
-    const clientsCollection = db.collection("clients");
     const yearsCollection = db.collection("financialYears");
 
     const escapeRegExp = (value) => {
@@ -83,6 +88,7 @@ export async function handler(event) {
         sortBy = "createdAt",
         sortOrder = "desc",
         filter, // For card filters
+        includeDebug = "false",
       } = event.queryStringParameters || {};
 
       if (action === "next-number") {
@@ -383,105 +389,116 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
-      // Get clients for reference
-      const clients = await clientsCollection
-        .find({ isDeleted: { $ne: true } })
-        .toArray();
+      const now = Date.now();
+      let cachedMeta =
+        invoiceMetaCache.value && invoiceMetaCache.expiresAt > now
+          ? invoiceMetaCache.value
+          : null;
 
-      // Get distinct values for dynamic filter options
-
-      // Get distinct placeOfSupply values for dynamic filter options
-      const placeOfSupplyValues = await invoicesCollection.distinct(
-        "placeOfSupply",
-        { isDeleted: { $ne: true }, placeOfSupply: { $exists: true, $ne: "" } },
-      );
-
-      const paymentStatusValues = await invoicesCollection.distinct(
-        "paymentStatus",
-        { isDeleted: { $ne: true }, paymentStatus: { $exists: true, $ne: "" } },
-      );
-
-      const paymentMethodValues = await invoicesCollection.distinct(
-        "paymentMethod",
-        { isDeleted: { $ne: true }, paymentMethod: { $exists: true, $ne: "" } },
-      );
-
-      // Get statistics for dashboard cards
-      const totalRecordsCount = await invoicesCollection.countDocuments({
-        isDeleted: { $ne: true },
-      });
-
-      const partialCount = await invoicesCollection.countDocuments({
-        isDeleted: { $ne: true },
-        paymentStatus: "Partial",
-      });
-
-      const statsPipeline = [
-        { $match: { isDeleted: { $ne: true } } },
-        {
-          $addFields: {
-            normalizedTotalAmount: {
-              $convert: {
-                input: "$taxData.totalAmount",
-                to: "double",
-                onError: 0,
-                onNull: 0,
+      if (!cachedMeta) {
+        const statsPipeline = [
+          { $match: { isDeleted: { $ne: true } } },
+          {
+            $addFields: {
+              normalizedTotalAmount: {
+                $convert: {
+                  input: "$taxData.totalAmount",
+                  to: "double",
+                  onError: 0,
+                  onNull: 0,
+                },
               },
-            },
-            normalizedAmountReceived: {
-              $convert: {
-                input: "$amountReceived",
-                to: "double",
-                onError: 0,
-                onNull: 0,
+              normalizedAmountReceived: {
+                $convert: {
+                  input: "$amountReceived",
+                  to: "double",
+                  onError: 0,
+                  onNull: 0,
+                },
               },
             },
           },
-        },
-        {
-          $addFields: {
-            resolvedPaidAmount: {
-              $switch: {
-                branches: [
-                  {
-                    case: {
-                      $and: [
-                        { $in: ["$paymentStatus", ["Paid", "Partial"]] },
-                        { $gt: ["$normalizedAmountReceived", 0] },
-                      ],
+          {
+            $addFields: {
+              resolvedPaidAmount: {
+                $switch: {
+                  branches: [
+                    {
+                      case: {
+                        $and: [
+                          { $in: ["$paymentStatus", ["Paid", "Partial"]] },
+                          { $gt: ["$normalizedAmountReceived", 0] },
+                        ],
+                      },
+                      then: "$normalizedAmountReceived",
                     },
-                    then: "$normalizedAmountReceived",
-                  },
-                  {
-                    case: { $eq: ["$paymentStatus", "Paid"] },
-                    then: "$normalizedTotalAmount",
-                  },
-                  {
-                    case: { $eq: ["$paymentStatus", "Partial"] },
-                    then: { $divide: ["$normalizedTotalAmount", 2] },
-                  },
-                ],
-                default: 0,
+                    {
+                      case: { $eq: ["$paymentStatus", "Paid"] },
+                      then: "$normalizedTotalAmount",
+                    },
+                    {
+                      case: { $eq: ["$paymentStatus", "Partial"] },
+                      then: { $divide: ["$normalizedTotalAmount", 2] },
+                    },
+                  ],
+                  default: 0,
+                },
               },
             },
           },
-        },
-        {
-          $group: {
-            _id: null,
-            totalAmount: { $sum: "$normalizedTotalAmount" },
-            paidAmount: { $sum: "$resolvedPaidAmount" },
+          {
+            $group: {
+              _id: null,
+              totalRecords: { $sum: 1 },
+              partialCount: {
+                $sum: {
+                  $cond: [{ $eq: ["$paymentStatus", "Partial"] }, 1, 0],
+                },
+              },
+              totalAmount: { $sum: "$normalizedTotalAmount" },
+              paidAmount: { $sum: "$resolvedPaidAmount" },
+            },
           },
-        },
-      ];
+        ];
 
-      const [statsAggregate] = await invoicesCollection
-        .aggregate(statsPipeline)
-        .toArray();
+        const [
+          statsAggregate,
+          placeOfSupplyValues,
+          paymentStatusValues,
+          paymentMethodValues,
+        ] = await Promise.all([
+          invoicesCollection.aggregate(statsPipeline).next(),
+          invoicesCollection.distinct("placeOfSupply", {
+            isDeleted: { $ne: true },
+            placeOfSupply: { $exists: true, $ne: "" },
+          }),
+          invoicesCollection.distinct("paymentStatus", {
+            isDeleted: { $ne: true },
+            paymentStatus: { $exists: true, $ne: "" },
+          }),
+          invoicesCollection.distinct("paymentMethod", {
+            isDeleted: { $ne: true },
+            paymentMethod: { $exists: true, $ne: "" },
+          }),
+        ]);
 
-      const totalAmount = Number(statsAggregate?.totalAmount || 0);
-      const paidAmount = Number(statsAggregate?.paidAmount || 0);
-      const unpaidAmount = totalAmount - paidAmount;
+        const totalAmount = Number(statsAggregate?.totalAmount || 0);
+        const paidAmount = Number(statsAggregate?.paidAmount || 0);
+
+        cachedMeta = {
+          totalRecordsCount: Number(statsAggregate?.totalRecords || 0),
+          partialCount: Number(statsAggregate?.partialCount || 0),
+          totalAmount,
+          paidAmount,
+          unpaidAmount: totalAmount - paidAmount,
+          placeOfSupplyValues: [...placeOfSupplyValues].sort(),
+          paymentStatusValues: [...paymentStatusValues].sort(),
+          paymentMethodValues: [...paymentMethodValues].sort(),
+        };
+
+        invoiceMetaCache.value = cachedMeta;
+        invoiceMetaCache.expiresAt = now + META_CACHE_TTL_MS;
+      }
 
       // Return paginated response with metadata
       return createResponse(
@@ -495,28 +512,26 @@ export async function handler(event) {
             totalPages: Math.ceil(totalRecords / limitNum),
           },
           statistics: {
-            total: totalRecordsCount,
-            paid: Number(paidAmount || 0).toFixed(2),
-            unpaid: Number(unpaidAmount || 0).toFixed(2),
-            partial: partialCount,
-            totalAmount: Number(totalAmount || 0).toFixed(2),
+            total: cachedMeta.totalRecordsCount,
+            paid: Number(cachedMeta.paidAmount || 0).toFixed(2),
+            unpaid: Number(cachedMeta.unpaidAmount || 0).toFixed(2),
+            partial: cachedMeta.partialCount,
+            totalAmount: Number(cachedMeta.totalAmount || 0).toFixed(2),
           },
           filterOptions: {
-            placeOfSupply: ["All", ...placeOfSupplyValues.sort()],
-            paymentStatus: ["All", ...paymentStatusValues.sort()],
-            paymentMethod: ["All", ...paymentMethodValues.sort()],
+            placeOfSupply: ["All", ...cachedMeta.placeOfSupplyValues],
+            paymentStatus: ["All", ...cachedMeta.paymentStatusValues],
+            paymentMethod: ["All", ...cachedMeta.paymentMethodValues],
           },
-          clients: clients.map((c) => ({
-            id: c._id,
-            clientName: c.clientName,
-            businessName: c.businessName,
-            clientId: c.clientId,
-          })),
-          debug: {
-            filterQuery,
-            params,
-            dateRanges,
-          },
+          ...(includeDebug === "true"
+            ? {
+                debug: {
+                  filterQuery,
+                  params,
+                  dateRanges,
+                },
+              }
+            : {}),
         },
         origin,
       );
@@ -583,6 +598,9 @@ export async function handler(event) {
         updatedAt: new Date(),
       });
 
+      invoiceMetaCache.value = null;
+      invoiceMetaCache.expiresAt = 0;
+
       return createResponse(
         201,
         {
@@ -637,6 +655,9 @@ export async function handler(event) {
         return createResponse(404, { error: "Invoice not found" }, origin);
       }
 
+      invoiceMetaCache.value = null;
+      invoiceMetaCache.expiresAt = 0;
+
       return createResponse(
         200,
         { message: "Invoice updated successfully" },
@@ -669,6 +690,9 @@ export async function handler(event) {
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "Invoice not found" }, origin);
       }
+
+      invoiceMetaCache.value = null;
+      invoiceMetaCache.expiresAt = 0;
 
       return createResponse(
         200,

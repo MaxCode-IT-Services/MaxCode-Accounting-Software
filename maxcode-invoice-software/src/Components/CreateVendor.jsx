@@ -3,6 +3,7 @@ import Select from "react-select";
 import { showSuccess, showError } from "./ToastNotification";
 import { apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
 const CreateVendor = ({ show, onClose, onSubmit, editingRecord = null }) => {
   const [formData, setFormData] = useState({
@@ -360,6 +361,9 @@ const CreateVendor = ({ show, onClose, onSubmit, editingRecord = null }) => {
     : "Add New Vendor";
 
   const isViewMode = editingRecord?.isViewMode;
+  const placeOfSupplySelectStyles = getUnifiedSelectStyles({
+    hasError: Boolean(errors.placeOfSupply),
+  });
 
   return (
     <div
@@ -537,6 +541,7 @@ const CreateVendor = ({ show, onClose, onSubmit, editingRecord = null }) => {
                     inputId="placeOfSupply"
                     name="placeOfSupply"
                     classNamePrefix="react-select"
+                    styles={placeOfSupplySelectStyles}
                     value={
                       INDIAN_STATES.map((s) => ({
                         value: `${s.name} (${s.code})`,
