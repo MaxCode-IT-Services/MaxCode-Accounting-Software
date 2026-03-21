@@ -15,7 +15,7 @@ import {
 } from "../utils/biometricAuth";
 import { extractTokenFromUsbKeyFile } from "../utils/usbKeyAuth";
 
-const Login = ({ settings }) => {
+const Login = ({ settings, onAuthSuccess }) => {
   const navigate = useNavigate();
   const [mobile, setMobile] = useState("");
   const [pin, setPin] = useState(["", "", "", "", "", ""]);
@@ -185,6 +185,14 @@ const Login = ({ settings }) => {
 
     markSessionAuthenticated(responseData.user, responseData.token);
     showSuccess(successMessage || responseData.message || "Welcome back!");
+
+    // Update parent App component's auth state immediately after successful login
+    if (onAuthSuccess) {
+      onAuthSuccess({
+        isChecking: false,
+        isAuthenticated: true,
+      });
+    }
 
     const loggedInUser = responseData.user || {};
     const nextRoute = getFirstAllowedRoute(loggedInUser);
@@ -456,6 +464,14 @@ const Login = ({ settings }) => {
             ? "✅ Backup code verified! Please set up a new 2FA device."
             : "✅ 2FA verified! Welcome back!",
         );
+
+        // Update parent App component's auth state immediately after successful 2FA verification
+        if (onAuthSuccess) {
+          onAuthSuccess({
+            isChecking: false,
+            isAuthenticated: true,
+          });
+        }
 
         const loggedInUser = response.data.user || {};
         const nextRoute = getFirstAllowedRoute(loggedInUser);

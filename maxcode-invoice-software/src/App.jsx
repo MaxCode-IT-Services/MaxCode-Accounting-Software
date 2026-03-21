@@ -432,7 +432,7 @@ const App = () => {
           element={
             <PublicRoute authState={authState}>
               <Suspense fallback={<Loading />}>
-                <Login />
+                <Login onAuthSuccess={setAuthState} />
               </Suspense>
             </PublicRoute>
           }
