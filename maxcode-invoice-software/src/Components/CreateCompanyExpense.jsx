@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { showError } from "./ToastNotification";
+import {
+  buildFinancialSequenceNumber,
+  buildNextNumberFromSeedFormat,
+  isDateWithinFinancialYear,
+  normalizeFinancialYearValue,
+  resolveFinancialYearRecord,
+} from "../utils/financialYearUtils";
 
 const RequiredStar = () => <span className="text-danger ms-1">*</span>;
 
@@ -9,6 +16,9 @@ const CreateCompanyExpense = ({
   onSubmit,
   editingRecord = null,
   existingRecords = [],
+  defaultFinancialYear = null,
+  financialYears = [],
+  selectedFinancialYear = "ALL",
 }) => {
   const [formData, setFormData] = useState({
     expenseNumber: "",
@@ -46,39 +56,42 @@ const CreateCompanyExpense = ({
     };
   }, [show]);
 
-  // Generate expense number as MC/CEXP/YY-YY/0001 per financial year
-  const getNextExpenseNumber = (records) => {
-    // Get selected financial year from localStorage or form
-    const fy = localStorage.getItem("selectedFinancialYear") || "";
-    // Format: 2025-26 or 2024-25, want 25-26
-    let fyShort = "";
-    if (/^\d{4}-\d{2}$/.test(fy)) {
-      fyShort = fy.slice(2);
-    } else if (/^\d{2}-\d{2}$/.test(fy)) {
-      fyShort = fy;
-    }
-    // Filter records for this financial year
-    const yearRecords = (records || []).filter(
-      (r) => (r.financialYear || r.year || r.value) === fy,
-    );
-    // Find max serial for this year
-    let maxSerial = 0;
-    yearRecords.forEach((record) => {
-      const match = String(record?.expenseNumber || "").match(
-        /MC\/CEXP\/(\d{2}-\d{2})\/(\d{4})/i,
-      );
-      if (match && match[1] === fyShort) {
-        const serial = parseInt(match[2], 10);
-        if (!isNaN(serial)) maxSerial = Math.max(maxSerial, serial);
-      }
+  const getActiveFinancialYearRecord = () => {
+    return resolveFinancialYearRecord({
+      financialYears,
+      selectedFinancialYear,
+      defaultFinancialYear,
     });
-    const nextSerial = String(maxSerial + 1).padStart(4, "0");
-    return `MC/CEXP/${fyShort}/${nextSerial}`;
+  };
+
+  const getNextExpenseNumber = (records, financialYearRecord) => {
+    const seededFormat = String(
+      financialYearRecord?.companyExpenseFormat || "",
+    ).trim();
+    if (seededFormat) {
+      return buildNextNumberFromSeedFormat({
+        format: seededFormat,
+        records,
+        numberField: "expenseNumber",
+      });
+    }
+
+    const yearValue = normalizeFinancialYearValue(financialYearRecord);
+    return buildFinancialSequenceNumber({
+      code: "CEXP",
+      financialYearValue: yearValue,
+      records,
+      numberField: "expenseNumber",
+    });
   };
 
   const resetForm = () => {
+    const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
+
     setFormData({
-      expenseNumber: getNextExpenseNumber(existingRecords),
+      expenseNumber: getNextExpenseNumber(existingRecords, activeFinancialYear),
       expenseDate: new Date().toISOString().slice(0, 10),
       expenseTitle: "",
       expenseFor: "",
@@ -92,7 +105,7 @@ const CreateCompanyExpense = ({
       paymentMethod: "",
       paymentDate: new Date().toISOString().slice(0, 10),
       paidAmount: "",
-      financialYear: localStorage.getItem("selectedFinancialYear") || "",
+      financialYear: activeFinancialYearValue,
       notes: "",
       paymentProof: "",
     });
@@ -130,7 +143,7 @@ const CreateCompanyExpense = ({
         ),
         financialYear:
           editingRecord.financialYear ||
-          localStorage.getItem("selectedFinancialYear") ||
+          normalizeFinancialYearValue(getActiveFinancialYearRecord()) ||
           "",
         notes: editingRecord.notes || "",
         paymentProof: editingRecord.paymentProof || "",
@@ -140,7 +153,13 @@ const CreateCompanyExpense = ({
     }
 
     resetForm();
-  }, [editingRecord, show]);
+  }, [
+    editingRecord,
+    show,
+    selectedFinancialYear,
+    defaultFinancialYear,
+    financialYears,
+  ]);
 
   const isViewMode = Boolean(editingRecord?.isViewMode);
 
@@ -208,6 +227,19 @@ const CreateCompanyExpense = ({
 
     if (!formData.expenseDate) {
       newErrors.expenseDate = "Expense Date is required";
+    }
+
+    const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
+
+    if (!activeFinancialYear?.startDate || !activeFinancialYear?.endDate) {
+      newErrors.expenseDate =
+        "Selected/default financial year is not configured. Please set financial year first";
+    } else if (
+      !isDateWithinFinancialYear(formData.expenseDate, activeFinancialYear)
+    ) {
+      newErrors.expenseDate = `Expense Date must be between ${activeFinancialYear.startDate} and ${activeFinancialYear.endDate} for financial year ${activeFinancialYearValue}.`;
     }
 
     if (!formData.expenseTitle.trim()) {

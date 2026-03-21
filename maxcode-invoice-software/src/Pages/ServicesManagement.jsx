@@ -9,7 +9,10 @@ import {
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
-import { fetchAllClients } from "../utils/fetchAllEntities";
+import {
+  fetchAllClients,
+  fetchAllPaginatedEntities,
+} from "../utils/fetchAllEntities";
 
 const ServicesManagement = () => {
   const moduleKey = "servicesManagement";
@@ -59,6 +62,7 @@ const ServicesManagement = () => {
   }, [serverSide, prefLoading]);
 
   const [allRecords, setAllRecords] = useState([]);
+  const [sequenceRecords, setSequenceRecords] = useState([]);
   const [records, setRecords] = useState([]);
   const [clients, setClients] = useState([]);
   const [financialYears, setFinancialYears] = useState([]);
@@ -616,6 +620,29 @@ const ServicesManagement = () => {
     return financialYears.find((year) => year?.isDefault === true) || null;
   };
 
+  const loadSequenceRecords = async () => {
+    try {
+      const rows = await fetchAllPaginatedEntities({
+        endpoint: API_ENDPOINTS.SERVICES.LIST,
+        fallbackKeys: ["services"],
+        pageSize: 200,
+        fetchAll: true,
+        queryParams:
+          selectedFinancialYear && selectedFinancialYear !== "ALL"
+            ? { financialYear: selectedFinancialYear }
+            : {},
+        useCache: false,
+        forceRefresh: true,
+      });
+
+      setSequenceRecords(
+        (rows || []).filter((record) => record?.isDeleted !== true),
+      );
+    } catch (error) {
+      setSequenceRecords([]);
+    }
+  };
+
   const isServiceDateWithinFinancialYear = (
     serviceDate,
     financialYearRecord,
@@ -677,6 +704,11 @@ const ServicesManagement = () => {
     financialPeriodMode,
     prefLoading,
   ]);
+
+  useEffect(() => {
+    if (!showCreateServicesForm) return;
+    loadSequenceRecords();
+  }, [showCreateServicesForm, selectedFinancialYear]);
 
   const preparedData = useMemo(() => {
     return records.map((record, index) => ({
@@ -1318,7 +1350,16 @@ const ServicesManagement = () => {
           onSubmit={handleFormSubmit}
           editingRecord={editingRecord}
           clients={clients}
-          existingServices={serverSide ? records : allRecords}
+          existingServices={
+            sequenceRecords.length > 0
+              ? sequenceRecords
+              : serverSide
+                ? records
+                : allRecords
+          }
+          financialYears={financialYears}
+          selectedFinancialYear={selectedFinancialYear}
+          defaultFinancialYear={getDefaultFinancialYearRecord()}
         />
       </div>
     </>

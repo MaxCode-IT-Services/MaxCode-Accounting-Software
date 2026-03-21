@@ -14,7 +14,10 @@ import {
   exportItemWiseExcel,
   exportItemWisePDF,
 } from "../utils/itemWiseExport";
-import { fetchAllClients } from "../utils/fetchAllEntities";
+import {
+  fetchAllClients,
+  fetchAllPaginatedEntities,
+} from "../utils/fetchAllEntities";
 
 const SalesManagement = () => {
   const moduleKey = "salesManagement";
@@ -60,6 +63,7 @@ const SalesManagement = () => {
 
   // State for records and loading
   const [records, setRecords] = useState([]);
+  const [sequenceRecords, setSequenceRecords] = useState([]);
   const [clients, setClients] = useState([]);
   const [financialYears, setFinancialYears] = useState([]);
   const [selectedFinancialYear, setSelectedFinancialYear] = useState(
@@ -848,6 +852,29 @@ const SalesManagement = () => {
     return financialYears.find((year) => year?.isDefault === true) || null;
   };
 
+  const loadSequenceRecords = async () => {
+    try {
+      const rows = await fetchAllPaginatedEntities({
+        endpoint: API_ENDPOINTS.INVOICES.LIST,
+        fallbackKeys: ["invoices"],
+        pageSize: 200,
+        fetchAll: true,
+        queryParams:
+          selectedFinancialYear && selectedFinancialYear !== "ALL"
+            ? { financialYear: selectedFinancialYear }
+            : {},
+        useCache: false,
+        forceRefresh: true,
+      });
+
+      setSequenceRecords(
+        (rows || []).filter((record) => record?.isDeleted !== true),
+      );
+    } catch (error) {
+      setSequenceRecords([]);
+    }
+  };
+
   // Check if invoice date is within financial year
   const isInvoiceDateWithinFinancialYear = (
     invoiceDate,
@@ -958,6 +985,11 @@ const SalesManagement = () => {
       throw error;
     }
   };
+
+  useEffect(() => {
+    if (!showCreateSalesForm) return;
+    loadSequenceRecords();
+  }, [showCreateSalesForm, selectedFinancialYear]);
 
   // Handle edit
   const handleEdit = (record) => {
@@ -1492,7 +1524,9 @@ const SalesManagement = () => {
           editingRecord={editingRecord}
           clients={clients}
           defaultFinancialYear={getDefaultFinancialYearRecord()}
-          existingInvoices={records}
+          existingInvoices={
+            sequenceRecords.length > 0 ? sequenceRecords : records
+          }
         />
       </div>
 

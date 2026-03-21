@@ -826,6 +826,10 @@ const ProjectManagement = () => {
 
   const getCardNumber = (index) => (index % 8) + 1;
 
+  const getDefaultFinancialYearRecord = () => {
+    return financialYears.find((year) => year?.isDefault === true) || null;
+  };
+
   const handleFormSubmit = async (formData) => {
     try {
       const selectedClient = clients.find(
@@ -1114,6 +1118,8 @@ const ProjectManagement = () => {
           staffRecords={staffRecords}
           financialYears={financialYears}
           existingProjects={allProjectRecords}
+          selectedFinancialYear={selectedFinancialYear}
+          defaultFinancialYear={getDefaultFinancialYearRecord()}
         />
       </div>
     </>

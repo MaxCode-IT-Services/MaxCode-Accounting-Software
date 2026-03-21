@@ -17,6 +17,10 @@ const CreateYear = ({
     taxPercentage: 18,
     invoiceFormat: "",
     selfInvoiceFormat: "",
+    qutationFormat: "",
+    serviceFormat: "",
+    projectFormat: "",
+    companyExpenseFormat: "",
     description: "",
     isDefault: false,
     status: "Active",
@@ -39,6 +43,14 @@ const CreateYear = ({
   const isAutoInvoiceFormat = (value) => /^MC\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoSelfInvoiceFormat = (value) =>
     /^MCR\/\d{2}-\d{2}\/0001$/.test(value);
+  const isAutoQutationFormat = (value) =>
+    /^MC\/QTN\/\d{2}-\d{2}\/0001$/.test(value);
+  const isAutoServiceFormat = (value) =>
+    /^MC\/SRV\/\d{2}-\d{2}\/0001$/.test(value);
+  const isAutoProjectFormat = (value) =>
+    /^MC\/PRJ\/\d{2}-\d{2}\/0001$/.test(value);
+  const isAutoCompanyExpenseFormat = (value) =>
+    /^MC\/CEXP\/\d{2}-\d{2}\/0001$/.test(value);
 
   useEffect(() => {
     if (show) {
@@ -63,6 +75,10 @@ const CreateYear = ({
         taxPercentage: editingRecord.taxPercentage || 18,
         invoiceFormat: editingRecord.invoiceFormat || "",
         selfInvoiceFormat: editingRecord.selfInvoiceFormat || "",
+        qutationFormat: editingRecord.qutationFormat || "",
+        serviceFormat: editingRecord.serviceFormat || "",
+        projectFormat: editingRecord.projectFormat || "",
+        companyExpenseFormat: editingRecord.companyExpenseFormat || "",
         description: editingRecord.description || "",
         isDefault: editingRecord.isDefault || false,
         status: editingRecord.status || "Active",
@@ -84,6 +100,10 @@ const CreateYear = ({
         taxPercentage: 18,
         invoiceFormat: "",
         selfInvoiceFormat: "",
+        qutationFormat: "",
+        serviceFormat: "",
+        projectFormat: "",
+        companyExpenseFormat: "",
         description: "",
         isDefault: false,
         status: "Active",
@@ -121,14 +141,35 @@ const CreateYear = ({
 
     const nextInvoiceFormat = `MC/${yearPart}/0001`;
     const nextSelfInvoiceFormat = `MCR/${yearPart}/0001`;
+    const nextQutationFormat = `MC/QTN/${yearPart}/0001`;
+    const nextServiceFormat = `MC/SRV/${yearPart}/0001`;
+    const nextProjectFormat = `MC/PRJ/${yearPart}/0001`;
+    const nextCompanyExpenseFormat = `MC/CEXP/${yearPart}/0001`;
 
     const shouldUpdateInvoiceFormat =
       !formData.invoiceFormat || isAutoInvoiceFormat(formData.invoiceFormat);
     const shouldUpdateSelfInvoiceFormat =
       !formData.selfInvoiceFormat ||
       isAutoSelfInvoiceFormat(formData.selfInvoiceFormat);
+    const shouldUpdateQutationFormat =
+      !formData.qutationFormat || isAutoQutationFormat(formData.qutationFormat);
+    const shouldUpdateServiceFormat =
+      !formData.serviceFormat || isAutoServiceFormat(formData.serviceFormat);
+    const shouldUpdateProjectFormat =
+      !formData.projectFormat || isAutoProjectFormat(formData.projectFormat);
+    const shouldUpdateCompanyExpenseFormat =
+      !formData.companyExpenseFormat ||
+      isAutoCompanyExpenseFormat(formData.companyExpenseFormat);
 
-    if (!shouldUpdateInvoiceFormat && !shouldUpdateSelfInvoiceFormat) return;
+    if (
+      !shouldUpdateInvoiceFormat &&
+      !shouldUpdateSelfInvoiceFormat &&
+      !shouldUpdateQutationFormat &&
+      !shouldUpdateServiceFormat &&
+      !shouldUpdateProjectFormat &&
+      !shouldUpdateCompanyExpenseFormat
+    )
+      return;
 
     setFormData((prev) => ({
       ...prev,
@@ -138,11 +179,27 @@ const CreateYear = ({
       selfInvoiceFormat: shouldUpdateSelfInvoiceFormat
         ? nextSelfInvoiceFormat
         : prev.selfInvoiceFormat,
+      qutationFormat: shouldUpdateQutationFormat
+        ? nextQutationFormat
+        : prev.qutationFormat,
+      serviceFormat: shouldUpdateServiceFormat
+        ? nextServiceFormat
+        : prev.serviceFormat,
+      projectFormat: shouldUpdateProjectFormat
+        ? nextProjectFormat
+        : prev.projectFormat,
+      companyExpenseFormat: shouldUpdateCompanyExpenseFormat
+        ? nextCompanyExpenseFormat
+        : prev.companyExpenseFormat,
     }));
   }, [
     formData.financialYear,
     formData.invoiceFormat,
     formData.selfInvoiceFormat,
+    formData.qutationFormat,
+    formData.serviceFormat,
+    formData.projectFormat,
+    formData.companyExpenseFormat,
     editingRecord,
   ]);
 
@@ -166,6 +223,10 @@ const CreateYear = ({
     taxPercentage: "Tax Percentage",
     invoiceFormat: "Invoice Format",
     selfInvoiceFormat: "Self Invoice Format",
+    qutationFormat: "Qutation Format",
+    serviceFormat: "Service Number Format",
+    projectFormat: "Project Number Format",
+    companyExpenseFormat: "Company Expense Number Format",
     description: "Description",
     status: "Status",
     openingCash: "Opening Cash Balance",
@@ -243,6 +304,10 @@ const CreateYear = ({
       "taxPercentage",
       "invoiceFormat",
       "selfInvoiceFormat",
+      "qutationFormat",
+      "serviceFormat",
+      "projectFormat",
+      "companyExpenseFormat",
     ];
 
     requiredFields.forEach((field) => {
@@ -325,6 +390,23 @@ const CreateYear = ({
       newErrors.selfInvoiceFormat =
         "Self invoice format must be at least 3 characters";
     }
+    if (formData.qutationFormat && formData.qutationFormat.length < 3) {
+      newErrors.qutationFormat =
+        "Qutation format must be at least 3 characters";
+    }
+    if (formData.serviceFormat && formData.serviceFormat.length < 3) {
+      newErrors.serviceFormat = "Service format must be at least 3 characters";
+    }
+    if (formData.projectFormat && formData.projectFormat.length < 3) {
+      newErrors.projectFormat = "Project format must be at least 3 characters";
+    }
+    if (
+      formData.companyExpenseFormat &&
+      formData.companyExpenseFormat.length < 3
+    ) {
+      newErrors.companyExpenseFormat =
+        "Company expense format must be at least 3 characters";
+    }
 
     setErrors(newErrors);
 
@@ -386,6 +468,21 @@ const CreateYear = ({
           } else if (errorMessage.includes("Self Invoice Format")) {
             setErrors((prev) => ({ ...prev, selfInvoiceFormat: errorMessage }));
             scrollToField("selfInvoiceFormat");
+          } else if (errorMessage.includes("Qutation Format")) {
+            setErrors((prev) => ({ ...prev, qutationFormat: errorMessage }));
+            scrollToField("qutationFormat");
+          } else if (errorMessage.includes("Service Format")) {
+            setErrors((prev) => ({ ...prev, serviceFormat: errorMessage }));
+            scrollToField("serviceFormat");
+          } else if (errorMessage.includes("Project Format")) {
+            setErrors((prev) => ({ ...prev, projectFormat: errorMessage }));
+            scrollToField("projectFormat");
+          } else if (errorMessage.includes("Company Expense Format")) {
+            setErrors((prev) => ({
+              ...prev,
+              companyExpenseFormat: errorMessage,
+            }));
+            scrollToField("companyExpenseFormat");
           }
 
           showError(errorMessage);
@@ -607,6 +704,94 @@ const CreateYear = ({
                   {errors.selfInvoiceFormat && (
                     <div className="invalid-feedback d-block">
                       {errors.selfInvoiceFormat}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="qutationFormat" className="form-label">
+                    <i className="fas fa-file-signature me-2 text-primary"></i>
+                    Qutation Format <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.qutationFormat ? "is-invalid" : ""}`}
+                    id="qutationFormat"
+                    name="qutationFormat"
+                    value={formData.qutationFormat}
+                    onChange={handleInputChange}
+                    placeholder="e.g., MC/QTN/25-26/0001"
+                    readOnly={isViewMode}
+                  />
+                  {errors.qutationFormat && (
+                    <div className="invalid-feedback d-block">
+                      {errors.qutationFormat}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="serviceFormat" className="form-label">
+                    <i className="fas fa-gears me-2 text-primary"></i>
+                    Service Format <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.serviceFormat ? "is-invalid" : ""}`}
+                    id="serviceFormat"
+                    name="serviceFormat"
+                    value={formData.serviceFormat}
+                    onChange={handleInputChange}
+                    placeholder="e.g., MC/SRV/25-26/0001"
+                    readOnly={isViewMode}
+                  />
+                  {errors.serviceFormat && (
+                    <div className="invalid-feedback d-block">
+                      {errors.serviceFormat}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="projectFormat" className="form-label">
+                    <i className="fas fa-diagram-project me-2 text-primary"></i>
+                    Project Format <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.projectFormat ? "is-invalid" : ""}`}
+                    id="projectFormat"
+                    name="projectFormat"
+                    value={formData.projectFormat}
+                    onChange={handleInputChange}
+                    placeholder="e.g., MC/PRJ/25-26/0001"
+                    readOnly={isViewMode}
+                  />
+                  {errors.projectFormat && (
+                    <div className="invalid-feedback d-block">
+                      {errors.projectFormat}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="companyExpenseFormat" className="form-label">
+                    <i className="fas fa-receipt me-2 text-primary"></i>
+                    Company Expense Format <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.companyExpenseFormat ? "is-invalid" : ""}`}
+                    id="companyExpenseFormat"
+                    name="companyExpenseFormat"
+                    value={formData.companyExpenseFormat}
+                    onChange={handleInputChange}
+                    placeholder="e.g., MC/CEXP/25-26/0001"
+                    readOnly={isViewMode}
+                  />
+                  {errors.companyExpenseFormat && (
+                    <div className="invalid-feedback d-block">
+                      {errors.companyExpenseFormat}
                     </div>
                   )}
                 </div>

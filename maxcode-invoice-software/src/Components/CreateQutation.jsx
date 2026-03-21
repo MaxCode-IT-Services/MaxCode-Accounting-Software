@@ -2,8 +2,24 @@ import React, { useEffect, useState } from "react";
 import { showError, showSuccess } from "./ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiPost, apiPut } from "../utils/api";
+import {
+  buildFinancialSequenceNumber,
+  buildNextNumberFromSeedFormat,
+  isDateWithinFinancialYear,
+  normalizeFinancialYearValue,
+  resolveFinancialYearRecord,
+} from "../utils/financialYearUtils";
 
-const PROJECT_TYPE_OPTIONS = ["Website", "App", "Website + App"];
+const PROJECT_TYPE_OPTIONS = [
+  "Website",
+  "App",
+  "Website + App",
+  "Social Media",
+  "Website + Social Media",
+  "App + Social Media",
+  "Website + App + Social Media",
+  "Other",
+];
 const QUTATION_TYPE_OPTIONS = ["One Time Development", "Subscription Software"];
 const QUTATION_STATUS_OPTIONS = [
   "Send",
@@ -16,6 +32,7 @@ const QUTATION_STATUS_OPTIONS = [
 const QUTATION_SEND_VIA_OPTIONS = ["WhatsApp", "Email", "WhatsApp + Email"];
 
 const initialFormData = {
+  qutationNumber: "",
   clientName: "",
   phoneNumber: "",
   address: "",
@@ -34,10 +51,20 @@ const initialFormData = {
   qutationSendDate: "",
   qutationApproveDate: "",
   qutationRejectDate: "",
+  financialYear: "",
   description: "",
 };
 
-const CreateQutation = ({ show, onClose, onSubmit, editingRecord = null }) => {
+const CreateQutation = ({
+  show,
+  onClose,
+  onSubmit,
+  editingRecord = null,
+  existingQutations = [],
+  financialYears = [],
+  selectedFinancialYear = "ALL",
+  defaultFinancialYear = null,
+}) => {
   const [formData, setFormData] = useState(initialFormData);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -72,6 +99,57 @@ const CreateQutation = ({ show, onClose, onSubmit, editingRecord = null }) => {
     setErrors({});
   }, [editingRecord, show]);
 
+  const getActiveFinancialYearRecord = () => {
+    return resolveFinancialYearRecord({
+      financialYears,
+      selectedFinancialYear,
+      defaultFinancialYear,
+    });
+  };
+
+  const getNextQutationNumber = (records, financialYearRecord) => {
+    const seededFormat = String(financialYearRecord?.qutationFormat || "").trim();
+    if (seededFormat) {
+      return buildNextNumberFromSeedFormat({
+        format: seededFormat,
+        records,
+        numberField: "qutationNumber",
+      });
+    }
+
+    const yearValue = normalizeFinancialYearValue(financialYearRecord);
+    return buildFinancialSequenceNumber({
+      code: "QTN",
+      financialYearValue: yearValue,
+      records,
+      numberField: "qutationNumber",
+    });
+  };
+
+  useEffect(() => {
+    if (!show || editingRecord) return;
+
+    const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue = normalizeFinancialYearValue(activeFinancialYear);
+    const nextQutationNumber = getNextQutationNumber(
+      existingQutations,
+      activeFinancialYear,
+    );
+
+    setFormData((prev) => ({
+      ...prev,
+      qutationNumber: nextQutationNumber || prev.qutationNumber,
+      financialYear: activeFinancialYearValue,
+    }));
+  }, [
+    show,
+    editingRecord,
+    existingQutations,
+    financialYears,
+    selectedFinancialYear,
+    defaultFinancialYear,
+  ]);
+
   const isViewMode = editingRecord?.isViewMode;
 
   const validateForm = () => {
@@ -91,6 +169,10 @@ const CreateQutation = ({ show, onClose, onSubmit, editingRecord = null }) => {
       "qutationSendVia",
       "qutationStatus",
     ];
+
+    if (!editingRecord) {
+      requiredFields.unshift("qutationNumber");
+    }
 
     requiredFields.forEach((field) => {
       if (!formData[field] || formData[field].toString().trim() === "") {
@@ -128,6 +210,16 @@ const CreateQutation = ({ show, onClose, onSubmit, editingRecord = null }) => {
       Number(formData.qutationTotalAmount) <= 0
     ) {
       newErrors.qutationTotalAmount = "Amount must be greater than 0";
+    }
+
+    const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue = normalizeFinancialYearValue(activeFinancialYear);
+
+    if (!activeFinancialYear?.startDate || !activeFinancialYear?.endDate) {
+      newErrors.qutationDate =
+        "Selected/default financial year is not configured. Please set financial year first";
+    } else if (!isDateWithinFinancialYear(formData.qutationDate, activeFinancialYear)) {
+      newErrors.qutationDate = `Qutation Date must be between ${activeFinancialYear.startDate} and ${activeFinancialYear.endDate} for financial year ${activeFinancialYearValue}.`;
     }
 
     setErrors(newErrors);
@@ -198,6 +290,10 @@ const CreateQutation = ({ show, onClose, onSubmit, editingRecord = null }) => {
 
       const payload = {
         ...formData,
+        financialYear:
+          formData.financialYear ||
+          normalizeFinancialYearValue(getActiveFinancialYearRecord()) ||
+          "",
         qutationTotalAmount: Number(formData.qutationTotalAmount || 0),
       };
 
@@ -375,7 +471,7 @@ const CreateQutation = ({ show, onClose, onSubmit, editingRecord = null }) => {
                   )}
                 </div>
 
-                <div className="col-md-4 mb-3">
+                <div className="col-md-2 mb-3">
                   <label htmlFor="projectType" className="form-label">
                     <i className="fas fa-layer-group me-2 text-primary"></i>
                     Project Type <RequiredStar />
@@ -397,6 +493,26 @@ const CreateQutation = ({ show, onClose, onSubmit, editingRecord = null }) => {
                   {errors.projectType && (
                     <div className="invalid-feedback d-block">
                       {errors.projectType}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-2 mb-3">
+                  <label htmlFor="qutationNumber" className="form-label">
+                    <i className="fas fa-hashtag me-2 text-primary"></i>
+                    Qutation Number <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.qutationNumber ? "is-invalid" : ""}`}
+                    id="qutationNumber"
+                    name="qutationNumber"
+                    value={formData.qutationNumber}
+                    readOnly
+                  />
+                  {errors.qutationNumber && (
+                    <div className="invalid-feedback d-block">
+                      {errors.qutationNumber}
                     </div>
                   )}
                 </div>

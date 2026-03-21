@@ -124,6 +124,10 @@ export async function handler(event) {
             "financialYear",
             "invoiceFormat",
             "selfInvoiceFormat",
+            "qutationFormat",
+            "serviceFormat",
+            "projectFormat",
+            "companyExpenseFormat",
           ].includes(key)
         ) {
           filterQuery[key] = String(value).trim();
@@ -205,6 +209,10 @@ export async function handler(event) {
               { financialYear: { $regex: search, $options: "i" } },
               { invoiceFormat: { $regex: search, $options: "i" } },
               { selfInvoiceFormat: { $regex: search, $options: "i" } },
+              { qutationFormat: { $regex: search, $options: "i" } },
+              { serviceFormat: { $regex: search, $options: "i" } },
+              { projectFormat: { $regex: search, $options: "i" } },
+              { companyExpenseFormat: { $regex: search, $options: "i" } },
               { description: { $regex: search, $options: "i" } },
             ],
           },
@@ -336,6 +344,28 @@ export async function handler(event) {
             "Self Invoice Format already exists. Please use a unique format.",
         },
         {
+          field: "qutationFormat",
+          value: payload.qutationFormat,
+          message:
+            "Qutation Format already exists. Please use a unique format.",
+        },
+        {
+          field: "serviceFormat",
+          value: payload.serviceFormat,
+          message: "Service Format already exists. Please use a unique format.",
+        },
+        {
+          field: "projectFormat",
+          value: payload.projectFormat,
+          message: "Project Format already exists. Please use a unique format.",
+        },
+        {
+          field: "companyExpenseFormat",
+          value: payload.companyExpenseFormat,
+          message:
+            "Company Expense Format already exists. Please use a unique format.",
+        },
+        {
           field: "startDate",
           value: payload.startDate,
           message: "Start Date already exists. Please use a unique start date.",
@@ -426,6 +456,28 @@ export async function handler(event) {
           value: payload.selfInvoiceFormat,
           message:
             "Self Invoice Format already exists. Please use a unique format.",
+        },
+        {
+          field: "qutationFormat",
+          value: payload.qutationFormat,
+          message:
+            "Qutation Format already exists. Please use a unique format.",
+        },
+        {
+          field: "serviceFormat",
+          value: payload.serviceFormat,
+          message: "Service Format already exists. Please use a unique format.",
+        },
+        {
+          field: "projectFormat",
+          value: payload.projectFormat,
+          message: "Project Format already exists. Please use a unique format.",
+        },
+        {
+          field: "companyExpenseFormat",
+          value: payload.companyExpenseFormat,
+          message:
+            "Company Expense Format already exists. Please use a unique format.",
         },
         {
           field: "startDate",

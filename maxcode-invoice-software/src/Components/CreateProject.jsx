@@ -10,6 +10,12 @@ import {
   filterRowsBySearch,
   filterActiveSelectableRows,
 } from "../utils/fetchAllEntities";
+import {
+  buildFinancialSequenceNumber,
+  buildNextNumberFromSeedFormat,
+  normalizeFinancialYearValue,
+  resolveFinancialYearRecord,
+} from "../utils/financialYearUtils";
 
 const emptyPaymentRow = (id = 1) => ({
   id,
@@ -89,6 +95,8 @@ const CreateProject = ({
   staffRecords = [],
   financialYears = [],
   existingProjects = [],
+  selectedFinancialYear = "ALL",
+  defaultFinancialYear = null,
 }) => {
   const [formData, setFormData] = useState({
     projectId: "",
@@ -140,20 +148,39 @@ const CreateProject = ({
     };
   }, [show]);
 
-  const getNextProjectId = (records) => {
-    const maxNumber = (records || []).reduce((max, record) => {
-      const match = String(record?.projectId || "").match(/PRJ(\d+)/i);
-      if (!match) return max;
-      const value = parseInt(match[1], 10);
-      return Number.isNaN(value) ? max : Math.max(max, value);
-    }, 0);
+  const getActiveFinancialYearRecord = () => {
+    return resolveFinancialYearRecord({
+      financialYears: years,
+      selectedFinancialYear,
+      defaultFinancialYear,
+    });
+  };
 
-    return `PRJ${String(maxNumber + 1).padStart(4, "0")}`;
+  const getNextProjectId = (records, financialYearRecord) => {
+    const seededFormat = String(
+      financialYearRecord?.projectFormat || "",
+    ).trim();
+    if (seededFormat) {
+      return buildNextNumberFromSeedFormat({
+        format: seededFormat,
+        records,
+        numberField: "projectId",
+      });
+    }
+
+    const yearValue = normalizeFinancialYearValue(financialYearRecord);
+    return buildFinancialSequenceNumber({
+      code: "PRJ",
+      financialYearValue: yearValue,
+      records,
+      numberField: "projectId",
+    });
   };
 
   const resetForm = () => {
+    const activeFinancialYear = getActiveFinancialYearRecord();
     setFormData({
-      projectId: getNextProjectId(existingProjects),
+      projectId: getNextProjectId(existingProjects, activeFinancialYear),
       projectDate: "",
       projectName: "",
       projectDevelopmentTime: "",
@@ -877,21 +904,17 @@ const CreateProject = ({
     if (!formData.clientRefId.toString().trim())
       newErrors.clientRefId = "Select Client is required";
 
-    const defaultFinancialYear =
-      years.find(
-        (year) =>
-          year?.isDeleted !== true &&
-          year?.isDefault === true &&
-          year?.status !== "Inactive",
-      ) || null;
+    const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
 
-    if (!defaultFinancialYear?.startDate || !defaultFinancialYear?.endDate) {
+    if (!activeFinancialYear?.startDate || !activeFinancialYear?.endDate) {
       newErrors.projectDate =
-        "Default financial year is not configured. Please set default financial year first";
+        "Selected/default financial year is not configured. Please set financial year first";
     } else if (
-      !isDateWithinFinancialYear(formData.projectDate, defaultFinancialYear)
+      !isDateWithinFinancialYear(formData.projectDate, activeFinancialYear)
     ) {
-      newErrors.projectDate = `Project Date must be between ${defaultFinancialYear.startDate} and ${defaultFinancialYear.endDate} (Default Financial Year: ${defaultFinancialYear.financialYear})`;
+      newErrors.projectDate = `Project Date must be between ${activeFinancialYear.startDate} and ${activeFinancialYear.endDate} (Financial Year: ${activeFinancialYearValue})`;
     }
 
     const hasValidPayment = paymentDetails.some(
@@ -943,7 +966,10 @@ const CreateProject = ({
       const submitData = {
         ...formData,
         financialYear:
-          summary.applicableFinancialYear || formData.financialYear || "",
+          summary.applicableFinancialYear ||
+          normalizeFinancialYearValue(getActiveFinancialYearRecord()) ||
+          formData.financialYear ||
+          "",
         projectTotalCost: toNumber(formData.projectTotalCost),
         totalDeveloperCost: toNumber(formData.totalDeveloperCost),
         paymentDetails: paymentDetails.map((payment) => ({

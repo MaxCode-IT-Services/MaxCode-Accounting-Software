@@ -485,6 +485,26 @@ const FinancialYearManagement = () => {
       label: "Self Invoice Format",
       width: 220,
     },
+    {
+      key: "qutationFormat",
+      label: "Qutation Format",
+      width: 220,
+    },
+    {
+      key: "serviceFormat",
+      label: "Service Format",
+      width: 220,
+    },
+    {
+      key: "projectFormat",
+      label: "Project Format",
+      width: 220,
+    },
+    {
+      key: "companyExpenseFormat",
+      label: "Company Expense Format",
+      width: 240,
+    },
     { key: "description", label: "Description", width: 200 },
     {
       key: "isDefaultDisplay",
@@ -514,6 +534,10 @@ const FinancialYearManagement = () => {
     "taxPercentage",
     "invoiceFormat",
     "selfInvoiceFormat",
+    "qutationFormat",
+    "serviceFormat",
+    "projectFormat",
+    "companyExpenseFormat",
     "status",
     "action",
   ];

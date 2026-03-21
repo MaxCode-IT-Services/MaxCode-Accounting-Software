@@ -10,6 +10,13 @@ import {
   filterRowsBySearch,
   filterActiveSelectableRows,
 } from "../utils/fetchAllEntities";
+import {
+  buildFinancialSequenceNumber,
+  buildNextNumberFromSeedFormat,
+  isDateWithinFinancialYear,
+  normalizeFinancialYearValue,
+  resolveFinancialYearRecord,
+} from "../utils/financialYearUtils";
 
 // Indian states list for Place of Supply dropdown
 const INDIAN_STATES = [
@@ -102,6 +109,9 @@ const CreateServices = ({
   editingRecord = null,
   clients = [],
   existingServices = [],
+  financialYears = [],
+  selectedFinancialYear = "ALL",
+  defaultFinancialYear = null,
 }) => {
   const [formData, setFormData] = useState({
     serviceNumber: "",
@@ -313,20 +323,42 @@ const CreateServices = ({
     fetchBusinessSettings();
   }, [show]);
 
-  const getNextServiceNumber = (records) => {
-    const maxNumber = (records || []).reduce((max, record) => {
-      const match = String(record?.serviceNumber || "").match(/SRV(\d+)/i);
-      if (!match) return max;
-      const value = parseInt(match[1], 10);
-      return Number.isNaN(value) ? max : Math.max(max, value);
-    }, 0);
+  const getActiveFinancialYearRecord = () => {
+    return resolveFinancialYearRecord({
+      financialYears,
+      selectedFinancialYear,
+      defaultFinancialYear,
+    });
+  };
 
-    return `SRV${String(maxNumber + 1).padStart(4, "0")}`;
+  const getNextServiceNumber = (records, financialYearRecord) => {
+    const seededFormat = String(
+      financialYearRecord?.serviceFormat || "",
+    ).trim();
+    if (seededFormat) {
+      return buildNextNumberFromSeedFormat({
+        format: seededFormat,
+        records,
+        numberField: "serviceNumber",
+      });
+    }
+
+    const yearValue = normalizeFinancialYearValue(financialYearRecord);
+    return buildFinancialSequenceNumber({
+      code: "SRV",
+      financialYearValue: yearValue,
+      records,
+      numberField: "serviceNumber",
+    });
   };
 
   const resetForm = () => {
+    const activeFinancialYear = getActiveFinancialYearRecord();
     setFormData({
-      serviceNumber: getNextServiceNumber(existingServices),
+      serviceNumber: getNextServiceNumber(
+        existingServices,
+        activeFinancialYear,
+      ),
       serviceDate: new Date().toISOString().slice(0, 10),
       clientRefId: "",
       clientId: "",
@@ -402,7 +434,13 @@ const CreateServices = ({
     }
 
     resetForm();
-  }, [editingRecord, show]);
+  }, [
+    editingRecord,
+    show,
+    selectedFinancialYear,
+    defaultFinancialYear,
+    financialYears,
+  ]);
 
   const handleNumberInput = (e) => {
     const value = e.target.value;
@@ -635,6 +673,19 @@ const CreateServices = ({
       }
     });
 
+    const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
+
+    if (!activeFinancialYear?.startDate || !activeFinancialYear?.endDate) {
+      newErrors.serviceDate =
+        "Selected/default financial year is not configured. Please set financial year first.";
+    } else if (
+      !isDateWithinFinancialYear(formData.serviceDate, activeFinancialYear)
+    ) {
+      newErrors.serviceDate = `Service Date must be between ${activeFinancialYear.startDate} and ${activeFinancialYear.endDate} for financial year ${activeFinancialYearValue}.`;
+    }
+
     const hasValidService = services.some(
       (service) =>
         service.serviceName &&
@@ -720,6 +771,10 @@ const CreateServices = ({
 
       const submitData = {
         ...formData,
+        financialYear:
+          normalizeFinancialYearValue(getActiveFinancialYearRecord()) ||
+          formData.financialYear ||
+          "",
         services: normalizedServices,
         transactions: normalizedTransactions,
         summary,
