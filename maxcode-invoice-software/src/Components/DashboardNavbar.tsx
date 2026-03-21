@@ -766,6 +766,33 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                         >
                           Role: {user.role || "User"}
                         </small>
+
+                        <div className="d-lg-none mt-2">
+                          <small
+                            className="text-muted d-block mb-1"
+                            style={{ fontSize: "11px", fontWeight: 600 }}
+                          >
+                            Financial Year
+                          </small>
+                          <select
+                            className="form-select form-select-sm"
+                            value={selectedFinancialYear}
+                            onChange={(e) =>
+                              handleFinancialYearSelect(e.target.value)
+                            }
+                            style={{
+                              borderColor: "#007026",
+                              backgroundColor: "#def9e7",
+                              fontSize: "12px",
+                            }}
+                          >
+                            {financialYearOptions.map((year) => (
+                              <option key={year.id} value={year.value}>
+                                {year.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
 
                       <div className="dropdown-divider m-0"></div>

@@ -1,4 +1,5 @@
 import { verifyRequestToken } from "./utils/auth.js";
+import { connectToDatabase } from "./utils/mongodb.js";
 
 const getCorsHeaders = (origin) => {
   const allowedOrigins = [
@@ -121,6 +122,54 @@ const getCloudflareSettingsFromEvent = (event = {}, body = {}) => {
     ...headerSettings,
     ...bodySettings,
   });
+};
+
+const getCloudflareSettingsFromDatabase = async () => {
+  try {
+    const { db } = await connectToDatabase();
+    const settingsCollection = db.collection("business_settings");
+
+    const globalSettings = await settingsCollection.findOne({
+      scope: "global",
+    });
+    const latestSettings = globalSettings
+      ? null
+      : await settingsCollection.findOne(
+          {},
+          {
+            sort: {
+              updatedAt: -1,
+              createdAt: -1,
+              _id: -1,
+            },
+          },
+        );
+
+    const source = globalSettings || latestSettings || {};
+    const nestedSettingsCandidates = [
+      source.cloudflareSettings,
+      source.r2Settings,
+      source.cloudStorageSettings,
+    ];
+
+    const nestedSettings = nestedSettingsCandidates.find(
+      (item) => item && typeof item === "object",
+    );
+
+    const directSettings = {
+      storeUrl: source.storeUrl,
+      publicDomain: source.publicDomain,
+      password: source.password,
+      defaultFolder: source.defaultFolder,
+    };
+
+    return normalizeCloudflareSettings({
+      ...(nestedSettings || {}),
+      ...directSettings,
+    });
+  } catch {
+    return null;
+  }
 };
 
 const ensureFolder = (value, fallback = "general") => {
@@ -1036,10 +1085,14 @@ export async function handler(event) {
 
     const query = event.queryStringParameters || {};
     const parsedBody = event.body ? JSON.parse(event.body) : {};
-    const cloudflareSettings = getCloudflareSettingsFromEvent(
-      event,
-      parsedBody,
-    );
+    let cloudflareSettings = getCloudflareSettingsFromEvent(event, parsedBody);
+
+    if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+      const storedSettings = await getCloudflareSettingsFromDatabase();
+      if (storedSettings?.storeUrl && storedSettings?.password) {
+        cloudflareSettings = storedSettings;
+      }
+    }
 
     if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
       return createResponse(

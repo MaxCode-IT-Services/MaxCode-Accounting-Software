@@ -17,6 +17,48 @@ const splitPath = (value = "") =>
     .map((segment) => segment.trim())
     .filter(Boolean);
 
+const normalizePathForMatch = (value = "") =>
+  String(value || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join("/");
+
+const removeRootSegment = (value = "") => {
+  const segments = splitPath(value);
+  if (segments.length <= 1) return value;
+  return segments.slice(1).join("/");
+};
+
+const isPathInsideFolder = (recordPath = "", folderPath = "") => {
+  const normalizedRecordPath = normalizePathForMatch(recordPath);
+  const normalizedFolderPath = normalizePathForMatch(folderPath);
+
+  if (!normalizedRecordPath || !normalizedFolderPath) return false;
+
+  if (
+    normalizedRecordPath === normalizedFolderPath ||
+    normalizedRecordPath.startsWith(`${normalizedFolderPath}/`)
+  ) {
+    return true;
+  }
+
+  const trimmedRecordPath = normalizePathForMatch(
+    removeRootSegment(normalizedRecordPath),
+  );
+  const trimmedFolderPath = normalizePathForMatch(
+    removeRootSegment(normalizedFolderPath),
+  );
+
+  if (!trimmedRecordPath || !trimmedFolderPath) return false;
+
+  return (
+    trimmedRecordPath === trimmedFolderPath ||
+    trimmedRecordPath.startsWith(`${trimmedFolderPath}/`)
+  );
+};
+
 const formatBytes = (bytes) => {
   const numeric = Number(bytes || 0);
   if (!Number.isFinite(numeric) || numeric <= 0) return "0 B";
@@ -458,6 +500,37 @@ const FileManagement = () => {
     }
   };
 
+  const getCloudRequestHeaders = (settings = cloudflareSettings) => ({
+    "x-cloud-store-url": String(settings?.storeUrl || ""),
+    "x-cloud-public-domain": String(settings?.publicDomain || ""),
+    "x-cloud-password": String(settings?.password || ""),
+    "x-cloud-default-folder": String(settings?.defaultFolder || ""),
+  });
+
+  const resolveCloudflareSettingsForRequest = async () => {
+    const hasStateSettings =
+      Boolean(cloudflareSettings?.storeUrl) &&
+      Boolean(cloudflareSettings?.password);
+
+    if (hasStateSettings) {
+      return cloudflareSettings;
+    }
+
+    try {
+      const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
+      const latestSettings = response?.data?.settings?.cloudflareSettings || {};
+
+      if (latestSettings?.storeUrl && latestSettings?.password) {
+        setCloudflareSettings(latestSettings);
+        return latestSettings;
+      }
+    } catch {
+      // Handled by null return below.
+    }
+
+    return null;
+  };
+
   const fetchFiles = async () => {
     if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
       setRecords([]);
@@ -626,7 +699,33 @@ const FileManagement = () => {
         fetchPage += 1;
       }
 
-      setRecords(normalizeRows(collectedRows));
+      // Deduplicate records by filePath to avoid duplicate display
+      const deduplicatedRows = collectedRows.reduce((acc, item) => {
+        const filePath = String(item?.filePath || item?.path || "").trim();
+        const uniqueId = filePath || String(item?.id || item?._id || "");
+
+        if (!uniqueId) {
+          acc.push(item);
+          return acc;
+        }
+
+        const isDuplicate = acc.some((existing) => {
+          const existingPath = String(
+            existing?.filePath || existing?.path || "",
+          ).trim();
+          const existingId =
+            existingPath || String(existing?.id || existing?._id || "");
+          return existingId === uniqueId;
+        });
+
+        if (!isDuplicate) {
+          acc.push(item);
+        }
+
+        return acc;
+      }, []);
+
+      setRecords(normalizeRows(deduplicatedRows));
       setExpandedFolderKeys({});
       setTotalRecords(totalFromApi || collectedRows.length);
       setStatistics(
@@ -759,20 +858,54 @@ const FileManagement = () => {
     );
   };
 
-  const handleFolderDelete = async (folderAbsolutePath) => {
-    const targetFiles = records.filter((record) =>
-      String(record.filePath || "").startsWith(`${folderAbsolutePath}/`),
-    );
+  const handleFolderDelete = async (folderRecord) => {
+    const collectFilesFromNode = (node) => {
+      if (!node || typeof node !== "object") return [];
 
-    const hasCloudRows = targetFiles.some((row) =>
-      String(row?.id || "").startsWith("cloud:"),
-    );
-    if (hasCloudRows) {
-      showInfo(
-        "Cloud source mode me direct folder delete abhi enabled nahi hai.",
-      );
-      return;
-    }
+      if (node.rowType === "file") {
+        return node.sourceRecord ? [node.sourceRecord] : [];
+      }
+
+      const children = Array.isArray(node.children) ? node.children : [];
+      return children.flatMap((child) => collectFilesFromNode(child));
+    };
+
+    const nodeFiles = collectFilesFromNode(folderRecord);
+    const folderAbsolutePath = String(folderRecord?.absolutePath || "").trim();
+
+    const fallbackFiles = folderAbsolutePath
+      ? records.filter((record) => {
+          const pathCandidates = [
+            record.filePath,
+            record.absolutePath,
+            record.key,
+            `${record.folderName || ""}/${record.fileName || ""}`,
+          ]
+            .map((value) => String(value || "").trim())
+            .filter(Boolean);
+
+          return pathCandidates.some((path) =>
+            isPathInsideFolder(path, folderAbsolutePath),
+          );
+        })
+      : [];
+
+    const targetFiles = [...nodeFiles, ...fallbackFiles].reduce((acc, item) => {
+      const uniqueKey = String(item?.id || item?._id || item?.filePath || "");
+      if (!uniqueKey) return acc;
+      if (
+        acc.some((existing) => {
+          const existingKey = String(
+            existing?.id || existing?._id || existing?.filePath || "",
+          );
+          return existingKey === uniqueKey;
+        })
+      ) {
+        return acc;
+      }
+      acc.push(item);
+      return acc;
+    }, []);
 
     if (!targetFiles.length) {
       showInfo("No files found in this folder");
@@ -780,21 +913,81 @@ const FileManagement = () => {
     }
 
     try {
-      for (const item of targetFiles) {
-        await apiDelete(API_ENDPOINTS.FILES.DELETE(item.id || item._id), {
-          data: {
-            deleteFromCloudflare,
-            cloudflareSettings,
-          },
-        });
+      const effectiveCloudflareSettings =
+        await resolveCloudflareSettingsForRequest();
+
+      if (!effectiveCloudflareSettings) {
+        showError(
+          "Cloudflare settings missing. Please open Settings and save Cloudflare configuration.",
+        );
+        return;
       }
 
-      showSuccess(`Folder deleted successfully (${targetFiles.length} files)`);
-      fetchFiles();
-    } catch (error) {
-      showError(
-        error?.response?.data?.error || "Failed to delete folder files",
-      );
+      let deletedCount = 0;
+      let failedCount = 0;
+      let firstFailureMessage = "";
+
+      for (const item of targetFiles) {
+        const rawFilePath = String(item?.filePath || "")
+          .replace(/^\/+/, "")
+          .trim();
+        const fallbackId = item.id || item._id;
+        const fileId = rawFilePath
+          ? `cloud:${rawFilePath}`
+          : String(fallbackId || "").startsWith("cloud:")
+            ? fallbackId
+            : "";
+
+        if (!fileId) {
+          failedCount += 1;
+          if (!firstFailureMessage) {
+            firstFailureMessage =
+              "Missing file path for Cloudflare delete request.";
+          }
+          continue;
+        }
+
+        try {
+          await apiDelete(API_ENDPOINTS.FILES.DELETE(fileId), {
+            headers: getCloudRequestHeaders(effectiveCloudflareSettings),
+            data: {
+              deleteFromCloudflare: true,
+              cloudflareSettings: effectiveCloudflareSettings,
+            },
+          });
+          deletedCount += 1;
+        } catch (error) {
+          failedCount += 1;
+          if (!firstFailureMessage) {
+            firstFailureMessage =
+              error?.response?.data?.error ||
+              error?.message ||
+              "Cloudflare delete request failed.";
+          }
+        }
+      }
+
+      if (deletedCount > 0) {
+        showSuccess(
+          `Folder deleted successfully (${deletedCount} file${deletedCount > 1 ? "s" : ""})`,
+        );
+
+        // Update state with latest settings to ensure fetchFiles has valid config
+        if (effectiveCloudflareSettings) {
+          setCloudflareSettings(effectiveCloudflareSettings);
+        }
+
+        // Refresh file list
+        await fetchFiles();
+      }
+
+      if (failedCount > 0) {
+        showError(
+          `${failedCount} file${failedCount > 1 ? "s" : ""} could not be deleted.${firstFailureMessage ? ` ${firstFailureMessage}` : " Please retry."}`,
+        );
+      }
+    } catch {
+      showError("Failed to delete folder files");
     }
   };
 
@@ -929,7 +1122,7 @@ const FileManagement = () => {
                 if (isFile && sourceRecord) {
                   handleDelete(sourceRecord.id || sourceRecord._id);
                 } else {
-                  handleFolderDelete(record.absolutePath);
+                  handleFolderDelete(record);
                 }
               }}
               title="Delete"
@@ -985,10 +1178,21 @@ const FileManagement = () => {
     if (!fileToDelete) return;
 
     try {
+      const effectiveCloudflareSettings =
+        await resolveCloudflareSettingsForRequest();
+
+      if (!effectiveCloudflareSettings) {
+        showError(
+          "Cloudflare settings missing. Please open Settings and save Cloudflare configuration.",
+        );
+        return;
+      }
+
       await apiDelete(API_ENDPOINTS.FILES.DELETE(fileToDelete), {
+        headers: getCloudRequestHeaders(effectiveCloudflareSettings),
         data: {
           deleteFromCloudflare,
-          cloudflareSettings,
+          cloudflareSettings: effectiveCloudflareSettings,
         },
       });
       showSuccess(
@@ -999,7 +1203,14 @@ const FileManagement = () => {
       setFileToDelete(null);
       setDeleteFromCloudflare(false);
       setIsCloudDeleteTarget(false);
-      fetchFiles();
+
+      // Update state with latest settings to ensure fetchFiles has valid config
+      if (effectiveCloudflareSettings) {
+        setCloudflareSettings(effectiveCloudflareSettings);
+      }
+
+      // Refresh file list
+      await fetchFiles();
     } catch (error) {
       showError(error?.response?.data?.error || "Failed to delete file record");
     }
