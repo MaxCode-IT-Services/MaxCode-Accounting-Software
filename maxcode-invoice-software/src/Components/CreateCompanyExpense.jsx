@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { showError } from "./ToastNotification";
+import { apiGet } from "../utils/api";
+import API_ENDPOINTS from "../utils/apiEndpoints";
 import {
-  buildFinancialSequenceNumber,
-  buildNextNumberFromSeedFormat,
   isDateWithinFinancialYear,
   normalizeFinancialYearValue,
   resolveFinancialYearRecord,
@@ -15,7 +15,6 @@ const CreateCompanyExpense = ({
   onClose,
   onSubmit,
   editingRecord = null,
-  existingRecords = [],
   defaultFinancialYear = null,
   financialYears = [],
   selectedFinancialYear = "ALL",
@@ -64,34 +63,13 @@ const CreateCompanyExpense = ({
     });
   };
 
-  const getNextExpenseNumber = (records, financialYearRecord) => {
-    const seededFormat = String(
-      financialYearRecord?.companyExpenseFormat || "",
-    ).trim();
-    if (seededFormat) {
-      return buildNextNumberFromSeedFormat({
-        format: seededFormat,
-        records,
-        numberField: "expenseNumber",
-      });
-    }
-
-    const yearValue = normalizeFinancialYearValue(financialYearRecord);
-    return buildFinancialSequenceNumber({
-      code: "CEXP",
-      financialYearValue: yearValue,
-      records,
-      numberField: "expenseNumber",
-    });
-  };
-
   const resetForm = () => {
     const activeFinancialYear = getActiveFinancialYearRecord();
     const activeFinancialYearValue =
       normalizeFinancialYearValue(activeFinancialYear);
 
     setFormData({
-      expenseNumber: getNextExpenseNumber(existingRecords, activeFinancialYear),
+      expenseNumber: "",
       expenseDate: new Date().toISOString().slice(0, 10),
       expenseTitle: "",
       expenseFor: "",
@@ -111,6 +89,57 @@ const CreateCompanyExpense = ({
     });
     setErrors({});
   };
+
+  useEffect(() => {
+    if (!show || editingRecord) return;
+
+    const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
+    let cancelled = false;
+
+    const fetchNextExpenseNumber = async () => {
+      try {
+        const response = await apiGet(
+          API_ENDPOINTS.COMPANY_EXPENSES.NEXT_NUMBER,
+          {
+            params: activeFinancialYearValue
+              ? { financialYear: activeFinancialYearValue }
+              : {},
+          },
+        );
+
+        if (cancelled) return;
+
+        const nextExpenseNumber =
+          response?.data?.expenseNumber || response?.data?.nextNumber || "";
+
+        setFormData((prev) => ({
+          ...prev,
+          expenseNumber: nextExpenseNumber || prev.expenseNumber,
+          financialYear: activeFinancialYearValue,
+        }));
+      } catch (error) {
+        if (cancelled) return;
+        setFormData((prev) => ({
+          ...prev,
+          financialYear: activeFinancialYearValue,
+        }));
+      }
+    };
+
+    fetchNextExpenseNumber();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    show,
+    editingRecord,
+    selectedFinancialYear,
+    defaultFinancialYear,
+    financialYears,
+  ]);
 
   useEffect(() => {
     if (!show) return;

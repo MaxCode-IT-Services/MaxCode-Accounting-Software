@@ -65,6 +65,7 @@ export async function handler(event) {
     // GET - Fetch all invoices or specific invoice by ID with pagination support
     if (event.httpMethod === "GET") {
       const {
+        action,
         id,
         page = 1,
         limit = 10,
@@ -83,6 +84,58 @@ export async function handler(event) {
         sortOrder = "desc",
         filter, // For card filters
       } = event.queryStringParameters || {};
+
+      if (action === "next-number") {
+        const requestedFinancialYear = String(
+          event.queryStringParameters?.financialYear || "",
+        ).trim();
+
+        let yearRecord = null;
+        if (requestedFinancialYear) {
+          yearRecord = await yearsCollection.findOne({
+            financialYear: requestedFinancialYear,
+            isDeleted: { $ne: true },
+          });
+        }
+
+        if (!yearRecord) {
+          yearRecord = await yearsCollection.findOne({
+            isDeleted: { $ne: true },
+            isDefault: true,
+          });
+        }
+
+        const invoiceFormat = String(
+          event.queryStringParameters?.invoiceFormat ||
+            yearRecord?.invoiceFormat ||
+            "",
+        ).trim();
+
+        if (!invoiceFormat) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Invoice number format is not configured for the selected financial year.",
+            },
+            origin,
+          );
+        }
+
+        const nextNumber = await getNextInvoiceNumber(invoiceFormat);
+
+        return createResponse(
+          200,
+          {
+            nextNumber,
+            invoiceNumber: nextNumber,
+            financialYear:
+              requestedFinancialYear || String(yearRecord?.financialYear || ""),
+            format: invoiceFormat,
+          },
+          origin,
+        );
+      }
 
       // If ID is provided, return single invoice
       if (id) {
@@ -358,46 +411,76 @@ export async function handler(event) {
         isDeleted: { $ne: true },
       });
 
-      const paidCount = await invoicesCollection.countDocuments({
-        isDeleted: { $ne: true },
-        paymentStatus: "Paid",
-      });
-
-      const unpaidCount = await invoicesCollection.countDocuments({
-        isDeleted: { $ne: true },
-        paymentStatus: "Unpaid",
-      });
-
       const partialCount = await invoicesCollection.countDocuments({
         isDeleted: { $ne: true },
         paymentStatus: "Partial",
       });
 
-      // Calculate total amount
-      const allInvoices = await invoicesCollection
-        .find({ isDeleted: { $ne: true } })
+      const statsPipeline = [
+        { $match: { isDeleted: { $ne: true } } },
+        {
+          $addFields: {
+            normalizedTotalAmount: {
+              $convert: {
+                input: "$taxData.totalAmount",
+                to: "double",
+                onError: 0,
+                onNull: 0,
+              },
+            },
+            normalizedAmountReceived: {
+              $convert: {
+                input: "$amountReceived",
+                to: "double",
+                onError: 0,
+                onNull: 0,
+              },
+            },
+          },
+        },
+        {
+          $addFields: {
+            resolvedPaidAmount: {
+              $switch: {
+                branches: [
+                  {
+                    case: {
+                      $and: [
+                        { $in: ["$paymentStatus", ["Paid", "Partial"]] },
+                        { $gt: ["$normalizedAmountReceived", 0] },
+                      ],
+                    },
+                    then: "$normalizedAmountReceived",
+                  },
+                  {
+                    case: { $eq: ["$paymentStatus", "Paid"] },
+                    then: "$normalizedTotalAmount",
+                  },
+                  {
+                    case: { $eq: ["$paymentStatus", "Partial"] },
+                    then: { $divide: ["$normalizedTotalAmount", 2] },
+                  },
+                ],
+                default: 0,
+              },
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalAmount: { $sum: "$normalizedTotalAmount" },
+            paidAmount: { $sum: "$resolvedPaidAmount" },
+          },
+        },
+      ];
+
+      const [statsAggregate] = await invoicesCollection
+        .aggregate(statsPipeline)
         .toArray();
 
-      const totalAmount = allInvoices.reduce(
-        (sum, p) => sum + (p.taxData?.totalAmount || 0),
-        0,
-      );
-
-      const paidAmount = allInvoices
-        .filter(
-          (p) => p.paymentStatus === "Paid" || p.paymentStatus === "Partial",
-        )
-        .reduce((sum, p) => {
-          if (p.amountReceived !== undefined && p.amountReceived !== null) {
-            return sum + (p.amountReceived || 0);
-          } else if (p.paymentStatus === "Paid") {
-            return sum + (p.taxData?.totalAmount || 0);
-          } else if (p.paymentStatus === "Partial") {
-            return sum + (p.taxData?.totalAmount || 0) / 2;
-          }
-          return sum;
-        }, 0);
-
+      const totalAmount = Number(statsAggregate?.totalAmount || 0);
+      const paidAmount = Number(statsAggregate?.paidAmount || 0);
       const unpaidAmount = totalAmount - paidAmount;
 
       // Return paginated response with metadata
@@ -443,10 +526,20 @@ export async function handler(event) {
     if (event.httpMethod === "POST") {
       const invoiceData = JSON.parse(event.body || "{}");
 
-      const defaultYear = await yearsCollection.findOne({
-        isDeleted: { $ne: true },
-        isDefault: true,
-      });
+      let defaultYear = null;
+      if (invoiceData.financialYear) {
+        defaultYear = await yearsCollection.findOne({
+          isDeleted: { $ne: true },
+          financialYear: String(invoiceData.financialYear).trim(),
+        });
+      }
+
+      if (!defaultYear) {
+        defaultYear = await yearsCollection.findOne({
+          isDeleted: { $ne: true },
+          isDefault: true,
+        });
+      }
 
       if (!invoiceData.invoiceNumber) {
         const invoiceFormat =

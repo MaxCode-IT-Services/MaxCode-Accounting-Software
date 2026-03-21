@@ -534,10 +534,6 @@ const FinancialYearManagement = () => {
     "taxPercentage",
     "invoiceFormat",
     "selfInvoiceFormat",
-    "qutationFormat",
-    "serviceFormat",
-    "projectFormat",
-    "companyExpenseFormat",
     "status",
     "action",
   ];

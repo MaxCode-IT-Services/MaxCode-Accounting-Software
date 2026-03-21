@@ -41,9 +41,110 @@ export async function handler(event) {
 
     const { db } = await connectToDatabase();
     const qutationsCollection = db.collection("qutations");
+    const yearsCollection = db.collection("financialYears");
+
+    const escapeRegExp = (value) => {
+      return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    };
+
+    const getFinancialYearToken = (financialYearValue) => {
+      const value = String(financialYearValue || "").trim();
+      if (/^\d{4}-\d{4}$/.test(value)) {
+        return `${value.slice(2, 4)}-${value.slice(-2)}`;
+      }
+      if (/^\d{4}-\d{2}$/.test(value)) {
+        return `${value.slice(2, 4)}-${value.slice(-2)}`;
+      }
+      if (/^\d{2}-\d{2}$/.test(value)) {
+        return value;
+      }
+      return "";
+    };
+
+    const buildFallbackQutationFormat = (financialYearValue) => {
+      const token = getFinancialYearToken(financialYearValue);
+      if (!token) return "";
+      return `MC/QTN/${token}/0001`;
+    };
+
+    const getNextFromFormat = async ({ format, financialYear }) => {
+      const normalizedFormat = String(format || "").trim();
+      if (!normalizedFormat) return "";
+
+      const match = normalizedFormat.match(/^(.*?)(\d+)$/);
+      if (!match) return normalizedFormat;
+
+      const prefix = match[1];
+      const seed = match[2];
+      const width = seed.length;
+      const seedNumber = parseInt(seed, 10) || 1;
+      const pattern = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
+
+      const query = {
+        qutationNumber: { $regex: pattern },
+        isDeleted: { $ne: true },
+      };
+
+      if (financialYear) {
+        query.financialYear = String(financialYear).trim();
+      }
+
+      const existingQutations = await qutationsCollection
+        .find(query, { projection: { qutationNumber: 1 } })
+        .toArray();
+
+      let maxNumber = 0;
+      existingQutations.forEach((qutation) => {
+        const qutationNumber = String(qutation?.qutationNumber || "");
+        const qutationMatch = qutationNumber.match(pattern);
+        if (!qutationMatch) return;
+        const current = parseInt(qutationMatch[1], 10);
+        if (!Number.isNaN(current) && current > maxNumber) {
+          maxNumber = current;
+        }
+      });
+
+      const nextNumber = Math.max(seedNumber, maxNumber + 1);
+      return `${prefix}${String(nextNumber).padStart(width, "0")}`;
+    };
+
+    const resolveQutationNumberContext = async (requestedFinancialYear) => {
+      const normalizedRequestedFinancialYear = String(
+        requestedFinancialYear || "",
+      ).trim();
+
+      let yearRecord = null;
+      if (normalizedRequestedFinancialYear) {
+        yearRecord = await yearsCollection.findOne({
+          financialYear: normalizedRequestedFinancialYear,
+          isDeleted: { $ne: true },
+        });
+      }
+
+      if (!yearRecord) {
+        yearRecord = await yearsCollection.findOne({
+          isDeleted: { $ne: true },
+          isDefault: true,
+        });
+      }
+
+      const resolvedFinancialYear =
+        normalizedRequestedFinancialYear ||
+        String(yearRecord?.financialYear || "").trim();
+
+      const format =
+        String(yearRecord?.qutationFormat || "").trim() ||
+        buildFallbackQutationFormat(resolvedFinancialYear);
+
+      return {
+        financialYear: resolvedFinancialYear,
+        format,
+      };
+    };
 
     if (event.httpMethod === "GET") {
       const {
+        action,
         id,
         page = 1,
         limit = 10,
@@ -52,6 +153,39 @@ export async function handler(event) {
         sortOrder = "desc",
         filter,
       } = event.queryStringParameters || {};
+
+      if (action === "next-number") {
+        const { financialYear, format } = await resolveQutationNumberContext(
+          event.queryStringParameters?.financialYear,
+        );
+
+        const nextNumber = await getNextFromFormat({
+          format,
+          financialYear,
+        });
+
+        if (!nextNumber) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Could not generate qutation number. Please configure financial year format first.",
+            },
+            origin,
+          );
+        }
+
+        return createResponse(
+          200,
+          {
+            nextNumber,
+            qutationNumber: nextNumber,
+            financialYear,
+            format,
+          },
+          origin,
+        );
+      }
 
       if (id) {
         const qutation = await qutationsCollection.findOne({
@@ -293,6 +427,45 @@ export async function handler(event) {
       const qutationData = normalizeIncomingQutationData(
         JSON.parse(event.body || "{}"),
       );
+
+      const { financialYear, format } = await resolveQutationNumberContext(
+        qutationData.financialYear,
+      );
+
+      if (!qutationData.financialYear && financialYear) {
+        qutationData.financialYear = financialYear;
+      }
+
+      if (!qutationData.qutationNumber) {
+        qutationData.qutationNumber = await getNextFromFormat({
+          format,
+          financialYear: qutationData.financialYear || financialYear,
+        });
+      }
+
+      if (!qutationData.qutationNumber) {
+        return createResponse(
+          400,
+          {
+            error:
+              "Could not generate qutation number. Please configure financial year format first.",
+          },
+          origin,
+        );
+      }
+
+      const existingQutation = await qutationsCollection.findOne({
+        qutationNumber: qutationData.qutationNumber,
+        isDeleted: { $ne: true },
+      });
+
+      if (existingQutation) {
+        return createResponse(
+          409,
+          { error: "Qutation number already exists" },
+          origin,
+        );
+      }
 
       const result = await qutationsCollection.insertOne({
         ...qutationData,

@@ -64,6 +64,7 @@ export async function handler(event) {
     // GET - Fetch all RCM records or specific record by ID with pagination support
     if (event.httpMethod === "GET") {
       const {
+        action,
         id,
         page = 1,
         limit = 10,
@@ -82,6 +83,59 @@ export async function handler(event) {
         sortOrder = "desc",
         filter, // For card filters
       } = event.queryStringParameters || {};
+
+      if (action === "next-number") {
+        const requestedFinancialYear = String(
+          event.queryStringParameters?.financialYear || "",
+        ).trim();
+
+        let yearRecord = null;
+        if (requestedFinancialYear) {
+          yearRecord = await yearsCollection.findOne({
+            financialYear: requestedFinancialYear,
+            isDeleted: { $ne: true },
+          });
+        }
+
+        if (!yearRecord) {
+          yearRecord = await yearsCollection.findOne({
+            isDeleted: { $ne: true },
+            isDefault: true,
+          });
+        }
+
+        const selfInvoiceFormat = String(
+          event.queryStringParameters?.selfInvoiceFormat ||
+            yearRecord?.selfInvoiceFormat ||
+            yearRecord?.invoiceFormat ||
+            "",
+        ).trim();
+
+        if (!selfInvoiceFormat) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Self invoice number format is not configured for the selected financial year.",
+            },
+            origin,
+          );
+        }
+
+        const nextNumber = await getNextSelfInvoiceNumber(selfInvoiceFormat);
+
+        return createResponse(
+          200,
+          {
+            nextNumber,
+            selfInvoiceNumber: nextNumber,
+            financialYear:
+              requestedFinancialYear || String(yearRecord?.financialYear || ""),
+            format: selfInvoiceFormat,
+          },
+          origin,
+        );
+      }
 
       // If ID is provided, return single record
       if (id) {
@@ -418,10 +472,20 @@ export async function handler(event) {
     if (event.httpMethod === "POST") {
       const rcmData = JSON.parse(event.body || "{}");
 
-      const defaultYear = await yearsCollection.findOne({
-        isDeleted: { $ne: true },
-        isDefault: true,
-      });
+      let defaultYear = null;
+      if (rcmData.financialYear) {
+        defaultYear = await yearsCollection.findOne({
+          isDeleted: { $ne: true },
+          financialYear: String(rcmData.financialYear).trim(),
+        });
+      }
+
+      if (!defaultYear) {
+        defaultYear = await yearsCollection.findOne({
+          isDeleted: { $ne: true },
+          isDefault: true,
+        });
+      }
 
       if (!rcmData.selfInvoiceNumber) {
         const selfInvoiceFormat =

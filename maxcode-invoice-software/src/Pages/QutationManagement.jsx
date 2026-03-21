@@ -10,7 +10,6 @@ import {
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
-import { fetchAllPaginatedEntities } from "../utils/fetchAllEntities";
 
 const QutationManagement = () => {
   const moduleKey = "qutationManagement";
@@ -21,7 +20,6 @@ const QutationManagement = () => {
   const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
 
   const [records, setRecords] = useState([]);
-  const [sequenceRecords, setSequenceRecords] = useState([]);
   const [financialYears, setFinancialYears] = useState([]);
   const [selectedFinancialYear, setSelectedFinancialYear] = useState(
     localStorage.getItem("selectedFinancialYear") || "ALL",
@@ -162,29 +160,6 @@ const QutationManagement = () => {
 
   const getDefaultFinancialYearRecord = () => {
     return financialYears.find((year) => year?.isDefault === true) || null;
-  };
-
-  const loadSequenceRecords = async () => {
-    try {
-      const rows = await fetchAllPaginatedEntities({
-        endpoint: API_ENDPOINTS.QUTATIONS.LIST,
-        fallbackKeys: ["qutations"],
-        pageSize: 200,
-        fetchAll: true,
-        queryParams:
-          selectedFinancialYear && selectedFinancialYear !== "ALL"
-            ? { financialYear: selectedFinancialYear }
-            : {},
-        useCache: false,
-        forceRefresh: true,
-      });
-
-      setSequenceRecords(
-        (rows || []).filter((record) => record?.isDeleted !== true),
-      );
-    } catch (error) {
-      setSequenceRecords([]);
-    }
   };
 
   const fetchQutations = async () => {
@@ -352,11 +327,6 @@ const QutationManagement = () => {
     activeCardFilter,
     prefLoading,
   ]);
-
-  useEffect(() => {
-    if (!showCreateQutationForm) return;
-    loadSequenceRecords();
-  }, [showCreateQutationForm, selectedFinancialYear]);
 
   const formatDateTimeForDisplay = (dateString) => {
     if (!dateString) return "";
@@ -835,9 +805,6 @@ const QutationManagement = () => {
           }}
           onSubmit={handleFormSubmit}
           editingRecord={editingRecord}
-          existingQutations={
-            sequenceRecords.length > 0 ? sequenceRecords : records
-          }
           financialYears={financialYears}
           selectedFinancialYear={selectedFinancialYear}
           defaultFinancialYear={getDefaultFinancialYearRecord()}

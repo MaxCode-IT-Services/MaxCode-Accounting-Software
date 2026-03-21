@@ -354,17 +354,53 @@ const CreateSales = ({
       calculateTotals(items, defaultFinancialYear.taxPercentage, null);
     }
 
-    if (defaultFinancialYear.invoiceFormat) {
-      const nextInvoiceNumber = getNextInvoiceNumber(
-        defaultFinancialYear.invoiceFormat,
-        existingInvoices,
-      );
-      setFormData((prev) => ({
-        ...prev,
-        invoiceNumber: nextInvoiceNumber,
-      }));
-    }
-  }, [defaultFinancialYear, existingInvoices, editingRecord, show]);
+    let cancelled = false;
+
+    const fetchNextInvoiceNumber = async () => {
+      try {
+        const response = await apiGet(API_ENDPOINTS.INVOICES.NEXT_NUMBER, {
+          params: {
+            ...(defaultFinancialYear?.financialYear
+              ? { financialYear: defaultFinancialYear.financialYear }
+              : {}),
+            ...(defaultFinancialYear?.invoiceFormat
+              ? { invoiceFormat: defaultFinancialYear.invoiceFormat }
+              : {}),
+          },
+        });
+
+        if (cancelled) return;
+
+        const nextInvoiceNumber =
+          response?.data?.invoiceNumber || response?.data?.nextNumber || "";
+
+        setFormData((prev) => ({
+          ...prev,
+          invoiceNumber: nextInvoiceNumber || prev.invoiceNumber,
+        }));
+      } catch (error) {
+        if (cancelled) return;
+
+        const fallbackNumber = getNextInvoiceNumberFromLocal(
+          defaultFinancialYear?.invoiceFormat,
+          existingInvoices,
+        );
+
+        if (fallbackNumber) {
+          setFormData((prev) => ({
+            ...prev,
+            invoiceNumber: fallbackNumber,
+          }));
+        }
+      }
+    };
+
+    fetchNextInvoiceNumber();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [defaultFinancialYear, editingRecord, show, existingInvoices]);
 
   const resetForm = () => {
     setFormData({
@@ -415,13 +451,14 @@ const CreateSales = ({
   };
 
   const escapeRegExp = (value) => {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   };
 
-  const getNextInvoiceNumber = (format, invoices) => {
+  const getNextInvoiceNumberFromLocal = (format, invoices) => {
     if (!format) return "";
+
     const match = String(format).match(/^(.*?)(\d+)$/);
-    if (!match) return format;
+    if (!match) return String(format);
 
     const prefix = match[1];
     const seed = match[2];
@@ -431,13 +468,13 @@ const CreateSales = ({
 
     let maxNumber = 0;
     (invoices || []).forEach((invoice) => {
-      const invoiceNumber = String(invoice?.invoiceNumber || "");
+      const invoiceNumber = String(invoice?.invoiceNumber || "").trim();
       const invoiceMatch = invoiceNumber.match(pattern);
-      if (invoiceMatch) {
-        const current = parseInt(invoiceMatch[1], 10);
-        if (!Number.isNaN(current) && current > maxNumber) {
-          maxNumber = current;
-        }
+      if (!invoiceMatch) return;
+
+      const current = parseInt(invoiceMatch[1], 10);
+      if (!Number.isNaN(current) && current > maxNumber) {
+        maxNumber = current;
       }
     });
 

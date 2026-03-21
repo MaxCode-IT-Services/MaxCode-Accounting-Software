@@ -28,38 +28,84 @@ export async function handler(event) {
       return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     };
 
-    const getNextExpenseNumber = async (financialYear) => {
-      // Format: MC/CEXP/YY-YY/0001
-      if (!financialYear) return "";
+    const getFinancialYearToken = (financialYearValue) => {
+      const value = String(financialYearValue || "").trim();
+      if (/^\d{4}-\d{4}$/.test(value)) {
+        return `${value.slice(2, 4)}-${value.slice(-2)}`;
+      }
+      if (/^\d{4}-\d{2}$/.test(value)) {
+        return `${value.slice(2, 4)}-${value.slice(-2)}`;
+      }
+      if (/^\d{2}-\d{2}$/.test(value)) {
+        return value;
+      }
+      return "";
+    };
 
-      // Get financial year record to get the year range
-      const yearRecord = await yearsCollection.findOne({
-        financialYear: financialYear,
-        isDeleted: { $ne: true },
-      });
+    const buildFallbackExpenseFormat = (financialYearValue) => {
+      const token = getFinancialYearToken(financialYearValue);
+      if (!token) return "";
+      return `MC/CEXP/${token}/0001`;
+    };
 
-      if (!yearRecord) return "";
+    const resolveExpenseNumberContext = async (requestedFinancialYear) => {
+      const normalizedRequestedFinancialYear = String(
+        requestedFinancialYear || "",
+      ).trim();
 
-      // Extract YY-YY from financial year (e.g., "2024-2025" -> "24-25")
-      const yearParts = financialYear.split("-");
-      if (yearParts.length !== 2) return "";
+      let yearRecord = null;
+      if (normalizedRequestedFinancialYear) {
+        yearRecord = await yearsCollection.findOne({
+          financialYear: normalizedRequestedFinancialYear,
+          isDeleted: { $ne: true },
+        });
+      }
 
-      const shortYear1 = yearParts[0].slice(-2);
-      const shortYear2 = yearParts[1].slice(-2);
-      const prefix = `MC/CEXP/${shortYear1}-${shortYear2}/`;
+      if (!yearRecord) {
+        yearRecord = await yearsCollection.findOne({
+          isDeleted: { $ne: true },
+          isDefault: true,
+        });
+      }
 
-      // Find all expense numbers with this prefix
+      const financialYear =
+        normalizedRequestedFinancialYear ||
+        String(yearRecord?.financialYear || "").trim();
+
+      const format =
+        String(yearRecord?.companyExpenseFormat || "").trim() ||
+        buildFallbackExpenseFormat(financialYear);
+
+      return {
+        financialYear,
+        format,
+      };
+    };
+
+    const getNextExpenseNumber = async ({ format, financialYear }) => {
+      const normalizedFormat = String(format || "").trim();
+      if (!normalizedFormat) return "";
+
+      const match = normalizedFormat.match(/^(.*?)(\d+)$/);
+      if (!match) return normalizedFormat;
+
+      const prefix = match[1];
+      const seed = match[2];
+      const width = seed.length;
+      const seedNumber = parseInt(seed, 10) || 1;
       const pattern = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
 
+      const query = {
+        expenseNumber: { $regex: pattern },
+        isDeleted: { $ne: true },
+      };
+
+      if (financialYear) {
+        query.financialYear = String(financialYear).trim();
+      }
+
       const existingExpenses = await expensesCollection
-        .find(
-          {
-            expenseNumber: { $regex: pattern },
-            financialYear: financialYear,
-            isDeleted: { $ne: true },
-          },
-          { projection: { expenseNumber: 1 } },
-        )
+        .find(query, { projection: { expenseNumber: 1 } })
         .toArray();
 
       let maxNumber = 0;
@@ -73,13 +119,14 @@ export async function handler(event) {
         }
       });
 
-      const nextNumber = maxNumber + 1;
-      return `${prefix}${String(nextNumber).padStart(4, "0")}`;
+      const nextNumber = Math.max(seedNumber, maxNumber + 1);
+      return `${prefix}${String(nextNumber).padStart(width, "0")}`;
     };
 
     // GET - Fetch all expenses or specific expense by ID with pagination support
     if (event.httpMethod === "GET") {
       const {
+        action,
         id,
         page = 1,
         limit = 10,
@@ -99,6 +146,39 @@ export async function handler(event) {
         sortOrder = "desc",
         filter, // For card filters
       } = event.queryStringParameters || {};
+
+      if (action === "next-number") {
+        const { financialYear, format } = await resolveExpenseNumberContext(
+          event.queryStringParameters?.financialYear,
+        );
+
+        const nextNumber = await getNextExpenseNumber({
+          format,
+          financialYear,
+        });
+
+        if (!nextNumber) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Could not generate expense number. Please configure financial year format first.",
+            },
+            origin,
+          );
+        }
+
+        return createResponse(
+          200,
+          {
+            nextNumber,
+            expenseNumber: nextNumber,
+            financialYear,
+            format,
+          },
+          origin,
+        );
+      }
 
       // If ID is provided, return single expense
       if (id) {
@@ -440,30 +520,30 @@ export async function handler(event) {
     if (event.httpMethod === "POST") {
       const expenseData = JSON.parse(event.body || "{}");
 
-      if (!expenseData.financialYear) {
-        const defaultYear = await yearsCollection.findOne({
-          isDeleted: { $ne: true },
-          isDefault: true,
-        });
+      const { financialYear, format } = await resolveExpenseNumberContext(
+        expenseData.financialYear,
+      );
 
-        if (defaultYear?.financialYear) {
-          expenseData.financialYear = defaultYear.financialYear;
-        } else {
-          return createResponse(
-            400,
-            {
-              error:
-                "Financial year is required. Default financial year not found.",
-            },
-            origin,
-          );
-        }
+      if (!expenseData.financialYear && financialYear) {
+        expenseData.financialYear = financialYear;
+      }
+
+      if (!expenseData.financialYear) {
+        return createResponse(
+          400,
+          {
+            error:
+              "Financial year is required. Default financial year not found.",
+          },
+          origin,
+        );
       }
 
       if (!expenseData.expenseNumber) {
-        expenseData.expenseNumber = await getNextExpenseNumber(
-          expenseData.financialYear,
-        );
+        expenseData.expenseNumber = await getNextExpenseNumber({
+          format,
+          financialYear: expenseData.financialYear,
+        });
 
         if (!expenseData.expenseNumber) {
           return createResponse(

@@ -21,6 +21,106 @@ export async function handler(event) {
     const projectsCollection = db.collection("projects");
     const yearsCollection = db.collection("financialYears");
 
+    const escapeRegExp = (value) => {
+      return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    };
+
+    const getFinancialYearToken = (financialYearValue) => {
+      const value = String(financialYearValue || "").trim();
+      if (/^\d{4}-\d{4}$/.test(value)) {
+        return `${value.slice(2, 4)}-${value.slice(-2)}`;
+      }
+      if (/^\d{4}-\d{2}$/.test(value)) {
+        return `${value.slice(2, 4)}-${value.slice(-2)}`;
+      }
+      if (/^\d{2}-\d{2}$/.test(value)) {
+        return value;
+      }
+      return "";
+    };
+
+    const buildFallbackProjectFormat = (financialYearValue) => {
+      const token = getFinancialYearToken(financialYearValue);
+      if (!token) return "";
+      return `MC/PRJ/${token}/0001`;
+    };
+
+    const getNextProjectId = async ({ format, financialYear }) => {
+      const normalizedFormat = String(format || "").trim();
+      if (!normalizedFormat) return "";
+
+      const match = normalizedFormat.match(/^(.*?)(\d+)$/);
+      if (!match) return normalizedFormat;
+
+      const prefix = match[1];
+      const seed = match[2];
+      const width = seed.length;
+      const seedNumber = parseInt(seed, 10) || 1;
+      const pattern = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
+
+      const query = {
+        projectId: { $regex: pattern },
+        isDeleted: { $ne: true },
+      };
+
+      if (financialYear) {
+        query.financialYear = String(financialYear).trim();
+      }
+
+      const existingRows = await projectsCollection
+        .find(query, { projection: { projectId: 1 } })
+        .toArray();
+
+      let maxNumber = 0;
+      existingRows.forEach((row) => {
+        const projectId = String(row?.projectId || "");
+        const rowMatch = projectId.match(pattern);
+        if (!rowMatch) return;
+        const current = parseInt(rowMatch[1], 10);
+        if (!Number.isNaN(current) && current > maxNumber) {
+          maxNumber = current;
+        }
+      });
+
+      const nextNumber = Math.max(seedNumber, maxNumber + 1);
+      return `${prefix}${String(nextNumber).padStart(width, "0")}`;
+    };
+
+    const resolveProjectNumberContext = async (requestedFinancialYear) => {
+      const normalizedRequestedFinancialYear = String(
+        requestedFinancialYear || "",
+      ).trim();
+
+      let yearRecord = null;
+      if (normalizedRequestedFinancialYear) {
+        yearRecord = await yearsCollection.findOne({
+          financialYear: normalizedRequestedFinancialYear,
+          isDeleted: { $ne: true },
+        });
+      }
+
+      if (!yearRecord) {
+        yearRecord = await yearsCollection.findOne({
+          isDeleted: { $ne: true },
+          isDefault: true,
+          status: { $ne: "Inactive" },
+        });
+      }
+
+      const financialYear =
+        normalizedRequestedFinancialYear ||
+        String(yearRecord?.financialYear || "").trim();
+
+      const format =
+        String(yearRecord?.projectFormat || "").trim() ||
+        buildFallbackProjectFormat(financialYear);
+
+      return {
+        financialYear,
+        format,
+      };
+    };
+
     const getDateOnly = (value) => {
       if (!value) return null;
       const date = new Date(value);
@@ -39,6 +139,7 @@ export async function handler(event) {
 
     if (event.httpMethod === "GET") {
       const {
+        action,
         id,
         clientId,
         view,
@@ -51,6 +152,39 @@ export async function handler(event) {
         sortOrder = "desc",
         filter,
       } = event.queryStringParameters || {};
+
+      if (action === "next-number") {
+        const { financialYear, format } = await resolveProjectNumberContext(
+          event.queryStringParameters?.financialYear,
+        );
+
+        const nextNumber = await getNextProjectId({
+          format,
+          financialYear,
+        });
+
+        if (!nextNumber) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Could not generate project ID. Please configure financial year format first.",
+            },
+            origin,
+          );
+        }
+
+        return createResponse(
+          200,
+          {
+            nextNumber,
+            projectId: nextNumber,
+            financialYear,
+            format,
+          },
+          origin,
+        );
+      }
 
       if (id) {
         if (!ObjectId.isValid(id)) {
@@ -1037,8 +1171,30 @@ export async function handler(event) {
     if (event.httpMethod === "POST") {
       const projectData = JSON.parse(event.body || "{}");
 
+      const { financialYear, format } = await resolveProjectNumberContext(
+        projectData.financialYear,
+      );
+
+      if (!projectData.financialYear && financialYear) {
+        projectData.financialYear = financialYear;
+      }
+
       if (!projectData.projectId) {
-        return createResponse(400, { error: "Project ID is required" }, origin);
+        projectData.projectId = await getNextProjectId({
+          format,
+          financialYear: projectData.financialYear || financialYear,
+        });
+      }
+
+      if (!projectData.projectId) {
+        return createResponse(
+          400,
+          {
+            error:
+              "Could not generate project ID. Please configure financial year format first.",
+          },
+          origin,
+        );
       }
 
       if (!projectData.projectDate) {

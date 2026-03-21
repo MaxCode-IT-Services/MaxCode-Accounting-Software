@@ -42,6 +42,7 @@ const API_ENDPOINTS = {
   INVOICES: {
     LIST: "/invoices",
     CREATE: "/invoices",
+    NEXT_NUMBER: "/invoices?action=next-number",
     GET: (id) => `/invoices?id=${id}`,
     UPDATE: (id) => `/invoices?id=${id}`,
     DELETE: (id) => `/invoices?id=${id}`,
@@ -51,6 +52,7 @@ const API_ENDPOINTS = {
   QUTATIONS: {
     LIST: "/qutations",
     CREATE: "/qutations",
+    NEXT_NUMBER: "/qutations?action=next-number",
     GET: (id) => `/qutations?id=${id}`,
     UPDATE: (id) => `/qutations?id=${id}`,
     DELETE: (id) => `/qutations?id=${id}`,
@@ -98,6 +100,7 @@ const API_ENDPOINTS = {
   COMPANY_EXPENSES: {
     LIST: "/company-expenses",
     CREATE: "/company-expenses",
+    NEXT_NUMBER: "/company-expenses?action=next-number",
     GET: (id) => `/company-expenses?id=${id}`,
     UPDATE: (id) => `/company-expenses?id=${id}`,
     DELETE: (id) => `/company-expenses?id=${id}`,
@@ -107,6 +110,7 @@ const API_ENDPOINTS = {
   RCM: {
     LIST: "/rcm",
     CREATE: "/rcm",
+    NEXT_NUMBER: "/rcm?action=next-number",
     GET: (id) => `/rcm?id=${id}`,
     UPDATE: (id) => `/rcm?id=${id}`,
     DELETE: (id) => `/rcm?id=${id}`,
@@ -116,6 +120,7 @@ const API_ENDPOINTS = {
   SERVICES: {
     LIST: "/services",
     CREATE: "/services",
+    NEXT_NUMBER: "/services?action=next-number",
     GET: (id) => `/services?id=${id}`,
     UPDATE: (id) => `/services?id=${id}`,
     DELETE: (id) => `/services?id=${id}`,
@@ -132,6 +137,7 @@ const API_ENDPOINTS = {
   PROJECTS: {
     LIST: "/projects",
     CREATE: "/projects",
+    NEXT_NUMBER: "/projects?action=next-number",
     GET: (id) => `/projects?id=${id}`,
     UPDATE: (id) => `/projects?id=${id}`,
     DELETE: (id) => `/projects?id=${id}`,

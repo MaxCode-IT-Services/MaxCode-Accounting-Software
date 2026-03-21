@@ -11,8 +11,6 @@ import {
   filterActiveSelectableRows,
 } from "../utils/fetchAllEntities";
 import {
-  buildFinancialSequenceNumber,
-  buildNextNumberFromSeedFormat,
   isDateWithinFinancialYear,
   normalizeFinancialYearValue,
   resolveFinancialYearRecord,
@@ -108,7 +106,6 @@ const CreateServices = ({
   onSubmit,
   editingRecord = null,
   clients = [],
-  existingServices = [],
   financialYears = [],
   selectedFinancialYear = "ALL",
   defaultFinancialYear = null,
@@ -331,34 +328,13 @@ const CreateServices = ({
     });
   };
 
-  const getNextServiceNumber = (records, financialYearRecord) => {
-    const seededFormat = String(
-      financialYearRecord?.serviceFormat || "",
-    ).trim();
-    if (seededFormat) {
-      return buildNextNumberFromSeedFormat({
-        format: seededFormat,
-        records,
-        numberField: "serviceNumber",
-      });
-    }
-
-    const yearValue = normalizeFinancialYearValue(financialYearRecord);
-    return buildFinancialSequenceNumber({
-      code: "SRV",
-      financialYearValue: yearValue,
-      records,
-      numberField: "serviceNumber",
-    });
-  };
-
   const resetForm = () => {
     const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
+
     setFormData({
-      serviceNumber: getNextServiceNumber(
-        existingServices,
-        activeFinancialYear,
-      ),
+      serviceNumber: "",
       serviceDate: new Date().toISOString().slice(0, 10),
       clientRefId: "",
       clientId: "",
@@ -369,11 +345,60 @@ const CreateServices = ({
       email: "",
       address: "",
       placeOfSupply: "",
+      financialYear: activeFinancialYearValue,
     });
     setServices([emptyServiceRow(1)]);
     setTransactions([emptyTransactionRow(1)]);
     setErrors({});
   };
+
+  useEffect(() => {
+    if (!show || editingRecord) return;
+
+    const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
+    let cancelled = false;
+
+    const fetchNextServiceNumber = async () => {
+      try {
+        const response = await apiGet(API_ENDPOINTS.SERVICES.NEXT_NUMBER, {
+          params: activeFinancialYearValue
+            ? { financialYear: activeFinancialYearValue }
+            : {},
+        });
+
+        if (cancelled) return;
+
+        const nextServiceNumber =
+          response?.data?.serviceNumber || response?.data?.nextNumber || "";
+
+        setFormData((prev) => ({
+          ...prev,
+          serviceNumber: nextServiceNumber || prev.serviceNumber,
+          financialYear: activeFinancialYearValue,
+        }));
+      } catch (error) {
+        if (cancelled) return;
+        setFormData((prev) => ({
+          ...prev,
+          financialYear: activeFinancialYearValue,
+        }));
+      }
+    };
+
+    fetchNextServiceNumber();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    show,
+    editingRecord,
+    financialYears,
+    selectedFinancialYear,
+    defaultFinancialYear,
+  ]);
 
   useEffect(() => {
     if (!show) return;

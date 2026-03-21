@@ -40,6 +40,20 @@ const CreateYear = ({
     return `${startYear.slice(-2)}-${endYear}`;
   };
 
+  const getFinancialYearDates = (financialYear) => {
+    const value = String(financialYear || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(value)) return null;
+
+    const [startYear, endYearShort] = value.split("-");
+    const expectedEndYearShort = String(Number(startYear) + 1).slice(-2);
+    if (endYearShort !== expectedEndYearShort) return null;
+
+    return {
+      startDate: `${startYear}-04-01`,
+      endDate: `${Number(startYear) + 1}-03-31`,
+    };
+  };
+
   const isAutoInvoiceFormat = (value) => /^MC\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoSelfInvoiceFormat = (value) =>
     /^MCR\/\d{2}-\d{2}\/0001$/.test(value);
@@ -265,6 +279,18 @@ const CreateYear = ({
       setFormData((prev) => ({
         ...prev,
         [name]: numericValue === "" ? "" : numericValue,
+      }));
+    } else if (name === "financialYear") {
+      const normalizedFinancialYear = String(value || "")
+        .replace(/[^0-9-]/g, "")
+        .slice(0, 7);
+
+      const fyDates = getFinancialYearDates(normalizedFinancialYear);
+
+      setFormData((prev) => ({
+        ...prev,
+        [name]: normalizedFinancialYear,
+        ...(fyDates ? fyDates : {}),
       }));
     } else {
       setFormData((prev) => ({
@@ -561,11 +587,6 @@ const CreateYear = ({
                     }
                     maxLength="7"
                   />
-                  {!editingRecord && formData.startDate && (
-                    <small className="text-muted">
-                      Auto-generated from start date
-                    </small>
-                  )}
                   {errors.financialYear && (
                     <div className="invalid-feedback d-block">
                       {errors.financialYear}

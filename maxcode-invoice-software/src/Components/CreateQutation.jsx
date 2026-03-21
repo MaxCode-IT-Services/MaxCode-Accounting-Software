@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { showError, showSuccess } from "./ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiPost, apiPut } from "../utils/api";
+import { apiGet, apiPost, apiPut } from "../utils/api";
 import {
-  buildFinancialSequenceNumber,
-  buildNextNumberFromSeedFormat,
   isDateWithinFinancialYear,
   normalizeFinancialYearValue,
   resolveFinancialYearRecord,
@@ -60,7 +58,6 @@ const CreateQutation = ({
   onClose,
   onSubmit,
   editingRecord = null,
-  existingQutations = [],
   financialYears = [],
   selectedFinancialYear = "ALL",
   defaultFinancialYear = null,
@@ -107,44 +104,49 @@ const CreateQutation = ({
     });
   };
 
-  const getNextQutationNumber = (records, financialYearRecord) => {
-    const seededFormat = String(financialYearRecord?.qutationFormat || "").trim();
-    if (seededFormat) {
-      return buildNextNumberFromSeedFormat({
-        format: seededFormat,
-        records,
-        numberField: "qutationNumber",
-      });
-    }
-
-    const yearValue = normalizeFinancialYearValue(financialYearRecord);
-    return buildFinancialSequenceNumber({
-      code: "QTN",
-      financialYearValue: yearValue,
-      records,
-      numberField: "qutationNumber",
-    });
-  };
-
   useEffect(() => {
     if (!show || editingRecord) return;
 
     const activeFinancialYear = getActiveFinancialYearRecord();
     const activeFinancialYearValue = normalizeFinancialYearValue(activeFinancialYear);
-    const nextQutationNumber = getNextQutationNumber(
-      existingQutations,
-      activeFinancialYear,
-    );
 
-    setFormData((prev) => ({
-      ...prev,
-      qutationNumber: nextQutationNumber || prev.qutationNumber,
-      financialYear: activeFinancialYearValue,
-    }));
+    let cancelled = false;
+
+    const fetchNextQutationNumber = async () => {
+      try {
+        const response = await apiGet(API_ENDPOINTS.QUTATIONS.NEXT_NUMBER, {
+          params: activeFinancialYearValue
+            ? { financialYear: activeFinancialYearValue }
+            : {},
+        });
+
+        if (cancelled) return;
+
+        const nextQutationNumber =
+          response?.data?.qutationNumber || response?.data?.nextNumber || "";
+
+        setFormData((prev) => ({
+          ...prev,
+          qutationNumber: nextQutationNumber || prev.qutationNumber,
+          financialYear: activeFinancialYearValue,
+        }));
+      } catch (error) {
+        if (cancelled) return;
+        setFormData((prev) => ({
+          ...prev,
+          financialYear: activeFinancialYearValue,
+        }));
+      }
+    };
+
+    fetchNextQutationNumber();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     show,
     editingRecord,
-    existingQutations,
     financialYears,
     selectedFinancialYear,
     defaultFinancialYear,

@@ -13,7 +13,6 @@ import {
   exportItemWiseExcel,
   exportItemWisePDF,
 } from "../utils/itemWiseExport";
-import { fetchAllPaginatedEntities } from "../utils/fetchAllEntities";
 
 const CompanyExpenseManagement = () => {
   const moduleKey = "companyExpenseManagement";
@@ -59,7 +58,6 @@ const CompanyExpenseManagement = () => {
 
   // State for records and loading
   const [records, setRecords] = useState([]);
-  const [sequenceRecords, setSequenceRecords] = useState([]);
   const [financialYears, setFinancialYears] = useState([]);
   const [selectedFinancialYear, setSelectedFinancialYear] = useState(
     localStorage.getItem("selectedFinancialYear") || "ALL",
@@ -436,11 +434,6 @@ const CompanyExpenseManagement = () => {
     fetchFinancialYears();
   }, []);
 
-  useEffect(() => {
-    if (!showCreateExpenseForm) return;
-    loadSequenceRecords();
-  }, [showCreateExpenseForm, selectedFinancialYear]);
-
   // Format date for display (DD/MM/YYYY)
   const formatDateForDisplay = (dateString) => {
     if (!dateString) return "";
@@ -749,29 +742,6 @@ const CompanyExpenseManagement = () => {
   // Get default financial year record
   const getDefaultFinancialYearRecord = () => {
     return financialYears.find((year) => year?.isDefault === true) || null;
-  };
-
-  const loadSequenceRecords = async () => {
-    try {
-      const rows = await fetchAllPaginatedEntities({
-        endpoint: API_ENDPOINTS.COMPANY_EXPENSES.LIST,
-        fallbackKeys: ["expenses", "companyExpenses"],
-        pageSize: 200,
-        fetchAll: true,
-        queryParams:
-          selectedFinancialYear && selectedFinancialYear !== "ALL"
-            ? { financialYear: selectedFinancialYear }
-            : {},
-        useCache: false,
-        forceRefresh: true,
-      });
-
-      setSequenceRecords(
-        (rows || []).filter((record) => record?.isDeleted !== true),
-      );
-    } catch (error) {
-      setSequenceRecords([]);
-    }
   };
 
   // Check if expense date is within financial year
@@ -1127,9 +1097,6 @@ const CompanyExpenseManagement = () => {
           defaultFinancialYear={getDefaultFinancialYearRecord()}
           financialYears={financialYears}
           selectedFinancialYear={selectedFinancialYear}
-          existingRecords={
-            sequenceRecords.length > 0 ? sequenceRecords : records
-          }
         />
       </div>
     </>

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import Select from "react-select";
 import { showError } from "./ToastNotification";
+import { apiGet } from "../utils/api";
+import API_ENDPOINTS from "../utils/apiEndpoints";
 
 const CreateRcm = ({
   show,
@@ -8,7 +10,6 @@ const CreateRcm = ({
   onSubmit,
   editingRecord = null,
   defaultFinancialYear = null,
-  existingInvoices = [],
 }) => {
   const [formData, setFormData] = useState({
     selfInvoiceNumber: "",
@@ -198,22 +199,37 @@ const CreateRcm = ({
       calculateTotals(items, defaultFinancialYear.taxPercentage, null);
     }
 
-    const selfInvoiceFormat =
-      defaultFinancialYear.selfInvoiceFormat ||
-      defaultFinancialYear.invoiceFormat;
+    let cancelled = false;
 
-    if (selfInvoiceFormat) {
-      const nextInvoiceNumber = getNextInvoiceNumber(
-        selfInvoiceFormat,
-        existingInvoices,
-      );
-      setFormData((prev) => ({
-        ...prev,
-        selfInvoiceNumber: nextInvoiceNumber,
-        placeOfSupply: "Rajasthan (08)",
-      }));
-    }
-  }, [defaultFinancialYear, existingInvoices, editingRecord, show]);
+    const fetchNextSelfInvoiceNumber = async () => {
+      try {
+        const response = await apiGet(API_ENDPOINTS.RCM.NEXT_NUMBER, {
+          params: defaultFinancialYear?.financialYear
+            ? { financialYear: defaultFinancialYear.financialYear }
+            : {},
+        });
+
+        if (cancelled) return;
+
+        const nextInvoiceNumber =
+          response?.data?.selfInvoiceNumber || response?.data?.nextNumber || "";
+
+        setFormData((prev) => ({
+          ...prev,
+          selfInvoiceNumber: nextInvoiceNumber || prev.selfInvoiceNumber,
+          placeOfSupply: "Rajasthan (08)",
+        }));
+      } catch (error) {
+        // Keep form usable even if sequence API fails.
+      }
+    };
+
+    fetchNextSelfInvoiceNumber();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [defaultFinancialYear, editingRecord, show]);
 
   const resetForm = () => {
     setFormData({
@@ -259,37 +275,6 @@ const CreateRcm = ({
   const toNumber = (value) => {
     const num = parseFloat(value);
     return Number.isNaN(num) ? 0 : num;
-  };
-
-  const escapeRegExp = (value) => {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  };
-
-  const getNextInvoiceNumber = (format, invoices) => {
-    if (!format) return "";
-    const match = String(format).match(/^(.*?)(\d+)$/);
-    if (!match) return format;
-
-    const prefix = match[1];
-    const seed = match[2];
-    const width = seed.length;
-    const seedNumber = parseInt(seed, 10) || 1;
-    const pattern = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
-
-    let maxNumber = 0;
-    (invoices || []).forEach((invoice) => {
-      const invoiceNumber = String(invoice?.selfInvoiceNumber || "");
-      const invoiceMatch = invoiceNumber.match(pattern);
-      if (invoiceMatch) {
-        const current = parseInt(invoiceMatch[1], 10);
-        if (!Number.isNaN(current) && current > maxNumber) {
-          maxNumber = current;
-        }
-      }
-    });
-
-    const nextNumber = Math.max(seedNumber, maxNumber + 1);
-    return `${prefix}${String(nextNumber).padStart(width, "0")}`;
   };
 
   const handleNumberInput = (e) => {

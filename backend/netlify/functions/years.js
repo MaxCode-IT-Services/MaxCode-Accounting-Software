@@ -195,7 +195,14 @@ export async function handler(event) {
       if (filter === "upcomingYear") {
         filterQuery.$expr = {
           $gt: [
-            { $toInt: { $substr: ["$financialYear", 0, 4] } },
+            {
+              $convert: {
+                input: { $substr: ["$financialYear", 0, 4] },
+                to: "int",
+                onError: 0,
+                onNull: 0,
+              },
+            },
             currentFYStart,
           ],
         };
@@ -283,7 +290,14 @@ export async function handler(event) {
             isDeleted: { $ne: true },
             $expr: {
               $gt: [
-                { $toInt: { $substr: ["$financialYear", 0, 4] } },
+                {
+                  $convert: {
+                    input: { $substr: ["$financialYear", 0, 4] },
+                    to: "int",
+                    onError: 0,
+                    onNull: 0,
+                  },
+                },
                 currentFYStart,
               ],
             },

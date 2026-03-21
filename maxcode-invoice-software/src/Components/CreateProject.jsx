@@ -3,6 +3,7 @@ import Select from "react-select";
 import SelectRightLoader from "./SelectRightLoader";
 import { showError } from "./ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import { apiGet } from "../utils/api";
 import {
   fetchSelectableClients,
   fetchSelectableStaff,
@@ -11,8 +12,6 @@ import {
   filterActiveSelectableRows,
 } from "../utils/fetchAllEntities";
 import {
-  buildFinancialSequenceNumber,
-  buildNextNumberFromSeedFormat,
   normalizeFinancialYearValue,
   resolveFinancialYearRecord,
 } from "../utils/financialYearUtils";
@@ -94,7 +93,6 @@ const CreateProject = ({
   clients = [],
   staffRecords = [],
   financialYears = [],
-  existingProjects = [],
   selectedFinancialYear = "ALL",
   defaultFinancialYear = null,
 }) => {
@@ -156,31 +154,13 @@ const CreateProject = ({
     });
   };
 
-  const getNextProjectId = (records, financialYearRecord) => {
-    const seededFormat = String(
-      financialYearRecord?.projectFormat || "",
-    ).trim();
-    if (seededFormat) {
-      return buildNextNumberFromSeedFormat({
-        format: seededFormat,
-        records,
-        numberField: "projectId",
-      });
-    }
-
-    const yearValue = normalizeFinancialYearValue(financialYearRecord);
-    return buildFinancialSequenceNumber({
-      code: "PRJ",
-      financialYearValue: yearValue,
-      records,
-      numberField: "projectId",
-    });
-  };
-
   const resetForm = () => {
     const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
+
     setFormData({
-      projectId: getNextProjectId(existingProjects, activeFinancialYear),
+      projectId: "",
       projectDate: "",
       projectName: "",
       projectDevelopmentTime: "",
@@ -194,11 +174,60 @@ const CreateProject = ({
       phoneNumber: "",
       email: "",
       address: "",
+      financialYear: activeFinancialYearValue,
     });
     setPaymentDetails([emptyPaymentRow(1)]);
     setDeveloperTransactions([emptyDeveloperPayoutRow(1)]);
     setErrors({});
   };
+
+  useEffect(() => {
+    if (!show || editingRecord) return;
+
+    const activeFinancialYear = getActiveFinancialYearRecord();
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
+    let cancelled = false;
+
+    const fetchNextProjectId = async () => {
+      try {
+        const response = await apiGet(API_ENDPOINTS.PROJECTS.NEXT_NUMBER, {
+          params: activeFinancialYearValue
+            ? { financialYear: activeFinancialYearValue }
+            : {},
+        });
+
+        if (cancelled) return;
+
+        const nextProjectId =
+          response?.data?.projectId || response?.data?.nextNumber || "";
+
+        setFormData((prev) => ({
+          ...prev,
+          projectId: nextProjectId || prev.projectId,
+          financialYear: activeFinancialYearValue,
+        }));
+      } catch (error) {
+        if (cancelled) return;
+        setFormData((prev) => ({
+          ...prev,
+          financialYear: activeFinancialYearValue,
+        }));
+      }
+    };
+
+    fetchNextProjectId();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    show,
+    editingRecord,
+    financialYears,
+    selectedFinancialYear,
+    defaultFinancialYear,
+  ]);
 
   useEffect(() => {
     if (Array.isArray(clients) && clients.length > 0) {

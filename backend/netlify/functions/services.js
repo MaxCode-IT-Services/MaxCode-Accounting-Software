@@ -22,6 +22,102 @@ export async function handler(event) {
     const clientsCollection = db.collection("clients");
     const yearsCollection = db.collection("financialYears");
 
+    const escapeRegExp = (value) => {
+      return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    };
+
+    const getFinancialYearToken = (financialYearValue) => {
+      const value = String(financialYearValue || "").trim();
+      if (/^\d{4}-\d{4}$/.test(value)) {
+        return `${value.slice(2, 4)}-${value.slice(-2)}`;
+      }
+      if (/^\d{4}-\d{2}$/.test(value)) {
+        return `${value.slice(2, 4)}-${value.slice(-2)}`;
+      }
+      if (/^\d{2}-\d{2}$/.test(value)) {
+        return value;
+      }
+      return "";
+    };
+
+    const buildFallbackServiceFormat = (financialYearValue) => {
+      const token = getFinancialYearToken(financialYearValue);
+      if (!token) return "";
+      return `MC/SRV/${token}/0001`;
+    };
+
+    const getNextServiceNumber = async ({ format, financialYear }) => {
+      const normalizedFormat = String(format || "").trim();
+      if (!normalizedFormat) return "";
+
+      const match = normalizedFormat.match(/^(.*?)(\d+)$/);
+      if (!match) return normalizedFormat;
+
+      const prefix = match[1];
+      const seed = match[2];
+      const width = seed.length;
+      const seedNumber = parseInt(seed, 10) || 1;
+      const pattern = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
+
+      const query = {
+        serviceNumber: { $regex: pattern },
+        isDeleted: { $ne: true },
+      };
+
+      if (financialYear) {
+        query.financialYear = String(financialYear).trim();
+      }
+
+      const existingRows = await servicesCollection
+        .find(query, { projection: { serviceNumber: 1 } })
+        .toArray();
+
+      let maxNumber = 0;
+      existingRows.forEach((row) => {
+        const serviceNumber = String(row?.serviceNumber || "");
+        const rowMatch = serviceNumber.match(pattern);
+        if (!rowMatch) return;
+        const current = parseInt(rowMatch[1], 10);
+        if (!Number.isNaN(current) && current > maxNumber) {
+          maxNumber = current;
+        }
+      });
+
+      const nextNumber = Math.max(seedNumber, maxNumber + 1);
+      return `${prefix}${String(nextNumber).padStart(width, "0")}`;
+    };
+
+    const resolveServiceNumberContext = async (requestedFinancialYear) => {
+      const normalizedRequestedFinancialYear = String(
+        requestedFinancialYear || "",
+      ).trim();
+
+      let yearRecord = null;
+      if (normalizedRequestedFinancialYear) {
+        yearRecord = await yearsCollection.findOne({
+          financialYear: normalizedRequestedFinancialYear,
+          isDeleted: { $ne: true },
+        });
+      }
+
+      if (!yearRecord) {
+        yearRecord = await yearsCollection.findOne({
+          isDeleted: { $ne: true },
+          isDefault: true,
+        });
+      }
+
+      const financialYear =
+        normalizedRequestedFinancialYear ||
+        String(yearRecord?.financialYear || "").trim();
+
+      const format =
+        String(yearRecord?.serviceFormat || "").trim() ||
+        buildFallbackServiceFormat(financialYear);
+
+      return { financialYear, format };
+    };
+
     const getDateString = (date) => {
       const pad = (value) => String(value).padStart(2, "0");
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -86,6 +182,7 @@ export async function handler(event) {
 
     if (event.httpMethod === "GET") {
       const {
+        action,
         id,
         page = 1,
         limit = 10,
@@ -103,6 +200,39 @@ export async function handler(event) {
         filter,
         export: exportAll,
       } = event.queryStringParameters || {};
+
+      if (action === "next-number") {
+        const { financialYear, format } = await resolveServiceNumberContext(
+          event.queryStringParameters?.financialYear,
+        );
+
+        const nextNumber = await getNextServiceNumber({
+          format,
+          financialYear,
+        });
+
+        if (!nextNumber) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Could not generate service number. Please configure financial year format first.",
+            },
+            origin,
+          );
+        }
+
+        return createResponse(
+          200,
+          {
+            nextNumber,
+            serviceNumber: nextNumber,
+            financialYear,
+            format,
+          },
+          origin,
+        );
+      }
 
       if (id) {
         if (!ObjectId.isValid(id)) {
@@ -490,10 +620,28 @@ export async function handler(event) {
     if (event.httpMethod === "POST") {
       const serviceData = JSON.parse(event.body || "{}");
 
+      const { financialYear, format } = await resolveServiceNumberContext(
+        serviceData.financialYear,
+      );
+
+      if (!serviceData.financialYear && financialYear) {
+        serviceData.financialYear = financialYear;
+      }
+
+      if (!serviceData.serviceNumber) {
+        serviceData.serviceNumber = await getNextServiceNumber({
+          format,
+          financialYear: serviceData.financialYear || financialYear,
+        });
+      }
+
       if (!serviceData.serviceNumber) {
         return createResponse(
           400,
-          { error: "Service number is required" },
+          {
+            error:
+              "Could not generate service number. Please configure financial year format first.",
+          },
           origin,
         );
       }
