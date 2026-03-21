@@ -21,19 +21,19 @@ export const PERMISSION_MODULES = [
     detailed: false,
   },
   {
-    key: "clientManagement",
-    label: "Client Management",
-    description: "Manage clients",
-    icon: "fa-solid fa-users",
-    route: "/admin/client-management",
-    detailed: true,
-  },
-  {
     key: "leadManagement",
     label: "Lead Management",
     description: "Manage sales leads",
     icon: "fa-solid fa-address-book",
     route: "/admin/lead-management",
+    detailed: true,
+  },
+  {
+    key: "clientManagement",
+    label: "Client Management",
+    description: "Manage clients",
+    icon: "fa-solid fa-users",
+    route: "/admin/client-management",
     detailed: true,
   },
   {

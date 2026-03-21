@@ -49,7 +49,11 @@ const LeadManagement = () => {
     lost: 0,
   });
 
-  const columnsWithDateFilter = ["createdDateTime", "followUpDate"];
+  const columnsWithDateFilter = [
+    "createdDateTime",
+    "followUpDate",
+    "lastContactedDate",
+  ];
 
   useEffect(() => {
     document.title = "Lead Management | MaxCode IT Services";
@@ -297,6 +301,42 @@ const LeadManagement = () => {
     let data = preparedData.filter((record) => record.isDeleted !== true);
 
     Object.entries(filters).forEach(([key, value]) => {
+      if (columnsWithDateFilter.includes(key)) {
+        if (value && typeof value === "object") {
+          data = data.filter((row) => {
+            const dateValue =
+              row[key] || (key === "createdDateTime" ? row.createdDate : "");
+            if (!dateValue) return false;
+
+            const targetDate = new Date(dateValue);
+            if (Number.isNaN(targetDate.getTime())) return false;
+
+            const normalizedTarget = new Date(targetDate);
+            normalizedTarget.setHours(0, 0, 0, 0);
+
+            if (value.startDate) {
+              const startDate = new Date(value.startDate);
+              startDate.setHours(0, 0, 0, 0);
+              if (normalizedTarget < startDate) return false;
+            }
+
+            if (value.endDate) {
+              const endDate = new Date(value.endDate);
+              endDate.setHours(0, 0, 0, 0);
+              if (normalizedTarget > endDate) return false;
+            }
+
+            return true;
+          });
+        }
+        return;
+      }
+
+      if (Array.isArray(value) && value.length > 0) {
+        data = data.filter((row) => value.includes(String(row[key] || "")));
+        return;
+      }
+
       if (value && typeof value === "string" && value.trim() !== "") {
         data = data.filter((row) =>
           String(row[key] || "")
@@ -307,7 +347,7 @@ const LeadManagement = () => {
     });
 
     return data;
-  }, [preparedData, filters, serverSide]);
+  }, [preparedData, filters, serverSide, columnsWithDateFilter]);
 
   const handleDebouncedColumnFilterChange = (key, value) => {
     if (serverSide) {
@@ -331,9 +371,10 @@ const LeadManagement = () => {
     { key: "businessName", label: "Business Name", width: 180 },
     { key: "phoneNumber", label: "Phone", width: 140 },
     { key: "whatsappNumber", label: "WhatsApp", width: 140 },
+    { key: "email", label: "Email", width: 190 },
     {
       key: "interestedService",
-      label: "Interested Service/Product",
+      label: "Interested Services",
       width: 220,
     },
     { key: "leadSource", label: "Lead Source", width: 140 },
@@ -360,8 +401,9 @@ const LeadManagement = () => {
       label: "Lead Status",
       width: 150,
     },
+    { key: "contactBy", label: "Contact By", width: 170 },
+    { key: "lastContactedDate", label: "Last Contacted Date", width: 160 },
     { key: "followUpDate", label: "Follow-up Date", width: 130 },
-    { key: "email", label: "Email", width: 190 },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
     { key: "action", label: "Actions", width: 150 },
   ];
@@ -370,10 +412,10 @@ const LeadManagement = () => {
   const defaultVisibleColumns = [
     "sn",
     "leadName",
-    "businessName",
     "phoneNumber",
     "priority",
     "leadStatus",
+    "interestedService",
     "action",
   ];
 
@@ -382,31 +424,22 @@ const LeadManagement = () => {
     "priority",
     "leadSource",
     "interestedService",
+    "contactBy",
     "status",
   ];
 
   const getFilterOptions = () => {
-    const options = {
-      leadStatus: [
-        "All",
-        "New",
-        "Contacted",
-        "Qualified",
-        "Proposal Sent",
-        "Success",
-        "Lost",
-      ],
-      priority: ["All", "High", "Medium", "Low"],
-      status: ["All", "Active", "Inactive"],
-    };
-
     const extractUnique = (key) =>
       [...new Set(records.map((row) => row[key]).filter(Boolean))].sort();
 
-    options.leadSource = ["All", ...extractUnique("leadSource")];
-    options.interestedService = ["All", ...extractUnique("interestedService")];
-
-    return options;
+    return {
+      leadStatus: ["All", ...extractUnique("leadStatus")],
+      priority: ["All", ...extractUnique("priority")],
+      leadSource: ["All", ...extractUnique("leadSource")],
+      interestedService: ["All", ...extractUnique("interestedService")],
+      contactBy: ["All", ...extractUnique("contactBy")],
+      status: ["All", ...extractUnique("status")],
+    };
   };
 
   const cards = [

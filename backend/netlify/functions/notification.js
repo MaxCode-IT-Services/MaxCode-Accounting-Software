@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
 const ALERT_DAYS = [15, 10, 7, 3, 2, 1, 0];
+const LEAD_FOLLOWUP_ALERT_DAYS = [1, 0];
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 const toNumber = (value) => {
@@ -122,6 +123,63 @@ const buildServiceExpiryNotifications = ({
   return notifications;
 };
 
+const buildLeadFollowUpNotifications = ({ leadRecords = [], today }) => {
+  const notifications = [];
+
+  leadRecords.forEach((lead) => {
+    if (lead?.isDeleted === true) return;
+    if (String(lead?.status || "Active").toLowerCase() === "inactive") return;
+    if (!lead?.followUpDate) return;
+
+    const followUpDate = getDateOnly(lead.followUpDate);
+    if (!followUpDate) return;
+
+    const daysRemaining = Math.floor(
+      (followUpDate.getTime() - today.getTime()) / DAY_IN_MS,
+    );
+
+    if (!LEAD_FOLLOWUP_ALERT_DAYS.includes(daysRemaining)) return;
+
+    const leadIdentifier = lead?._id || lead?.id || lead?.leadName || "lead";
+    const dedupeKey = `lead-followup-${leadIdentifier}-${lead.followUpDate}-${daysRemaining}`;
+    const leadName = lead?.leadName || "Lead";
+    const businessName = lead?.businessName || "Business";
+    const whenText = daysRemaining === 0 ? "today" : "tomorrow";
+
+    notifications.push({
+      dedupeKey,
+      title: "Lead Follow-up Reminder",
+      description: `Follow-up for ${leadName} (${businessName}) is due ${whenText}. Follow-up Date: ${formatDateForDisplay(lead.followUpDate)}.${lead?.phoneNumber ? ` Phone: ${lead.phoneNumber}.` : ""}`,
+      icon: "calendar-check",
+      type: daysRemaining === 0 ? "danger" : "warning",
+      image: "https://img.maxcodehub.com/Ex.png",
+      templateType: "lead-followup",
+      templateData: {
+        leadId: String(lead?._id || lead?.id || ""),
+        leadName,
+        businessName,
+        phoneNumber: lead?.phoneNumber || "",
+        whatsappNumber: lead?.whatsappNumber || "",
+        followUpDate: formatDateForDisplay(lead.followUpDate),
+        daysRemaining,
+      },
+      links: [],
+    });
+  });
+
+  notifications.sort((a, b) => {
+    const daysA = toNumber(a?.templateData?.daysRemaining);
+    const daysB = toNumber(b?.templateData?.daysRemaining);
+    if (daysA !== daysB) return daysA - daysB;
+
+    const leadA = String(a?.templateData?.leadName || "");
+    const leadB = String(b?.templateData?.leadName || "");
+    return leadA.localeCompare(leadB);
+  });
+
+  return notifications;
+};
+
 const resolveCurrentUserId = (decodedToken = {}) => {
   const resolved =
     decodedToken?.userId || decodedToken?.id || decodedToken?._id || null;
@@ -165,6 +223,7 @@ export async function handler(event) {
     const notificationsCollection = db.collection("notifications");
     const notificationRunsCollection = db.collection("notificationRuns");
     const servicesCollection = db.collection("services");
+    const leadsCollection = db.collection("leads");
     const yearsCollection = db.collection("financialYears");
     const usersCollection = db.collection("users");
 
@@ -172,7 +231,7 @@ export async function handler(event) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const dateKey = getDateString(today);
-      const notificationType = "service-expiry";
+      const notificationType = "daily-reminders";
       const currentUserId = resolveCurrentUserId(decodedToken);
 
       let loggedInUser = null;
@@ -225,50 +284,78 @@ export async function handler(event) {
           runUpsertResult.upsertedId !== null;
 
         if (shouldGenerateNotifications) {
-          const [serviceRecords, financialYears] = await Promise.all([
-            servicesCollection
-              .find(
-                { isDeleted: { $ne: true } },
-                {
-                  projection: {
-                    _id: 1,
-                    id: 1,
-                    serviceNumber: 1,
-                    businessName: 1,
-                    services: 1,
+          const [serviceRecords, leadRecords, financialYears] =
+            await Promise.all([
+              servicesCollection
+                .find(
+                  { isDeleted: { $ne: true } },
+                  {
+                    projection: {
+                      _id: 1,
+                      id: 1,
+                      serviceNumber: 1,
+                      businessName: 1,
+                      services: 1,
+                    },
                   },
-                },
-              )
-              .toArray(),
-            yearsCollection
-              .find(
-                { isDeleted: { $ne: true } },
-                {
-                  projection: {
-                    _id: 1,
-                    id: 1,
-                    startDate: 1,
-                    endDate: 1,
-                    taxPercentage: 1,
-                    isDeleted: 1,
+                )
+                .toArray(),
+              leadsCollection
+                .find(
+                  { isDeleted: { $ne: true } },
+                  {
+                    projection: {
+                      _id: 1,
+                      id: 1,
+                      leadName: 1,
+                      businessName: 1,
+                      phoneNumber: 1,
+                      whatsappNumber: 1,
+                      followUpDate: 1,
+                      status: 1,
+                      isDeleted: 1,
+                    },
                   },
-                },
-              )
-              .toArray(),
-          ]);
+                )
+                .toArray(),
+              yearsCollection
+                .find(
+                  { isDeleted: { $ne: true } },
+                  {
+                    projection: {
+                      _id: 1,
+                      id: 1,
+                      startDate: 1,
+                      endDate: 1,
+                      taxPercentage: 1,
+                      isDeleted: 1,
+                    },
+                  },
+                )
+                .toArray(),
+            ]);
 
-          const generatedNotifications = buildServiceExpiryNotifications({
+          const serviceNotifications = buildServiceExpiryNotifications({
             serviceRecords,
             financialYears,
             today,
           });
+
+          const leadFollowUpNotifications = buildLeadFollowUpNotifications({
+            leadRecords,
+            today,
+          });
+
+          const generatedNotifications = [
+            ...serviceNotifications,
+            ...leadFollowUpNotifications,
+          ];
 
           if (generatedNotifications.length > 0) {
             const existingToday = await notificationsCollection
               .find(
                 {
                   dateKey,
-                  templateType: notificationType,
                   isDeleted: { $ne: true },
                 },
                 { projection: { dedupeKey: 1 } },

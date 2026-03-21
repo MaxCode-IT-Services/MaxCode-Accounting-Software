@@ -330,16 +330,16 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "dashboard",
     },
     {
-      to: "/admin/client-management",
-      icon: "fa-solid fa-users",
-      label: "Client Management",
-      permissionKey: "clientManagement",
-    },
-    {
       to: "/admin/lead-management",
       icon: "fa-solid fa-address-book",
       label: "Lead Management",
       permissionKey: "leadManagement",
+    },
+    {
+      to: "/admin/client-management",
+      icon: "fa-solid fa-users",
+      label: "Client Management",
+      permissionKey: "clientManagement",
     },
     {
       to: "/admin/vendor-management",

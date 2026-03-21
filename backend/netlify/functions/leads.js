@@ -74,7 +74,16 @@ export async function handler(event) {
 
         if (key.endsWith("_start") || key.endsWith("_end")) return;
 
-        if (["leadStatus", "priority", "leadSource", "status"].includes(key)) {
+        if (
+          [
+            "leadStatus",
+            "priority",
+            "leadSource",
+            "interestedService",
+            "contactBy",
+            "status",
+          ].includes(key)
+        ) {
           filterQuery[key] = String(value).trim();
           return;
         }
@@ -142,6 +151,7 @@ export async function handler(event) {
           { whatsappNumber: { $regex: search, $options: "i" } },
           { interestedService: { $regex: search, $options: "i" } },
           { leadSource: { $regex: search, $options: "i" } },
+          { contactBy: { $regex: search, $options: "i" } },
           { email: { $regex: search, $options: "i" } },
           { notes: { $regex: search, $options: "i" } },
         ];
@@ -186,6 +196,8 @@ export async function handler(event) {
         priorityValues,
         leadStatusValues,
         interestedServiceValues,
+        contactByValues,
+        statusValues,
         totalNew,
         totalContacted,
         totalQualified,
@@ -208,6 +220,14 @@ export async function handler(event) {
         leadsCollection.distinct("interestedService", {
           isDeleted: { $ne: true },
           interestedService: { $exists: true, $ne: "" },
+        }),
+        leadsCollection.distinct("contactBy", {
+          isDeleted: { $ne: true },
+          contactBy: { $exists: true, $ne: "" },
+        }),
+        leadsCollection.distinct("status", {
+          isDeleted: { $ne: true },
+          status: { $exists: true, $ne: "" },
         }),
         leadsCollection.countDocuments({
           isDeleted: { $ne: true },
@@ -261,7 +281,8 @@ export async function handler(event) {
             priority: ["All", ...priorityValues.sort()],
             leadStatus: ["All", ...leadStatusValues.sort()],
             interestedService: ["All", ...interestedServiceValues.sort()],
-            status: ["All", "Active", "Inactive"],
+            contactBy: ["All", ...contactByValues.sort()],
+            status: ["All", ...statusValues.sort()],
           },
         },
         origin,
