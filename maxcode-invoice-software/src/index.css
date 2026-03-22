@@ -260,6 +260,15 @@ button:focus-visible {
   animation-delay: 0.15s;
 }
 
+/* Show summary cards in 2 columns on mobile and tablet */
+@media (max-width: 991.98px) {
+  .row > .col-md-6.col-xl-2,
+  .row > .col-xl-2.col-lg-3.col-md-6 {
+    flex: 0 0 50%;
+    max-width: 50%;
+  }
+}
+
 .select-loader-premium > span:nth-child(3) {
   animation-delay: 0.3s;
 }
