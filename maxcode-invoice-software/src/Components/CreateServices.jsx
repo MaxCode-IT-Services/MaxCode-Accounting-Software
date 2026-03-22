@@ -1124,7 +1124,7 @@ const CreateServices = ({
                 </div>
 
                 <div className="col-12">
-                  <div className="table-responsive">
+                  <div className="table-responsive d-none d-lg-block">
                     <table className="table table-bordered table-hover">
                       <thead className="table-primary">
                         <tr>
@@ -1255,24 +1255,26 @@ const CreateServices = ({
                               </div>
                             </td>
                             <td className="align-middle">
-                              <div className="form-check form-switch d-flex align-items-center justify-content-center">
-                                <input
-                                  className="form-check-input me-2"
-                                  type="checkbox"
-                                  checked={Boolean(service.sendAlert)}
-                                  onChange={(e) =>
-                                    handleServiceSendAlertToggle(
-                                      service.id,
-                                      e.target.checked,
-                                    )
-                                  }
-                                  disabled={isViewMode}
-                                />
+                              <div className="d-flex align-items-center justify-content-between gap-2 px-1">
                                 <span
                                   className={`badge ${service.sendAlert ? "bg-success" : "bg-secondary"}`}
                                 >
                                   {service.sendAlert ? "On" : "Off"}
                                 </span>
+                                <div className="form-check form-switch m-0">
+                                  <input
+                                    className="form-check-input"
+                                    type="checkbox"
+                                    checked={Boolean(service.sendAlert)}
+                                    onChange={(e) =>
+                                      handleServiceSendAlertToggle(
+                                        service.id,
+                                        e.target.checked,
+                                      )
+                                    }
+                                    disabled={isViewMode}
+                                  />
+                                </div>
                               </div>
                             </td>
                             <td className="text-center align-middle">
@@ -1293,6 +1295,194 @@ const CreateServices = ({
                     </table>
                   </div>
 
+                  <div className="d-lg-none">
+                    {services.map((service, index) => (
+                      <div
+                        key={service.id}
+                        className="card border mb-3 shadow-sm"
+                      >
+                        <div className="card-header d-flex justify-content-between align-items-center bg-light">
+                          <strong>Service {index + 1}</strong>
+                          {!isViewMode && (
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              onClick={() => removeService(service.id)}
+                              disabled={services.length === 1}
+                            >
+                              <i className="fas fa-trash"></i>
+                            </button>
+                          )}
+                        </div>
+                        <div className="card-body">
+                          <div className="row">
+                            <div className="col-12 mb-3">
+                              <label className="form-label fw-semibold">
+                                Service Name
+                              </label>
+                              <CreatableSelect
+                                classNamePrefix="react-select"
+                                styles={serviceNameSelectStyles}
+                                menuPortalTarget={selectMenuPortalTarget}
+                                menuPosition="fixed"
+                                value={getServiceSelectValue(
+                                  service.serviceName,
+                                )}
+                                onChange={(selectedOption) =>
+                                  handleServiceNameSelect(
+                                    service.id,
+                                    selectedOption,
+                                  )
+                                }
+                                isDisabled={isViewMode}
+                                isClearable
+                                isSearchable
+                                placeholder="Select or type service..."
+                                options={serviceNameOptions}
+                                formatCreateLabel={(inputValue) =>
+                                  `Add Custom: ${inputValue}`
+                                }
+                              />
+                            </div>
+
+                            <div className="col-12 mb-3">
+                              <label className="form-label fw-semibold">
+                                Description
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={service.description}
+                                onChange={(e) =>
+                                  handleServiceChange(
+                                    service.id,
+                                    "description",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="Description"
+                                readOnly={isViewMode}
+                              />
+                            </div>
+
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Price (Rs)
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={service.price}
+                                onChange={(e) => {
+                                  handleNumberInput(e);
+                                  handleServiceChange(
+                                    service.id,
+                                    "price",
+                                    e.target.value,
+                                  );
+                                }}
+                                placeholder="Price"
+                                readOnly={isViewMode}
+                              />
+                            </div>
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Start Date
+                              </label>
+                              <input
+                                type="date"
+                                className="form-control modern-input"
+                                value={service.startDate}
+                                onChange={(e) =>
+                                  handleServiceChange(
+                                    service.id,
+                                    "startDate",
+                                    e.target.value,
+                                  )
+                                }
+                                readOnly={isViewMode}
+                              />
+                            </div>
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Expiry Date
+                              </label>
+                              <input
+                                type="date"
+                                className="form-control modern-input"
+                                value={service.expiryDate}
+                                onChange={(e) =>
+                                  handleServiceChange(
+                                    service.id,
+                                    "expiryDate",
+                                    e.target.value,
+                                  )
+                                }
+                                readOnly={isViewMode}
+                              />
+                            </div>
+
+                            <div className="col-6 mb-3">
+                              <div className="d-flex justify-content-between align-items-center mb-2">
+                                <label className="form-label fw-semibold mb-0">
+                                  Status
+                                </label>
+                                <div className="d-flex align-items-center gap-2">
+                                  <span
+                                    className={`badge ${service.status === "Active" ? "bg-success" : "bg-danger"}`}
+                                  >
+                                    {service.status}
+                                  </span>
+                                  <div className="form-check form-switch m-0">
+                                    <input
+                                      className="form-check-input"
+                                      type="checkbox"
+                                      checked={service.status === "Active"}
+                                      onChange={(e) =>
+                                        handleServiceStatusToggle(
+                                          service.id,
+                                          e.target.checked,
+                                        )
+                                      }
+                                      disabled={isViewMode}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="d-flex justify-content-between align-items-center mt-3">
+                                <label className="form-label fw-semibold mb-0">
+                                  Send Alert
+                                </label>
+                                <div className="d-flex align-items-center gap-2">
+                                  <span
+                                    className={`badge ${service.sendAlert ? "bg-success" : "bg-secondary"}`}
+                                  >
+                                    {service.sendAlert ? "On" : "Off"}
+                                  </span>
+                                  <div className="form-check form-switch m-0">
+                                    <input
+                                      className="form-check-input"
+                                      type="checkbox"
+                                      checked={Boolean(service.sendAlert)}
+                                      onChange={(e) =>
+                                        handleServiceSendAlertToggle(
+                                          service.id,
+                                          e.target.checked,
+                                        )
+                                      }
+                                      disabled={isViewMode}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
                   {!isViewMode && (
                     <button
                       type="button"
@@ -1300,7 +1490,7 @@ const CreateServices = ({
                       onClick={addService}
                     >
                       <i className="fas fa-plus me-2"></i>
-                      Add More Service
+                      Add More
                     </button>
                   )}
                 </div>
@@ -1320,7 +1510,7 @@ const CreateServices = ({
                 </div>
 
                 <div className="col-12">
-                  <div className="table-responsive">
+                  <div className="table-responsive d-none d-lg-block">
                     <table className="table table-bordered table-hover">
                       <thead className="table-success">
                         <tr>
@@ -1467,6 +1657,165 @@ const CreateServices = ({
                         ))}
                       </tbody>
                     </table>
+                  </div>
+
+                  <div className="d-lg-none">
+                    {transactions.map((transaction, index) => (
+                      <div
+                        key={transaction.id}
+                        className="card border mb-3 shadow-sm"
+                      >
+                        <div className="card-header d-flex justify-content-between align-items-center bg-light">
+                          <strong>Transaction {index + 1}</strong>
+                          {!isViewMode && (
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              onClick={() => removeTransaction(transaction.id)}
+                              disabled={transactions.length === 1}
+                            >
+                              <i className="fas fa-trash"></i>
+                            </button>
+                          )}
+                        </div>
+                        <div className="card-body">
+                          <div className="row">
+                            <div className="col-12 mb-3">
+                              <label className="form-label fw-semibold">
+                                Service Name
+                              </label>
+                              <CreatableSelect
+                                classNamePrefix="react-select"
+                                styles={serviceNameSelectStyles}
+                                menuPortalTarget={selectMenuPortalTarget}
+                                menuPosition="fixed"
+                                value={getServiceSelectValue(
+                                  transaction.serviceName,
+                                )}
+                                onChange={(selectedOption) =>
+                                  handleTransactionServiceNameSelect(
+                                    transaction.id,
+                                    selectedOption,
+                                  )
+                                }
+                                isDisabled={isViewMode}
+                                isClearable
+                                isSearchable
+                                placeholder="Select or type service..."
+                                options={serviceNameOptions}
+                                formatCreateLabel={(inputValue) =>
+                                  `Add Custom: ${inputValue}`
+                                }
+                              />
+                            </div>
+
+                            <div className="col-12 mb-3">
+                              <label className="form-label fw-semibold">
+                                Description
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={transaction.description}
+                                onChange={(e) =>
+                                  handleTransactionChange(
+                                    transaction.id,
+                                    "description",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="Description"
+                                readOnly={isViewMode}
+                              />
+                            </div>
+
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Price (Rs)
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={transaction.price}
+                                onChange={(e) => {
+                                  handleNumberInput(e);
+                                  handleTransactionChange(
+                                    transaction.id,
+                                    "price",
+                                    e.target.value,
+                                  );
+                                }}
+                                placeholder="Price"
+                                readOnly={isViewMode}
+                              />
+                            </div>
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Renew Date
+                              </label>
+                              <input
+                                type="date"
+                                className="form-control modern-input"
+                                value={transaction.renewDate}
+                                onChange={(e) =>
+                                  handleTransactionChange(
+                                    transaction.id,
+                                    "renewDate",
+                                    e.target.value,
+                                  )
+                                }
+                                readOnly={isViewMode}
+                              />
+                            </div>
+
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Expiry Date
+                              </label>
+                              <input
+                                type="date"
+                                className="form-control modern-input"
+                                value={transaction.expiryDate}
+                                onChange={(e) =>
+                                  handleTransactionChange(
+                                    transaction.id,
+                                    "expiryDate",
+                                    e.target.value,
+                                  )
+                                }
+                                readOnly={isViewMode}
+                              />
+                            </div>
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Status
+                              </label>
+                              <div className="d-flex align-items-center justify-content-between gap-2 mt-2">
+                                <span
+                                  className={`badge ${transaction.status === "Active" ? "bg-success" : "bg-danger"}`}
+                                >
+                                  {transaction.status}
+                                </span>
+                                <div className="form-check form-switch m-0">
+                                  <input
+                                    className="form-check-input"
+                                    type="checkbox"
+                                    checked={transaction.status === "Active"}
+                                    onChange={(e) =>
+                                      handleTransactionStatusToggle(
+                                        transaction.id,
+                                        e.target.checked,
+                                      )
+                                    }
+                                    disabled={isViewMode}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
 
                   {!isViewMode && (

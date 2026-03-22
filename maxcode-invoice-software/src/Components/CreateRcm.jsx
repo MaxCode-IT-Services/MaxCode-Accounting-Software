@@ -857,7 +857,8 @@ const CreateRcm = ({
                 </div>
 
                 <div className="col-12">
-                  <div className="table-responsive">
+                  {/* Desktop view - Table layout */}
+                  <div className="table-responsive d-none d-lg-block">
                     <table className="table table-bordered table-hover">
                       <thead className="table-primary">
                         <tr>
@@ -989,6 +990,147 @@ const CreateRcm = ({
                     </table>
                   </div>
 
+                  {/* Mobile & Tablet view - Card layout */}
+                  <div className="d-lg-none">
+                    {items.map((item, index) => (
+                      <div key={item.id} className="card border mb-3 shadow-sm">
+                        <div className="card-header d-flex justify-content-between align-items-center bg-light">
+                          <strong>Item {index + 1}</strong>
+                          {!isViewMode && (
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              onClick={() => handleRemoveItem(item.id)}
+                              disabled={items.length === 1}
+                            >
+                              <i className="fas fa-trash"></i>
+                            </button>
+                          )}
+                        </div>
+                        <div className="card-body">
+                          <div className="row">
+                            {/* Row 1: Item Name */}
+                            <div className="col-12 mb-3">
+                              <label className="form-label fw-semibold">
+                                Item Name
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={item.itemName}
+                                onChange={(e) =>
+                                  handleItemChange(
+                                    item.id,
+                                    "itemName",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="Item Name"
+                                readOnly={isViewMode}
+                              />
+                            </div>
+
+                            {/* Row 2: Description */}
+                            <div className="col-12 mb-3">
+                              <label className="form-label fw-semibold">
+                                Description
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={item.itemDescription}
+                                onChange={(e) =>
+                                  handleItemChange(
+                                    item.id,
+                                    "itemDescription",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="Item Description"
+                                readOnly={isViewMode}
+                              />
+                            </div>
+
+                            {/* Row 3: HSN Code and QTY - Side by Side */}
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                HSN Code
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={item.hsnCode}
+                                onChange={(e) =>
+                                  handleItemChange(
+                                    item.id,
+                                    "hsnCode",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="HSN Code"
+                                readOnly={isViewMode}
+                              />
+                            </div>
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                QTY
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={item.qty}
+                                onChange={(e) => {
+                                  handleNumberInput(e);
+                                  handleItemChange(
+                                    item.id,
+                                    "qty",
+                                    e.target.value,
+                                  );
+                                }}
+                                placeholder="Quantity"
+                                readOnly={isViewMode}
+                              />
+                            </div>
+
+                            {/* Row 4: Price and Amount - Side by Side */}
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Price (₹)
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={item.price}
+                                onChange={(e) => {
+                                  handleNumberInput(e);
+                                  handleItemChange(
+                                    item.id,
+                                    "price",
+                                    e.target.value,
+                                  );
+                                }}
+                                placeholder="Price"
+                                readOnly={isViewMode}
+                              />
+                            </div>
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Amount (₹)
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input fw-bold"
+                                value={toNumber(item.amount).toFixed(2)}
+                                readOnly
+                                style={{ backgroundColor: "#f8f9fa" }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
                   {!isViewMode && (
                     <button
                       type="button"
@@ -996,7 +1138,7 @@ const CreateRcm = ({
                       onClick={handleAddItem}
                     >
                       <i className="fas fa-plus me-2"></i>
-                      Add New Item
+                      Add More
                     </button>
                   )}
                 </div>

@@ -93,7 +93,7 @@ const buildServiceExpiryNotifications = ({
         description: `${service.serviceName || "Service"} Subsciption for ${record.businessName || "Business"} is Expirying in ${daysRemaining} day${daysRemaining > 1 ? "s" : ""}. Expiry Date: ${formatDateForDisplay(service.expiryDate)}, Price: ${formatCurrency(price)}, Tax ${taxPercentage}%: ${formatCurrency(taxAmount)}, Total Amount ${formatCurrency(totalAmount)}. Please take necessary action to renew or notify the client.`,
         icon: "bullhorn",
         type: daysRemaining <= 3 ? "danger" : "warning",
-        image: "https://img.maxcodehub.com/Ex.png",
+        image: "https://img.maxcodehub.com/Others/Ex.png",
         templateType: "service-expiry",
         templateData: {
           serviceName: service.serviceName || "Service",
@@ -152,7 +152,7 @@ const buildLeadFollowUpNotifications = ({ leadRecords = [], today }) => {
       description: `Follow-up for ${leadName} (${businessName}) is due ${whenText}. Follow-up Date: ${formatDateForDisplay(lead.followUpDate)}.${lead?.phoneNumber ? ` Phone: ${lead.phoneNumber}.` : ""}`,
       icon: "calendar-check",
       type: daysRemaining === 0 ? "danger" : "warning",
-      image: "https://img.maxcodehub.com/Ex.png",
+      image: "https://img.maxcodehub.com/Others/Ex.png",
       templateType: "lead-followup",
       templateData: {
         leadId: String(lead?._id || lead?.id || ""),

@@ -1362,7 +1362,7 @@ const CreateProject = ({
                 </div>
 
                 <div className="col-12">
-                  <div className="table-responsive">
+                  <div className="table-responsive d-none d-lg-block">
                     <table className="table table-bordered table-hover">
                       <thead className="table-primary">
                         <tr>
@@ -1534,6 +1534,190 @@ const CreateProject = ({
                     </table>
                   </div>
 
+                  <div className="d-lg-none">
+                    {paymentDetails.map((payment, index) => (
+                      <div
+                        key={payment.id}
+                        className="card border mb-3 shadow-sm"
+                      >
+                        <div className="card-header d-flex justify-content-between align-items-center bg-light">
+                          <strong>Payment {index + 1}</strong>
+                          {!isViewMode && (
+                            <button
+                              type="button"
+                              className="btn btn-danger btn-sm"
+                              onClick={() => removePaymentRow(payment.id)}
+                              disabled={paymentDetails.length === 1}
+                            >
+                              <i className="fas fa-trash"></i>
+                            </button>
+                          )}
+                        </div>
+                        <div className="card-body">
+                          <div className="row">
+                            <div className="col-12 mb-3">
+                              <label className="form-label fw-semibold">
+                                Invoice Number
+                              </label>
+                              <Select
+                                classNamePrefix="react-select"
+                                styles={compactSelectStyles}
+                                menuPortalTarget={selectMenuPortalTarget}
+                                menuPosition="fixed"
+                                value={
+                                  payment.invoiceNumber
+                                    ? {
+                                        value: payment.invoiceNumber,
+                                        label: payment.invoiceNumber,
+                                      }
+                                    : null
+                                }
+                                onChange={(selectedOption) =>
+                                  handleInvoiceSelect(
+                                    payment.id,
+                                    selectedOption,
+                                  )
+                                }
+                                isDisabled={isViewMode || !formData.clientRefId}
+                                isClearable
+                                isSearchable
+                                placeholder={
+                                  formData.clientRefId
+                                    ? "Select invoice number"
+                                    : "Select client first"
+                                }
+                                options={filteredInvoices.map((invoice) => ({
+                                  value: invoice.invoiceNumber || "",
+                                  label: `${invoice.invoiceNumber || ""} (${invoice.invoiceDate || ""})`,
+                                }))}
+                              />
+                            </div>
+
+                            <div className="col-12 mb-3">
+                              <label className="form-label fw-semibold">
+                                Description
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={payment.description}
+                                onChange={(e) =>
+                                  handlePaymentChange(
+                                    payment.id,
+                                    "description",
+                                    e.target.value,
+                                  )
+                                }
+                                readOnly={isViewMode}
+                                placeholder="Description"
+                              />
+                            </div>
+
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Payment Date
+                              </label>
+                              <input
+                                type="date"
+                                className="form-control modern-input"
+                                value={payment.paymentDate}
+                                onChange={(e) =>
+                                  handlePaymentChange(
+                                    payment.id,
+                                    "paymentDate",
+                                    e.target.value,
+                                  )
+                                }
+                                readOnly={isViewMode}
+                              />
+                            </div>
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Payment Method
+                              </label>
+                              <select
+                                className="form-select modern-input"
+                                value={payment.paymentMethod}
+                                onChange={(e) =>
+                                  handlePaymentChange(
+                                    payment.id,
+                                    "paymentMethod",
+                                    e.target.value,
+                                  )
+                                }
+                                disabled={isViewMode}
+                              >
+                                {paymentMethodOptions.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Amount (Rs)
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={payment.amount}
+                                onChange={(e) =>
+                                  handlePaymentChange(
+                                    payment.id,
+                                    "amount",
+                                    e.target.value,
+                                  )
+                                }
+                                readOnly={isViewMode}
+                                placeholder="0.00"
+                              />
+                            </div>
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold">
+                                Tax (Rs)
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={payment.tax}
+                                onChange={(e) =>
+                                  handlePaymentChange(
+                                    payment.id,
+                                    "tax",
+                                    e.target.value,
+                                  )
+                                }
+                                readOnly={isViewMode}
+                                placeholder="0.00"
+                              />
+                            </div>
+                            <div className="col-12 mb-3">
+                              <label className="form-label fw-semibold">
+                                Total Amount (Rs)
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                value={payment.totalAmount}
+                                onChange={(e) =>
+                                  handlePaymentChange(
+                                    payment.id,
+                                    "totalAmount",
+                                    e.target.value,
+                                  )
+                                }
+                                readOnly={isViewMode}
+                                placeholder="0.00"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
                   {!isViewMode && (
                     <button
                       type="button"
@@ -1541,7 +1725,7 @@ const CreateProject = ({
                       onClick={addPaymentRow}
                     >
                       <i className="fas fa-plus me-2"></i>
-                      Add Payment
+                      Add More
                     </button>
                   )}
                 </div>
@@ -1561,7 +1745,7 @@ const CreateProject = ({
                 </div>
 
                 <div className="col-12">
-                  <div className="table-responsive">
+                  <div className="table-responsive d-none d-lg-block">
                     <table className="table table-bordered table-hover">
                       <thead className="table-success">
                         <tr>
@@ -1731,6 +1915,182 @@ const CreateProject = ({
                     </table>
                   </div>
 
+                  <div className="d-lg-none">
+                    {developerTransactions.map((transaction, index) => {
+                      const selectedStaffOption = transaction.staffRefId
+                        ? {
+                            value: transaction.staffRefId,
+                            label: transaction.staffName,
+                          }
+                        : null;
+
+                      return (
+                        <div
+                          key={transaction.id}
+                          className="card border mb-3 shadow-sm"
+                        >
+                          <div className="card-header d-flex justify-content-between align-items-center bg-light">
+                            <strong>Transaction {index + 1}</strong>
+                            {!isViewMode && (
+                              <button
+                                type="button"
+                                className="btn btn-danger btn-sm"
+                                onClick={() =>
+                                  removeDeveloperTransactionRow(transaction.id)
+                                }
+                                disabled={developerTransactions.length === 1}
+                              >
+                                <i className="fas fa-trash"></i>
+                              </button>
+                            )}
+                          </div>
+                          <div className="card-body">
+                            <div className="row">
+                              <div className="col-12 mb-3">
+                                <label className="form-label fw-semibold">
+                                  Staff Name
+                                </label>
+                                <Select
+                                  classNamePrefix="react-select"
+                                  styles={compactSelectStyles}
+                                  components={selectComponents}
+                                  isLoading={isStaffLoading}
+                                  menuPortalTarget={selectMenuPortalTarget}
+                                  menuPosition="fixed"
+                                  value={selectedStaffOption}
+                                  onChange={(selectedOption) =>
+                                    handleStaffSelect(
+                                      transaction.id,
+                                      selectedOption,
+                                    )
+                                  }
+                                  onInputChange={handleStaffSearchInput}
+                                  isDisabled={isViewMode}
+                                  isClearable
+                                  isSearchable
+                                  placeholder="Select staff"
+                                  options={staffOptions.map((staff) => ({
+                                    value: staff.id || staff._id,
+                                    label: `${staff.developerName || ""} (${staff.phoneNumber || ""})`,
+                                  }))}
+                                />
+                              </div>
+
+                              <div className="col-12 mb-3">
+                                <label className="form-label fw-semibold">
+                                  Description
+                                </label>
+                                <input
+                                  type="text"
+                                  className="form-control modern-input"
+                                  value={transaction.description}
+                                  onChange={(e) =>
+                                    handlePayoutChange(
+                                      transaction.id,
+                                      "description",
+                                      e.target.value,
+                                    )
+                                  }
+                                  readOnly={isViewMode}
+                                  placeholder="Description"
+                                />
+                              </div>
+
+                              <div className="col-6 mb-3">
+                                <label className="form-label fw-semibold">
+                                  Payout Date
+                                </label>
+                                <input
+                                  type="date"
+                                  className="form-control modern-input"
+                                  value={transaction.payoutDate}
+                                  onChange={(e) =>
+                                    handlePayoutChange(
+                                      transaction.id,
+                                      "payoutDate",
+                                      e.target.value,
+                                    )
+                                  }
+                                  readOnly={isViewMode}
+                                />
+                              </div>
+                              <div className="col-6 mb-3">
+                                <label className="form-label fw-semibold">
+                                  Payout Amount (Rs)
+                                </label>
+                                <input
+                                  type="text"
+                                  className="form-control modern-input"
+                                  value={transaction.payoutAmount}
+                                  onChange={(e) =>
+                                    handlePayoutChange(
+                                      transaction.id,
+                                      "payoutAmount",
+                                      e.target.value,
+                                    )
+                                  }
+                                  readOnly={isViewMode}
+                                  placeholder="0.00"
+                                />
+                              </div>
+
+                              <div className="col-6 mb-3">
+                                <label className="form-label fw-semibold">
+                                  Payout Method
+                                </label>
+                                <select
+                                  className="form-select modern-input"
+                                  value={transaction.payoutMethod}
+                                  onChange={(e) =>
+                                    handlePayoutChange(
+                                      transaction.id,
+                                      "payoutMethod",
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={isViewMode}
+                                >
+                                  {payoutMethodOptions.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="col-6 mb-3">
+                                <label className="form-label fw-semibold">
+                                  Payment Source
+                                </label>
+                                <select
+                                  className="form-select modern-input"
+                                  value={
+                                    transaction.payoutSource ||
+                                    "Business Account"
+                                  }
+                                  onChange={(e) =>
+                                    handlePayoutChange(
+                                      transaction.id,
+                                      "payoutSource",
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={isViewMode}
+                                >
+                                  <option value="Business Account">
+                                    🏦 Business Account
+                                  </option>
+                                  <option value="Owner Personal Account">
+                                    👤 Owner Personal Account
+                                  </option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   {!isViewMode && (
                     <button
                       type="button"
@@ -1738,7 +2098,7 @@ const CreateProject = ({
                       onClick={addDeveloperTransactionRow}
                     >
                       <i className="fas fa-plus me-2"></i>
-                      Add Transaction
+                      Add More
                     </button>
                   )}
                 </div>

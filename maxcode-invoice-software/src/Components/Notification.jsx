@@ -111,7 +111,7 @@ const Notification = ({ onUnreadCountChange }) => {
           id: itemId,
           type: item?.type || (daysRemaining <= 3 ? "danger" : "warning"),
           icon: item?.icon || "bullhorn",
-          image: item?.image || "https://img.maxcodehub.com/Ex.png",
+          image: item?.image || "https://img.maxcodehub.com/Others/Ex.png",
           links: Array.isArray(item?.links) ? item.links : [],
           read: Boolean(item?.read),
           expanded: false,
