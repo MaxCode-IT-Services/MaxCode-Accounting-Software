@@ -1207,15 +1207,31 @@ export async function handler(event) {
       }
 
       if (folderName && folderName !== "All") {
-        filtered = filtered.filter(
-          (row) => String(row.folderName || "") === String(folderName).trim(),
-        );
+        // Handle comma-separated values for multi-select filters
+        const folderNameValues = String(folderName)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
+
+        if (folderNameValues.length > 0) {
+          filtered = filtered.filter((row) =>
+            folderNameValues.includes(String(row.folderName || "").trim()),
+          );
+        }
       }
 
       if (fileType && fileType !== "All") {
-        filtered = filtered.filter(
-          (row) => String(row.fileType || "") === String(fileType).trim(),
-        );
+        // Handle comma-separated values for multi-select filters
+        const fileTypeValues = String(fileType)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
+
+        if (fileTypeValues.length > 0) {
+          filtered = filtered.filter((row) =>
+            fileTypeValues.includes(String(row.fileType || "").trim()),
+          );
+        }
       }
 
       if (fileSize && fileSize !== "All") {

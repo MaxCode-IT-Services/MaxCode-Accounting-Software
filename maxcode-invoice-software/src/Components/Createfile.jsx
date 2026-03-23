@@ -490,9 +490,12 @@ const Createfile = ({
               })(),
               originalName: file.name,
               fileType:
-                uploadReadyFile.type || file.type || "application/octet-stream",
-              fileSizeBytes: uploadReadyFile.size || file.size,
-              fileDataBase64: await toBase64(uploadReadyFile),
+                uploadReadyFile.fileType ||
+                file.type ||
+                "application/octet-stream",
+              fileSizeBytes: uploadReadyFile.fileSizeBytes || file.size,
+              fileDataBase64: uploadReadyFile.fileDataBase64,
+              compression: uploadReadyFile.compression,
             };
           }),
         );
