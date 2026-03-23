@@ -2,6 +2,292 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const normalizeCloudflareSettings = (settings = {}) => {
+  if (!settings || typeof settings !== "object") return null;
+
+  const normalizeUrl = (value = "") => {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) return "";
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed.replace(/\/+$/, "");
+    }
+    return `https://${trimmed}`.replace(/\/+$/, "");
+  };
+
+  return {
+    storeUrl: normalizeUrl(settings.storeUrl),
+    publicDomain: normalizeUrl(settings.publicDomain),
+    password: String(settings.password || "").trim(),
+  };
+};
+
+const getCloudflareSettingsFromDatabase = async (db) => {
+  try {
+    const settingsCollection = db.collection("business_settings");
+    const globalSettings = await settingsCollection.findOne({
+      scope: "global",
+    });
+    const latestSettings = globalSettings
+      ? null
+      : await settingsCollection.findOne(
+          {},
+          {
+            sort: {
+              updatedAt: -1,
+              createdAt: -1,
+              _id: -1,
+            },
+          },
+        );
+
+    const source = globalSettings || latestSettings || {};
+    const nestedSettings =
+      source.cloudflareSettings ||
+      source.r2Settings ||
+      source.cloudStorageSettings ||
+      {};
+
+    return normalizeCloudflareSettings({
+      ...nestedSettings,
+      storeUrl: source.storeUrl || nestedSettings.storeUrl,
+      publicDomain: source.publicDomain || nestedSettings.publicDomain,
+      password: source.password || nestedSettings.password,
+    });
+  } catch {
+    return null;
+  }
+};
+
+const safeFileName = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/[\\/]+/g, "-") || `purchase-invoice-${Date.now()}`;
+
+const sanitizeInvoiceNumber = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "purchase-invoice";
+
+const getExtensionFromUpload = (fileName = "", mimeType = "") => {
+  const sourceName = String(fileName || "");
+  const nameParts = sourceName.split(".");
+  if (nameParts.length > 1) {
+    const fromName = String(nameParts.pop() || "")
+      .trim()
+      .toLowerCase();
+    if (fromName) return fromName;
+  }
+
+  const normalizedType = String(mimeType || "").toLowerCase();
+  if (normalizedType === "application/pdf") return "pdf";
+  if (normalizedType === "image/jpeg" || normalizedType === "image/jpg")
+    return "jpg";
+  if (normalizedType === "image/png") return "png";
+  if (normalizedType === "image/webp") return "webp";
+  if (normalizedType === "image/gif") return "gif";
+
+  return "pdf";
+};
+
+const getExtensionFromPath = (path = "") => {
+  const cleanedPath = String(path || "")
+    .split("?")[0]
+    .split("#")[0];
+  const pathParts = cleanedPath.split("/");
+  const lastSegment = String(pathParts.pop() || "");
+  const nameParts = lastSegment.split(".");
+  if (nameParts.length > 1) {
+    return String(nameParts.pop() || "")
+      .trim()
+      .toLowerCase();
+  }
+  return "";
+};
+
+const parseDateValue = (value) => {
+  if (!value) return null;
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const direct = new Date(raw);
+  if (!Number.isNaN(direct.getTime())) {
+    return direct;
+  }
+
+  const ddMmYyyyMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (ddMmYyyyMatch) {
+    const day = Number(ddMmYyyyMatch[1]);
+    const month = Number(ddMmYyyyMatch[2]);
+    const year = Number(ddMmYyyyMatch[3]);
+    const parsed = new Date(year, month - 1, day);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  return null;
+};
+
+const getFinancialYearLabel = (invoiceDateValue) => {
+  const parsedDate = parseDateValue(invoiceDateValue);
+  const baseDate = parsedDate || new Date();
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth() + 1;
+
+  const startYear = month >= 4 ? year : year - 1;
+  const endYearShort = String((startYear + 1) % 100).padStart(2, "0");
+
+  return `${startYear}-${endYearShort}`;
+};
+
+const buildInvoiceFileName = ({
+  invoiceNumber,
+  invoiceUpload,
+  existingPath,
+}) => {
+  const safeInvoiceNumber = sanitizeInvoiceNumber(invoiceNumber);
+  const extension =
+    getExtensionFromPath(existingPath) ||
+    getExtensionFromUpload(invoiceUpload?.fileName, invoiceUpload?.fileType);
+  return `${safeInvoiceNumber}.${extension}`;
+};
+
+const buildInvoiceObjectPath = ({
+  invoiceNumber,
+  invoiceUpload,
+  invoiceDate,
+  existingPath,
+}) => {
+  if (existingPath) {
+    return String(existingPath || "").replace(/^\/+/, "");
+  }
+
+  const fileName = buildInvoiceFileName({
+    invoiceNumber,
+    invoiceUpload,
+    existingPath,
+  });
+  const financialYearLabel = getFinancialYearLabel(invoiceDate);
+  return `Purchase/${financialYearLabel}/${fileName}`;
+};
+
+const buildPublicUrl = (publicDomain, path) => {
+  const cleanedPath = String(path || "").replace(/^\/+/, "");
+  if (publicDomain) {
+    return `${publicDomain}/${cleanedPath}`;
+  }
+  return "";
+};
+
+const uploadToCloudflareStore = async ({
+  storeUrl,
+  publicDomain,
+  password,
+  objectPath,
+  mimeType,
+  fileBuffer,
+}) => {
+  const cleanedStoreUrl = String(storeUrl || "").replace(/\/+$/, "");
+  const cleanedPath = String(objectPath || "").replace(/^\/+/, "");
+  const putUrl = `${cleanedStoreUrl}/${cleanedPath}`;
+
+  const headers = {
+    "Content-Type": mimeType || "application/octet-stream",
+    "x-upload-password": password,
+    "x-api-key": password,
+    "x-password": password,
+    Authorization: `Bearer ${password}`,
+  };
+
+  const putResponse = await fetch(putUrl, {
+    method: "PUT",
+    headers,
+    body: fileBuffer,
+  });
+
+  if (putResponse.ok) {
+    let responseUrl = "";
+    try {
+      const putJson = await putResponse.clone().json();
+      responseUrl =
+        putJson?.url ||
+        putJson?.fileUrl ||
+        putJson?.data?.url ||
+        putJson?.result?.url ||
+        "";
+    } catch {
+      // Ignore non-JSON responses.
+    }
+
+    return {
+      fileUrl:
+        responseUrl || buildPublicUrl(publicDomain, cleanedPath) || putUrl,
+      filePath: cleanedPath,
+    };
+  }
+
+  const responseBody = await putResponse.text().catch(() => "");
+  throw new Error(
+    `Cloudflare invoice upload failed: ${putResponse.status} ${responseBody || ""}`,
+  );
+};
+
+const deleteFromCloudflareStore = async ({
+  storeUrl,
+  password,
+  objectPath,
+}) => {
+  const cleanedStoreUrl = String(storeUrl || "").replace(/\/+$/, "");
+  const cleanedPath = String(objectPath || "").replace(/^\/+/, "");
+  if (!cleanedStoreUrl || !cleanedPath) {
+    throw new Error("Cloudflare delete path not available");
+  }
+
+  const commonHeaders = {
+    "x-upload-password": password,
+    "x-api-key": password,
+    "x-password": password,
+    Authorization: `Bearer ${password}`,
+  };
+
+  const deleteResponse = await fetch(`${cleanedStoreUrl}/${cleanedPath}`, {
+    method: "DELETE",
+    headers: commonHeaders,
+  });
+
+  if (deleteResponse.ok) {
+    return;
+  }
+
+  const fallbackResponse = await fetch(cleanedStoreUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...commonHeaders,
+    },
+    body: JSON.stringify({
+      action: "delete",
+      password,
+      path: cleanedPath,
+      filePath: cleanedPath,
+    }),
+  });
+
+  if (!fallbackResponse.ok) {
+    const first = await deleteResponse.text().catch(() => "");
+    const second = await fallbackResponse.text().catch(() => "");
+    throw new Error(
+      `Cloudflare invoice delete failed. DELETE: ${deleteResponse.status} ${first || ""}; POST: ${fallbackResponse.status} ${second || ""}`,
+    );
+  }
+};
+
 /**
  * Purchase Management API
  * Handles CRUD operations for purchases with pagination support
@@ -436,6 +722,60 @@ export async function handler(event) {
         );
       }
 
+      if (purchaseData?.invoiceUpload?.fileDataBase64) {
+        const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
+        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Cloudflare settings missing. Configure Cloudflare before uploading purchase invoice.",
+            },
+            origin,
+          );
+        }
+
+        const invoiceUpload = purchaseData.invoiceUpload;
+        const fileName = buildInvoiceFileName({
+          invoiceNumber: purchaseData.invoiceNumber,
+          invoiceUpload,
+        });
+        const objectPath = buildInvoiceObjectPath({
+          invoiceNumber: purchaseData.invoiceNumber,
+          invoiceUpload,
+          invoiceDate: purchaseData.invoiceDate,
+        });
+        const fileBuffer = Buffer.from(
+          String(invoiceUpload.fileDataBase64 || ""),
+          "base64",
+        );
+
+        if (!fileBuffer.length) {
+          return createResponse(
+            400,
+            { error: "Invalid invoice file data" },
+            origin,
+          );
+        }
+
+        const uploadResult = await uploadToCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          publicDomain: cloudflareSettings.publicDomain,
+          password: cloudflareSettings.password,
+          objectPath,
+          mimeType: invoiceUpload.fileType || "application/octet-stream",
+          fileBuffer,
+        });
+
+        purchaseData.invoiceFileURL = uploadResult.fileUrl;
+        purchaseData.invoiceFilePath = uploadResult.filePath;
+        purchaseData.invoiceFileName = fileName;
+        purchaseData.invoiceFileType =
+          invoiceUpload.fileType || "application/octet-stream";
+      }
+
+      delete purchaseData.invoiceUpload;
+
       const result = await purchasesCollection.insertOne({
         ...purchaseData,
         createdAt: new Date(),
@@ -486,6 +826,73 @@ export async function handler(event) {
         }
       }
 
+      const existingPurchase = await purchasesCollection.findOne({
+        _id: purchaseObjectId,
+        isDeleted: { $ne: true },
+      });
+
+      if (!existingPurchase) {
+        return createResponse(404, { error: "Purchase not found" }, origin);
+      }
+
+      if (purchaseData?.invoiceUpload?.fileDataBase64) {
+        const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
+        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Cloudflare settings missing. Configure Cloudflare before uploading purchase invoice.",
+            },
+            origin,
+          );
+        }
+
+        const invoiceUpload = purchaseData.invoiceUpload;
+        const objectPath = buildInvoiceObjectPath({
+          invoiceNumber:
+            purchaseData.invoiceNumber || existingPurchase.invoiceNumber,
+          invoiceUpload,
+          invoiceDate: purchaseData.invoiceDate || existingPurchase.invoiceDate,
+          existingPath: existingPurchase.invoiceFilePath,
+        });
+        const fileName = buildInvoiceFileName({
+          invoiceNumber:
+            purchaseData.invoiceNumber || existingPurchase.invoiceNumber,
+          invoiceUpload,
+          existingPath: existingPurchase.invoiceFilePath,
+        });
+        const fileBuffer = Buffer.from(
+          String(invoiceUpload.fileDataBase64 || ""),
+          "base64",
+        );
+
+        if (!fileBuffer.length) {
+          return createResponse(
+            400,
+            { error: "Invalid invoice file data" },
+            origin,
+          );
+        }
+
+        const uploadResult = await uploadToCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          publicDomain: cloudflareSettings.publicDomain,
+          password: cloudflareSettings.password,
+          objectPath,
+          mimeType: invoiceUpload.fileType || "application/octet-stream",
+          fileBuffer,
+        });
+
+        purchaseData.invoiceFileURL = uploadResult.fileUrl;
+        purchaseData.invoiceFilePath = uploadResult.filePath;
+        purchaseData.invoiceFileName = fileName;
+        purchaseData.invoiceFileType =
+          invoiceUpload.fileType || "application/octet-stream";
+      }
+
+      delete purchaseData.invoiceUpload;
+
       const result = await purchasesCollection.updateOne(
         { _id: purchaseObjectId, isDeleted: { $ne: true } },
         {
@@ -522,8 +929,38 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid purchase ID" }, origin);
       }
 
+      const purchaseObjectId = new ObjectId(id);
+      const purchase = await purchasesCollection.findOne({
+        _id: purchaseObjectId,
+        isDeleted: { $ne: true },
+      });
+
+      if (!purchase) {
+        return createResponse(404, { error: "Purchase not found" }, origin);
+      }
+
+      if (purchase.invoiceFilePath) {
+        const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
+        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Cloudflare settings missing. Unable to delete purchase invoice file.",
+            },
+            origin,
+          );
+        }
+
+        await deleteFromCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          password: cloudflareSettings.password,
+          objectPath: purchase.invoiceFilePath,
+        });
+      }
+
       const result = await purchasesCollection.updateOne(
-        { _id: new ObjectId(id), isDeleted: { $ne: true } },
+        { _id: purchaseObjectId, isDeleted: { $ne: true } },
         {
           $set: {
             isDeleted: true,

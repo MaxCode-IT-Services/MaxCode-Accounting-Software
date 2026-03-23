@@ -302,6 +302,13 @@ const PurchaseManagement = () => {
 
       const mappedData = purchasesData.map((purchase) => {
         const createdDate = purchase.createdDate || purchase.createdAt;
+        const invoiceFileLink =
+          purchase.invoiceFileURL ||
+          (purchase.invoiceFilePath ? purchase.invoiceURL || "" : "");
+        const invoiceManualLink =
+          purchase.invoiceFilePath && !purchase.invoiceFileURL
+            ? ""
+            : purchase.invoiceURL || "";
 
         return {
           ...purchase,
@@ -316,6 +323,8 @@ const PurchaseManagement = () => {
           roundingAmount: purchase.roundingAmount || 0,
           itemCount: purchase.items?.length || 0,
           vendorName: getVendorName(purchase),
+          invoiceFileLink,
+          invoiceManualLink,
         };
       });
 
@@ -694,6 +703,62 @@ const PurchaseManagement = () => {
         else if (value === "RCM + ITC") badgeClass = "bg-primary";
         return <span className={`badge ${badgeClass}`}>{value}</span>;
       },
+    },
+    {
+      key: "invoiceFile",
+      label: "Invoice",
+      width: 90,
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.invoiceFileLink ? (
+          <a
+            href={record.invoiceFileLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-sm btn-outline-success"
+            title="Open uploaded invoice"
+          >
+            <i className="fas fa-file"></i>
+          </a>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            title="No uploaded invoice"
+            disabled
+          >
+            <i className="fas fa-file"></i>
+          </button>
+        ),
+    },
+    {
+      key: "invoiceUrlLink",
+      label: "Invoice URL",
+      width: 110,
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.invoiceManualLink ? (
+          <a
+            href={record.invoiceManualLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-sm btn-outline-primary"
+            title="Open invoice URL"
+          >
+            <i className="fas fa-link"></i>
+          </a>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            title="No manual invoice URL"
+            disabled
+          >
+            <i className="fas fa-link"></i>
+          </button>
+        ),
     },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
     { key: "action", label: "Actions", width: 150 },

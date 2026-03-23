@@ -11,6 +11,18 @@ import {
 } from "../utils/fetchAllEntities";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
+const toBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",")[1] : "";
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
 // Indian states list for Place of Supply dropdown
 const INDIAN_STATES = [
   { code: "01", name: "Jammu & Kashmir" },
@@ -105,6 +117,7 @@ const CreatePurchase = ({
   const [vendorOptions, setVendorOptions] = useState([]);
   const [isVendorLoading, setIsVendorLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [selectedInvoiceFile, setSelectedInvoiceFile] = useState(null);
   const vendorSearchDebounceRef = useRef(null);
   const vendorAbortControllerRef = useRef(null);
   const vendorLoadingResetRef = useRef(null);
@@ -309,6 +322,7 @@ const CreatePurchase = ({
       if (editingRecord.taxData) {
         setTaxData(editingRecord.taxData);
       }
+      setSelectedInvoiceFile(null);
     } else {
       resetForm();
     }
@@ -353,7 +367,28 @@ const CreatePurchase = ({
       igst: 0,
       totalAmount: 0,
     });
+    setSelectedInvoiceFile(null);
     setErrors({});
+  };
+
+  const handleInvoiceFileChange = (e) => {
+    const file = e.target.files?.[0] || null;
+    if (!file) {
+      setSelectedInvoiceFile(null);
+      return;
+    }
+
+    const isAllowedType =
+      file.type === "application/pdf" || file.type.startsWith("image/");
+
+    if (!isAllowedType) {
+      showError("Please upload only image or PDF invoice file");
+      e.target.value = "";
+      setSelectedInvoiceFile(null);
+      return;
+    }
+
+    setSelectedInvoiceFile(file);
   };
 
   // Handle vendor selection and autofill
@@ -686,11 +721,23 @@ const CreatePurchase = ({
           normalizedAmountPaid = 0;
         }
 
+        const invoiceUpload = selectedInvoiceFile
+          ? {
+              fileName: selectedInvoiceFile.name,
+              fileType: selectedInvoiceFile.type || "application/octet-stream",
+              fileDataBase64: await toBase64(selectedInvoiceFile),
+            }
+          : null;
+
+        const manualInvoiceUrl = String(formData.invoiceURL || "").trim();
+
         const submitData = {
           ...formData,
+          invoiceURL: manualInvoiceUrl,
           amountPaid: normalizedAmountPaid,
           items: items,
           taxData: taxData,
+          ...(invoiceUpload ? { invoiceUpload } : {}),
           id: editingRecord?.id || Date.now(),
           createdDate: editingRecord?.createdDate || new Date().toISOString(),
         };
@@ -713,6 +760,10 @@ const CreatePurchase = ({
     : "Add New Purchase";
 
   const isViewMode = editingRecord?.isViewMode;
+  const uploadedInvoiceViewUrl =
+    editingRecord?.invoiceFileURL ||
+    (editingRecord?.invoiceFilePath ? editingRecord?.invoiceURL : "") ||
+    "";
   const isRajasthan = formData.placeOfSupply
     .toLowerCase()
     .includes("rajasthan");
@@ -1643,12 +1694,12 @@ const CreatePurchase = ({
                         </div>
 
                         {/* Invoice URL */}
-                        <div className="col-md-12 mb-3">
+                        <div className="col-md-6 mb-3">
                           <label
                             htmlFor="invoiceURL"
                             className="form-label fw-bold"
                           >
-                            <i className="fas fa-link me-2 text-warning"></i>
+                            <i className="fas fa-link me-2 text-info"></i>
                             Invoice URL
                           </label>
                           <input
@@ -1662,6 +1713,43 @@ const CreatePurchase = ({
                             readOnly={isViewMode}
                             style={{ fontWeight: "500" }}
                           />
+                        </div>
+
+                        {/* Invoice Upload */}
+                        <div className="col-md-6 mb-3">
+                          <label className="form-label fw-semibold">
+                            <i className="fas fa-file-upload me-2 text-warning"></i>
+                            Invoice Upload (Image/PDF)
+                          </label>
+
+                          {!isViewMode ? (
+                            <>
+                              <input
+                                type="file"
+                                className="form-control modern-input file-picker-input"
+                                accept="image/*,application/pdf"
+                                onChange={handleInvoiceFileChange}
+                              />
+                            </>
+                          ) : (
+                            <div className="d-flex align-items-center gap-2">
+                              {uploadedInvoiceViewUrl ? (
+                                <a
+                                  href={uploadedInvoiceViewUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="btn btn-sm btn-outline-primary"
+                                  title="Open uploaded invoice in new tab"
+                                >
+                                  <i className="fas fa-file"></i>
+                                </a>
+                              ) : (
+                                <span className="text-muted small">
+                                  No invoice uploaded
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1709,6 +1797,24 @@ const CreatePurchase = ({
       </div>
 
       <style jsx>{`
+        .file-picker-input::file-selector-button,
+        .file-picker-input::-webkit-file-upload-button {
+          margin-right: 10px;
+          border: 0;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #007026 0, #09a98d 100%);
+          color: #fff;
+          padding: 8px 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .file-picker-input::file-selector-button:hover,
+        .file-picker-input::-webkit-file-upload-button:hover {
+          filter: brightness(1.08);
+        }
+
         .modal-body::-webkit-scrollbar {
           width: 8px;
         }
