@@ -2,6 +2,235 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const normalizeCloudflareSettings = (settings = {}) => {
+  if (!settings || typeof settings !== "object") return null;
+
+  const normalizeUrl = (value = "") => {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) return "";
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed.replace(/\/+$/, "");
+    }
+    return `https://${trimmed}`.replace(/\/+$/, "");
+  };
+
+  return {
+    storeUrl: normalizeUrl(settings.storeUrl),
+    publicDomain: normalizeUrl(settings.publicDomain),
+    password: String(settings.password || "").trim(),
+  };
+};
+
+const getCloudflareSettingsFromDatabase = async (db) => {
+  try {
+    const settingsCollection = db.collection("business_settings");
+    const globalSettings = await settingsCollection.findOne({
+      scope: "global",
+    });
+    const latestSettings = globalSettings
+      ? null
+      : await settingsCollection.findOne(
+          {},
+          { sort: { updatedAt: -1, createdAt: -1, _id: -1 } },
+        );
+
+    const source = globalSettings || latestSettings || {};
+    const nestedSettings =
+      source.cloudflareSettings ||
+      source.r2Settings ||
+      source.cloudStorageSettings ||
+      {};
+
+    return normalizeCloudflareSettings({
+      ...nestedSettings,
+      storeUrl: source.storeUrl || nestedSettings.storeUrl,
+      publicDomain: source.publicDomain || nestedSettings.publicDomain,
+      password: source.password || nestedSettings.password,
+    });
+  } catch {
+    return null;
+  }
+};
+
+const sanitizeIdentifier = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "record";
+
+const getExtensionFromUpload = (fileName = "", mimeType = "") => {
+  const sourceName = String(fileName || "");
+  const nameParts = sourceName.split(".");
+  if (nameParts.length > 1) {
+    const fromName = String(nameParts.pop() || "")
+      .trim()
+      .toLowerCase();
+    if (fromName) return fromName;
+  }
+
+  const normalizedType = String(mimeType || "").toLowerCase();
+  if (normalizedType === "application/pdf") return "pdf";
+  if (normalizedType === "image/jpeg" || normalizedType === "image/jpg")
+    return "jpg";
+  if (normalizedType === "image/png") return "png";
+  if (normalizedType === "image/webp") return "webp";
+  if (normalizedType === "image/gif") return "gif";
+  return "pdf";
+};
+
+const getExtensionFromPath = (path = "") => {
+  const cleanedPath = String(path || "")
+    .split("?")[0]
+    .split("#")[0];
+  const pathParts = cleanedPath.split("/");
+  const lastSegment = String(pathParts.pop() || "");
+  const nameParts = lastSegment.split(".");
+  if (nameParts.length > 1) {
+    return String(nameParts.pop() || "")
+      .trim()
+      .toLowerCase();
+  }
+  return "";
+};
+
+const parseDateValue = (value) => {
+  if (!value) return null;
+  const direct = new Date(value);
+  if (!Number.isNaN(direct.getTime())) return direct;
+
+  const raw = String(value || "").trim();
+  const ddMmYyyyMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (ddMmYyyyMatch) {
+    const parsed = new Date(
+      Number(ddMmYyyyMatch[3]),
+      Number(ddMmYyyyMatch[2]) - 1,
+      Number(ddMmYyyyMatch[1]),
+    );
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+};
+
+const getFinancialYearLabel = (dateValue) => {
+  const parsedDate = parseDateValue(dateValue) || new Date();
+  const year = parsedDate.getFullYear();
+  const month = parsedDate.getMonth() + 1;
+  const startYear = month >= 4 ? year : year - 1;
+  const endYearShort = String((startYear + 1) % 100).padStart(2, "0");
+  return `${startYear}-${endYearShort}`;
+};
+
+const buildPublicUrl = (publicDomain, path) => {
+  const cleanedPath = String(path || "").replace(/^\/+/, "");
+  if (publicDomain) {
+    return `${publicDomain}/${cleanedPath}`;
+  }
+  return "";
+};
+
+const uploadToCloudflareStore = async ({
+  storeUrl,
+  publicDomain,
+  password,
+  objectPath,
+  mimeType,
+  fileBuffer,
+}) => {
+  const cleanedStoreUrl = String(storeUrl || "").replace(/\/+$/, "");
+  const cleanedPath = String(objectPath || "").replace(/^\/+/, "");
+  const putUrl = `${cleanedStoreUrl}/${cleanedPath}`;
+
+  const headers = {
+    "Content-Type": mimeType || "application/octet-stream",
+    "x-upload-password": password,
+    "x-api-key": password,
+    "x-password": password,
+    Authorization: `Bearer ${password}`,
+  };
+
+  const putResponse = await fetch(putUrl, {
+    method: "PUT",
+    headers,
+    body: fileBuffer,
+  });
+
+  if (putResponse.ok) {
+    let responseUrl = "";
+    try {
+      const putJson = await putResponse.clone().json();
+      responseUrl =
+        putJson?.url ||
+        putJson?.fileUrl ||
+        putJson?.data?.url ||
+        putJson?.result?.url ||
+        "";
+    } catch {
+      // Ignore non-JSON responses.
+    }
+
+    return {
+      fileUrl:
+        responseUrl || buildPublicUrl(publicDomain, cleanedPath) || putUrl,
+      filePath: cleanedPath,
+    };
+  }
+
+  const responseBody = await putResponse.text().catch(() => "");
+  throw new Error(
+    `Cloudflare upload failed: ${putResponse.status} ${responseBody || ""}`,
+  );
+};
+
+const deleteFromCloudflareStore = async ({
+  storeUrl,
+  password,
+  objectPath,
+}) => {
+  const cleanedStoreUrl = String(storeUrl || "").replace(/\/+$/, "");
+  const cleanedPath = String(objectPath || "").replace(/^\/+/, "");
+  if (!cleanedStoreUrl || !cleanedPath) {
+    throw new Error("Cloudflare delete path not available");
+  }
+
+  const commonHeaders = {
+    "x-upload-password": password,
+    "x-api-key": password,
+    "x-password": password,
+    Authorization: `Bearer ${password}`,
+  };
+
+  const deleteResponse = await fetch(`${cleanedStoreUrl}/${cleanedPath}`, {
+    method: "DELETE",
+    headers: commonHeaders,
+  });
+
+  if (deleteResponse.ok) return;
+
+  const fallbackResponse = await fetch(cleanedStoreUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...commonHeaders,
+    },
+    body: JSON.stringify({
+      action: "delete",
+      password,
+      path: cleanedPath,
+      filePath: cleanedPath,
+    }),
+  });
+
+  if (!fallbackResponse.ok) {
+    const first = await deleteResponse.text().catch(() => "");
+    const second = await fallbackResponse.text().catch(() => "");
+    throw new Error(
+      `Cloudflare delete failed. DELETE: ${deleteResponse.status} ${first || ""}; POST: ${fallbackResponse.status} ${second || ""}`,
+    );
+  }
+};
+
 /**
  * Company Expense Management API
  * Handles CRUD operations for company expenses with pagination support
@@ -592,6 +821,57 @@ export async function handler(event) {
         updatedAt: new Date(),
       };
 
+      if (expenseData?.expenseUpload?.fileDataBase64) {
+        const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
+        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Cloudflare settings missing. Configure Cloudflare before uploading expense document.",
+            },
+            origin,
+          );
+        }
+
+        const expenseUpload = expenseData.expenseUpload;
+        const extension = getExtensionFromUpload(
+          expenseUpload.fileName,
+          expenseUpload.fileType,
+        );
+        const fileName = `${sanitizeIdentifier(expenseData.expenseNumber)}.${extension}`;
+        const objectPath = `CompanyExpense/${getFinancialYearLabel(expenseData.expenseDate)}/${fileName}`;
+        const fileBuffer = Buffer.from(
+          String(expenseUpload.fileDataBase64 || ""),
+          "base64",
+        );
+
+        if (!fileBuffer.length) {
+          return createResponse(
+            400,
+            { error: "Invalid expense file data" },
+            origin,
+          );
+        }
+
+        const uploadResult = await uploadToCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          publicDomain: cloudflareSettings.publicDomain,
+          password: cloudflareSettings.password,
+          objectPath,
+          mimeType: expenseUpload.fileType || "application/octet-stream",
+          fileBuffer,
+        });
+
+        normalizedExpense.expenseFileURL = uploadResult.fileUrl;
+        normalizedExpense.expenseFilePath = uploadResult.filePath;
+        normalizedExpense.expenseFileName = fileName;
+        normalizedExpense.expenseFileType =
+          expenseUpload.fileType || "application/octet-stream";
+      }
+
+      delete normalizedExpense.expenseUpload;
+
       const result = await expensesCollection.insertOne(normalizedExpense);
 
       return createResponse(
@@ -618,6 +898,15 @@ export async function handler(event) {
       const expenseData = JSON.parse(event.body);
       const expenseObjectId = new ObjectId(id);
 
+      const existingExpenseRecord = await expensesCollection.findOne({
+        _id: expenseObjectId,
+        isDeleted: { $ne: true },
+      });
+
+      if (!existingExpenseRecord) {
+        return createResponse(404, { error: "Expense not found" }, origin);
+      }
+
       // Check for duplicate expense number (excluding current record)
       if (expenseData.expenseNumber) {
         const existingExpense = await expensesCollection.findOne({
@@ -636,6 +925,63 @@ export async function handler(event) {
 
       // Normalize amount and tax data
       const amount = parseFloat(expenseData.amount || 0);
+
+      if (expenseData?.expenseUpload?.fileDataBase64) {
+        const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
+        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Cloudflare settings missing. Configure Cloudflare before uploading expense document.",
+            },
+            origin,
+          );
+        }
+
+        const expenseUpload = expenseData.expenseUpload;
+        const fileBuffer = Buffer.from(
+          String(expenseUpload.fileDataBase64 || ""),
+          "base64",
+        );
+
+        if (!fileBuffer.length) {
+          return createResponse(
+            400,
+            { error: "Invalid expense file data" },
+            origin,
+          );
+        }
+
+        const existingPath = existingExpenseRecord.expenseFilePath;
+        const extension =
+          getExtensionFromPath(existingPath) ||
+          getExtensionFromUpload(
+            expenseUpload.fileName,
+            expenseUpload.fileType,
+          );
+        const fileName = `${sanitizeIdentifier(expenseData.expenseNumber || existingExpenseRecord.expenseNumber)}.${extension}`;
+        const objectPath =
+          existingPath ||
+          `CompanyExpense/${getFinancialYearLabel(expenseData.expenseDate || existingExpenseRecord.expenseDate)}/${fileName}`;
+
+        const uploadResult = await uploadToCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          publicDomain: cloudflareSettings.publicDomain,
+          password: cloudflareSettings.password,
+          objectPath,
+          mimeType: expenseUpload.fileType || "application/octet-stream",
+          fileBuffer,
+        });
+
+        expenseData.expenseFileURL = uploadResult.fileUrl;
+        expenseData.expenseFilePath = uploadResult.filePath;
+        expenseData.expenseFileName = fileName;
+        expenseData.expenseFileType =
+          expenseUpload.fileType || "application/octet-stream";
+      }
+
+      delete expenseData.expenseUpload;
 
       const result = await expensesCollection.updateOne(
         { _id: expenseObjectId, isDeleted: { $ne: true } },
@@ -681,8 +1027,38 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid expense ID" }, origin);
       }
 
+      const expenseObjectId = new ObjectId(id);
+      const existingExpenseRecord = await expensesCollection.findOne({
+        _id: expenseObjectId,
+        isDeleted: { $ne: true },
+      });
+
+      if (!existingExpenseRecord) {
+        return createResponse(404, { error: "Expense not found" }, origin);
+      }
+
+      if (existingExpenseRecord.expenseFilePath) {
+        const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
+        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Cloudflare settings missing. Unable to delete expense uploaded file.",
+            },
+            origin,
+          );
+        }
+
+        await deleteFromCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          password: cloudflareSettings.password,
+          objectPath: existingExpenseRecord.expenseFilePath,
+        });
+      }
+
       const result = await expensesCollection.updateOne(
-        { _id: new ObjectId(id), isDeleted: { $ne: true } },
+        { _id: expenseObjectId, isDeleted: { $ne: true } },
         {
           $set: {
             isDeleted: true,

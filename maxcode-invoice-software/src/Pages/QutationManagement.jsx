@@ -244,34 +244,42 @@ const QutationManagement = () => {
         signal: controller.signal,
       });
 
+      const responseBody = response?.data;
+
       let qutationsData;
       let total;
 
       if (serverSide) {
-        qutationsData = response.data?.data || response.data?.qutations || [];
+        qutationsData =
+          responseBody?.data || responseBody?.qutations || responseBody || [];
         total =
-          response.data?.pagination?.totalRecords ||
-          response.data?.total ||
-          qutationsData.length;
+          responseBody?.pagination?.totalRecords ||
+          responseBody?.total ||
+          (Array.isArray(qutationsData) ? qutationsData.length : 0);
 
-        if (response.data?.statistics) {
-          setStatistics(response.data.statistics);
+        if (responseBody?.statistics) {
+          setStatistics(responseBody.statistics);
         }
 
-        if (response.data?.filterOptions) {
-          setDynamicFilterOptions(response.data.filterOptions);
+        if (responseBody?.filterOptions) {
+          setDynamicFilterOptions(responseBody.filterOptions);
         }
       } else {
         qutationsData =
-          response.data?.data ||
-          response.data?.qutations ||
-          (Array.isArray(response.data) ? response.data : []);
-        total = qutationsData.length;
+          responseBody?.data ||
+          responseBody?.qutations ||
+          (Array.isArray(responseBody) ? responseBody : []);
+        total = Array.isArray(qutationsData) ? qutationsData.length : 0;
+      }
+
+      if (!Array.isArray(qutationsData)) {
+        qutationsData = [];
       }
 
       const mappedData = qutationsData.map((record) => {
         const createdDate =
           record.createdDate || record.createdAt || record.created_on;
+        const qutationFileLink = record.qutationFileURL || "";
 
         return {
           ...record,
@@ -280,6 +288,7 @@ const QutationManagement = () => {
           qutationExpiryDate:
             record.qutationExpiryDate || record.qutationValidity || "",
           qutationTotalAmount: Number(record.qutationTotalAmount || 0),
+          qutationFileLink,
         };
       });
 
@@ -292,7 +301,13 @@ const QutationManagement = () => {
     } catch (error) {
       if (error.name === "CanceledError" || error.name === "AbortError") return;
 
-      showError("Failed to fetch qutations");
+      const backendMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        "Failed to fetch qutations";
+
+      showError(backendMessage);
       setRecords([]);
       setTotalRecords(0);
       updateStatistics([]);
@@ -447,6 +462,40 @@ const QutationManagement = () => {
     { key: "projectName", label: "Project Name", width: 180 },
     { key: "projectType", label: "Project Type", width: 140 },
     { key: "qutationType", label: "Qutation Type", width: 180 },
+    {
+      key: "uploadedQutation",
+      label: "Upload Qutation",
+      width: 130,
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.qutationFileLink ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-success"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(
+                record.qutationFileLink,
+                "_blank",
+                "noopener,noreferrer",
+              );
+            }}
+            title="Open uploaded qutation"
+          >
+            <i class="fa-solid fa-file-contract"></i>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            title="No uploaded qutation"
+            disabled
+          >
+            <i class="fa-solid fa-file-contract"></i>
+          </button>
+        ),
+    },
     { key: "qutationDate", label: "Qutation Date", width: 140 },
     {
       key: "qutationExpiryDate",
@@ -461,48 +510,72 @@ const QutationManagement = () => {
     },
     { key: "developmentTime", label: "Development Time", width: 150 },
     {
-      key: "qutationGoogleDriveLink",
-      label: "Documents",
+      key: "qutationFile",
+      label: "Qutation File",
       width: 120,
-      render: (value) => {
-        if (!value) return "-";
-
-        return (
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.qutationFileLink ? (
           <button
             type="button"
-            className="btn btn-sm btn-outline-primary"
+            className="btn btn-sm btn-outline-success"
             onClick={(event) => {
               event.stopPropagation();
-              window.open(value, "_blank", "noopener,noreferrer");
+              window.open(
+                record.qutationFileLink,
+                "_blank",
+                "noopener,noreferrer",
+              );
             }}
-            title="Open document"
+            title="Open uploaded qutation file"
           >
-            <i className="fas fa-eye"></i>
+            <i class="fa-solid fa-file-contract"></i>
           </button>
-        );
-      },
-    },
-    {
-      key: "agreementGoogleDriveLink",
-      label: "Agreement Docs",
-      width: 140,
-      render: (value) => {
-        if (!value) return "-";
-
-        return (
+        ) : (
           <button
             type="button"
             className="btn btn-sm btn-outline-secondary"
+            title="No uploaded qutation file"
+            disabled
+          >
+            <i class="fa-solid fa-file-contract"></i>
+          </button>
+        ),
+    },
+    {
+      key: "qutationLink",
+      label: "Qutation Link",
+      width: 120,
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.qutationGoogleDriveLink ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-info"
             onClick={(event) => {
               event.stopPropagation();
-              window.open(value, "_blank", "noopener,noreferrer");
+              window.open(
+                record.qutationGoogleDriveLink,
+                "_blank",
+                "noopener,noreferrer",
+              );
             }}
-            title="Open agreement document"
+            title="Open Google Drive link"
           >
-            <i className="fas fa-eye"></i>
+            <i className="fab fa-google-drive"></i>
           </button>
-        );
-      },
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            title="No Google Drive link"
+            disabled
+          >
+            <i className="fab fa-google-drive"></i>
+          </button>
+        ),
     },
     {
       key: "qutationStatus",
@@ -528,6 +601,7 @@ const QutationManagement = () => {
     "phoneNumber",
     "projectName",
     "qutationType",
+    "uploadedQutation",
     "qutationTotalAmount",
     "action",
   ];

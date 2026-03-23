@@ -8,6 +8,18 @@ import {
   resolveFinancialYearRecord,
 } from "../utils/financialYearUtils";
 
+const toBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",")[1] : "";
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
 const RequiredStar = () => <span className="text-danger ms-1">*</span>;
 
 const CreateCompanyExpense = ({
@@ -22,6 +34,7 @@ const CreateCompanyExpense = ({
   const [formData, setFormData] = useState({
     expenseNumber: "",
     expenseDate: "",
+    expenseURL: "",
     expenseTitle: "",
     expenseFor: "",
     referenceNumber: "",
@@ -41,6 +54,7 @@ const CreateCompanyExpense = ({
 
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [selectedExpenseFile, setSelectedExpenseFile] = useState(null);
 
   useEffect(() => {
     if (show) {
@@ -71,6 +85,7 @@ const CreateCompanyExpense = ({
     setFormData({
       expenseNumber: "",
       expenseDate: new Date().toISOString().slice(0, 10),
+      expenseURL: "",
       expenseTitle: "",
       expenseFor: "",
       referenceNumber: "",
@@ -149,6 +164,7 @@ const CreateCompanyExpense = ({
         expenseNumber: editingRecord.expenseNumber || "",
         expenseDate:
           editingRecord.expenseDate || editingRecord.invoiceDate || "",
+        expenseURL: editingRecord.expenseURL || editingRecord.invoiceURL || "",
         expenseTitle: editingRecord.expenseTitle || "",
         expenseFor: editingRecord.expenseFor || "",
         referenceNumber:
@@ -177,6 +193,7 @@ const CreateCompanyExpense = ({
         notes: editingRecord.notes || "",
         paymentProof: editingRecord.paymentProof || "",
       });
+      setSelectedExpenseFile(null);
       setErrors({});
       return;
     }
@@ -191,6 +208,12 @@ const CreateCompanyExpense = ({
   ]);
 
   const isViewMode = Boolean(editingRecord?.isViewMode);
+  const uploadedExpenseViewUrl =
+    editingRecord?.expenseFileURL ||
+    (editingRecord?.expenseFilePath
+      ? formData.expenseURL || editingRecord?.expenseURL || ""
+      : "") ||
+    "";
 
   const modalTitle = useMemo(() => {
     if (editingRecord?.isViewMode) {
@@ -245,6 +268,41 @@ const CreateCompanyExpense = ({
         [name]: "",
       }));
     }
+  };
+
+  const handleExpenseFileChange = (e) => {
+    const file = e.target.files?.[0] || null;
+    if (!file) {
+      setSelectedExpenseFile(null);
+      return;
+    }
+
+    const isAllowedType =
+      file.type === "application/pdf" || file.type.startsWith("image/");
+
+    if (!isAllowedType) {
+      showError("Please upload only image or PDF expense file");
+      e.target.value = "";
+      setSelectedExpenseFile(null);
+      return;
+    }
+
+    setSelectedExpenseFile(file);
+  };
+
+  const openExpenseUrl = () => {
+    const link = String(formData.expenseURL || "").trim();
+    if (!link) {
+      showError("Please enter invoice URL first");
+      return;
+    }
+
+    if (!/^https?:\/\//i.test(link)) {
+      showError("Please enter a valid URL starting with http:// or https://");
+      return;
+    }
+
+    window.open(link, "_blank", "noopener,noreferrer");
   };
 
   const validateForm = () => {
@@ -315,6 +373,10 @@ const CreateCompanyExpense = ({
         "Partial payment ke liye payment date required hai";
     }
 
+    if (formData.expenseURL && !/^https?:\/\//i.test(formData.expenseURL)) {
+      newErrors.expenseURL = "Please enter a valid URL";
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -346,6 +408,7 @@ const CreateCompanyExpense = ({
         expenseNumber: formData.expenseNumber.trim(),
         expenseDate: formData.expenseDate,
         invoiceDate: formData.expenseDate,
+        expenseURL: formData.expenseURL.trim(),
         expenseTitle: formData.expenseTitle.trim(),
         expenseFor: formData.expenseFor.trim(),
         referenceNumber: formData.referenceNumber.trim(),
@@ -376,6 +439,18 @@ const CreateCompanyExpense = ({
           taxPercentage: 0,
         },
       };
+
+      const expenseUpload = selectedExpenseFile
+        ? {
+            fileName: selectedExpenseFile.name,
+            fileType: selectedExpenseFile.type || "application/octet-stream",
+            fileDataBase64: await toBase64(selectedExpenseFile),
+          }
+        : null;
+
+      if (expenseUpload) {
+        payload.expenseUpload = expenseUpload;
+      }
 
       await onSubmit(payload);
     } finally {
@@ -685,6 +760,71 @@ const CreateCompanyExpense = ({
                 </div>
 
                 <div className="col-md-4">
+                  <label
+                    htmlFor="expenseURL"
+                    className="form-label fw-semibold"
+                  >
+                    <i className="fas fa-link me-2 text-primary"></i>
+                    Invoice URL
+                  </label>
+                  <div className="input-group">
+                    <input
+                      type="url"
+                      id="expenseURL"
+                      name="expenseURL"
+                      className={`form-control modern-input ${errors.expenseURL ? "is-invalid" : ""}`}
+                      value={formData.expenseURL}
+                      onChange={handleInputChange}
+                      readOnly={isViewMode}
+                      placeholder="Paste invoice URL"
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-outline-primary"
+                      onClick={openExpenseUrl}
+                      title="Open invoice URL"
+                    >
+                      <i className="fas fa-eye"></i>
+                    </button>
+                  </div>
+                  {errors.expenseURL && (
+                    <div className="invalid-feedback d-block">
+                      {errors.expenseURL}
+                    </div>
+                  )}
+                </div>
+
+                <div className="col-md-4">
+                  <label className="form-label fw-semibold">
+                    <i className="fas fa-file-upload me-2 text-warning"></i>
+                    Upload Expense Document (Image/PDF)
+                  </label>
+
+                  {!isViewMode ? (
+                    <input
+                      type="file"
+                      className="form-control modern-input file-picker-input"
+                      accept="image/*,application/pdf"
+                      onChange={handleExpenseFileChange}
+                    />
+                  ) : uploadedExpenseViewUrl ? (
+                    <a
+                      href={uploadedExpenseViewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-sm btn-outline-primary"
+                      title="Open uploaded expense document in new tab"
+                    >
+                      <i class="fa-solid fa-file-contract"></i>
+                    </a>
+                  ) : (
+                    <span className="text-muted small">
+                      No uploaded expense file
+                    </span>
+                  )}
+                </div>
+
+                <div className="col-md-4">
                   <label htmlFor="description" className="form-label">
                     Description
                   </label>
@@ -742,6 +882,26 @@ const CreateCompanyExpense = ({
           </form>
         </div>
       </div>
+
+      <style jsx>{`
+        .file-picker-input::file-selector-button,
+        .file-picker-input::-webkit-file-upload-button {
+          margin-right: 10px;
+          border: 0;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #007026 0, #09a98d 100%);
+          color: #fff;
+          padding: 8px 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .file-picker-input::file-selector-button:hover,
+        .file-picker-input::-webkit-file-upload-button:hover {
+          filter: brightness(1.08);
+        }
+      `}</style>
     </div>
   );
 };

@@ -449,6 +449,9 @@ const ProjectManagement = () => {
           ...record,
           id: record._id || record.id,
           createdDate: record.createdDate || record.createdAt,
+          projectAgreementFileLink: record.projectAgreementFileURL || "",
+          projectAgreementUrlLink:
+            record.projectAgreementURL || record.agreementGoogleDriveLink || "",
         }));
 
       setRecords(normalized);
@@ -731,6 +734,74 @@ const ProjectManagement = () => {
           ₹ {formatCurrency(value)}
         </span>
       ),
+    },
+    {
+      key: "agreementFile",
+      label: "Agreement File",
+      width: 120,
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.projectAgreementFileLink ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-success"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(
+                record.projectAgreementFileLink,
+                "_blank",
+                "noopener,noreferrer",
+              );
+            }}
+            title="Open uploaded agreement file"
+          >
+            <i class="fa-solid fa-file-contract"></i>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            title="No uploaded agreement file"
+            disabled
+          >
+            <i class="fa-solid fa-file-contract"></i>
+          </button>
+        ),
+    },
+    {
+      key: "agreementLink",
+      label: "Agreement Link",
+      width: 120,
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.projectAgreementUrlLink ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-info"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(
+                record.projectAgreementUrlLink,
+                "_blank",
+                "noopener,noreferrer",
+              );
+            }}
+            title="Open Google Drive link"
+          >
+            <i className="fab fa-google-drive"></i>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            title="No Google Drive link"
+            disabled
+          >
+            <i className="fab fa-google-drive"></i>
+          </button>
+        ),
     },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
     { key: "action", label: "Actions", width: 170 },

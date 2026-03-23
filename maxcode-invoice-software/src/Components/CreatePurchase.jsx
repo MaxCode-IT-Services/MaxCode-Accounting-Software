@@ -1741,7 +1741,7 @@ const CreatePurchase = ({
                                   className="btn btn-sm btn-outline-primary"
                                   title="Open uploaded invoice in new tab"
                                 >
-                                  <i className="fas fa-file"></i>
+                                  <i class="fa-solid fa-file-contract"></i>
                                 </a>
                               ) : (
                                 <span className="text-muted small">

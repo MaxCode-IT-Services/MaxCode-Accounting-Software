@@ -5,6 +5,18 @@ import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
+const toBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",")[1] : "";
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
 const CreateRcm = ({
   show,
   onClose,
@@ -16,6 +28,7 @@ const CreateRcm = ({
     selfInvoiceNumber: "",
     invoiceDate: "",
     originalRefNo: "",
+    rcmURL: "",
     serviceProviderBusinessName: "",
     gstin: "",
     noGSTIN: false,
@@ -54,6 +67,7 @@ const CreateRcm = ({
 
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [selectedRcmFile, setSelectedRcmFile] = useState(null);
 
   useEffect(() => {
     if (show) {
@@ -153,6 +167,7 @@ const CreateRcm = ({
         selfInvoiceNumber: editingRecord.selfInvoiceNumber || "",
         invoiceDate: editingRecord.invoiceDate || "",
         originalRefNo: editingRecord.originalRefNo || "",
+        rcmURL: editingRecord.rcmURL || editingRecord.invoiceURL || "",
         serviceProviderBusinessName:
           editingRecord.serviceProviderBusinessName || "",
         gstin: editingRecord.gstin || "",
@@ -184,6 +199,7 @@ const CreateRcm = ({
       if (editingRecord.taxData) {
         setTaxData(editingRecord.taxData);
       }
+      setSelectedRcmFile(null);
     } else {
       resetForm();
     }
@@ -237,6 +253,7 @@ const CreateRcm = ({
       selfInvoiceNumber: "",
       invoiceDate: "",
       originalRefNo: "",
+      rcmURL: "",
       serviceProviderBusinessName: "",
       gstin: "",
       noGSTIN: false,
@@ -271,6 +288,42 @@ const CreateRcm = ({
       totalAmount: "0.00",
     });
     setErrors({});
+    setSelectedRcmFile(null);
+  };
+
+  const handleRcmFileChange = (e) => {
+    const file = e.target.files?.[0] || null;
+    if (!file) {
+      setSelectedRcmFile(null);
+      return;
+    }
+
+    const isAllowedType =
+      file.type === "application/pdf" || file.type.startsWith("image/");
+
+    if (!isAllowedType) {
+      showError("Please upload only image or PDF RCM file");
+      e.target.value = "";
+      setSelectedRcmFile(null);
+      return;
+    }
+
+    setSelectedRcmFile(file);
+  };
+
+  const openRcmUrl = () => {
+    const link = String(formData.rcmURL || "").trim();
+    if (!link) {
+      showError("Please enter invoice URL first");
+      return;
+    }
+
+    if (!/^https?:\/\//i.test(link)) {
+      showError("Please enter a valid URL starting with http:// or https://");
+      return;
+    }
+
+    window.open(link, "_blank", "noopener,noreferrer");
   };
 
   const toNumber = (value) => {
@@ -508,6 +561,10 @@ const CreateRcm = ({
       newErrors.gstin = "Please enter a valid GSTIN number";
     }
 
+    if (formData.rcmURL && !/^https?:\/\//i.test(formData.rcmURL)) {
+      newErrors.rcmURL = "Please enter a valid URL";
+    }
+
     setErrors(newErrors);
 
     if (Object.keys(newErrors).length > 0) {
@@ -529,25 +586,34 @@ const CreateRcm = ({
     if (submitting) return;
 
     if (validateForm()) {
-      const submitData = {
-        ...formData,
-        placeOfSupply: "Rajasthan (08)",
-        items: items,
-        taxData: {
-          ...taxData,
-          cgst: "0.00",
-          sgst: "0.00",
-          igst: (
-            (toNumber(taxData.subtotal) * toNumber(taxData.taxPercentage)) /
-            100
-          ).toFixed(2),
-        },
-        id: editingRecord?.id || Date.now(),
-        createdDate: editingRecord?.createdDate || new Date().toISOString(),
-      };
-
       try {
         setSubmitting(true);
+        const rcmUpload = selectedRcmFile
+          ? {
+              fileName: selectedRcmFile.name,
+              fileType: selectedRcmFile.type || "application/octet-stream",
+              fileDataBase64: await toBase64(selectedRcmFile),
+            }
+          : null;
+
+        const submitData = {
+          ...formData,
+          placeOfSupply: "Rajasthan (08)",
+          items: items,
+          taxData: {
+            ...taxData,
+            cgst: "0.00",
+            sgst: "0.00",
+            igst: (
+              (toNumber(taxData.subtotal) * toNumber(taxData.taxPercentage)) /
+              100
+            ).toFixed(2),
+          },
+          ...(rcmUpload ? { rcmUpload } : {}),
+          id: editingRecord?.id || Date.now(),
+          createdDate: editingRecord?.createdDate || new Date().toISOString(),
+        };
+
         await onSubmit(submitData);
       } catch (error) {
         console.error("RCM submit failed:", error);
@@ -568,6 +634,12 @@ const CreateRcm = ({
     : "Add New RCM";
 
   const isViewMode = editingRecord?.isViewMode;
+  const uploadedRcmViewUrl =
+    editingRecord?.rcmFileURL ||
+    (editingRecord?.rcmFilePath
+      ? formData.rcmURL || editingRecord?.rcmURL || ""
+      : "") ||
+    "";
   const placeOfSupplySelectStyles = getUnifiedSelectStyles({
     hasError: Boolean(errors.placeOfSupply),
   });
@@ -1519,6 +1591,71 @@ const CreateRcm = ({
                             />
                           </div>
                         </div>
+
+                        <div className="col-md-8 mb-3">
+                          <label
+                            htmlFor="rcmURL"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-link me-2 text-primary"></i>
+                            Invoice URL
+                          </label>
+                          <div className="input-group">
+                            <input
+                              type="url"
+                              className={`form-control modern-input ${errors.rcmURL ? "is-invalid" : ""}`}
+                              id="rcmURL"
+                              name="rcmURL"
+                              value={formData.rcmURL}
+                              onChange={handleInputChange}
+                              readOnly={isViewMode}
+                              placeholder="Paste invoice URL"
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-outline-primary"
+                              onClick={openRcmUrl}
+                              title="Open invoice URL"
+                            >
+                              <i className="fas fa-eye"></i>
+                            </button>
+                          </div>
+                          {errors.rcmURL && (
+                            <div className="invalid-feedback d-block">
+                              {errors.rcmURL}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="col-md-12 mb-3">
+                          <label className="form-label fw-semibold">
+                            <i className="fas fa-file-upload me-2 text-warning"></i>
+                            Upload RCM Document (Image/PDF)
+                          </label>
+
+                          {!isViewMode ? (
+                            <input
+                              type="file"
+                              className="form-control modern-input file-picker-input"
+                              accept="image/*,application/pdf"
+                              onChange={handleRcmFileChange}
+                            />
+                          ) : uploadedRcmViewUrl ? (
+                            <a
+                              href={uploadedRcmViewUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-sm btn-outline-primary"
+                              title="Open uploaded RCM in new tab"
+                            >
+                              <i class="fa-solid fa-file-contract"></i>
+                            </a>
+                          ) : (
+                            <span className="text-muted small">
+                              No uploaded RCM file
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1565,6 +1702,24 @@ const CreateRcm = ({
       </div>
 
       <style jsx>{`
+        .file-picker-input::file-selector-button,
+        .file-picker-input::-webkit-file-upload-button {
+          margin-right: 10px;
+          border: 0;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #007026 0, #09a98d 100%);
+          color: #fff;
+          padding: 8px 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .file-picker-input::file-selector-button:hover,
+        .file-picker-input::-webkit-file-upload-button:hover {
+          filter: brightness(1.08);
+        }
+
         .modal-body::-webkit-scrollbar {
           width: 8px;
         }

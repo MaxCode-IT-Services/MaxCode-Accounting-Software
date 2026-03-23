@@ -329,6 +329,8 @@ const CompanyExpenseManagement = () => {
         const amount = parseFloat(
           expense?.taxData?.totalAmount || expense?.amount || 0,
         );
+        const expenseFileLink = expense.expenseFileURL || "";
+        const expenseUrlLink = expense.expenseURL || expense.invoiceURL || "";
 
         return {
           ...expense,
@@ -342,6 +344,8 @@ const CompanyExpenseManagement = () => {
           amount,
           totalAmount: amount,
           itemCount: expense.items?.length || 0,
+          expenseFileLink,
+          expenseUrlLink,
         };
       });
 
@@ -643,6 +647,74 @@ const CompanyExpenseManagement = () => {
     },
     { key: "entrySource", label: "Entry Source", width: 130 },
     { key: "paymentProof", label: "Payment Proof/UTR", width: 150 },
+    {
+      key: "expenseFile",
+      label: "Expense File",
+      width: 120,
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.expenseFileLink ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-success"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(
+                record.expenseFileLink,
+                "_blank",
+                "noopener,noreferrer",
+              );
+            }}
+            title="Open uploaded expense file"
+          >
+            <i class="fa-solid fa-file-contract"></i>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            title="No uploaded expense file"
+            disabled
+          >
+            <i class="fa-solid fa-file-contract"></i>
+          </button>
+        ),
+    },
+    {
+      key: "expenseLink",
+      label: "Expense Link",
+      width: 120,
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.expenseUrlLink ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-info"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(
+                record.expenseUrlLink,
+                "_blank",
+                "noopener,noreferrer",
+              );
+            }}
+            title="Open Google Drive link"
+          >
+            <i className="fab fa-google-drive"></i>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            title="No Google Drive link"
+            disabled
+          >
+            <i className="fab fa-google-drive"></i>
+          </button>
+        ),
+    },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
     { key: "action", label: "Actions", width: 180 },
   ];

@@ -8,6 +8,18 @@ import {
   resolveFinancialYearRecord,
 } from "../utils/financialYearUtils";
 
+const toBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",")[1] : "";
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
 const PROJECT_TYPE_OPTIONS = [
   "Website",
   "App",
@@ -43,7 +55,6 @@ const initialFormData = {
   qutationTotalAmount: "",
   developmentTime: "",
   qutationGoogleDriveLink: "",
-  agreementGoogleDriveLink: "",
   qutationSendVia: "WhatsApp",
   qutationStatus: "Send",
   qutationSendDate: "",
@@ -65,6 +76,7 @@ const CreateQutation = ({
   const [formData, setFormData] = useState(initialFormData);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [selectedQutationFile, setSelectedQutationFile] = useState(null);
 
   useEffect(() => {
     if (show) {
@@ -88,11 +100,13 @@ const CreateQutation = ({
           editingRecord.qutationValidity ||
           "",
       });
+      setSelectedQutationFile(null);
       setErrors({});
       return;
     }
 
     setFormData(initialFormData);
+    setSelectedQutationFile(null);
     setErrors({});
   }, [editingRecord, show]);
 
@@ -108,7 +122,8 @@ const CreateQutation = ({
     if (!show || editingRecord) return;
 
     const activeFinancialYear = getActiveFinancialYearRecord();
-    const activeFinancialYearValue = normalizeFinancialYearValue(activeFinancialYear);
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
 
     let cancelled = false;
 
@@ -153,6 +168,10 @@ const CreateQutation = ({
   ]);
 
   const isViewMode = editingRecord?.isViewMode;
+  const uploadedQutationViewUrl =
+    formData.qutationFileURL ||
+    (formData.qutationFilePath ? formData.qutationGoogleDriveLink : "") ||
+    "";
 
   const validateForm = () => {
     const newErrors = {};
@@ -201,13 +220,6 @@ const CreateQutation = ({
     }
 
     if (
-      formData.agreementGoogleDriveLink &&
-      !/^https?:\/\//i.test(formData.agreementGoogleDriveLink)
-    ) {
-      newErrors.agreementGoogleDriveLink = "Please enter a valid URL";
-    }
-
-    if (
       formData.qutationTotalAmount &&
       Number(formData.qutationTotalAmount) <= 0
     ) {
@@ -215,12 +227,15 @@ const CreateQutation = ({
     }
 
     const activeFinancialYear = getActiveFinancialYearRecord();
-    const activeFinancialYearValue = normalizeFinancialYearValue(activeFinancialYear);
+    const activeFinancialYearValue =
+      normalizeFinancialYearValue(activeFinancialYear);
 
     if (!activeFinancialYear?.startDate || !activeFinancialYear?.endDate) {
       newErrors.qutationDate =
         "Selected/default financial year is not configured. Please set financial year first";
-    } else if (!isDateWithinFinancialYear(formData.qutationDate, activeFinancialYear)) {
+    } else if (
+      !isDateWithinFinancialYear(formData.qutationDate, activeFinancialYear)
+    ) {
       newErrors.qutationDate = `Qutation Date must be between ${activeFinancialYear.startDate} and ${activeFinancialYear.endDate} for financial year ${activeFinancialYearValue}.`;
     }
 
@@ -252,25 +267,30 @@ const CreateQutation = ({
     }
   };
 
+  const handleQutationFileChange = (e) => {
+    const file = e.target.files?.[0] || null;
+    if (!file) {
+      setSelectedQutationFile(null);
+      return;
+    }
+
+    const isAllowedType =
+      file.type === "application/pdf" || file.type.startsWith("image/");
+
+    if (!isAllowedType) {
+      showError("Please upload only image or PDF qutation file");
+      e.target.value = "";
+      setSelectedQutationFile(null);
+      return;
+    }
+
+    setSelectedQutationFile(file);
+  };
+
   const openGoogleDriveLink = () => {
     const link = formData.qutationGoogleDriveLink?.trim();
     if (!link) {
       showError("Please enter quotation Google Drive link first");
-      return;
-    }
-
-    if (!/^https?:\/\//i.test(link)) {
-      showError("Please enter a valid URL starting with http:// or https://");
-      return;
-    }
-
-    window.open(link, "_blank", "noopener,noreferrer");
-  };
-
-  const openAgreementGoogleDriveLink = () => {
-    const link = formData.agreementGoogleDriveLink?.trim();
-    if (!link) {
-      showError("Please enter agreement Google Drive link first");
       return;
     }
 
@@ -298,6 +318,20 @@ const CreateQutation = ({
           "",
         qutationTotalAmount: Number(formData.qutationTotalAmount || 0),
       };
+
+      delete payload.agreementGoogleDriveLink;
+
+      const qutationUpload = selectedQutationFile
+        ? {
+            fileName: selectedQutationFile.name,
+            fileType: selectedQutationFile.type || "application/octet-stream",
+            fileDataBase64: await toBase64(selectedQutationFile),
+          }
+        : null;
+
+      if (qutationUpload) {
+        payload.qutationUpload = qutationUpload;
+      }
 
       if (editingRecord && !editingRecord.isViewMode) {
         const qutationId = editingRecord._id || editingRecord.id;
@@ -667,37 +701,32 @@ const CreateQutation = ({
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label
-                    htmlFor="agreementGoogleDriveLink"
-                    className="form-label"
-                  >
-                    <i className="fab fa-google-drive me-2 text-primary"></i>
-                    Agreement Google Drive Link
+                  <label className="form-label fw-semibold">
+                    <i className="fas fa-file-upload me-2 text-warning"></i>
+                    Upload Qutation (Image/PDF)
                   </label>
-                  <div className="input-group">
+
+                  {!isViewMode ? (
                     <input
-                      type="url"
-                      className={`form-control modern-input ${errors.agreementGoogleDriveLink ? "is-invalid" : ""}`}
-                      id="agreementGoogleDriveLink"
-                      name="agreementGoogleDriveLink"
-                      value={formData.agreementGoogleDriveLink}
-                      onChange={handleInputChange}
-                      placeholder="Paste Agreement document URL"
-                      readOnly={isViewMode}
+                      type="file"
+                      className="form-control modern-input file-picker-input"
+                      accept="image/*,application/pdf"
+                      onChange={handleQutationFileChange}
                     />
-                    <button
-                      className="btn btn-outline-primary"
-                      type="button"
-                      onClick={openAgreementGoogleDriveLink}
-                      title="Open agreement document"
+                  ) : uploadedQutationViewUrl ? (
+                    <a
+                      href={uploadedQutationViewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-sm btn-outline-primary"
+                      title="Open uploaded qutation in new tab"
                     >
-                      <i className="fas fa-eye"></i>
-                    </button>
-                  </div>
-                  {errors.agreementGoogleDriveLink && (
-                    <div className="invalid-feedback d-block">
-                      {errors.agreementGoogleDriveLink}
-                    </div>
+                      <i class="fa-solid fa-file-contract"></i>
+                    </a>
+                  ) : (
+                    <span className="text-muted small">
+                      No uploaded qutation file
+                    </span>
                   )}
                 </div>
 
@@ -859,6 +888,24 @@ const CreateQutation = ({
       </div>
 
       <style jsx>{`
+        .file-picker-input::file-selector-button,
+        .file-picker-input::-webkit-file-upload-button {
+          margin-right: 10px;
+          border: 0;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #007026 0, #09a98d 100%);
+          color: #fff;
+          padding: 8px 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .file-picker-input::file-selector-button:hover,
+        .file-picker-input::-webkit-file-upload-button:hover {
+          filter: brightness(1.08);
+        }
+
         .flag-india {
           background: linear-gradient(135deg, #ff9933, #ffffff, #138808);
           border: 2px solid #e9ecef;

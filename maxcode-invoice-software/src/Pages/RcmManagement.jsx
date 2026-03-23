@@ -372,6 +372,8 @@ const RcmManagement = () => {
 
       const mappedData = rcmData.map((rcm) => {
         const createdDate = rcm.createdDate || rcm.createdAt;
+        const rcmFileLink = rcm.rcmFileURL || "";
+        const rcmUrlLink = rcm.rcmURL || rcm.invoiceURL || "";
 
         return {
           ...rcm,
@@ -385,6 +387,8 @@ const RcmManagement = () => {
           totalAmount: rcm.taxData?.totalAmount || 0,
           roundingAmount: rcm.roundingAmount || 0,
           itemCount: rcm.items?.length || 0,
+          rcmFileLink,
+          rcmUrlLink,
         };
       });
 
@@ -716,6 +720,66 @@ const RcmManagement = () => {
       key: "paymentDateFormatted",
       label: "Payment Date",
       width: 130,
+    },
+    {
+      key: "rcmFile",
+      label: "RCM File",
+      width: 120,
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.rcmFileLink ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-success"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(record.rcmFileLink, "_blank", "noopener,noreferrer");
+            }}
+            title="Open uploaded RCM file"
+          >
+            <i class="fa-solid fa-file-contract"></i>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            title="No uploaded RCM file"
+            disabled
+          >
+            <i class="fa-solid fa-file-contract"></i>
+          </button>
+        ),
+    },
+    {
+      key: "rcmLink",
+      label: "RCM Link",
+      width: 120,
+      disableSort: true,
+      disableFilter: true,
+      render: (_, record) =>
+        record?.rcmUrlLink ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-info"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(record.rcmUrlLink, "_blank", "noopener,noreferrer");
+            }}
+            title="Open Google Drive link"
+          >
+            <i className="fab fa-google-drive"></i>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-secondary"
+            title="No Google Drive link"
+            disabled
+          >
+            <i className="fab fa-google-drive"></i>
+          </button>
+        ),
     },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
     { key: "action", label: "Actions", width: 180 },

@@ -17,6 +17,18 @@ import {
 } from "../utils/financialYearUtils";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
+const toBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.includes(",") ? result.split(",")[1] : "";
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
 const emptyPaymentRow = (id = 1) => ({
   id,
   invoiceNumber: "",
@@ -112,6 +124,7 @@ const CreateProject = ({
     phoneNumber: "",
     email: "",
     address: "",
+    projectAgreementURL: "",
   });
 
   const [paymentDetails, setPaymentDetails] = useState([emptyPaymentRow(1)]);
@@ -126,6 +139,7 @@ const CreateProject = ({
   const [isClientLoading, setIsClientLoading] = useState(false);
   const [isStaffLoading, setIsStaffLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [selectedAgreementFile, setSelectedAgreementFile] = useState(null);
   const clientSearchDebounceRef = useRef(null);
   const clientAbortControllerRef = useRef(null);
   const clientLoadingResetRef = useRef(null);
@@ -175,11 +189,13 @@ const CreateProject = ({
       phoneNumber: "",
       email: "",
       address: "",
+      projectAgreementURL: "",
       financialYear: activeFinancialYearValue,
     });
     setPaymentDetails([emptyPaymentRow(1)]);
     setDeveloperTransactions([emptyDeveloperPayoutRow(1)]);
     setErrors({});
+    setSelectedAgreementFile(null);
   };
 
   useEffect(() => {
@@ -534,6 +550,10 @@ const CreateProject = ({
         phoneNumber: editingRecord.phoneNumber || "",
         email: editingRecord.email || "",
         address: editingRecord.address || "",
+        projectAgreementURL:
+          editingRecord.projectAgreementURL ||
+          editingRecord.agreementGoogleDriveLink ||
+          "",
       });
 
       const mappedPayments = Array.isArray(editingRecord.paymentDetails)
@@ -568,6 +588,7 @@ const CreateProject = ({
       setDeveloperTransactions(
         mappedPayouts.length ? mappedPayouts : [emptyDeveloperPayoutRow(1)],
       );
+      setSelectedAgreementFile(null);
       setErrors({});
       return;
     }
@@ -588,6 +609,41 @@ const CreateProject = ({
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
     }
+  };
+
+  const handleAgreementFileChange = (e) => {
+    const file = e.target.files?.[0] || null;
+    if (!file) {
+      setSelectedAgreementFile(null);
+      return;
+    }
+
+    const isAllowedType =
+      file.type === "application/pdf" || file.type.startsWith("image/");
+
+    if (!isAllowedType) {
+      showError("Please upload only image or PDF project agreement file");
+      e.target.value = "";
+      setSelectedAgreementFile(null);
+      return;
+    }
+
+    setSelectedAgreementFile(file);
+  };
+
+  const openProjectAgreementUrl = () => {
+    const link = String(formData.projectAgreementURL || "").trim();
+    if (!link) {
+      showError("Please enter project agreement URL first");
+      return;
+    }
+
+    if (!/^https?:\/\//i.test(link)) {
+      showError("Please enter a valid URL starting with http:// or https://");
+      return;
+    }
+
+    window.open(link, "_blank", "noopener,noreferrer");
   };
 
   const handleClientChange = (selectedOption) => {
@@ -981,6 +1037,13 @@ const CreateProject = ({
       newErrors.phoneNumber = "Phone number must be exactly 10 digits";
     }
 
+    if (
+      formData.projectAgreementURL &&
+      !/^https?:\/\//i.test(formData.projectAgreementURL)
+    ) {
+      newErrors.projectAgreementURL = "Please enter a valid URL";
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -1019,6 +1082,14 @@ const CreateProject = ({
         createdDate: editingRecord?.createdDate || new Date().toISOString(),
       };
 
+      if (selectedAgreementFile) {
+        submitData.projectAgreementUpload = {
+          fileName: selectedAgreementFile.name,
+          fileType: selectedAgreementFile.type || "application/octet-stream",
+          fileDataBase64: await toBase64(selectedAgreementFile),
+        };
+      }
+
       await onSubmit(submitData);
     } finally {
       setSubmitting(false);
@@ -1028,6 +1099,14 @@ const CreateProject = ({
   if (!show) return null;
 
   const isViewMode = editingRecord?.isViewMode;
+  const uploadedAgreementViewUrl =
+    editingRecord?.projectAgreementFileURL ||
+    (editingRecord?.projectAgreementFilePath
+      ? formData.projectAgreementURL ||
+        editingRecord?.projectAgreementURL ||
+        editingRecord?.agreementGoogleDriveLink
+      : "") ||
+    "";
 
   const modalTitle = editingRecord
     ? editingRecord.isViewMode
@@ -2206,6 +2285,71 @@ const CreateProject = ({
                             />
                           </div>
                         </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label
+                            htmlFor="projectAgreementURL"
+                            className="form-label fw-bold"
+                          >
+                            <i className="fas fa-link me-2 text-primary"></i>
+                            Project Agreement URL
+                          </label>
+                          <div className="input-group">
+                            <input
+                              type="url"
+                              className={`form-control modern-input ${errors.projectAgreementURL ? "is-invalid" : ""}`}
+                              id="projectAgreementURL"
+                              name="projectAgreementURL"
+                              value={formData.projectAgreementURL}
+                              onChange={handleInputChange}
+                              readOnly={isViewMode}
+                              placeholder="Paste project agreement URL"
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-outline-primary"
+                              onClick={openProjectAgreementUrl}
+                              title="Open project agreement URL"
+                            >
+                              <i className="fas fa-eye"></i>
+                            </button>
+                          </div>
+                          {errors.projectAgreementURL && (
+                            <div className="invalid-feedback d-block">
+                              {errors.projectAgreementURL}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="col-md-4 mb-3">
+                          <label className="form-label fw-bold">
+                            <i className="fas fa-file-upload me-2 text-warning"></i>
+                            Upload Project Agreement (Image/PDF)
+                          </label>
+
+                          {!isViewMode ? (
+                            <input
+                              type="file"
+                              className="form-control modern-input file-picker-input"
+                              accept="image/*,application/pdf"
+                              onChange={handleAgreementFileChange}
+                            />
+                          ) : uploadedAgreementViewUrl ? (
+                            <a
+                              href={uploadedAgreementViewUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-sm btn-outline-primary"
+                              title="Open uploaded agreement in new tab"
+                            >
+                              <i class="fa-solid fa-file-contract"></i>
+                            </a>
+                          ) : (
+                            <span className="text-muted small">
+                              No uploaded agreement file
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2252,6 +2396,24 @@ const CreateProject = ({
       </div>
 
       <style jsx>{`
+        .file-picker-input::file-selector-button,
+        .file-picker-input::-webkit-file-upload-button {
+          margin-right: 10px;
+          border: 0;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #007026 0, #09a98d 100%);
+          color: #fff;
+          padding: 8px 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .file-picker-input::file-selector-button:hover,
+        .file-picker-input::-webkit-file-upload-button:hover {
+          filter: brightness(1.08);
+        }
+
         .modal-body::-webkit-scrollbar {
           width: 8px;
         }

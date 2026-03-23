@@ -706,57 +706,69 @@ const PurchaseManagement = () => {
     },
     {
       key: "invoiceFile",
-      label: "Invoice",
-      width: 90,
+      label: "Invoice File",
+      width: 120,
       disableSort: true,
       disableFilter: true,
       render: (_, record) =>
         record?.invoiceFileLink ? (
-          <a
-            href={record.invoiceFileLink}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
             className="btn btn-sm btn-outline-success"
-            title="Open uploaded invoice"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(
+                record.invoiceFileLink,
+                "_blank",
+                "noopener,noreferrer",
+              );
+            }}
+            title="Open uploaded invoice file"
           >
-            <i className="fas fa-file"></i>
-          </a>
+            <i class="fa-solid fa-file-contract"></i>
+          </button>
         ) : (
           <button
             type="button"
             className="btn btn-sm btn-outline-secondary"
-            title="No uploaded invoice"
+            title="No uploaded invoice file"
             disabled
           >
-            <i className="fas fa-file"></i>
+            <i class="fa-solid fa-file-contract"></i>
           </button>
         ),
     },
     {
-      key: "invoiceUrlLink",
-      label: "Invoice URL",
-      width: 110,
+      key: "invoiceLink",
+      label: "Invoice Link",
+      width: 120,
       disableSort: true,
       disableFilter: true,
       render: (_, record) =>
         record?.invoiceManualLink ? (
-          <a
-            href={record.invoiceManualLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-sm btn-outline-primary"
-            title="Open invoice URL"
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-info"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(
+                record.invoiceManualLink,
+                "_blank",
+                "noopener,noreferrer",
+              );
+            }}
+            title="Open Google Drive link"
           >
-            <i className="fas fa-link"></i>
-          </a>
+            <i className="fab fa-google-drive"></i>
+          </button>
         ) : (
           <button
             type="button"
             className="btn btn-sm btn-outline-secondary"
-            title="No manual invoice URL"
+            title="No Google Drive link"
             disabled
           >
-            <i className="fas fa-link"></i>
+            <i className="fab fa-google-drive"></i>
           </button>
         ),
     },

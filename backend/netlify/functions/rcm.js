@@ -2,6 +2,241 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const normalizeCloudflareSettings = (settings = {}) => {
+  if (!settings || typeof settings !== "object") return null;
+
+  const normalizeUrl = (value = "") => {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) return "";
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed.replace(/\/+$/, "");
+    }
+    return `https://${trimmed}`.replace(/\/+$/, "");
+  };
+
+  return {
+    storeUrl: normalizeUrl(settings.storeUrl),
+    publicDomain: normalizeUrl(settings.publicDomain),
+    password: String(settings.password || "").trim(),
+  };
+};
+
+const getCloudflareSettingsFromDatabase = async (db) => {
+  try {
+    const settingsCollection = db.collection("business_settings");
+    const globalSettings = await settingsCollection.findOne({
+      scope: "global",
+    });
+    const latestSettings = globalSettings
+      ? null
+      : await settingsCollection.findOne(
+          {},
+          {
+            sort: {
+              updatedAt: -1,
+              createdAt: -1,
+              _id: -1,
+            },
+          },
+        );
+
+    const source = globalSettings || latestSettings || {};
+    const nestedSettings =
+      source.cloudflareSettings ||
+      source.r2Settings ||
+      source.cloudStorageSettings ||
+      {};
+
+    return normalizeCloudflareSettings({
+      ...nestedSettings,
+      storeUrl: source.storeUrl || nestedSettings.storeUrl,
+      publicDomain: source.publicDomain || nestedSettings.publicDomain,
+      password: source.password || nestedSettings.password,
+    });
+  } catch {
+    return null;
+  }
+};
+
+const sanitizeIdentifier = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "") || "record";
+
+const getExtensionFromUpload = (fileName = "", mimeType = "") => {
+  const sourceName = String(fileName || "");
+  const nameParts = sourceName.split(".");
+  if (nameParts.length > 1) {
+    const fromName = String(nameParts.pop() || "")
+      .trim()
+      .toLowerCase();
+    if (fromName) return fromName;
+  }
+
+  const normalizedType = String(mimeType || "").toLowerCase();
+  if (normalizedType === "application/pdf") return "pdf";
+  if (normalizedType === "image/jpeg" || normalizedType === "image/jpg")
+    return "jpg";
+  if (normalizedType === "image/png") return "png";
+  if (normalizedType === "image/webp") return "webp";
+  if (normalizedType === "image/gif") return "gif";
+  return "pdf";
+};
+
+const getExtensionFromPath = (path = "") => {
+  const cleanedPath = String(path || "")
+    .split("?")[0]
+    .split("#")[0];
+  const pathParts = cleanedPath.split("/");
+  const lastSegment = String(pathParts.pop() || "");
+  const nameParts = lastSegment.split(".");
+  if (nameParts.length > 1) {
+    return String(nameParts.pop() || "")
+      .trim()
+      .toLowerCase();
+  }
+  return "";
+};
+
+const parseDateValue = (value) => {
+  if (!value) return null;
+  const direct = new Date(value);
+  if (!Number.isNaN(direct.getTime())) return direct;
+
+  const raw = String(value || "").trim();
+  const ddMmYyyyMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (ddMmYyyyMatch) {
+    const parsed = new Date(
+      Number(ddMmYyyyMatch[3]),
+      Number(ddMmYyyyMatch[2]) - 1,
+      Number(ddMmYyyyMatch[1]),
+    );
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+};
+
+const getFinancialYearLabel = (invoiceDateValue) => {
+  const parsedDate = parseDateValue(invoiceDateValue) || new Date();
+  const year = parsedDate.getFullYear();
+  const month = parsedDate.getMonth() + 1;
+  const startYear = month >= 4 ? year : year - 1;
+  const endYearShort = String((startYear + 1) % 100).padStart(2, "0");
+  return `${startYear}-${endYearShort}`;
+};
+
+const buildPublicUrl = (publicDomain, path) => {
+  const cleanedPath = String(path || "").replace(/^\/+/, "");
+  if (publicDomain) {
+    return `${publicDomain}/${cleanedPath}`;
+  }
+  return "";
+};
+
+const uploadToCloudflareStore = async ({
+  storeUrl,
+  publicDomain,
+  password,
+  objectPath,
+  mimeType,
+  fileBuffer,
+}) => {
+  const cleanedStoreUrl = String(storeUrl || "").replace(/\/+$/, "");
+  const cleanedPath = String(objectPath || "").replace(/^\/+/, "");
+  const putUrl = `${cleanedStoreUrl}/${cleanedPath}`;
+
+  const headers = {
+    "Content-Type": mimeType || "application/octet-stream",
+    "x-upload-password": password,
+    "x-api-key": password,
+    "x-password": password,
+    Authorization: `Bearer ${password}`,
+  };
+
+  const putResponse = await fetch(putUrl, {
+    method: "PUT",
+    headers,
+    body: fileBuffer,
+  });
+
+  if (putResponse.ok) {
+    let responseUrl = "";
+    try {
+      const putJson = await putResponse.clone().json();
+      responseUrl =
+        putJson?.url ||
+        putJson?.fileUrl ||
+        putJson?.data?.url ||
+        putJson?.result?.url ||
+        "";
+    } catch {
+      // Ignore non-JSON responses.
+    }
+
+    return {
+      fileUrl:
+        responseUrl || buildPublicUrl(publicDomain, cleanedPath) || putUrl,
+      filePath: cleanedPath,
+    };
+  }
+
+  const responseBody = await putResponse.text().catch(() => "");
+  throw new Error(
+    `Cloudflare upload failed: ${putResponse.status} ${responseBody || ""}`,
+  );
+};
+
+const deleteFromCloudflareStore = async ({
+  storeUrl,
+  password,
+  objectPath,
+}) => {
+  const cleanedStoreUrl = String(storeUrl || "").replace(/\/+$/, "");
+  const cleanedPath = String(objectPath || "").replace(/^\/+/, "");
+  if (!cleanedStoreUrl || !cleanedPath) {
+    throw new Error("Cloudflare delete path not available");
+  }
+
+  const commonHeaders = {
+    "x-upload-password": password,
+    "x-api-key": password,
+    "x-password": password,
+    Authorization: `Bearer ${password}`,
+  };
+
+  const deleteResponse = await fetch(`${cleanedStoreUrl}/${cleanedPath}`, {
+    method: "DELETE",
+    headers: commonHeaders,
+  });
+
+  if (deleteResponse.ok) return;
+
+  const fallbackResponse = await fetch(cleanedStoreUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...commonHeaders,
+    },
+    body: JSON.stringify({
+      action: "delete",
+      password,
+      path: cleanedPath,
+      filePath: cleanedPath,
+    }),
+  });
+
+  if (!fallbackResponse.ok) {
+    const first = await deleteResponse.text().catch(() => "");
+    const second = await fallbackResponse.text().catch(() => "");
+    throw new Error(
+      `Cloudflare delete failed. DELETE: ${deleteResponse.status} ${first || ""}; POST: ${fallbackResponse.status} ${second || ""}`,
+    );
+  }
+};
+
 /**
  * RCM Management API
  * Handles CRUD operations for RCM (Reverse Charge Mechanism) self invoices with pagination support
@@ -526,6 +761,56 @@ export async function handler(event) {
       // Set place of supply default
       rcmData.placeOfSupply = rcmData.placeOfSupply || "Rajasthan (08)";
 
+      if (rcmData?.rcmUpload?.fileDataBase64) {
+        const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
+        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Cloudflare settings missing. Configure Cloudflare before uploading RCM document.",
+            },
+            origin,
+          );
+        }
+
+        const rcmUpload = rcmData.rcmUpload;
+        const extension = getExtensionFromUpload(
+          rcmUpload.fileName,
+          rcmUpload.fileType,
+        );
+        const fileName = `${sanitizeIdentifier(rcmData.selfInvoiceNumber)}.${extension}`;
+        const objectPath = `Rcm/${getFinancialYearLabel(rcmData.invoiceDate)}/${fileName}`;
+        const fileBuffer = Buffer.from(
+          String(rcmUpload.fileDataBase64 || ""),
+          "base64",
+        );
+
+        if (!fileBuffer.length) {
+          return createResponse(
+            400,
+            { error: "Invalid RCM file data" },
+            origin,
+          );
+        }
+
+        const uploadResult = await uploadToCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          publicDomain: cloudflareSettings.publicDomain,
+          password: cloudflareSettings.password,
+          objectPath,
+          mimeType: rcmUpload.fileType || "application/octet-stream",
+          fileBuffer,
+        });
+
+        rcmData.rcmFileURL = uploadResult.fileUrl;
+        rcmData.rcmFilePath = uploadResult.filePath;
+        rcmData.rcmFileName = fileName;
+        rcmData.rcmFileType = rcmUpload.fileType || "application/octet-stream";
+      }
+
+      delete rcmData.rcmUpload;
+
       const result = await rcmCollection.insertOne({
         _id: new ObjectId(),
         ...rcmData,
@@ -557,6 +842,15 @@ export async function handler(event) {
       const rcmData = JSON.parse(event.body);
       const rcmObjectId = new ObjectId(id);
 
+      const existingRcmRecord = await rcmCollection.findOne({
+        _id: rcmObjectId,
+        isDeleted: { $ne: true },
+      });
+
+      if (!existingRcmRecord) {
+        return createResponse(404, { error: "RCM record not found" }, origin);
+      }
+
       // Check for duplicate self invoice number (excluding current record)
       if (rcmData.selfInvoiceNumber) {
         const existingRcm = await rcmCollection.findOne({
@@ -572,6 +866,59 @@ export async function handler(event) {
           );
         }
       }
+
+      if (rcmData?.rcmUpload?.fileDataBase64) {
+        const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
+        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Cloudflare settings missing. Configure Cloudflare before uploading RCM document.",
+            },
+            origin,
+          );
+        }
+
+        const rcmUpload = rcmData.rcmUpload;
+        const fileBuffer = Buffer.from(
+          String(rcmUpload.fileDataBase64 || ""),
+          "base64",
+        );
+
+        if (!fileBuffer.length) {
+          return createResponse(
+            400,
+            { error: "Invalid RCM file data" },
+            origin,
+          );
+        }
+
+        const existingPath = existingRcmRecord.rcmFilePath;
+        const extension =
+          getExtensionFromPath(existingPath) ||
+          getExtensionFromUpload(rcmUpload.fileName, rcmUpload.fileType);
+        const fileName = `${sanitizeIdentifier(rcmData.selfInvoiceNumber || existingRcmRecord.selfInvoiceNumber)}.${extension}`;
+        const objectPath =
+          existingPath ||
+          `Rcm/${getFinancialYearLabel(rcmData.invoiceDate || existingRcmRecord.invoiceDate)}/${fileName}`;
+
+        const uploadResult = await uploadToCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          publicDomain: cloudflareSettings.publicDomain,
+          password: cloudflareSettings.password,
+          objectPath,
+          mimeType: rcmUpload.fileType || "application/octet-stream",
+          fileBuffer,
+        });
+
+        rcmData.rcmFileURL = uploadResult.fileUrl;
+        rcmData.rcmFilePath = uploadResult.filePath;
+        rcmData.rcmFileName = fileName;
+        rcmData.rcmFileType = rcmUpload.fileType || "application/octet-stream";
+      }
+
+      delete rcmData.rcmUpload;
 
       const result = await rcmCollection.updateOne(
         { _id: rcmObjectId, isDeleted: { $ne: true } },
@@ -606,8 +953,38 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid RCM ID" }, origin);
       }
 
+      const rcmObjectId = new ObjectId(id);
+      const existingRcmRecord = await rcmCollection.findOne({
+        _id: rcmObjectId,
+        isDeleted: { $ne: true },
+      });
+
+      if (!existingRcmRecord) {
+        return createResponse(404, { error: "RCM record not found" }, origin);
+      }
+
+      if (existingRcmRecord.rcmFilePath) {
+        const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
+        if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Cloudflare settings missing. Unable to delete RCM uploaded file.",
+            },
+            origin,
+          );
+        }
+
+        await deleteFromCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          password: cloudflareSettings.password,
+          objectPath: existingRcmRecord.rcmFilePath,
+        });
+      }
+
       const result = await rcmCollection.updateOne(
-        { _id: new ObjectId(id), isDeleted: { $ne: true } },
+        { _id: rcmObjectId, isDeleted: { $ne: true } },
         {
           $set: {
             isDeleted: true,
