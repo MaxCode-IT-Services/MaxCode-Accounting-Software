@@ -780,7 +780,7 @@ export async function handler(event) {
           rcmUpload.fileType,
         );
         const fileName = `${sanitizeIdentifier(rcmData.selfInvoiceNumber)}.${extension}`;
-        const objectPath = `Rcm/${getFinancialYearLabel(rcmData.invoiceDate)}/${fileName}`;
+        const objectPath = `RCM/${getFinancialYearLabel(rcmData.invoiceDate)}/${fileName}`;
         const fileBuffer = Buffer.from(
           String(rcmUpload.fileDataBase64 || ""),
           "base64",
@@ -901,7 +901,7 @@ export async function handler(event) {
         const fileName = `${sanitizeIdentifier(rcmData.selfInvoiceNumber || existingRcmRecord.selfInvoiceNumber)}.${extension}`;
         const objectPath =
           existingPath ||
-          `Rcm/${getFinancialYearLabel(rcmData.invoiceDate || existingRcmRecord.invoiceDate)}/${fileName}`;
+          `RCM/${getFinancialYearLabel(rcmData.invoiceDate || existingRcmRecord.invoiceDate)}/${fileName}`;
 
         const uploadResult = await uploadToCloudflareStore({
           storeUrl: cloudflareSettings.storeUrl,

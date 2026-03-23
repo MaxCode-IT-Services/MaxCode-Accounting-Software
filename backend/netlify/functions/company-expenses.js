@@ -840,7 +840,7 @@ export async function handler(event) {
           expenseUpload.fileType,
         );
         const fileName = `${sanitizeIdentifier(expenseData.expenseNumber)}.${extension}`;
-        const objectPath = `CompanyExpense/${getFinancialYearLabel(expenseData.expenseDate)}/${fileName}`;
+        const objectPath = `Company Expense/${getFinancialYearLabel(expenseData.expenseDate)}/${fileName}`;
         const fileBuffer = Buffer.from(
           String(expenseUpload.fileDataBase64 || ""),
           "base64",
@@ -963,7 +963,7 @@ export async function handler(event) {
         const fileName = `${sanitizeIdentifier(expenseData.expenseNumber || existingExpenseRecord.expenseNumber)}.${extension}`;
         const objectPath =
           existingPath ||
-          `CompanyExpense/${getFinancialYearLabel(expenseData.expenseDate || existingExpenseRecord.expenseDate)}/${fileName}`;
+          `Company Expense/${getFinancialYearLabel(expenseData.expenseDate || existingExpenseRecord.expenseDate)}/${fileName}`;
 
         const uploadResult = await uploadToCloudflareStore({
           storeUrl: cloudflareSettings.storeUrl,
