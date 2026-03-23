@@ -1,5 +1,6 @@
 import { verifyRequestToken } from "./utils/auth.js";
 import { connectToDatabase } from "./utils/mongodb.js";
+import { inflateSync } from "node:zlib";
 
 const getCorsHeaders = (origin) => {
   const allowedOrigins = [
@@ -676,7 +677,9 @@ const listFromCloudflareStore = async ({
           }
 
           const fileName = rawPath.split("/").pop() || `file-${index + 1}`;
-          const folderName = rawPath.split("/")[0] || "general";
+          const folderName = rawPath.includes("/")
+            ? rawPath.slice(0, rawPath.lastIndexOf("/"))
+            : "general";
           const fileSizeBytes = parseFileSizeBytes(
             item?.size ?? item?.fileSizeBytes ?? item?.bytes ?? item?.fileSize,
           );
@@ -1073,6 +1076,33 @@ const parseUploadDate = (dateValue) => {
   return Number.isNaN(date.getTime()) ? new Date() : date;
 };
 
+const decodeUploadedBuffer = ({ fileDataBase64 = "", compression = null }) => {
+  const rawBase64 = String(fileDataBase64 || "").trim();
+  if (!rawBase64) {
+    return { buffer: Buffer.alloc(0), originalSizeBytes: 0 };
+  }
+
+  let buffer = Buffer.from(rawBase64, "base64");
+
+  const isCompressed =
+    compression &&
+    typeof compression === "object" &&
+    compression.compressed === true &&
+    String(compression.algorithm || "").toLowerCase() === "deflate";
+
+  if (isCompressed) {
+    buffer = inflateSync(buffer);
+  }
+
+  const originalSizeBytes =
+    Number(compression?.originalSizeBytes) || buffer.length;
+
+  return {
+    buffer,
+    originalSizeBytes,
+  };
+};
+
 export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
@@ -1376,7 +1406,11 @@ export async function handler(event) {
 
         await ensureCloudPathNotExists(objectPath);
 
-        const fileBuffer = Buffer.from(fileDataBase64, "base64");
+        const decodedUpload = decodeUploadedBuffer({
+          fileDataBase64,
+          compression: body.compression,
+        });
+        const fileBuffer = decodedUpload.buffer;
         if (!fileBuffer.length) {
           return createResponse(400, { error: "Invalid file data" }, origin);
         }
@@ -1405,9 +1439,14 @@ export async function handler(event) {
               filePath: objectPath,
               fileUrl: uploadResult.fileUrl,
               fileType,
-              fileSizeBytes: Number(body.fileSizeBytes) || fileBuffer.length,
+              fileSizeBytes:
+                Number(body.fileSizeBytes) ||
+                decodedUpload.originalSizeBytes ||
+                fileBuffer.length,
               fileSize: formatBytes(
-                Number(body.fileSizeBytes) || fileBuffer.length,
+                Number(body.fileSizeBytes) ||
+                  decodedUpload.originalSizeBytes ||
+                  fileBuffer.length,
               ),
               uploadDate,
               source: "cloud",
@@ -1437,6 +1476,10 @@ export async function handler(event) {
               String(item?.fileType || "application/octet-stream").trim() ||
               "application/octet-stream",
             fileSizeBytes: Number(item?.fileSizeBytes) || 0,
+            compression:
+              item?.compression && typeof item.compression === "object"
+                ? item.compression
+                : null,
           }))
           .filter((item) => item.fileName && item.fileDataBase64);
 
@@ -1467,7 +1510,11 @@ export async function handler(event) {
         const uploaded = [];
         for (const item of preparedFiles) {
           const objectPath = `${folderName}/${item.fileName}`;
-          const fileBuffer = Buffer.from(item.fileDataBase64, "base64");
+          const decodedUpload = decodeUploadedBuffer({
+            fileDataBase64: item.fileDataBase64,
+            compression: item.compression,
+          });
+          const fileBuffer = decodedUpload.buffer;
           if (!fileBuffer.length) {
             return createResponse(
               400,
@@ -1494,8 +1541,15 @@ export async function handler(event) {
             filePath: objectPath,
             fileUrl: uploadResult.fileUrl,
             fileType: item.fileType,
-            fileSizeBytes: item.fileSizeBytes || fileBuffer.length,
-            fileSize: formatBytes(item.fileSizeBytes || fileBuffer.length),
+            fileSizeBytes:
+              item.fileSizeBytes ||
+              decodedUpload.originalSizeBytes ||
+              fileBuffer.length,
+            fileSize: formatBytes(
+              item.fileSizeBytes ||
+                decodedUpload.originalSizeBytes ||
+                fileBuffer.length,
+            ),
             uploadDate,
             source: "cloud",
             status: "Active",
@@ -1533,6 +1587,10 @@ export async function handler(event) {
             "application/octet-stream",
           originalName: String(item?.originalName || "").trim(),
           fileSizeBytes: Number(item?.fileSizeBytes) || 0,
+          compression:
+            item?.compression && typeof item.compression === "object"
+              ? item.compression
+              : null,
         }))
         .filter((item) => item.relativePath && item.fileDataBase64);
 
@@ -1578,7 +1636,11 @@ export async function handler(event) {
           publicDomain: cloudflareSettings.publicDomain,
         });
 
-        const fileBuffer = Buffer.from(item.fileDataBase64, "base64");
+        const decodedUpload = decodeUploadedBuffer({
+          fileDataBase64: item.fileDataBase64,
+          compression: item.compression,
+        });
+        const fileBuffer = decodedUpload.buffer;
         if (!fileBuffer.length) {
           return createResponse(
             400,
@@ -1602,12 +1664,21 @@ export async function handler(event) {
           fileName: safeFileName(objectPath.split("/").pop() || "file"),
           originalName:
             item.originalName || objectPath.split("/").pop() || "file",
-          folderName,
+          folderName: objectPath.includes("/")
+            ? objectPath.slice(0, objectPath.lastIndexOf("/"))
+            : folderName,
           filePath: objectPath,
           fileUrl: uploadResult.fileUrl,
           fileType: item.fileType,
-          fileSizeBytes: item.fileSizeBytes || fileBuffer.length,
-          fileSize: formatBytes(item.fileSizeBytes || fileBuffer.length),
+          fileSizeBytes:
+            item.fileSizeBytes ||
+            decodedUpload.originalSizeBytes ||
+            fileBuffer.length,
+          fileSize: formatBytes(
+            item.fileSizeBytes ||
+              decodedUpload.originalSizeBytes ||
+              fileBuffer.length,
+          ),
           uploadDate,
           source: "cloud",
           status: "Active",
@@ -1732,10 +1803,12 @@ export async function handler(event) {
 
       const oldSegments = cleanedOldPath.split("/").filter(Boolean);
       const oldFileName = oldSegments[oldSegments.length - 1] || "";
-      const oldFolderName = oldSegments[0] || "general";
+      const oldFolderName =
+        oldSegments.length > 1 ? oldSegments.slice(0, -1).join("/") : "general";
       const nextFileName = updates.fileName || oldFileName;
       const nextFolderName = updates.folderName || oldFolderName;
-      const nextPath = `${ensureFolder(nextFolderName, "general")}/${safeFileName(nextFileName)}`;
+      const nextFolderPath = ensureFolder(nextFolderName, "general");
+      const nextPath = `${nextFolderPath}/${safeFileName(nextFileName)}`;
 
       if (cleanedOldPath.toLowerCase() !== nextPath.toLowerCase()) {
         const duplicateCloud = allCloudRows.some(
@@ -1776,7 +1849,7 @@ export async function handler(event) {
             _id: `cloud:${nextPath}`,
             id: `cloud:${nextPath}`,
             fileName: safeFileName(nextFileName),
-            folderName: ensureFolder(nextFolderName, "general"),
+            folderName: nextFolderPath,
             filePath: nextPath,
             fileUrl: nextFileUrl,
             fileType:

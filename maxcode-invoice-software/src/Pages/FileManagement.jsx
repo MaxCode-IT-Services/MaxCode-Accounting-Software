@@ -531,8 +531,15 @@ const FileManagement = () => {
     return null;
   };
 
-  const fetchFiles = async () => {
-    if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+  const fetchFiles = async (settingsOverride = null) => {
+    const effectiveSettings =
+      settingsOverride &&
+      settingsOverride?.storeUrl &&
+      settingsOverride?.password
+        ? settingsOverride
+        : cloudflareSettings;
+
+    if (!effectiveSettings?.storeUrl || !effectiveSettings?.password) {
       setRecords([]);
       setTotalRecords(0);
       return;
@@ -615,11 +622,11 @@ const FileManagement = () => {
       };
 
       const cloudHeaders = {
-        "x-cloud-store-url": String(cloudflareSettings?.storeUrl || ""),
-        "x-cloud-public-domain": String(cloudflareSettings?.publicDomain || ""),
-        "x-cloud-password": String(cloudflareSettings?.password || ""),
+        "x-cloud-store-url": String(effectiveSettings?.storeUrl || ""),
+        "x-cloud-public-domain": String(effectiveSettings?.publicDomain || ""),
+        "x-cloud-password": String(effectiveSettings?.password || ""),
         "x-cloud-default-folder": String(
-          cloudflareSettings?.defaultFolder || "",
+          effectiveSettings?.defaultFolder || "",
         ),
       };
 
@@ -978,7 +985,7 @@ const FileManagement = () => {
         }
 
         // Refresh file list
-        await fetchFiles();
+        await fetchFiles(effectiveCloudflareSettings);
       }
 
       if (failedCount > 0) {
@@ -1210,7 +1217,7 @@ const FileManagement = () => {
       }
 
       // Refresh file list
-      await fetchFiles();
+      await fetchFiles(effectiveCloudflareSettings);
     } catch (error) {
       showError(error?.response?.data?.error || "Failed to delete file record");
     }

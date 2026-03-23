@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import Select from "react-select";
+import pako from "pako";
 import { showError, showInfo, showSuccess } from "./ToastNotification";
 import { apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
 const toBase64 = (file) =>
   new Promise((resolve, reject) => {
@@ -14,6 +17,56 @@ const toBase64 = (file) =>
     reader.onerror = () => reject(new Error("Failed to read file"));
     reader.readAsDataURL(file);
   });
+
+const uint8ArrayToBase64 = (bytes = new Uint8Array()) => {
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
+};
+
+const prepareFileForUpload = async (file, compressionPercent = 0) => {
+  const normalizedPercent = Math.min(
+    100,
+    Math.max(0, Number(compressionPercent) || 0),
+  );
+
+  if (!normalizedPercent) {
+    return {
+      fileDataBase64: await toBase64(file),
+      fileType: file.type || "application/octet-stream",
+      fileSizeBytes: file.size,
+      compression: null,
+    };
+  }
+
+  const inputBytes = new Uint8Array(await file.arrayBuffer());
+  const level = Math.min(
+    9,
+    Math.max(1, Math.round((normalizedPercent / 100) * 9)),
+  );
+  const compressedBytes = pako.deflate(inputBytes, { level });
+  const compressedBase64 = uint8ArrayToBase64(compressedBytes);
+
+  return {
+    fileDataBase64: compressedBase64,
+    fileType: file.type || "application/octet-stream",
+    fileSizeBytes: file.size,
+    compression: {
+      compressed: true,
+      algorithm: "deflate",
+      level,
+      compressionPercent: normalizedPercent,
+      originalSizeBytes: file.size,
+      compressedSizeBytes: compressedBytes.length,
+    },
+  };
+};
 
 const formatBytes = (bytes) => {
   const numeric = Number(bytes || 0);
@@ -43,6 +96,14 @@ const normalizeFolderOptions = (settings = {}) => {
   ];
 };
 
+const getBaseFolderFromPath = (path = "") => {
+  const firstSegment = String(path || "")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean)[0];
+  return firstSegment || "general";
+};
+
 const Createfile = ({
   show,
   onClose,
@@ -62,6 +123,8 @@ const Createfile = ({
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [selectedFolderFiles, setSelectedFolderFiles] = useState([]);
   const [folderUploadName, setFolderUploadName] = useState("");
+  const [selectedBaseFolder, setSelectedBaseFolder] = useState("general");
+  const [compressionPercent, setCompressionPercent] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -69,6 +132,21 @@ const Createfile = ({
     () => normalizeFolderOptions(cloudflareSettings),
     [cloudflareSettings],
   );
+
+  const compressionOptions = useMemo(
+    () => [
+      { value: 0, label: "Original Quality" },
+      ...Array.from({ length: 10 }, (_, idx) => {
+        const value = (idx + 1) * 10;
+        return { value, label: `${value}%` };
+      }),
+    ],
+    [],
+  );
+
+  const selectMenuPortalTarget =
+    typeof document !== "undefined" ? document.body : null;
+  const compressionSelectStyles = getUnifiedSelectStyles();
 
   const selectionSummary = useMemo(() => {
     if (isEditMode) {
@@ -122,37 +200,46 @@ const Createfile = ({
       const inferredFolderFromPath = fullPath.includes("/")
         ? fullPath.slice(0, fullPath.lastIndexOf("/"))
         : "";
+
+      const defaultFolderPath =
+        inferredFolderFromPath ||
+        String(initialData.folderName || "").trim() ||
+        String(cloudflareSettings?.defaultFolder || "").trim() ||
+        folderOptions[0] ||
+        "general";
+
       setFormData({
         fileName: String(initialData.fileName || ""),
-        folderName:
-          inferredFolderFromPath ||
-          String(initialData.folderName || "").trim() ||
-          String(cloudflareSettings?.defaultFolder || "").trim() ||
-          folderOptions[0] ||
-          "general",
+        folderName: defaultFolderPath,
         uploadDate:
           String(initialData.uploadDate || "").slice(0, 10) ||
           new Date().toISOString().slice(0, 10),
       });
+      setSelectedBaseFolder(getBaseFolderFromPath(defaultFolderPath));
       setSelectedFiles([]);
       setSelectedFolderFiles([]);
       setFolderUploadName("");
+      setCompressionPercent(0);
       setUploadMode("single");
       return;
     }
 
+    const defaultFolderPath =
+      String(cloudflareSettings?.defaultFolder || "").trim() ||
+      folderOptions[0] ||
+      "general";
+
     setFormData({
       fileName: "",
-      folderName:
-        String(cloudflareSettings?.defaultFolder || "").trim() ||
-        folderOptions[0] ||
-        "general",
+      folderName: defaultFolderPath,
       uploadDate: new Date().toISOString().slice(0, 10),
     });
+    setSelectedBaseFolder(getBaseFolderFromPath(defaultFolderPath));
     setUploadMode("single");
     setSelectedFiles([]);
     setSelectedFolderFiles([]);
     setFolderUploadName("");
+    setCompressionPercent(0);
   }, [show, isEditMode, initialData, cloudflareSettings, folderOptions]);
 
   useEffect(() => {
@@ -204,7 +291,7 @@ const Createfile = ({
           prepared.forEach((item) => transfer.items.add(item.file));
           fileInputRef.current.files = transfer.files;
         } catch {
-          // If browser blocks programmatic FileList assignment, keep native selection as-is.
+          // Keep native selection when browser blocks file list assignment.
         }
       }
     }
@@ -238,7 +325,7 @@ const Createfile = ({
             next.forEach((item) => transfer.items.add(item.file));
             fileInputRef.current.files = transfer.files;
           } catch {
-            // Fallback: native file input value remains unchanged.
+            // Keep native selection when browser blocks file list assignment.
           }
         }
       }
@@ -315,6 +402,10 @@ const Createfile = ({
 
     setSubmitting(true);
     try {
+      const getUploadReadyFile = async (file) => {
+        return prepareFileForUpload(file, compressionPercent);
+      };
+
       if (isEditMode) {
         const fileId = initialData._id || initialData.id;
         const isCloudRecord = String(fileId || "").startsWith("cloud:");
@@ -344,27 +435,32 @@ const Createfile = ({
 
       if (uploadMode === "single") {
         const item = selectedFiles[0];
-        const fileDataBase64 = await toBase64(item.file);
+        const uploadReadyFile = await getUploadReadyFile(item.file);
         payload = {
           action: "upload",
           fileName: String(item.customName || "").trim(),
           originalName: item.file.name,
           folderName: formData.folderName.trim(),
           uploadDate: formData.uploadDate,
-          fileType: item.file.type || "application/octet-stream",
-          fileSizeBytes: item.file.size,
-          fileDataBase64,
+          fileType: uploadReadyFile.fileType,
+          fileSizeBytes: uploadReadyFile.fileSizeBytes,
+          fileDataBase64: uploadReadyFile.fileDataBase64,
+          compression: uploadReadyFile.compression,
           cloudflareSettings,
         };
       } else if (uploadMode === "multiple") {
         const files = await Promise.all(
-          selectedFiles.map(async (item) => ({
-            fileName: String(item.customName || "").trim(),
-            originalName: item.file.name,
-            fileType: item.file.type || "application/octet-stream",
-            fileSizeBytes: item.file.size,
-            fileDataBase64: await toBase64(item.file),
-          })),
+          selectedFiles.map(async (item) => {
+            const uploadReadyFile = await getUploadReadyFile(item.file);
+            return {
+              fileName: String(item.customName || "").trim(),
+              originalName: item.file.name,
+              fileType: uploadReadyFile.fileType,
+              fileSizeBytes: uploadReadyFile.fileSizeBytes,
+              fileDataBase64: uploadReadyFile.fileDataBase64,
+              compression: uploadReadyFile.compression,
+            };
+          }),
         );
 
         payload = {
@@ -379,22 +475,26 @@ const Createfile = ({
           selectedFolderFiles[0]?.webkitRelativePath?.split("/")?.[0] || "";
 
         const folderFiles = await Promise.all(
-          selectedFolderFiles.map(async (file) => ({
-            relativePath: (() => {
-              const raw = String(file.webkitRelativePath || file.name || "");
-              if (
-                !selectedRootName ||
-                !raw.startsWith(`${selectedRootName}/`)
-              ) {
-                return `${folderUploadName.trim()}/${file.name}`;
-              }
-              return `${folderUploadName.trim()}/${raw.slice(selectedRootName.length + 1)}`;
-            })(),
-            originalName: file.name,
-            fileType: file.type || "application/octet-stream",
-            fileSizeBytes: file.size,
-            fileDataBase64: await toBase64(file),
-          })),
+          selectedFolderFiles.map(async (file) => {
+            const uploadReadyFile = await getUploadReadyFile(file);
+            return {
+              relativePath: (() => {
+                const raw = String(file.webkitRelativePath || file.name || "");
+                if (
+                  !selectedRootName ||
+                  !raw.startsWith(`${selectedRootName}/`)
+                ) {
+                  return `${folderUploadName.trim()}/${file.name}`;
+                }
+                return `${folderUploadName.trim()}/${raw.slice(selectedRootName.length + 1)}`;
+              })(),
+              originalName: file.name,
+              fileType:
+                uploadReadyFile.type || file.type || "application/octet-stream",
+              fileSizeBytes: uploadReadyFile.size || file.size,
+              fileDataBase64: await toBase64(uploadReadyFile),
+            };
+          }),
         );
 
         payload = {
@@ -565,6 +665,40 @@ const Createfile = ({
                   </label>
                   <select
                     className="form-select modern-input"
+                    value={selectedBaseFolder}
+                    onChange={(e) => {
+                      const nextFolder = String(e.target.value || "").trim();
+                      setSelectedBaseFolder(nextFolder);
+                      setFormData((prev) => ({
+                        ...prev,
+                        folderName: nextFolder,
+                      }));
+                    }}
+                  >
+                    {[
+                      ...new Set([
+                        ...(folderOptions || []),
+                        selectedBaseFolder,
+                        getBaseFolderFromPath(formData.folderName),
+                      ]),
+                    ]
+                      .filter(Boolean)
+                      .map((folder) => (
+                        <option key={folder} value={folder}>
+                          {folder}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className={isEditMode ? "col-md-12" : "col-md-6"}>
+                  <label className="form-label fw-semibold">
+                    Select or Enter Folder Path
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control modern-input"
+                    list="folderPathOptions"
                     value={formData.folderName}
                     onChange={(e) =>
                       setFormData((prev) => ({
@@ -572,18 +706,22 @@ const Createfile = ({
                         folderName: e.target.value,
                       }))
                     }
-                  >
+                    placeholder="Example: general/invoices/2026"
+                  />
+                  <datalist id="folderPathOptions">
                     {[
                       ...new Set([
                         ...(folderOptions || []),
                         formData.folderName,
                       ]),
-                    ].map((folder) => (
-                      <option key={folder} value={folder}>
-                        {folder}
-                      </option>
-                    ))}
-                  </select>
+                    ]
+                      .filter(Boolean)
+                      .map((folder) => (
+                        <option key={folder} value={folder}>
+                          {folder}
+                        </option>
+                      ))}
+                  </datalist>
                 </div>
 
                 {!isEditMode && (
@@ -621,6 +759,34 @@ const Createfile = ({
                   </div>
                 )}
 
+                {!isEditMode && (
+                  <div className="col-md-6">
+                    <label className="form-label fw-semibold d-flex align-items-center gap-2">
+                      Compression Quality
+                    </label>
+                    <Select
+                      inputId="compressionPercent"
+                      name="compressionPercent"
+                      classNamePrefix="react-select"
+                      styles={compressionSelectStyles}
+                      menuPortalTarget={selectMenuPortalTarget}
+                      menuPosition="fixed"
+                      isSearchable={false}
+                      value={
+                        compressionOptions.find(
+                          (option) => option.value === compressionPercent,
+                        ) || compressionOptions[0]
+                      }
+                      onChange={(selectedOption) =>
+                        setCompressionPercent(
+                          Number(selectedOption?.value || 0),
+                        )
+                      }
+                      options={compressionOptions}
+                    />
+                  </div>
+                )}
+
                 {!isEditMode && uploadMode === "folder" && (
                   <div className="col-12">
                     <label className="form-label fw-semibold">
@@ -645,11 +811,7 @@ const Createfile = ({
                         <div className="row g-2">
                           {selectedFiles.map((item, index) => (
                             <div
-                              className={
-                                uploadMode === "multiple"
-                                  ? "col-md-6"
-                                  : "col-12"
-                              }
+                              className="col-md-6"
                               key={`${item.file.name}-${index}`}
                             >
                               <label className="form-label mb-1 small text-muted">
