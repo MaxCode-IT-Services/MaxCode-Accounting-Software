@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
 import pako from "pako";
 import { showError, showInfo, showSuccess } from "./ToastNotification";
+import ConfirmationModal from "./ConfirmationModal";
 import { apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
@@ -77,6 +78,20 @@ const formatBytes = (bytes) => {
   return `${size.toFixed(size >= 100 || power === 0 ? 0 : 2)} ${units[power]}`;
 };
 
+const formatDuration = (seconds = 0) => {
+  const s = Math.max(0, Math.round(seconds));
+  const hrs = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  if (hrs > 0) {
+    return `${hrs}h ${mins}m ${secs}s`;
+  }
+  if (mins > 0) {
+    return `${mins}m ${secs}s`;
+  }
+  return `${secs}s`;
+};
+
 const normalizeFolderOptions = (settings = {}) => {
   const fromSettings = String(settings?.folderOptions || "")
     .split(",")
@@ -104,11 +119,38 @@ const getBaseFolderFromPath = (path = "") => {
   return firstSegment || "general";
 };
 
+const configuredChunkSizeMb = Number(import.meta.env.VITE_UPLOAD_CHUNK_SIZE_MB);
+const safeChunkSizeMb = Number.isFinite(configuredChunkSizeMb)
+  ? Math.min(5, Math.max(1, configuredChunkSizeMb))
+  : 4;
+const CHUNK_SIZE_BYTES = safeChunkSizeMb * 1024 * 1024;
+const MAX_PARALLEL_CHUNKS = import.meta.env.DEV ? 1 : 2;
+const MAX_CHUNK_UPLOAD_RETRIES = 3;
+const MAX_DIRECT_UPLOAD_MB = Number(
+  import.meta.env.VITE_MAX_DIRECT_UPLOAD_MB || 95,
+);
+const MAX_DIRECT_UPLOAD_BYTES = Math.max(1, MAX_DIRECT_UPLOAD_MB) * 1024 * 1024;
+const MIN_MULTIPART_PART_BYTES = 5 * 1024 * 1024;
+
+const shouldUseChunkUpload = (file) => file && file.size > CHUNK_SIZE_BYTES / 2;
+
+const getApiRequestUrl = (path = "") => {
+  const base = String(import.meta.env.VITE_API_BASE_URL || "/api").replace(
+    /\/+$/,
+    "",
+  );
+  const normalizedPath = String(path || "").startsWith("/")
+    ? String(path || "")
+    : `/${String(path || "")}`;
+  return `${base}${normalizedPath}`;
+};
+
 const Createfile = ({
   show,
   onClose,
   onSubmit,
   cloudflareSettings = {},
+  folderOptionsFromRecords = [],
   mode = "create",
   initialData = null,
 }) => {
@@ -125,13 +167,98 @@ const Createfile = ({
   const [folderUploadName, setFolderUploadName] = useState("");
   const [selectedBaseFolder, setSelectedBaseFolder] = useState("general");
   const [compressionPercent, setCompressionPercent] = useState(0);
+  const [manualFileType, setManualFileType] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({});
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const fileInputRef = useRef(null);
+  const uploadControlRef = useRef({
+    cancelled: false,
+    controllers: new Set(),
+    xhrs: new Set(),
+    activeChunkUploadIds: new Set(),
+  });
 
-  const folderOptions = useMemo(
-    () => normalizeFolderOptions(cloudflareSettings),
-    [cloudflareSettings],
-  );
+  const resetUploadControl = () => {
+    uploadControlRef.current.cancelled = false;
+    uploadControlRef.current.controllers.clear();
+    uploadControlRef.current.xhrs.clear();
+    uploadControlRef.current.activeChunkUploadIds.clear();
+  };
+
+  const isUploadCancelled = () => uploadControlRef.current.cancelled === true;
+
+  const abortActiveUploads = () => {
+    uploadControlRef.current.cancelled = true;
+    uploadControlRef.current.controllers.forEach((controller) => {
+      try {
+        controller.abort();
+      } catch {
+        // Ignore abort errors.
+      }
+    });
+    uploadControlRef.current.controllers.clear();
+
+    uploadControlRef.current.xhrs.forEach((xhr) => {
+      try {
+        xhr.abort();
+      } catch {
+        // Ignore abort errors.
+      }
+    });
+    uploadControlRef.current.xhrs.clear();
+  };
+
+  const cancelChunkUploadsOnServer = async (uploadIds = []) => {
+    if (!Array.isArray(uploadIds) || uploadIds.length === 0) return;
+
+    await Promise.allSettled(
+      uploadIds.map((uploadId) => {
+        const cleanedUploadId = String(uploadId || "").trim();
+        if (!cleanedUploadId) return Promise.resolve();
+
+        const controller = new AbortController();
+        uploadControlRef.current.controllers.add(controller);
+
+        return fetch(
+          `${getApiRequestUrl(API_ENDPOINTS.FILES.CREATE)}?action=cancel-upload`,
+          {
+            method: "POST",
+            credentials: "include",
+            signal: controller.signal,
+            headers: {
+              "Content-Type": "application/json",
+              ...buildCloudHeaders(),
+            },
+            body: JSON.stringify({ uploadId: cleanedUploadId }),
+          },
+        ).finally(() => {
+          uploadControlRef.current.controllers.delete(controller);
+        });
+      }),
+    );
+  };
+
+  const resetModalState = () => {
+    setSelectedFiles([]);
+    setSelectedFolderFiles([]);
+    setFolderUploadName("");
+    setCompressionPercent(0);
+    setUploadProgress({});
+    setShowCancelConfirm(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const folderOptions = useMemo(() => {
+    const normalized = normalizeFolderOptions(cloudflareSettings);
+    const fromRecords = Array.isArray(folderOptionsFromRecords)
+      ? folderOptionsFromRecords
+      : [];
+
+    return [...new Set([...fromRecords, ...normalized])].filter(Boolean);
+  }, [cloudflareSettings, folderOptionsFromRecords]);
 
   const compressionOptions = useMemo(
     () => [
@@ -182,18 +309,91 @@ const Createfile = ({
       ),
     ];
 
+    const computedType = uniqueTypes.length
+      ? uniqueTypes.length === 1
+        ? uniqueTypes[0]
+        : `${uniqueTypes.length} file types`
+      : "-";
+
     return {
       size: formatBytes(total),
-      type: uniqueTypes.length
-        ? uniqueTypes.length === 1
-          ? uniqueTypes[0]
-          : `${uniqueTypes.length} file types`
-        : "-",
+      type:
+        uploadMode === "single" && String(manualFileType || "").trim()
+          ? String(manualFileType || "").trim()
+          : computedType,
     };
-  }, [isEditMode, initialData, selectedFiles, selectedFolderFiles, uploadMode]);
+  }, [
+    isEditMode,
+    initialData,
+    selectedFiles,
+    selectedFolderFiles,
+    uploadMode,
+    manualFileType,
+  ]);
+
+  const aggregateUploadProgress = useMemo(() => {
+    const entries = Object.entries(uploadProgress || {});
+    if (!entries.length) return null;
+
+    const totals = entries.reduce(
+      (acc, [, value]) => {
+        const totalBytes = Math.max(0, Number(value?.totalBytes || 0));
+        const uploadedBytes = Math.max(0, Number(value?.uploadedBytes || 0));
+        const clampedUploaded = Math.min(
+          uploadedBytes,
+          totalBytes || uploadedBytes,
+        );
+
+        acc.totalBytes += totalBytes;
+        acc.uploadedBytes += clampedUploaded;
+        acc.estimatedRemaining += Math.max(
+          0,
+          Number(value?.estimatedRemaining || 0),
+        );
+
+        if (String(value?.status || "") === "uploading") {
+          acc.hasUploading = true;
+        }
+
+        if (String(value?.status || "") === "finalizing") {
+          acc.hasFinalizing = true;
+        }
+
+        return acc;
+      },
+      {
+        totalBytes: 0,
+        uploadedBytes: 0,
+        estimatedRemaining: 0,
+        hasUploading: false,
+        hasFinalizing: false,
+      },
+    );
+
+    const percentage =
+      totals.totalBytes > 0
+        ? Math.round((totals.uploadedBytes / totals.totalBytes) * 100)
+        : 0;
+
+    return {
+      percentage: Math.max(0, Math.min(100, percentage)),
+      uploadedBytes: totals.uploadedBytes,
+      totalBytes: totals.totalBytes,
+      estimatedRemaining: totals.estimatedRemaining,
+      status: totals.hasFinalizing
+        ? "finalizing"
+        : totals.hasUploading
+          ? "uploading"
+          : "completed",
+      fileCount: entries.length,
+    };
+  }, [uploadProgress]);
 
   useEffect(() => {
     if (!show) return;
+
+    // Prevent stale progress from appearing when reopening modal.
+    resetModalState();
 
     if (isEditMode && initialData) {
       const fullPath = String(initialData.filePath || "").trim();
@@ -220,6 +420,7 @@ const Createfile = ({
       setSelectedFolderFiles([]);
       setFolderUploadName("");
       setCompressionPercent(0);
+      setManualFileType(String(initialData.fileType || "").trim());
       setUploadMode("single");
       return;
     }
@@ -240,7 +441,33 @@ const Createfile = ({
     setSelectedFolderFiles([]);
     setFolderUploadName("");
     setCompressionPercent(0);
+    setManualFileType("");
   }, [show, isEditMode, initialData, cloudflareSettings, folderOptions]);
+
+  const requestClose = () => {
+    if (submitting) {
+      setShowCancelConfirm(true);
+      return;
+    }
+    resetUploadControl();
+    resetModalState();
+    onClose();
+  };
+
+  const confirmCancelUpload = async () => {
+    const activeChunkUploadIds = Array.from(
+      uploadControlRef.current.activeChunkUploadIds,
+    );
+
+    abortActiveUploads();
+    await cancelChunkUploadsOnServer(activeChunkUploadIds);
+
+    setShowCancelConfirm(false);
+    resetModalState();
+    setSubmitting(false);
+    showInfo("Upload cancelled");
+    onClose();
+  };
 
   useEffect(() => {
     if (!show) return;
@@ -260,6 +487,20 @@ const Createfile = ({
       document.body.style.paddingRight = previousPaddingRight;
     };
   }, [show]);
+
+  useEffect(() => {
+    if (!submitting) return;
+
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue =
+        "Upload is in progress. Are you sure you want to leave?";
+      return event.returnValue;
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [submitting]);
 
   const handleFileChange = (event) => {
     const files = Array.from(event.target.files || []);
@@ -281,6 +522,12 @@ const Createfile = ({
           ? prepared[0].customName
           : prev.fileName,
     }));
+
+    if (uploadMode === "single") {
+      setManualFileType(
+        String(prepared[0]?.file?.type || "application/octet-stream"),
+      );
+    }
 
     if (fileInputRef.current) {
       if (!prepared.length) {
@@ -353,6 +600,589 @@ const Createfile = ({
     }));
   };
 
+  const buildCloudHeaders = (extraHeaders = {}) => {
+    const headers = {
+      "x-cloud-store-url": String(cloudflareSettings?.storeUrl || ""),
+      "x-cloud-public-domain": String(cloudflareSettings?.publicDomain || ""),
+      "x-cloud-password": String(cloudflareSettings?.password || ""),
+      "x-cloud-default-folder": String(cloudflareSettings?.defaultFolder || ""),
+      ...extraHeaders,
+    };
+
+    const token = localStorage.getItem("access_token");
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    return headers;
+  };
+
+  const uploadChunkToServer = async ({
+    uploadId,
+    filePath,
+    fileName,
+    chunkIndex,
+    chunkCount,
+    totalSize,
+    chunk,
+    mimeType,
+  }) => {
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= MAX_CHUNK_UPLOAD_RETRIES; attempt += 1) {
+      if (isUploadCancelled()) {
+        throw new Error("Upload cancelled by user");
+      }
+
+      try {
+        const controller = new AbortController();
+        uploadControlRef.current.controllers.add(controller);
+        const response = await fetch(
+          `${getApiRequestUrl(API_ENDPOINTS.FILES.CREATE)}?action=upload-chunk`,
+          {
+            method: "POST",
+            credentials: "include",
+            signal: controller.signal,
+            headers: buildCloudHeaders({
+              "Content-Type": "application/octet-stream",
+              "x-upload-id": uploadId,
+              "x-upload-file-path": filePath,
+              "x-upload-file-name": String(fileName || "").trim(),
+              "x-upload-file-type": String(
+                mimeType || "application/octet-stream",
+              ),
+              "x-upload-file-size": String(totalSize || 0),
+              "x-upload-chunk-index": String(chunkIndex),
+              "x-upload-chunk-count": String(chunkCount),
+            }),
+            body: chunk,
+          },
+        );
+        uploadControlRef.current.controllers.delete(controller);
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "");
+          throw new Error(
+            `Chunk upload failed [${chunkIndex + 1}/${chunkCount}] ${response.status} ${errorText}`,
+          );
+        }
+
+        return response.json().catch(() => ({ success: true }));
+      } catch (error) {
+        lastError = error;
+        if (attempt >= MAX_CHUNK_UPLOAD_RETRIES) {
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, attempt * 700));
+      }
+    }
+
+    throw lastError || new Error("Chunk upload failed due to network error");
+  };
+
+  const completeChunkedUploadOnServer = async ({
+    uploadId,
+    filePath,
+    folderName,
+    fileName,
+    fileType,
+    fileSizeBytes,
+    chunkCount,
+    uploadDate,
+    folderUploadName,
+  }) => {
+    if (isUploadCancelled()) {
+      throw new Error("Upload cancelled by user");
+    }
+
+    const controller = new AbortController();
+    uploadControlRef.current.controllers.add(controller);
+    const response = await fetch(
+      `${getApiRequestUrl(API_ENDPOINTS.FILES.CREATE)}?action=complete-upload`,
+      {
+        method: "POST",
+        credentials: "include",
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          ...buildCloudHeaders(),
+        },
+        body: JSON.stringify({
+          uploadId,
+          filePath,
+          folderName,
+          fileName,
+          fileType,
+          fileSizeBytes,
+          chunkCount,
+          uploadDate,
+          folderUploadName,
+        }),
+      },
+    );
+    uploadControlRef.current.controllers.delete(controller);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(`Chunk finalize failed ${response.status} ${errorText}`);
+    }
+
+    return response.json();
+  };
+
+  const uploadFileDirectToCloudflare = async ({
+    file,
+    objectPath,
+    mimeType,
+  }) => {
+    if (isUploadCancelled()) {
+      throw new Error("Upload cancelled by user");
+    }
+
+    const cleanedStoreUrl = String(cloudflareSettings?.storeUrl || "").replace(
+      /\/+$/,
+      "",
+    );
+    const cleanedPath = String(objectPath || "").replace(/^\/+/, "");
+
+    if (!cleanedStoreUrl || !cleanedPath) {
+      throw new Error("Cloudflare store URL or path is missing");
+    }
+
+    const encodeR2Path = (value = "") =>
+      String(value || "")
+        .split("/")
+        .filter(Boolean)
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+
+    const buildAuthHeaders = (extra = {}) => {
+      const token = localStorage.getItem("access_token");
+      const headers = {
+        "x-upload-password": String(cloudflareSettings?.password || ""),
+        "x-api-key": String(cloudflareSettings?.password || ""),
+        "x-password": String(cloudflareSettings?.password || ""),
+        ...extra,
+      };
+
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      return headers;
+    };
+
+    if (Number(file?.size || 0) > MAX_DIRECT_UPLOAD_BYTES) {
+      const encodedPath = encodeR2Path(cleanedPath);
+      const createController = new AbortController();
+      uploadControlRef.current.controllers.add(createController);
+      const createRes = await fetch(
+        `${cleanedStoreUrl}/mpu/create/${encodedPath}`,
+        {
+          method: "POST",
+          signal: createController.signal,
+          headers: buildAuthHeaders(),
+        },
+      );
+      uploadControlRef.current.controllers.delete(createController);
+
+      if (!createRes.ok) {
+        const createErr = await createRes.text().catch(() => "");
+        throw new Error(
+          `Multipart init failed ${createRes.status} ${createErr}`,
+        );
+      }
+
+      const createJson = await createRes.json().catch(() => ({}));
+      const uploadId = String(createJson?.uploadId || "").trim();
+      if (!uploadId) {
+        throw new Error("Multipart init failed: uploadId missing");
+      }
+
+      const multipartPartSize = Math.max(
+        CHUNK_SIZE_BYTES,
+        MIN_MULTIPART_PART_BYTES,
+      );
+      const totalSize = Number(file?.size || 0);
+      const totalParts = Math.max(1, Math.ceil(totalSize / multipartPartSize));
+      const startedAt = Date.now();
+      let uploadedBytes = 0;
+      const parts = [];
+
+      try {
+        for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
+          const start = (partNumber - 1) * multipartPartSize;
+          const end = Math.min(totalSize, start + multipartPartSize);
+          const partBlob = file.slice(start, end);
+
+          let uploadedPart = null;
+          let lastError = null;
+
+          for (
+            let attempt = 1;
+            attempt <= MAX_CHUNK_UPLOAD_RETRIES;
+            attempt += 1
+          ) {
+            if (isUploadCancelled()) {
+              throw new Error("Upload cancelled by user");
+            }
+
+            try {
+              const partUrl =
+                `${cleanedStoreUrl}/mpu/${encodedPath}` +
+                `?uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`;
+
+              const partController = new AbortController();
+              uploadControlRef.current.controllers.add(partController);
+              const partRes = await fetch(partUrl, {
+                method: "PUT",
+                signal: partController.signal,
+                headers: buildAuthHeaders({
+                  "Content-Type": mimeType || "application/octet-stream",
+                }),
+                body: partBlob,
+              });
+              uploadControlRef.current.controllers.delete(partController);
+
+              if (!partRes.ok) {
+                const partErr = await partRes.text().catch(() => "");
+                throw new Error(
+                  `Part ${partNumber}/${totalParts} failed ${partRes.status} ${partErr}`,
+                );
+              }
+
+              const partJson = await partRes.json().catch(() => ({}));
+              const etag = String(
+                partJson?.etag ||
+                  partJson?.httpEtag ||
+                  partRes.headers.get("etag") ||
+                  partRes.headers.get("ETag") ||
+                  "",
+              ).trim();
+
+              if (!etag) {
+                throw new Error(
+                  `Part ${partNumber}/${totalParts} uploaded but ETag missing`,
+                );
+              }
+
+              uploadedPart = { partNumber, etag };
+              break;
+            } catch (error) {
+              lastError = error;
+              if (attempt < MAX_CHUNK_UPLOAD_RETRIES) {
+                await new Promise((resolve) =>
+                  setTimeout(resolve, attempt * 700),
+                );
+              }
+            }
+          }
+
+          if (!uploadedPart) {
+            throw lastError || new Error("Multipart part upload failed");
+          }
+
+          parts.push(uploadedPart);
+          uploadedBytes += partBlob.size;
+
+          const percent =
+            totalSize > 0 ? Math.round((uploadedBytes / totalSize) * 100) : 0;
+          const elapsedSeconds = (Date.now() - startedAt) / 1000;
+          const speedBps =
+            elapsedSeconds > 0 ? uploadedBytes / elapsedSeconds : 0;
+          const remainingBytes = Math.max(0, totalSize - uploadedBytes);
+          const estimatedRemaining =
+            speedBps > 0 ? remainingBytes / speedBps : 0;
+
+          setUploadProgress((prev) => ({
+            ...prev,
+            [cleanedPath]: {
+              percentage: percent,
+              status: "uploading",
+              uploadedBytes,
+              totalBytes: totalSize,
+              estimatedRemaining,
+            },
+          }));
+        }
+
+        const completeController = new AbortController();
+        uploadControlRef.current.controllers.add(completeController);
+        const completeRes = await fetch(
+          `${cleanedStoreUrl}/mpu/complete/${encodedPath}?uploadId=${encodeURIComponent(uploadId)}`,
+          {
+            method: "POST",
+            signal: completeController.signal,
+            headers: buildAuthHeaders({
+              "Content-Type": "application/json",
+            }),
+            body: JSON.stringify({ parts }),
+          },
+        );
+        uploadControlRef.current.controllers.delete(completeController);
+
+        if (!completeRes.ok) {
+          const completeErr = await completeRes.text().catch(() => "");
+          throw new Error(
+            `Multipart complete failed ${completeRes.status} ${completeErr}`,
+          );
+        }
+
+        setUploadProgress((prev) => ({
+          ...prev,
+          [cleanedPath]: {
+            percentage: 100,
+            status: "completed",
+            uploadedBytes: totalSize,
+            totalBytes: totalSize,
+            estimatedRemaining: 0,
+          },
+        }));
+
+        return {
+          fileUrl: String(cloudflareSettings?.publicDomain || "").trim()
+            ? `${String(cloudflareSettings?.publicDomain || "").replace(/\/+$/, "")}/${cleanedPath}`
+            : `${cleanedStoreUrl}/${cleanedPath}`,
+          filePath: cleanedPath,
+        };
+      } catch (multipartError) {
+        try {
+          const abortController = new AbortController();
+          uploadControlRef.current.controllers.add(abortController);
+          await fetch(
+            `${cleanedStoreUrl}/mpu/${encodedPath}?uploadId=${encodeURIComponent(uploadId)}`,
+            {
+              method: "DELETE",
+              signal: abortController.signal,
+              headers: buildAuthHeaders(),
+            },
+          );
+          uploadControlRef.current.controllers.delete(abortController);
+        } catch {
+          // Ignore abort errors and bubble original upload error.
+        }
+        throw multipartError;
+      }
+    }
+
+    const uploadUrl = `${cleanedStoreUrl}/${cleanedPath}`;
+    const startedAt = Date.now();
+
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", uploadUrl, true);
+      xhr.timeout = 120000;
+      uploadControlRef.current.xhrs.add(xhr);
+
+      const authHeaders = buildAuthHeaders({
+        "Content-Type": mimeType || "application/octet-stream",
+      });
+      Object.entries(authHeaders).forEach(([key, value]) => {
+        xhr.setRequestHeader(key, String(value));
+      });
+
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+
+        const loaded = Number(event.loaded || 0);
+        const total = Number(event.total || file.size || 0);
+        const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
+
+        const elapsedSeconds = (Date.now() - startedAt) / 1000;
+        const speedBps = elapsedSeconds > 0 ? loaded / elapsedSeconds : 0;
+        const remainingBytes = Math.max(0, total - loaded);
+        const estimatedRemaining = speedBps > 0 ? remainingBytes / speedBps : 0;
+
+        setUploadProgress((prev) => ({
+          ...prev,
+          [cleanedPath]: {
+            percentage: percent,
+            status: "uploading",
+            uploadedBytes: loaded,
+            totalBytes: total,
+            estimatedRemaining,
+          },
+        }));
+      };
+
+      xhr.onerror = () => {
+        uploadControlRef.current.xhrs.delete(xhr);
+        reject(new Error("Direct upload failed due to network error"));
+      };
+
+      xhr.ontimeout = () => {
+        uploadControlRef.current.xhrs.delete(xhr);
+        reject(
+          new Error(
+            "Direct upload timed out. Cloudflare endpoint may have request size/time limits.",
+          ),
+        );
+      };
+
+      xhr.onload = () => {
+        uploadControlRef.current.xhrs.delete(xhr);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setUploadProgress((prev) => ({
+            ...prev,
+            [cleanedPath]: {
+              percentage: 100,
+              status: "completed",
+              uploadedBytes: Number(file?.size || 0),
+              totalBytes: Number(file?.size || 0),
+              estimatedRemaining: 0,
+            },
+          }));
+          resolve(true);
+          return;
+        }
+
+        reject(
+          new Error(
+            `Cloudflare direct upload failed ${xhr.status} ${xhr.responseText || ""}`,
+          ),
+        );
+      };
+
+      xhr.onabort = () => {
+        uploadControlRef.current.xhrs.delete(xhr);
+        reject(new Error("Upload cancelled by user"));
+      };
+
+      xhr.send(file);
+    });
+
+    return {
+      fileUrl: String(cloudflareSettings?.publicDomain || "").trim()
+        ? `${String(cloudflareSettings?.publicDomain || "").replace(/\/+$/, "")}/${cleanedPath}`
+        : uploadUrl,
+      filePath: cleanedPath,
+    };
+  };
+
+  const chunkUpload = async ({
+    file,
+    relativePath,
+    folderName,
+    fileName,
+    customMimeType,
+    uploadDate,
+  }) => {
+    const uploadId =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `upload-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    uploadControlRef.current.activeChunkUploadIds.add(uploadId);
+
+    const normalizedPath =
+      String(relativePath || "").replace(/^\/+/, "") ||
+      `${folderName}/${fileName}`;
+    const totalSize = Number(file?.size || 0);
+    const chunkCount = Math.max(1, Math.ceil(totalSize / CHUNK_SIZE_BYTES));
+
+    const pendingIndexes = Array.from({ length: chunkCount }, (_, idx) => idx);
+
+    let completed = 0;
+    let bytesUploaded = 0;
+    const startTime = Date.now();
+
+    const runWorker = async (index) => {
+      const start = index * CHUNK_SIZE_BYTES;
+      const end = Math.min(totalSize, start + CHUNK_SIZE_BYTES);
+      const chunk = file.slice(start, end);
+      await uploadChunkToServer({
+        uploadId,
+        filePath: normalizedPath,
+        fileName,
+        chunkIndex: index,
+        chunkCount,
+        totalSize,
+        chunk,
+        mimeType: customMimeType || file.type,
+      });
+
+      completed += 1;
+      bytesUploaded += chunk.size;
+
+      const elapsedSeconds = (Date.now() - startTime) / 1000;
+      const speedBps = elapsedSeconds > 0 ? bytesUploaded / elapsedSeconds : 0;
+      const remainingBytes = Math.max(0, totalSize - bytesUploaded);
+      const remainingSeconds = speedBps > 0 ? remainingBytes / speedBps : 0;
+
+      const percent = Math.round((completed / chunkCount) * 100);
+      setUploadProgress((prev) => ({
+        ...prev,
+        [normalizedPath]: {
+          percentage: percent,
+          status: "uploading",
+          uploadedBytes: bytesUploaded,
+          totalBytes: totalSize,
+          estimatedRemaining: remainingSeconds,
+        },
+      }));
+    };
+
+    const parallelWorkers = [];
+    while (pendingIndexes.length > 0) {
+      while (
+        parallelWorkers.length < MAX_PARALLEL_CHUNKS &&
+        pendingIndexes.length > 0
+      ) {
+        const index = pendingIndexes.shift();
+        const p = runWorker(index).finally(() => {
+          const idx = parallelWorkers.indexOf(p);
+          if (idx > -1) parallelWorkers.splice(idx, 1);
+        });
+        parallelWorkers.push(p);
+      }
+
+      await Promise.race(parallelWorkers);
+    }
+
+    await Promise.all(parallelWorkers);
+
+    setUploadProgress((prev) => ({
+      ...prev,
+      [normalizedPath]: {
+        percentage: 100,
+        status: "finalizing",
+        uploadedBytes: totalSize,
+        totalBytes: totalSize,
+        estimatedRemaining: 0,
+      },
+    }));
+
+    try {
+      const completeResult = await completeChunkedUploadOnServer({
+        uploadId,
+        filePath: normalizedPath,
+        folderName,
+        fileName,
+        fileType: customMimeType || file.type || "application/octet-stream",
+        fileSizeBytes: totalSize,
+        chunkCount,
+        uploadDate,
+        folderUploadName,
+      });
+
+      setUploadProgress((prev) => ({
+        ...prev,
+        [normalizedPath]: {
+          percentage: 100,
+          status: "completed",
+          uploadedBytes: totalSize,
+          totalBytes: totalSize,
+          estimatedRemaining: 0,
+        },
+      }));
+
+      return completeResult;
+    } finally {
+      uploadControlRef.current.activeChunkUploadIds.delete(uploadId);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -401,6 +1231,8 @@ const Createfile = ({
     }
 
     setSubmitting(true);
+    resetUploadControl();
+    setUploadProgress({});
     try {
       const getUploadReadyFile = async (file) => {
         return prepareFileForUpload(file, compressionPercent);
@@ -431,104 +1263,102 @@ const Createfile = ({
         return;
       }
 
-      let payload;
-
       if (uploadMode === "single") {
         const item = selectedFiles[0];
-        const uploadReadyFile = await getUploadReadyFile(item.file);
-        payload = {
-          action: "upload",
-          fileName: String(item.customName || "").trim(),
-          originalName: item.file.name,
-          folderName: formData.folderName.trim(),
-          uploadDate: formData.uploadDate,
-          fileType: uploadReadyFile.fileType,
-          fileSizeBytes: uploadReadyFile.fileSizeBytes,
-          fileDataBase64: uploadReadyFile.fileDataBase64,
-          compression: uploadReadyFile.compression,
-          cloudflareSettings,
-        };
-      } else if (uploadMode === "multiple") {
-        const files = await Promise.all(
-          selectedFiles.map(async (item) => {
-            const uploadReadyFile = await getUploadReadyFile(item.file);
-            return {
-              fileName: String(item.customName || "").trim(),
-              originalName: item.file.name,
-              fileType: uploadReadyFile.fileType,
-              fileSizeBytes: uploadReadyFile.fileSizeBytes,
-              fileDataBase64: uploadReadyFile.fileDataBase64,
-              compression: uploadReadyFile.compression,
-            };
-          }),
-        );
+        const fileName = String(item.customName || "").trim();
+        const relativePath = `${formData.folderName.trim()}/${fileName}`;
+        const effectiveMimeType =
+          String(manualFileType || "").trim() ||
+          String(item.file?.type || "application/octet-stream");
 
-        payload = {
-          action: "upload-files",
-          folderName: formData.folderName.trim(),
-          uploadDate: formData.uploadDate,
-          files,
-          cloudflareSettings,
-        };
+        const result = await uploadFileDirectToCloudflare({
+          file: item.file,
+          objectPath: relativePath,
+          mimeType: effectiveMimeType,
+        });
+
+        if (isUploadCancelled()) {
+          throw new Error("Upload cancelled by user");
+        }
+
+        showSuccess("File uploaded successfully");
+        if (onSubmit) onSubmit(result || null);
+      } else if (uploadMode === "multiple") {
+        for (const item of selectedFiles) {
+          if (isUploadCancelled()) {
+            throw new Error("Upload cancelled by user");
+          }
+
+          const fileName = String(item.customName || "").trim();
+          const relativePath = `${formData.folderName.trim()}/${fileName}`;
+          const effectiveMimeType =
+            String(manualFileType || "").trim() ||
+            String(item.file?.type || "application/octet-stream");
+
+          await uploadFileDirectToCloudflare({
+            file: item.file,
+            objectPath: relativePath,
+            mimeType: effectiveMimeType,
+          });
+        }
+
+        if (isUploadCancelled()) {
+          throw new Error("Upload cancelled by user");
+        }
+
+        showSuccess("Files uploaded successfully");
+        if (onSubmit) onSubmit(null);
       } else {
         const selectedRootName =
           selectedFolderFiles[0]?.webkitRelativePath?.split("/")?.[0] || "";
 
-        const folderFiles = await Promise.all(
-          selectedFolderFiles.map(async (file) => {
-            const uploadReadyFile = await getUploadReadyFile(file);
-            return {
-              relativePath: (() => {
-                const raw = String(file.webkitRelativePath || file.name || "");
-                if (
-                  !selectedRootName ||
-                  !raw.startsWith(`${selectedRootName}/`)
-                ) {
-                  return `${folderUploadName.trim()}/${file.name}`;
-                }
-                return `${folderUploadName.trim()}/${raw.slice(selectedRootName.length + 1)}`;
-              })(),
-              originalName: file.name,
-              fileType:
-                uploadReadyFile.fileType ||
-                file.type ||
-                "application/octet-stream",
-              fileSizeBytes: uploadReadyFile.fileSizeBytes || file.size,
-              fileDataBase64: uploadReadyFile.fileDataBase64,
-              compression: uploadReadyFile.compression,
-            };
-          }),
-        );
+        for (const file of selectedFolderFiles) {
+          if (isUploadCancelled()) {
+            throw new Error("Upload cancelled by user");
+          }
 
-        payload = {
-          action: "upload-folder",
-          folderName: formData.folderName.trim(),
-          uploadDate: formData.uploadDate,
-          folderFiles,
-          cloudflareSettings,
-        };
+          const raw = String(file.webkitRelativePath || file.name || "");
+          const relativeFilePath = (() => {
+            if (!selectedRootName || !raw.startsWith(`${selectedRootName}/`)) {
+              return `${folderUploadName.trim()}/${file.name}`;
+            }
+            return `${folderUploadName.trim()}/${raw.slice(selectedRootName.length + 1)}`;
+          })();
+
+          await uploadFileDirectToCloudflare({
+            file,
+            objectPath: `${formData.folderName.trim()}/${relativeFilePath}`,
+            mimeType:
+              String(manualFileType || "").trim() ||
+              String(file?.type || "application/octet-stream"),
+          });
+        }
+
+        if (isUploadCancelled()) {
+          throw new Error("Upload cancelled by user");
+        }
+
+        showSuccess("Folder uploaded successfully");
+        if (onSubmit) onSubmit(null);
       }
-
-      const response = await apiPost(API_ENDPOINTS.FILES.CREATE, payload);
-      showSuccess(
-        response?.data?.message ||
-          (uploadMode === "folder"
-            ? "Folder uploaded successfully"
-            : uploadMode === "multiple"
-              ? "Files uploaded successfully"
-              : "File uploaded successfully"),
-      );
-
-      if (onSubmit) onSubmit(response?.data?.data || null);
+      resetModalState();
       onClose();
     } catch (error) {
+      console.error("Upload error details:", error);
+      const message = String(error?.message || "").toLowerCase();
+      if (message.includes("cancelled")) {
+        showInfo("Upload cancelled");
+        return;
+      }
       showError(
         error?.response?.data?.error ||
           error?.response?.data?.message ||
+          error?.message ||
           (isEditMode ? "Failed to update file" : "Failed to upload file"),
       );
     } finally {
       setSubmitting(false);
+      resetUploadControl();
     }
   };
 
@@ -556,7 +1386,7 @@ const Createfile = ({
             <button
               type="button"
               className="btn-close"
-              onClick={onClose}
+              onClick={requestClose}
             ></button>
           </div>
 
@@ -876,10 +1706,63 @@ const Createfile = ({
                   <input
                     type="text"
                     className="form-control modern-input"
-                    value={selectionSummary.type}
-                    readOnly
+                    value={
+                      isEditMode
+                        ? selectionSummary.type
+                        : manualFileType || selectionSummary.type
+                    }
+                    onChange={(e) => setManualFileType(e.target.value)}
+                    readOnly={isEditMode}
+                    placeholder="Example: application/pdf"
                   />
                 </div>
+
+                {!isEditMode && aggregateUploadProgress && (
+                  <div className="col-12 mt-3">
+                    <div className="fw-semibold mb-1">Upload Progress</div>
+                    <div className="upload-progress-card mb-2">
+                      <div className="d-flex justify-content-between mb-1 align-items-center">
+                        <span className="upload-file-path">
+                          {aggregateUploadProgress.fileCount > 1
+                            ? `Total (${aggregateUploadProgress.fileCount} files)`
+                            : "Total"}
+                        </span>
+                        <span className="upload-percent-badge">
+                          {aggregateUploadProgress.percentage || 0}%
+                        </span>
+                      </div>
+                      <div className="progress upload-progress-track">
+                        <div
+                          className="progress-bar upload-progress-fill"
+                          role="progressbar"
+                          style={{
+                            width: `${aggregateUploadProgress.percentage || 0}%`,
+                          }}
+                          aria-valuenow={
+                            aggregateUploadProgress.percentage || 0
+                          }
+                          aria-valuemin="0"
+                          aria-valuemax="100"
+                        />
+                      </div>
+                      <div className="upload-progress-meta small text-muted mt-1">
+                        <span>
+                          {formatBytes(
+                            aggregateUploadProgress.uploadedBytes || 0,
+                          )}{" "}
+                          /{" "}
+                          {formatBytes(aggregateUploadProgress.totalBytes || 0)}
+                        </span>
+                        <span>
+                          {aggregateUploadProgress.estimatedRemaining > 0 &&
+                          aggregateUploadProgress.status !== "completed"
+                            ? `Time left: ${formatDuration(aggregateUploadProgress.estimatedRemaining)}`
+                            : "Time left: calculating..."}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -887,7 +1770,7 @@ const Createfile = ({
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={onClose}
+                onClick={requestClose}
               >
                 Cancel
               </button>
@@ -951,7 +1834,66 @@ const Createfile = ({
           padding: 10px;
           background: rgb(14 144 60 / 5%);
         }
+
+        .upload-progress-card {
+          border: 2px solid #028011;
+          border-radius: 14px;
+          padding: 12px 14px;
+          background: linear-gradient(180deg, rgb(245 255 250) 0%, #ffffff 100%);
+        }
+
+        .upload-file-path {
+          max-width: 74%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-weight: 600;
+          color: #0f172a;
+        }
+
+        .upload-percent-badge {
+          background: linear-gradient(135deg, #007026 0%, #09a98d 100%);
+          color: #fff;
+          border-radius: 999px;
+          padding: 3px 10px;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.2px;
+        }
+
+        .upload-progress-track {
+          height: 10px;
+          border-radius: 999px;
+          background: rgb(9 169 141 / 18%);
+          overflow: hidden;
+        }
+
+        .upload-progress-fill {
+          background: repeating-linear-gradient(45deg, #0b7d1b, #0b8f1d 10px, #d3ffe1 10px, #129637 20px);
+          border-radius: 999px;
+          transition: width 0.35s ease;
+        }
+
+        .upload-progress-meta {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+          color: #475569 !important;
+        }
+        .progress{margin-top: 2px;}
       `}</style>
+
+      <ConfirmationModal
+        show={showCancelConfirm}
+        onHide={() => setShowCancelConfirm(false)}
+        onConfirm={confirmCancelUpload}
+        title="Cancel Upload?"
+        message="File upload is in progress. Do you want to cancel it?"
+        confirmText="Yes, Cancel Upload"
+        cancelText="Continue Upload"
+        variant="warning"
+      />
     </div>
   );
 };

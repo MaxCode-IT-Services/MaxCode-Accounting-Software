@@ -1,5 +1,6 @@
 import { verifyRequestToken } from "./utils/auth.js";
 import { connectToDatabase } from "./utils/mongodb.js";
+import Busboy from "busboy";
 import { inflateSync } from "node:zlib";
 
 const getCorsHeaders = (origin) => {
@@ -17,7 +18,7 @@ const getCorsHeaders = (origin) => {
   return {
     "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, x-cloud-store-url, x-cloud-public-domain, x-cloud-password, x-cloud-default-folder",
+      "Content-Type, Authorization, x-cloud-store-url, x-cloud-public-domain, x-cloud-password, x-cloud-default-folder, x-upload-id, x-upload-file-path, x-upload-file-name, x-upload-file-type, x-upload-file-size, x-upload-chunk-index, x-upload-chunk-count",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
     "Access-Control-Allow-Credentials": "true",
   };
@@ -40,6 +41,9 @@ const createResponse = (
 const CLOUD_LIST_CACHE_TTL_MS = 20 * 1000;
 const cloudListCache = new Map();
 const CLOUD_LIST_ATTEMPT_TIMEOUT_MS = 7000;
+const CANCELLED_UPLOAD_TTL_MS = 10 * 60 * 1000;
+const cancelledUploads = new Map();
+const TEMP_UPLOAD_RETENTION_MS = 6 * 60 * 60 * 1000;
 
 const getCloudCacheKey = (storeUrl = "", password = "") =>
   `${String(storeUrl || "").trim()}|${String(password || "").trim()}`;
@@ -65,6 +69,35 @@ const setCachedCloudRows = (cacheKey, rows) => {
 
 const invalidateCloudListCache = () => {
   cloudListCache.clear();
+};
+
+const cleanupCancelledUploads = () => {
+  const now = Date.now();
+  for (const [uploadId, cancelledAt] of cancelledUploads.entries()) {
+    if (now - Number(cancelledAt || 0) > CANCELLED_UPLOAD_TTL_MS) {
+      cancelledUploads.delete(uploadId);
+    }
+  }
+};
+
+const markUploadCancelled = (uploadId = "") => {
+  const key = String(uploadId || "").trim();
+  if (!key) return;
+  cleanupCancelledUploads();
+  cancelledUploads.set(key, Date.now());
+};
+
+const isUploadCancelled = (uploadId = "") => {
+  const key = String(uploadId || "").trim();
+  if (!key) return false;
+  cleanupCancelledUploads();
+  return cancelledUploads.has(key);
+};
+
+const clearUploadCancelled = (uploadId = "") => {
+  const key = String(uploadId || "").trim();
+  if (!key) return;
+  cancelledUploads.delete(key);
 };
 
 const normalizeCloudflareSettings = (settings = {}) => {
@@ -123,6 +156,137 @@ const getCloudflareSettingsFromEvent = (event = {}, body = {}) => {
     ...headerSettings,
     ...bodySettings,
   });
+};
+
+const getUploadChunkMetadata = (headers = {}) => {
+  return {
+    uploadId: getHeaderValue(headers, "x-upload-id"),
+    filePath: getHeaderValue(headers, "x-upload-file-path"),
+    fileName: getHeaderValue(headers, "x-upload-file-name"),
+    fileType: getHeaderValue(headers, "x-upload-file-type"),
+    fileSize: Number(getHeaderValue(headers, "x-upload-file-size")) || 0,
+    chunkIndex: Number(getHeaderValue(headers, "x-upload-chunk-index")),
+    chunkCount: Number(getHeaderValue(headers, "x-upload-chunk-count")),
+  };
+};
+
+const isPathInUploadTemp = (path = "") =>
+  String(path || "")
+    .trim()
+    .startsWith(".uploads/");
+
+const buildUploadChunkPath = (uploadId, chunkIndex) =>
+  `.uploads/${String(uploadId || "").replace(/[^a-zA-Z0-9_-]/g, "")}/${String(
+    chunkIndex,
+  ).padStart(6, "0")}.chunk`;
+
+const getUploadChunkPrefix = (uploadId = "") =>
+  `.uploads/${String(uploadId || "").replace(/[^a-zA-Z0-9_-]/g, "")}/`;
+
+const getChunkedUploadPaths = async ({ storeUrl, password, uploadId }) => {
+  if (!uploadId) return [];
+  const prefix = getUploadChunkPrefix(uploadId);
+
+  const rows = await listFromCloudflareStore({
+    storeUrl,
+    password,
+    includeTempUploads: true,
+  });
+  if (!Array.isArray(rows)) return [];
+
+  return rows
+    .map((row) => String(row.filePath || row.path || row.key || "").trim())
+    .filter((item) => item.startsWith(prefix))
+    .sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+};
+
+const getChunkedUploadStatus = async ({ storeUrl, password, uploadId }) => {
+  const paths = await getChunkedUploadPaths({ storeUrl, password, uploadId });
+
+  return paths
+    .map((item) => Number(item.split("/").pop().split(".")[0] || -1))
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b);
+};
+
+const getTempUploadRows = async ({ storeUrl, password }) => {
+  const rows = await listFromCloudflareStore({
+    storeUrl,
+    password,
+    includeTempUploads: true,
+  });
+
+  if (!Array.isArray(rows)) return [];
+
+  return rows.filter((row) =>
+    isPathInUploadTemp(row.filePath || row.path || ""),
+  );
+};
+
+const cleanupStaleTempUploads = async ({
+  storeUrl,
+  password,
+  olderThanMs = TEMP_UPLOAD_RETENTION_MS,
+  forceAll = false,
+}) => {
+  const rows = await getTempUploadRows({ storeUrl, password });
+  if (!rows.length) {
+    return {
+      scanned: 0,
+      deletedObjects: 0,
+      deletedUploads: 0,
+      skippedObjects: 0,
+    };
+  }
+
+  const now = Date.now();
+  const uploadIdSet = new Set();
+  let deletedObjects = 0;
+  let skippedObjects = 0;
+
+  for (const row of rows) {
+    const rawPath = String(row.filePath || row.path || row.key || "").trim();
+    if (!rawPath) {
+      skippedObjects += 1;
+      continue;
+    }
+
+    const segments = rawPath.split("/");
+    const uploadId = String(segments[1] || "").trim();
+    if (uploadId) {
+      uploadIdSet.add(uploadId);
+    }
+
+    const uploadDateMs = row.uploadDate
+      ? new Date(row.uploadDate).getTime()
+      : NaN;
+    const isOlder = Number.isFinite(uploadDateMs)
+      ? now - uploadDateMs >= olderThanMs
+      : false;
+
+    if (!forceAll && !isOlder) {
+      skippedObjects += 1;
+      continue;
+    }
+
+    try {
+      await deleteFromCloudflareStore({
+        storeUrl,
+        password,
+        objectPath: rawPath,
+      });
+      deletedObjects += 1;
+    } catch {
+      skippedObjects += 1;
+    }
+  }
+
+  return {
+    scanned: rows.length,
+    deletedObjects,
+    deletedUploads: uploadIdSet.size,
+    skippedObjects,
+  };
 };
 
 const getCloudflareSettingsFromDatabase = async () => {
@@ -547,6 +711,7 @@ const listFromCloudflareStore = async ({
   storeUrl,
   password,
   publicDomain,
+  includeTempUploads = false,
 }) => {
   const cleanedStoreUrl = String(storeUrl || "").replace(/\/+$/, "");
   if (!cleanedStoreUrl || !password) {
@@ -672,7 +837,11 @@ const listFromCloudflareStore = async ({
               .replace(/^\/+/, "")
               .trim() || "";
 
-          if (!rawPath || rawPath.endsWith("/")) {
+          if (
+            !rawPath ||
+            rawPath.endsWith("/") ||
+            (!includeTempUploads && rawPath.startsWith(".uploads/"))
+          ) {
             return null;
           }
 
@@ -1114,7 +1283,19 @@ export async function handler(event) {
     verifyRequestToken(event);
 
     const query = event.queryStringParameters || {};
-    const parsedBody = event.body ? JSON.parse(event.body) : {};
+    const rawAction = String(query.action || "")
+      .trim()
+      .toLowerCase();
+    let parsedBody = {};
+
+    if (event.body && rawAction !== "upload-chunk") {
+      try {
+        parsedBody = JSON.parse(event.body);
+      } catch {
+        parsedBody = {};
+      }
+    }
+
     let cloudflareSettings = getCloudflareSettingsFromEvent(event, parsedBody);
 
     if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
@@ -1379,9 +1560,289 @@ export async function handler(event) {
 
     if (event.httpMethod === "POST") {
       const body = parsedBody;
-      const action = String(body.action || "upload")
-        .trim()
-        .toLowerCase();
+      const action =
+        rawAction ||
+        String(body.action || "upload")
+          .trim()
+          .toLowerCase();
+
+      if (
+        [
+          "upload-chunk",
+          "upload-status",
+          "complete-upload",
+          "cancel-upload",
+          "cleanup-temp-uploads",
+        ].includes(action)
+      ) {
+        if (action === "cleanup-temp-uploads") {
+          const olderThanMinutes = Number(
+            body.olderThanMinutes || query.olderThanMinutes || 360,
+          );
+          const forceAll =
+            String(body.forceAll || query.forceAll || "").toLowerCase() ===
+            "true";
+
+          const retentionMs =
+            Number.isFinite(olderThanMinutes) && olderThanMinutes > 0
+              ? olderThanMinutes * 60 * 1000
+              : TEMP_UPLOAD_RETENTION_MS;
+
+          const cleanup = await cleanupStaleTempUploads({
+            storeUrl: cloudflareSettings.storeUrl,
+            password: cloudflareSettings.password,
+            olderThanMs: retentionMs,
+            forceAll,
+          });
+
+          invalidateCloudListCache();
+          return createResponse(
+            200,
+            {
+              message: "Temporary upload cleanup completed",
+              retentionMinutes: Math.round(retentionMs / (60 * 1000)),
+              forceAll,
+              ...cleanup,
+            },
+            origin,
+          );
+        }
+
+        if (action === "cancel-upload") {
+          const uploadId = String(body.uploadId || query.uploadId || "").trim();
+          if (!uploadId) {
+            return createResponse(
+              400,
+              { error: "uploadId is required" },
+              origin,
+            );
+          }
+
+          markUploadCancelled(uploadId);
+
+          const chunkPaths = await getChunkedUploadPaths({
+            storeUrl: cloudflareSettings.storeUrl,
+            password: cloudflareSettings.password,
+            uploadId,
+          });
+
+          let deletedChunks = 0;
+          for (const chunkPath of chunkPaths) {
+            try {
+              await deleteFromCloudflareStore({
+                storeUrl: cloudflareSettings.storeUrl,
+                password: cloudflareSettings.password,
+                objectPath: chunkPath,
+              });
+              deletedChunks += 1;
+            } catch {
+              // Best-effort cleanup.
+            }
+          }
+
+          invalidateCloudListCache();
+
+          return createResponse(
+            200,
+            {
+              message: "Upload cancelled successfully",
+              uploadId,
+              deletedChunks,
+            },
+            origin,
+          );
+        }
+
+        if (action === "upload-status") {
+          const uploadId = String(body.uploadId || "").trim();
+          if (!uploadId) {
+            return createResponse(
+              400,
+              { error: "uploadId is required" },
+              origin,
+            );
+          }
+          const uploadedChunks = await getChunkedUploadStatus({
+            storeUrl: cloudflareSettings.storeUrl,
+            password: cloudflareSettings.password,
+            uploadId,
+          });
+          return createResponse(200, { uploadedChunks }, origin);
+        }
+
+        if (action === "upload-chunk") {
+          const metadata = getUploadChunkMetadata(event.headers || {});
+
+          if (
+            !metadata.uploadId ||
+            !metadata.filePath ||
+            Number.isNaN(metadata.chunkIndex) ||
+            Number.isNaN(metadata.chunkCount)
+          ) {
+            return createResponse(
+              400,
+              { error: "Missing chunk upload metadata" },
+              origin,
+            );
+          }
+
+          if (isUploadCancelled(metadata.uploadId)) {
+            return createResponse(
+              409,
+              { error: "Upload has been cancelled" },
+              origin,
+            );
+          }
+
+          const requestBody = event.body || "";
+          const chunkBuffer = event.isBase64Encoded
+            ? Buffer.from(requestBody, "base64")
+            : Buffer.from(requestBody || "", "utf8");
+
+          if (!chunkBuffer.length) {
+            return createResponse(
+              400,
+              { error: "Chunk payload is empty" },
+              origin,
+            );
+          }
+
+          const chunkObjectPath = buildUploadChunkPath(
+            metadata.uploadId,
+            metadata.chunkIndex,
+          );
+
+          await uploadToCloudflareStore({
+            storeUrl: cloudflareSettings.storeUrl,
+            publicDomain: cloudflareSettings.publicDomain,
+            password: cloudflareSettings.password,
+            objectPath: chunkObjectPath,
+            mimeType: "application/octet-stream",
+            fileBuffer: chunkBuffer,
+          });
+
+          return createResponse(
+            200,
+            {
+              message: "Chunk uploaded successfully",
+              uploadId: metadata.uploadId,
+              chunkIndex: metadata.chunkIndex,
+              chunkCount: metadata.chunkCount,
+            },
+            origin,
+          );
+        }
+
+        if (action === "complete-upload") {
+          const uploadId = String(body.uploadId || "").trim();
+          const filePath = String(body.filePath || "").trim();
+          const fileName = String(body.fileName || "").trim();
+          const fileType = String(
+            body.fileType || "application/octet-stream",
+          ).trim();
+          const chunkCount = Number(body.chunkCount || 0);
+          const fileSizeBytes = Number(body.fileSizeBytes || 0);
+
+          if (!uploadId || !filePath || !fileName || !chunkCount) {
+            return createResponse(
+              400,
+              {
+                error: "uploadId, filePath, fileName, chunkCount are required",
+              },
+              origin,
+            );
+          }
+
+          if (isUploadCancelled(uploadId)) {
+            return createResponse(
+              409,
+              { error: "Upload has been cancelled" },
+              origin,
+            );
+          }
+
+          const chunkBuffers = [];
+          for (let i = 0; i < chunkCount; i += 1) {
+            const sourcePath = buildUploadChunkPath(uploadId, i);
+            const downloaded = await downloadFromCloudflareStore({
+              storeUrl: cloudflareSettings.storeUrl,
+              password: cloudflareSettings.password,
+              objectPath: sourcePath,
+            });
+
+            chunkBuffers.push(downloaded.buffer);
+          }
+
+          const finalBuffer = Buffer.concat(chunkBuffers);
+
+          const normalizedFolderName = ensureFolder(
+            String(body.folderName || "").trim(),
+            ensureFolder(cloudflareSettings.defaultFolder || "general"),
+          );
+
+          const finalObjectPath = filePath;
+          await ensureCloudflareFolder({
+            storeUrl: cloudflareSettings.storeUrl,
+            password: cloudflareSettings.password,
+            folderName: normalizedFolderName,
+            publicDomain: cloudflareSettings.publicDomain,
+          });
+
+          const uploadResult = await uploadToCloudflareStore({
+            storeUrl: cloudflareSettings.storeUrl,
+            publicDomain: cloudflareSettings.publicDomain,
+            password: cloudflareSettings.password,
+            objectPath: finalObjectPath,
+            mimeType: fileType,
+            fileBuffer: finalBuffer,
+          });
+
+          // Cleanup chunks
+          for (let i = 0; i < chunkCount; i += 1) {
+            const sourcePath = buildUploadChunkPath(uploadId, i);
+            try {
+              await deleteFromCloudflareStore({
+                storeUrl: cloudflareSettings.storeUrl,
+                password: cloudflareSettings.password,
+                objectPath: sourcePath,
+              });
+            } catch {
+              // non-fatal
+            }
+          }
+
+          clearUploadCancelled(uploadId);
+
+          invalidateCloudListCache();
+
+          return createResponse(
+            201,
+            {
+              message: "Chunked upload merged successfully",
+              data: {
+                _id: `cloud:${finalObjectPath}`,
+                id: `cloud:${finalObjectPath}`,
+                fileName,
+                folderName: normalizedFolderName,
+                filePath: finalObjectPath,
+                fileUrl:
+                  uploadResult.fileUrl ||
+                  buildPublicUrl(
+                    cloudflareSettings.publicDomain,
+                    finalObjectPath,
+                  ),
+                fileType,
+                fileSizeBytes: fileSizeBytes || finalBuffer.length,
+                fileSize: formatBytes(fileSizeBytes || finalBuffer.length),
+                uploadDate: parseUploadDate(body.uploadDate),
+                source: "cloud",
+                status: "Active",
+              },
+            },
+            origin,
+          );
+        }
+      }
 
       if (!["upload", "upload-files", "upload-folder"].includes(action)) {
         return createResponse(400, { error: "Unsupported action" }, origin);

@@ -467,6 +467,7 @@ const FileManagement = () => {
   const [sortDirection, setSortDirection] = useState("normal");
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [dynamicFilterOptions, setDynamicFilterOptions] = useState({});
+  const [dynamicFolderOptions, setDynamicFolderOptions] = useState([]);
   const [expandedFolderKeys, setExpandedFolderKeys] = useState({});
   const [refreshNonce, setRefreshNonce] = useState(0);
 
@@ -734,6 +735,26 @@ const FileManagement = () => {
 
       setRecords(normalizeRows(deduplicatedRows));
       setExpandedFolderKeys({});
+
+      const folderNames = Array.from(
+        new Set(
+          deduplicatedRows
+            .map((row) => {
+              const folderFromPath = String(row?.filePath || "").trim();
+              if (folderFromPath && folderFromPath.includes("/")) {
+                return folderFromPath.slice(0, folderFromPath.lastIndexOf("/"));
+              }
+              if (row?.folderName) {
+                return String(row.folderName || "").trim();
+              }
+              return "";
+            })
+            .map((item) => String(item || "").trim())
+            .filter(Boolean),
+        ),
+      );
+
+      setDynamicFolderOptions(folderNames);
       setTotalRecords(totalFromApi || collectedRows.length);
       setStatistics(
         firstResponseData?.statistics || {
@@ -1389,6 +1410,7 @@ const FileManagement = () => {
           setFormMode("create");
           setEditingRecord(null);
         }}
+        folderOptionsFromRecords={dynamicFolderOptions}
         onSubmit={() => {
           fetchFiles();
           setShowCreateForm(false);

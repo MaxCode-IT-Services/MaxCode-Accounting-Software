@@ -12,6 +12,9 @@ const ConfirmationModal = ({
 }) => {
   if (!show) return null;
 
+  const isSimpleMessage =
+    typeof message === "string" || typeof message === "number";
+
   return (
     <>
       <div className="modal-backdrop fade show" style={{ zIndex: 1050 }}></div>
@@ -31,7 +34,11 @@ const ConfirmationModal = ({
               ></button>
             </div>
             <div className="modal-body">
-              <p>{message as ReactNode}</p>
+              {isSimpleMessage ? (
+                <p className="mb-0">{message as ReactNode}</p>
+              ) : (
+                <div>{message as ReactNode}</div>
+              )}
             </div>
             <div className="modal-footer">
               <button
