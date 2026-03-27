@@ -8,7 +8,7 @@ import {
   showSuccess,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiDelete, apiGet } from "../utils/api";
+import { apiDelete, apiGet, apiPost } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
 const splitPath = (value = "") =>
@@ -470,6 +470,8 @@ const FileManagement = () => {
   const [dynamicFolderOptions, setDynamicFolderOptions] = useState([]);
   const [expandedFolderKeys, setExpandedFolderKeys] = useState({});
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [isCleaningTempStorage, setIsCleaningTempStorage] = useState(false);
+  const [showTempCleanupConfirm, setShowTempCleanupConfirm] = useState(false);
 
   const abortControllerRef = useRef(null);
 
@@ -1256,6 +1258,47 @@ const FileManagement = () => {
     showInfo("Data refreshed");
   };
 
+  const handleClearTempStorage = async () => {
+    if (isCleaningTempStorage) return;
+
+    setIsCleaningTempStorage(true);
+    try {
+      const effectiveSettings = await resolveCloudflareSettingsForRequest();
+      if (!effectiveSettings?.storeUrl || !effectiveSettings?.password) {
+        showError("Cloudflare settings missing. Please configure it first.");
+        return;
+      }
+
+      const response = await apiPost(
+        `${API_ENDPOINTS.FILES.CREATE}?action=cleanup-temp-uploads`,
+        {
+          forceAll: true,
+        },
+        {
+          headers: getCloudRequestHeaders(effectiveSettings),
+          timeout: 120000,
+        },
+      );
+
+      const payload = response?.data || {};
+      const deletedObjects = Number(payload?.deletedObjects || 0);
+      const scanned = Number(payload?.scanned || 0);
+
+      showSuccess(
+        `Temp storage cleaned: ${deletedObjects} objects deleted out of ${scanned} scanned.`,
+      );
+
+      await fetchFiles(effectiveSettings);
+    } catch (error) {
+      showError(
+        error?.response?.data?.error ||
+          "Failed to clear temporary Cloudflare storage",
+      );
+    } finally {
+      setIsCleaningTempStorage(false);
+    }
+  };
+
   return (
     <div className="container-fluid">
       <div
@@ -1263,6 +1306,29 @@ const FileManagement = () => {
         style={{ marginTop: "70px" }}
       >
         <h4 className="fs-18 fw-semibold m-0">File Management</h4>
+        <button
+          type="button"
+          className="btn btn-outline-danger btn-sm mt-2 mt-md-0"
+          onClick={() => setShowTempCleanupConfirm(true)}
+          disabled={isCleaningTempStorage || loading}
+          title="Delete temporary upload chunks from Cloudflare"
+        >
+          {isCleaningTempStorage ? (
+            <>
+              <span
+                className="spinner-border spinner-border-sm me-2"
+                role="status"
+                aria-hidden="true"
+              ></span>
+              Clearing...
+            </>
+          ) : (
+            <>
+              <i className="fa-solid fa-broom me-2"></i>
+              Clear Temp Storage
+            </>
+          )}
+        </button>
       </div>
 
       <div className="row">
@@ -1456,6 +1522,29 @@ const FileManagement = () => {
           </div>
         }
         confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+      />
+
+      <ConfirmationModal
+        show={showTempCleanupConfirm}
+        onHide={() => setShowTempCleanupConfirm(false)}
+        onConfirm={async () => {
+          setShowTempCleanupConfirm(false);
+          await handleClearTempStorage();
+        }}
+        title="Clear Temp Storage"
+        message={
+          <div>
+            <div>
+              This will remove temporary upload chunks stored under .uploads.
+            </div>
+            <div className="mt-2 text-danger small">
+              Running chunk uploads may fail if cleanup starts now.
+            </div>
+          </div>
+        }
+        confirmText="Clear Now"
         cancelText="Cancel"
         variant="danger"
       />
