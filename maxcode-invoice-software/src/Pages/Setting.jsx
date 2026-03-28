@@ -34,13 +34,13 @@ const Settings = () => {
   }, []);
 
   const DEFAULT_PROFILE_FORM = {
-    firstName: "John",
-    lastName: "Doe",
-    name: "John Doe",
-    email: "john.doe@example.com",
+    firstName: "Vipin",
+    lastName: "Khandelwal",
+    name: "Vipin Khandelwal",
+    email: "contact@maxcode.in",
     phone: "9876543210",
-    address: "123 Main Street, Mumbai, Maharashtra",
-    role: "Admin",
+    address: "New Mandi Dausa, Rajasthan",
+    role: "Super Admin",
   };
 
   const DEFAULT_INVOICE_TERMS =
