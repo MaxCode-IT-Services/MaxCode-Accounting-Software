@@ -2071,7 +2071,7 @@ progress {
   --bs-table-bg-state: var(--bs-table-hover-bg);
 }
 
-.table-primary {
+.table-success {
   --bs-table-color: #000;
   --bs-table-bg: #cfe8ff;
   --bs-table-border-color: #a6bacc;

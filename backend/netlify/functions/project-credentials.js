@@ -2,6 +2,36 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const normalizeCustomFields = (fields = []) => {
+  if (!Array.isArray(fields)) return [];
+
+  return fields
+    .map((field, index) => {
+      const type =
+        String(field?.type || "text")
+          .trim()
+          .toLowerCase() || "text";
+      const options =
+        type === "option" && Array.isArray(field?.options)
+          ? field.options
+              .map((item) => String(item || "").trim())
+              .filter(Boolean)
+          : [];
+
+      return {
+        id:
+          String(field?.id || "").trim() ||
+          `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+        type,
+        name: String(field?.name || "").trim(),
+        value: String(field?.value || "").trim(),
+        required: field?.required === true,
+        options,
+      };
+    })
+    .filter((field) => field.name || field.value || field.options.length > 0);
+};
+
 /**
  * Project Credentials API
  * Handles CRUD with pagination, filters, search and card statistics
@@ -234,6 +264,7 @@ export async function handler(event) {
         clientName: String(payload.clientName || "").trim(),
         businessName: String(payload.businessName || "").trim(),
         projectName: String(payload.projectName || "").trim(),
+        customFields: normalizeCustomFields(payload.customFields),
       };
 
       if (!normalizedPayload.clientRefId) {
@@ -315,6 +346,7 @@ export async function handler(event) {
         clientName: String(payload.clientName || "").trim(),
         businessName: String(payload.businessName || "").trim(),
         projectName: String(payload.projectName || "").trim(),
+        customFields: normalizeCustomFields(payload.customFields),
       };
 
       if (!normalizedPayload.clientRefId) {

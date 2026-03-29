@@ -1443,7 +1443,7 @@ const CreateProject = ({
                 <div className="col-12">
                   <div className="table-responsive d-none d-lg-block">
                     <table className="table table-bordered table-hover">
-                      <thead className="table-primary">
+                      <thead className="table-success">
                         <tr>
                           <th style={{ width: "50px" }}>S.N</th>
                           <th style={{ width: "210px" }}>Invoice Number</th>
