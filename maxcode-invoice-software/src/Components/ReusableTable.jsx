@@ -2,15 +2,36 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import ColumnSelectorOffcanvas from "./ColumnSelectorOffcanvas";
 import AdvancedFilterOffcanvas from "./AdvancedFilterOffcanvas";
 import ConfirmationModal from "./ConfirmationModal";
-
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import * as XLSX from "xlsx";
 import { showSuccess, showError, showInfo } from "./ToastNotification";
 import { hasActionPermission } from "../utils/permissions";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 dayjs.extend(customParseFormat);
+
+let cachedPdfLibsPromise = null;
+let cachedXlsxLibPromise = null;
+
+const loadPdfExportLibs = async () => {
+  if (!cachedPdfLibsPromise) {
+    cachedPdfLibsPromise = Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]).then(([jspdfModule, autoTableModule]) => ({
+      jsPDF: jspdfModule.jsPDF,
+      autoTable: autoTableModule.default,
+    }));
+  }
+
+  return cachedPdfLibsPromise;
+};
+
+const loadXlsxLib = async () => {
+  if (!cachedXlsxLibPromise) {
+    cachedXlsxLibPromise = import("xlsx");
+  }
+
+  return cachedXlsxLibPromise;
+};
 
 // Helper: fetch all filtered data for export (server-side)
 async function fetchAllServerDataForExport({
@@ -57,7 +78,6 @@ const ReusableTable = ({
   onView,
   onStatusToggle,
   onRefresh: propOnRefresh,
-  onAddNew,
 
   // Server-side props
   serverSide = false,
@@ -94,6 +114,7 @@ const ReusableTable = ({
   // Export options
   exportFileName = "export",
   exportTitle = "Report",
+  exportApi = null,
   extraExportItems = [],
   exportRequestHeaders = {},
 
@@ -121,16 +142,6 @@ const ReusableTable = ({
     });
     return filters;
   });
-
-  // Ensure filter applies when columnFilters change (for AdvancedFilterOffcanvas)
-  useEffect(() => {
-    if (serverSide) {
-      triggerServerSideFilter(columnFilters);
-    } else {
-      setCurrentPage(1);
-      if (onPageChange) onPageChange(1);
-    }
-  }, [columnFilters]);
 
   const [tableColumns, setTableColumns] = useState(columns);
   const [allData, setAllData] = useState(data);
@@ -557,7 +568,7 @@ const ReusableTable = ({
   const totalRecords = serverSide ? propTotalRecords : filteredData.length;
 
   // Server-side filter change handler
-  const triggerServerSideFilter = (updatedFilters) => {
+  function triggerServerSideFilter(updatedFilters) {
     if (!serverSide || !onServerSideFilter) return;
 
     setCurrentPage(1);
@@ -598,7 +609,17 @@ const ReusableTable = ({
     }
 
     onServerSideFilter(filterParams);
-  };
+  }
+
+  // Ensure filter applies when columnFilters change (for AdvancedFilterOffcanvas)
+  useEffect(() => {
+    if (serverSide) {
+      triggerServerSideFilter(columnFilters);
+    } else {
+      setCurrentPage(1);
+      if (onPageChange) onPageChange(1);
+    }
+  }, [columnFilters]);
 
   // Debounced search handler for server-side
   const handleServerSideSearch = (value) => {
@@ -1567,6 +1588,8 @@ const ReusableTable = ({
   // Export to PDF (supports server-side export)
   const exportToPDF = async () => {
     try {
+      const { jsPDF, autoTable } = await loadPdfExportLibs();
+
       let exportRows = filteredData;
       if (serverSide && typeof exportApi === "string") {
         // Build filter params for export
@@ -1665,6 +1688,8 @@ const ReusableTable = ({
   // Export to Excel (supports server-side export)
   const exportToExcel = async () => {
     try {
+      const XLSX = await loadXlsxLib();
+
       let exportRows = filteredData;
       if (serverSide && typeof exportApi === "string") {
         const filterParams = buildServerFilterParams();
@@ -1694,7 +1719,6 @@ const ReusableTable = ({
       const ws = XLSX.utils.json_to_sheet(exportData);
       if (!ws["!cols"]) ws["!cols"] = [];
       visibleColumnKeys.forEach((key, index) => {
-        const colLetter = XLSX.utils.encode_col(index);
         const columnConfig = tableColumns.find((col) => col.key === key);
         const width = columnConfig ? Math.min(columnConfig.width / 7, 50) : 15;
         ws["!cols"][index] = { width };

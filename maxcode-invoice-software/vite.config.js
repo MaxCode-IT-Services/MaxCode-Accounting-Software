@@ -8,6 +8,15 @@ export default defineConfig(({ mode }) => ({
     sourcemap: false,
     minify: "esbuild",
     target: "es2019",
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "react-vendor": ["react", "react-dom", "react-router-dom"],
+          "export-vendor": ["xlsx", "jspdf", "jspdf-autotable"],
+        },
+      },
+    },
   },
   esbuild:
     mode === "production"

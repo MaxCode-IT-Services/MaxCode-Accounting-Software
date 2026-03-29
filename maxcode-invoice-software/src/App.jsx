@@ -7,6 +7,7 @@ import {
   Routes,
   useLocation,
 } from "react-router-dom";
+import { Player } from "@lottiefiles/react-lottie-player";
 import AdminDashboardLayout from "../src/Components/DashboardLayout";
 import Home from "../src/Home";
 import PrivacyPolicy from "./PrivacyPolicy";
@@ -59,14 +60,84 @@ const TeamManagement = lazy(() => import("../src/Pages/TeamManagement"));
 const Setting = lazy(() => import("../src/Pages/Setting"));
 // const PageNotFound = lazy(() => import("./Website/Pages/PageNotFound"));
 
-export const Loading = () => (
-  <div className="preloader">
-    <div className="loader">
-      <div className="shadow"></div>
-      <div className="box"></div>
+let loaderProgressSnapshot = 0;
+let loaderAnimationStartAt = 0;
+const LOADER_DURATION_MS = 1800;
+
+export const Loading = () => {
+  const [progressValue, setProgressValue] = useState(loaderProgressSnapshot);
+
+  useEffect(() => {
+    let animationId = null;
+
+    if (!loaderAnimationStartAt) {
+      loaderAnimationStartAt = performance.now();
+    }
+
+    const animate = (now) => {
+      const elapsed = Math.max(0, now - loaderAnimationStartAt);
+      const linear = Math.min(1, elapsed / LOADER_DURATION_MS);
+      const eased = 1 - Math.pow(1 - linear, 3);
+      const nextValue = Math.min(100, Math.round(eased * 100));
+
+      loaderProgressSnapshot = Math.max(loaderProgressSnapshot, nextValue);
+      setProgressValue((prev) => Math.max(prev, nextValue));
+
+      if (nextValue >= 100) {
+        loaderProgressSnapshot = 100;
+      }
+
+      if (linear < 1) {
+        animationId = requestAnimationFrame(animate);
+      }
+    };
+
+    animationId = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+      }
+    };
+  }, []);
+
+  return (
+    <div className="preloader">
+      <div className="preloader-stage" aria-hidden="true"></div>
+      <div className="preloader-panel" role="status" aria-live="polite">
+        <div className="preloader-chip" aria-hidden="true">
+          <Player
+            autoplay
+            loop
+            src="/Json/loading3.json"
+            className="preloader-lottie"
+          />
+        </div>
+        <p className="preloader-title text-success">MaxCode IT Services</p>
+        <p className="preloader-subtitle">
+          Preparing your accounting workspace
+        </p>
+        <div className="rangeWrapper" aria-hidden="true">
+          <input
+            style={{ "--base": "#6cc484" }}
+            value={Math.max(0, Math.min(100, Math.round(progressValue)))}
+            max="100"
+            min="0"
+            className="kawaii"
+            type="range"
+            readOnly
+          />
+        </div>
+        <div className="preloader-wave" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const isAuthenticated = () => localStorage.getItem("maxcode_auth") === "true";
 

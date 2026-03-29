@@ -3,7 +3,7 @@ import Select from "react-select";
 import pako from "pako";
 import { showError, showInfo, showSuccess } from "./ToastNotification";
 import ConfirmationModal from "./ConfirmationModal";
-import { apiPost, apiPut } from "../utils/api";
+import { apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
@@ -126,8 +126,6 @@ const safeChunkSizeMb = Number.isFinite(configuredChunkSizeMb)
 const CHUNK_SIZE_BYTES = safeChunkSizeMb * 1024 * 1024;
 const MAX_PARALLEL_CHUNKS = import.meta.env.DEV ? 1 : 2;
 const MAX_CHUNK_UPLOAD_RETRIES = 3;
-
-const shouldUseChunkUpload = (file) => file && file.size > CHUNK_SIZE_BYTES / 2;
 
 const getApiRequestUrl = (path = "") => {
   const base = String(import.meta.env.VITE_API_BASE_URL || "/api").replace(
@@ -917,10 +915,6 @@ const Createfile = ({
     resetUploadControl();
     setUploadProgress({});
     try {
-      const getUploadReadyFile = async (file) => {
-        return prepareFileForUpload(file, compressionPercent);
-      };
-
       if (isEditMode) {
         const fileId = initialData._id || initialData.id;
         const isCloudRecord = String(fileId || "").startsWith("cloud:");

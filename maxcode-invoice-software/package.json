@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
+    "@lottiefiles/react-lottie-player": "^3.6.0",
     "axios": "^1.13.5",
     "bson": "^7.2.0",
     "dayjs": "^1.11.19",
