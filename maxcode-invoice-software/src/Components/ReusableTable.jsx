@@ -24,9 +24,7 @@ async function fetchAllServerDataForExport({
     if (onExportStart) onExportStart();
     // You may need to adjust this API call as per your backend
     const params = new URLSearchParams({ ...filterParams, export: 1 });
-    const token = localStorage.getItem("access_token");
     const mergedHeaders = {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...requestHeaders,
     };
 

@@ -1,5 +1,14 @@
 import React from "react";
 
+const getHiddenSecretInputStyle = (value = "") => {
+  if (!String(value || "").trim()) return undefined;
+  return {
+    color: "transparent",
+    textShadow: "0 0 6px rgba(33, 37, 41, 0.75)",
+    transition: "text-shadow 0.2s ease",
+  };
+};
+
 const BackupTab = ({
   undoAvailable,
   undoExpiry,
@@ -14,8 +23,10 @@ const BackupTab = ({
   isImporting,
   driveConfig,
   setDriveConfig,
+  handleDriveSecretInputChange,
   showDrivePassword,
-  setShowDrivePassword,
+  handleDriveRevealToggle,
+  copyDriveFieldValue,
   handleSaveDriveConfig,
   isDriveSaving,
   handleRunBackupNow,
@@ -469,18 +480,41 @@ const BackupTab = ({
                         <i className="fas fa-key me-2"></i>
                         Google Client ID
                       </label>
-                      <input
-                        type="text"
-                        className="form-control modern-input"
-                        value={driveConfig.clientId}
-                        onChange={(e) =>
-                          setDriveConfig({
-                            ...driveConfig,
-                            clientId: e.target.value,
-                          })
-                        }
-                        placeholder="Enter Client ID"
-                      />
+                      <div className="input-group">
+                        <input
+                          type="text"
+                          className="form-control modern-input"
+                          value={driveConfig.clientId}
+                          onChange={(e) =>
+                            handleDriveSecretInputChange(
+                              "clientId",
+                              e.target.value,
+                            )
+                          }
+                          placeholder="Enter Client ID"
+                          style={
+                            showDrivePassword.clientId
+                              ? undefined
+                              : getHiddenSecretInputStyle(driveConfig.clientId)
+                          }
+                        />
+                        <button
+                          className="btn btn-outline-secondary"
+                          type="button"
+                          onClick={() => handleDriveRevealToggle("clientId")}
+                        >
+                          <i
+                            className={`fas fa-eye${showDrivePassword.clientId ? "-slash" : ""}`}
+                          ></i>
+                        </button>
+                        <button
+                          className="btn btn-outline-primary rounded-end-3"
+                          type="button"
+                          onClick={() => copyDriveFieldValue("clientId")}
+                        >
+                          <i className="fas fa-copy"></i>
+                        </button>
+                      </div>
                     </div>
 
                     <div className="col-md-6">
@@ -490,32 +524,41 @@ const BackupTab = ({
                       </label>
                       <div className="input-group">
                         <input
-                          type={
-                            showDrivePassword.clientSecret ? "text" : "password"
-                          }
+                          type="text"
                           className="form-control modern-input"
                           value={driveConfig.clientSecret}
                           onChange={(e) =>
-                            setDriveConfig({
-                              ...driveConfig,
-                              clientSecret: e.target.value,
-                            })
+                            handleDriveSecretInputChange(
+                              "clientSecret",
+                              e.target.value,
+                            )
                           }
                           placeholder="Enter Client Secret"
+                          style={
+                            showDrivePassword.clientSecret
+                              ? undefined
+                              : getHiddenSecretInputStyle(
+                                  driveConfig.clientSecret,
+                                )
+                          }
                         />
                         <button
                           className="btn btn-outline-secondary"
                           type="button"
                           onClick={() =>
-                            setShowDrivePassword({
-                              ...showDrivePassword,
-                              clientSecret: !showDrivePassword.clientSecret,
-                            })
+                            handleDriveRevealToggle("clientSecret")
                           }
                         >
                           <i
                             className={`fas fa-eye${showDrivePassword.clientSecret ? "-slash" : ""}`}
                           ></i>
+                        </button>
+                        <button
+                          className="btn btn-outline-primary rounded-end-3"
+                          type="button"
+                          onClick={() => copyDriveFieldValue("clientSecret")}
+                        >
+                          <i className="fas fa-copy"></i>
                         </button>
                       </div>
                     </div>
@@ -527,32 +570,41 @@ const BackupTab = ({
                       </label>
                       <div className="input-group">
                         <input
-                          type={
-                            showDrivePassword.refreshToken ? "text" : "password"
-                          }
+                          type="text"
                           className="form-control modern-input"
                           value={driveConfig.refreshToken}
                           onChange={(e) =>
-                            setDriveConfig({
-                              ...driveConfig,
-                              refreshToken: e.target.value,
-                            })
+                            handleDriveSecretInputChange(
+                              "refreshToken",
+                              e.target.value,
+                            )
                           }
                           placeholder="Enter Refresh Token"
+                          style={
+                            showDrivePassword.refreshToken
+                              ? undefined
+                              : getHiddenSecretInputStyle(
+                                  driveConfig.refreshToken,
+                                )
+                          }
                         />
                         <button
                           className="btn btn-outline-secondary"
                           type="button"
                           onClick={() =>
-                            setShowDrivePassword({
-                              ...showDrivePassword,
-                              refreshToken: !showDrivePassword.refreshToken,
-                            })
+                            handleDriveRevealToggle("refreshToken")
                           }
                         >
                           <i
                             className={`fas fa-eye${showDrivePassword.refreshToken ? "-slash" : ""}`}
                           ></i>
+                        </button>
+                        <button
+                          className="btn btn-outline-primary rounded-end-3"
+                          type="button"
+                          onClick={() => copyDriveFieldValue("refreshToken")}
+                        >
+                          <i className="fas fa-copy"></i>
                         </button>
                       </div>
                       <small className="text-success">
@@ -582,32 +634,41 @@ const BackupTab = ({
                       </label>
                       <div className="input-group">
                         <input
-                          type={
-                            showDrivePassword.backupApiKey ? "text" : "password"
-                          }
+                          type="text"
                           className="form-control modern-input"
                           value={driveConfig.backupApiKey}
                           onChange={(e) =>
-                            setDriveConfig({
-                              ...driveConfig,
-                              backupApiKey: e.target.value,
-                            })
+                            handleDriveSecretInputChange(
+                              "backupApiKey",
+                              e.target.value,
+                            )
                           }
                           placeholder="Enter Backup API Key"
+                          style={
+                            showDrivePassword.backupApiKey
+                              ? undefined
+                              : getHiddenSecretInputStyle(
+                                  driveConfig.backupApiKey,
+                                )
+                          }
                         />
                         <button
                           className="btn btn-outline-secondary"
                           type="button"
                           onClick={() =>
-                            setShowDrivePassword({
-                              ...showDrivePassword,
-                              backupApiKey: !showDrivePassword.backupApiKey,
-                            })
+                            handleDriveRevealToggle("backupApiKey")
                           }
                         >
                           <i
                             className={`fas fa-eye${showDrivePassword.backupApiKey ? "-slash" : ""}`}
                           ></i>
+                        </button>
+                        <button
+                          className="btn btn-outline-primary rounded-end-3"
+                          type="button"
+                          onClick={() => copyDriveFieldValue("backupApiKey")}
+                        >
+                          <i className="fas fa-copy"></i>
                         </button>
                       </div>
                       <small className="text-muted">
@@ -626,18 +687,41 @@ const BackupTab = ({
                         <i className="fas fa-folder me-2"></i>
                         Google Drive Folder ID
                       </label>
-                      <input
-                        type="text"
-                        className="form-control modern-input"
-                        value={driveConfig.folderId}
-                        onChange={(e) =>
-                          setDriveConfig({
-                            ...driveConfig,
-                            folderId: e.target.value,
-                          })
-                        }
-                        placeholder="Enter Folder ID from Drive URL"
-                      />
+                      <div className="input-group">
+                        <input
+                          type="text"
+                          className="form-control modern-input"
+                          value={driveConfig.folderId}
+                          onChange={(e) =>
+                            handleDriveSecretInputChange(
+                              "folderId",
+                              e.target.value,
+                            )
+                          }
+                          placeholder="Enter Folder ID from Drive URL"
+                          style={
+                            showDrivePassword.folderId
+                              ? undefined
+                              : getHiddenSecretInputStyle(driveConfig.folderId)
+                          }
+                        />
+                        <button
+                          className="btn btn-outline-secondary"
+                          type="button"
+                          onClick={() => handleDriveRevealToggle("folderId")}
+                        >
+                          <i
+                            className={`fas fa-eye${showDrivePassword.folderId ? "-slash" : ""}`}
+                          ></i>
+                        </button>
+                        <button
+                          className="btn btn-outline-primary rounded-end-3"
+                          type="button"
+                          onClick={() => copyDriveFieldValue("folderId")}
+                        >
+                          <i className="fas fa-copy"></i>
+                        </button>
+                      </div>
                       <small className="text-muted">
                         Open folder in Drive, copy ID from URL after /folders/
                       </small>
@@ -885,9 +969,8 @@ const BackupTab = ({
                           </ul>
                         </li>
                         <li>
-                          After saving here, check{" "}
-                          <strong>browser console</strong>
-                          (F12) for exact values to copy
+                          Keep all secret values in your password manager and
+                          add them directly in GitHub Secrets.
                         </li>
                       </ol>
                       <div className="mt-2">

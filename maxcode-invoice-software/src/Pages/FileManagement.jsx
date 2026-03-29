@@ -506,14 +506,11 @@ const FileManagement = () => {
   const getCloudRequestHeaders = (settings = cloudflareSettings) => ({
     "x-cloud-store-url": String(settings?.storeUrl || ""),
     "x-cloud-public-domain": String(settings?.publicDomain || ""),
-    "x-cloud-password": String(settings?.password || ""),
     "x-cloud-default-folder": String(settings?.defaultFolder || ""),
   });
 
   const resolveCloudflareSettingsForRequest = async () => {
-    const hasStateSettings =
-      Boolean(cloudflareSettings?.storeUrl) &&
-      Boolean(cloudflareSettings?.password);
+    const hasStateSettings = Boolean(cloudflareSettings?.storeUrl);
 
     if (hasStateSettings) {
       return cloudflareSettings;
@@ -523,7 +520,7 @@ const FileManagement = () => {
       const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
       const latestSettings = response?.data?.settings?.cloudflareSettings || {};
 
-      if (latestSettings?.storeUrl && latestSettings?.password) {
+      if (latestSettings?.storeUrl) {
         setCloudflareSettings(latestSettings);
         return latestSettings;
       }
@@ -535,18 +532,9 @@ const FileManagement = () => {
   };
 
   const fetchFiles = async (settingsOverride = null) => {
-    const effectiveSettings =
-      settingsOverride &&
-      settingsOverride?.storeUrl &&
-      settingsOverride?.password
-        ? settingsOverride
-        : cloudflareSettings;
-
-    if (!effectiveSettings?.storeUrl || !effectiveSettings?.password) {
-      setRecords([]);
-      setTotalRecords(0);
-      return;
-    }
+    const effectiveSettings = settingsOverride?.storeUrl
+      ? settingsOverride
+      : cloudflareSettings;
 
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -627,7 +615,6 @@ const FileManagement = () => {
       const cloudHeaders = {
         "x-cloud-store-url": String(effectiveSettings?.storeUrl || ""),
         "x-cloud-public-domain": String(effectiveSettings?.publicDomain || ""),
-        "x-cloud-password": String(effectiveSettings?.password || ""),
         "x-cloud-default-folder": String(
           effectiveSettings?.defaultFolder || "",
         ),
@@ -946,13 +933,6 @@ const FileManagement = () => {
       const effectiveCloudflareSettings =
         await resolveCloudflareSettingsForRequest();
 
-      if (!effectiveCloudflareSettings) {
-        showError(
-          "Cloudflare settings missing. Please open Settings and save Cloudflare configuration.",
-        );
-        return;
-      }
-
       let deletedCount = 0;
       let failedCount = 0;
       let firstFailureMessage = "";
@@ -982,7 +962,6 @@ const FileManagement = () => {
             headers: getCloudRequestHeaders(effectiveCloudflareSettings),
             data: {
               deleteFromCloudflare: true,
-              cloudflareSettings: effectiveCloudflareSettings,
             },
           });
           deletedCount += 1;
@@ -1211,18 +1190,10 @@ const FileManagement = () => {
       const effectiveCloudflareSettings =
         await resolveCloudflareSettingsForRequest();
 
-      if (!effectiveCloudflareSettings) {
-        showError(
-          "Cloudflare settings missing. Please open Settings and save Cloudflare configuration.",
-        );
-        return;
-      }
-
       await apiDelete(API_ENDPOINTS.FILES.DELETE(fileToDelete), {
         headers: getCloudRequestHeaders(effectiveCloudflareSettings),
         data: {
           deleteFromCloudflare,
-          cloudflareSettings: effectiveCloudflareSettings,
         },
       });
       showSuccess(
@@ -1264,10 +1235,6 @@ const FileManagement = () => {
     setIsCleaningTempStorage(true);
     try {
       const effectiveSettings = await resolveCloudflareSettingsForRequest();
-      if (!effectiveSettings?.storeUrl || !effectiveSettings?.password) {
-        showError("Cloudflare settings missing. Please configure it first.");
-        return;
-      }
 
       const response = await apiPost(
         `${API_ENDPOINTS.FILES.CREATE}?action=cleanup-temp-uploads`,
@@ -1462,7 +1429,6 @@ const FileManagement = () => {
           "x-cloud-public-domain": String(
             cloudflareSettings?.publicDomain || "",
           ),
-          "x-cloud-password": String(cloudflareSettings?.password || ""),
           "x-cloud-default-folder": String(
             cloudflareSettings?.defaultFolder || "",
           ),

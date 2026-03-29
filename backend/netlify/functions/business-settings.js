@@ -1,10 +1,24 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
 import { ObjectId } from "mongodb";
+import {
+  decryptSecretFromStorage,
+  encryptSecretForStorage,
+  isEncryptedSecret,
+} from "./utils/secret-crypto.js";
 
 const SETTINGS_COLLECTION = "business_settings";
 const ASSETS_COLLECTION = "business_assets";
 const GLOBAL_SETTINGS_SCOPE = "global";
+const SECRET_MASK = "********";
+const CLOUDFLARE_SECRET_FIELDS = ["storeUrl", "publicDomain", "password"];
+const BACKUP_SECRET_FIELDS = [
+  "clientId",
+  "clientSecret",
+  "refreshToken",
+  "backupApiKey",
+  "folderId",
+];
 
 const IMAGE_FIELDS = [
   "profilePhotoUrl",
@@ -48,6 +62,42 @@ const ALLOWED_FIELDS = [
   "cloudflareSettings",
 ];
 
+const isMaskedSecretValue = (value = "") =>
+  String(value || "").trim() === SECRET_MASK;
+
+const maskSecretValue = (value = "") => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  return SECRET_MASK;
+};
+
+const resolveSecretForStorage = (incomingValue, existingValue = "") => {
+  const incoming = String(incomingValue || "").trim();
+  const existing = String(existingValue || "").trim();
+
+  // Keep existing secret when client sends masked placeholder.
+  if (isMaskedSecretValue(incoming)) {
+    if (existing && !isEncryptedSecret(existing)) {
+      return encryptSecretForStorage(existing);
+    }
+    return existing;
+  }
+
+  // Empty string means explicit clear by user.
+  if (!incoming) {
+    return "";
+  }
+
+  return encryptSecretForStorage(incoming);
+};
+
+const secretExists = (value = "") => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+  if (isMaskedSecretValue(normalized)) return false;
+  return true;
+};
+
 const normalizeRole = (role = "") =>
   String(role || "")
     .trim()
@@ -88,7 +138,7 @@ const getSharedSettings = async (settingsCollection, userId) => {
   );
 };
 
-const sanitizeBackupSettings = (value = {}) => {
+const sanitizeBackupSettings = (value = {}, existingBackupSettings = {}) => {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -121,14 +171,26 @@ const sanitizeBackupSettings = (value = {}) => {
 
   return {
     enabled: Boolean(value.enabled),
-    clientId: typeof value.clientId === "string" ? value.clientId.trim() : "",
-    clientSecret:
-      typeof value.clientSecret === "string" ? value.clientSecret.trim() : "",
-    refreshToken:
-      typeof value.refreshToken === "string" ? value.refreshToken.trim() : "",
-    backupApiKey:
-      typeof value.backupApiKey === "string" ? value.backupApiKey.trim() : "",
-    folderId: typeof value.folderId === "string" ? value.folderId.trim() : "",
+    clientId: resolveSecretForStorage(
+      value.clientId,
+      existingBackupSettings?.clientId,
+    ),
+    clientSecret: resolveSecretForStorage(
+      value.clientSecret,
+      existingBackupSettings?.clientSecret,
+    ),
+    refreshToken: resolveSecretForStorage(
+      value.refreshToken,
+      existingBackupSettings?.refreshToken,
+    ),
+    backupApiKey: resolveSecretForStorage(
+      value.backupApiKey,
+      existingBackupSettings?.backupApiKey,
+    ),
+    folderId: resolveSecretForStorage(
+      value.folderId,
+      existingBackupSettings?.folderId,
+    ),
     backupTime:
       typeof value.backupTime === "string" &&
       /^\d{2}:\d{2}$/.test(value.backupTime)
@@ -148,7 +210,10 @@ const sanitizeBackupSettings = (value = {}) => {
   };
 };
 
-const sanitizeCloudflareSettings = (value = {}) => {
+const sanitizeCloudflareSettings = (
+  value = {},
+  existingCloudflareSettings = {},
+) => {
   if (!value || typeof value !== "object") {
     return null;
   }
@@ -156,6 +221,7 @@ const sanitizeCloudflareSettings = (value = {}) => {
   const normalizeUrl = (urlValue = "") => {
     const trimmed = String(urlValue || "").trim();
     if (!trimmed) return "";
+    if (isMaskedSecretValue(trimmed)) return SECRET_MASK;
     if (/^https?:\/\//i.test(trimmed)) {
       return trimmed.replace(/\/+$/, "");
     }
@@ -163,9 +229,18 @@ const sanitizeCloudflareSettings = (value = {}) => {
   };
 
   return {
-    storeUrl: normalizeUrl(value.storeUrl),
-    publicDomain: normalizeUrl(value.publicDomain),
-    password: typeof value.password === "string" ? value.password.trim() : "",
+    storeUrl: resolveSecretForStorage(
+      normalizeUrl(value.storeUrl),
+      existingCloudflareSettings?.storeUrl,
+    ),
+    publicDomain: resolveSecretForStorage(
+      normalizeUrl(value.publicDomain),
+      existingCloudflareSettings?.publicDomain,
+    ),
+    password: resolveSecretForStorage(
+      value.password,
+      existingCloudflareSettings?.password,
+    ),
     defaultFolder:
       typeof value.defaultFolder === "string" && value.defaultFolder.trim()
         ? value.defaultFolder.trim()
@@ -203,7 +278,7 @@ const isManagedBusinessAssetUrl = (value) =>
   value.includes("/api/business-settings") &&
   !value.startsWith("data:image/");
 
-const sanitizeSettingsPayload = (payload = {}) => {
+const sanitizeSettingsPayload = (payload = {}, existingSettings = {}) => {
   const normalizedPayload = { ...payload };
 
   if (
@@ -257,12 +332,18 @@ const sanitizeSettingsPayload = (payload = {}) => {
           }))
           .filter((item) => item.name && item.hsnCode);
       } else if (field === "backupSettings") {
-        const sanitizedBackupSettings = sanitizeBackupSettings(value);
+        const sanitizedBackupSettings = sanitizeBackupSettings(
+          value,
+          existingSettings?.backupSettings || {},
+        );
         if (sanitizedBackupSettings) {
           sanitized[field] = sanitizedBackupSettings;
         }
       } else if (field === "cloudflareSettings") {
-        const sanitizedCloudflareSettings = sanitizeCloudflareSettings(value);
+        const sanitizedCloudflareSettings = sanitizeCloudflareSettings(
+          value,
+          existingSettings?.cloudflareSettings || {},
+        );
         if (sanitizedCloudflareSettings) {
           sanitized[field] = sanitizedCloudflareSettings;
         }
@@ -397,6 +478,37 @@ const mapSettingsForClient = (document, event) => {
       dayOfMonth: 1,
       monthOfYear: 1,
       timezone: "Asia/Kolkata",
+      clientId: "",
+      clientSecret: "",
+      refreshToken: "",
+      backupApiKey: "",
+      folderId: "",
+      hasClientId: false,
+      hasClientSecret: false,
+      hasRefreshToken: false,
+      hasBackupApiKey: false,
+      hasFolderId: false,
+    };
+  } else {
+    const backupSettings = response.backupSettings || {};
+    const clientId = String(backupSettings.clientId || "").trim();
+    const clientSecret = String(backupSettings.clientSecret || "").trim();
+    const refreshToken = String(backupSettings.refreshToken || "").trim();
+    const backupApiKey = String(backupSettings.backupApiKey || "").trim();
+    const folderId = String(backupSettings.folderId || "").trim();
+
+    response.backupSettings = {
+      ...backupSettings,
+      clientId: maskSecretValue(clientId),
+      clientSecret: maskSecretValue(clientSecret),
+      refreshToken: maskSecretValue(refreshToken),
+      backupApiKey: maskSecretValue(backupApiKey),
+      folderId: maskSecretValue(folderId),
+      hasClientId: secretExists(clientId),
+      hasClientSecret: secretExists(clientSecret),
+      hasRefreshToken: secretExists(refreshToken),
+      hasBackupApiKey: secretExists(backupApiKey),
+      hasFolderId: secretExists(folderId),
     };
   }
 
@@ -410,6 +522,25 @@ const mapSettingsForClient = (document, event) => {
       password: "",
       defaultFolder: "",
       folderOptions: "",
+      hasStoreUrl: false,
+      hasPublicDomain: false,
+      hasPassword: false,
+    };
+  } else {
+    const cloudflareSettings = response.cloudflareSettings || {};
+    const cloudStoreUrl = String(cloudflareSettings.storeUrl || "").trim();
+    const cloudPublicDomain = String(
+      cloudflareSettings.publicDomain || "",
+    ).trim();
+    const cloudPassword = String(cloudflareSettings.password || "").trim();
+    response.cloudflareSettings = {
+      ...cloudflareSettings,
+      storeUrl: maskSecretValue(cloudStoreUrl),
+      publicDomain: maskSecretValue(cloudPublicDomain),
+      password: maskSecretValue(cloudPassword),
+      hasStoreUrl: secretExists(cloudStoreUrl),
+      hasPublicDomain: secretExists(cloudPublicDomain),
+      hasPassword: secretExists(cloudPassword),
     };
   }
 
@@ -662,7 +793,51 @@ export async function handler(event) {
     const settingsCollection = db.collection(SETTINGS_COLLECTION);
 
     if (event.httpMethod === "GET") {
+      const query = event.queryStringParameters || {};
+      const action = String(query.action || "")
+        .trim()
+        .toLowerCase();
       const settings = await getSharedSettings(settingsCollection, user.userId);
+
+      if (action === "reveal-secret") {
+        const scope = String(query.scope || "").trim();
+        const field = String(query.field || "").trim();
+
+        if (!scope || !field) {
+          return createResponse(
+            400,
+            { error: "scope and field are required" },
+            origin,
+          );
+        }
+
+        const scopeValue = settings?.[scope];
+        if (!scopeValue || typeof scopeValue !== "object") {
+          return createResponse(404, { error: "Settings not found" }, origin);
+        }
+
+        const allowedFieldsByScope = {
+          backupSettings: BACKUP_SECRET_FIELDS,
+          cloudflareSettings: CLOUDFLARE_SECRET_FIELDS,
+        };
+
+        const allowedFields = allowedFieldsByScope[scope] || [];
+        if (!allowedFields.includes(field)) {
+          return createResponse(400, { error: "Invalid secret field" }, origin);
+        }
+
+        try {
+          const encryptedValue = String(scopeValue[field] || "").trim();
+          const value = decryptSecretFromStorage(encryptedValue);
+          return createResponse(200, { success: true, value }, origin);
+        } catch {
+          return createResponse(
+            500,
+            { error: "Unable to reveal secret value" },
+            origin,
+          );
+        }
+      }
 
       return createResponse(
         200,
@@ -686,7 +861,16 @@ export async function handler(event) {
       }
 
       const payload = event.body ? JSON.parse(event.body) : {};
-      const sanitizedPayload = sanitizeSettingsPayload(payload);
+
+      const existingSharedSettings = await getSharedSettings(
+        settingsCollection,
+        user.userId,
+      );
+
+      const sanitizedPayload = sanitizeSettingsPayload(
+        payload,
+        existingSharedSettings || {},
+      );
 
       // Process base64 images and convert to short URL references
       const assetsCollection = db.collection(ASSETS_COLLECTION);
@@ -708,11 +892,6 @@ export async function handler(event) {
           }
         }
       }
-
-      const existingSharedSettings = await getSharedSettings(
-        settingsCollection,
-        user.userId,
-      );
 
       const baseUpdate = {
         ...sanitizedPayload,

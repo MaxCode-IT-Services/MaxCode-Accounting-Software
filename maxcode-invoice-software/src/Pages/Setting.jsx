@@ -29,6 +29,14 @@ import {
   getAccessibleSettingsTabs,
 } from "../utils/permissions";
 
+const SECRET_MASK = "********";
+const SECRET_AUTO_HIDE_MS = 45 * 1000;
+
+const toMaskedSecret = (value = "", hasValue = false) => {
+  if (hasValue) return SECRET_MASK;
+  return String(value || "").trim() ? SECRET_MASK : "";
+};
+
 const Settings = () => {
   useEffect(() => {
     document.title = "Settings | MaxCode IT Services";
@@ -280,13 +288,77 @@ const Settings = () => {
     dayOfMonth: 1,
     monthOfYear: 1,
     timezone: "Asia/Kolkata",
+    hasClientId: false,
+    hasClientSecret: false,
+    hasRefreshToken: false,
+    hasBackupApiKey: false,
+    hasFolderId: false,
   });
   const [isDriveSaving, setIsDriveSaving] = useState(false);
   const [showDrivePassword, setShowDrivePassword] = useState({
+    clientId: false,
     clientSecret: false,
     refreshToken: false,
     backupApiKey: false,
+    folderId: false,
   });
+  const [showCloudflareSecret, setShowCloudflareSecret] = useState({
+    storeUrl: false,
+    publicDomain: false,
+    password: false,
+  });
+  const driveSecretTimersRef = useRef({});
+  const cloudflareSecretTimersRef = useRef({});
+
+  const clearSecretTimer = (timersRef, key) => {
+    if (!key) return;
+    const currentTimer = timersRef.current[key];
+    if (currentTimer) {
+      clearTimeout(currentTimer);
+      delete timersRef.current[key];
+    }
+  };
+
+  const clearAllSecretTimers = (timersRef) => {
+    Object.keys(timersRef.current).forEach((key) => {
+      clearSecretTimer(timersRef, key);
+    });
+  };
+
+  const scheduleDriveAutoHide = (field) => {
+    clearSecretTimer(driveSecretTimersRef, field);
+    driveSecretTimersRef.current[field] = setTimeout(() => {
+      setDriveConfig((prev) => ({
+        ...prev,
+        [field]: String(prev?.[field] || "").trim() ? SECRET_MASK : "",
+      }));
+      setShowDrivePassword((prev) => ({
+        ...prev,
+        [field]: false,
+      }));
+      clearSecretTimer(driveSecretTimersRef, field);
+    }, SECRET_AUTO_HIDE_MS);
+  };
+
+  const scheduleCloudflareAutoHide = (field) => {
+    clearSecretTimer(cloudflareSecretTimersRef, field);
+    cloudflareSecretTimersRef.current[field] = setTimeout(() => {
+      setBusinessSettings((prev) => ({
+        ...prev,
+        cloudflareSettings: {
+          ...(prev.cloudflareSettings || {}),
+          [field]: String(prev?.cloudflareSettings?.[field] || "").trim()
+            ? SECRET_MASK
+            : "",
+        },
+      }));
+      setShowCloudflareSecret((prev) => ({
+        ...prev,
+        [field]: false,
+      }));
+      clearSecretTimer(cloudflareSecretTimersRef, field);
+    }, SECRET_AUTO_HIDE_MS);
+  };
 
   useEffect(() => {
     loadProfileSettings();
@@ -294,6 +366,13 @@ const Settings = () => {
     loadGoogleDriveConfig();
     load2FAStatus();
     loadBiometricLoginStatus();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearAllSecretTimers(driveSecretTimersRef);
+      clearAllSecretTimers(cloudflareSecretTimersRef);
+    };
   }, []);
 
   const resolveCurrentUserPhone = () => {
@@ -372,11 +451,20 @@ const Settings = () => {
       if (parsed && typeof parsed === "object") {
         setDriveConfig({
           enabled: parsed.enabled || false,
-          clientId: parsed.clientId || "",
-          clientSecret: parsed.clientSecret || "",
-          refreshToken: parsed.refreshToken || "",
-          backupApiKey: parsed.backupApiKey || "",
-          folderId: parsed.folderId || "",
+          clientId: toMaskedSecret(parsed.clientId, parsed.hasClientId),
+          clientSecret: toMaskedSecret(
+            parsed.clientSecret,
+            parsed.hasClientSecret,
+          ),
+          refreshToken: toMaskedSecret(
+            parsed.refreshToken,
+            parsed.hasRefreshToken,
+          ),
+          backupApiKey: toMaskedSecret(
+            parsed.backupApiKey,
+            parsed.hasBackupApiKey,
+          ),
+          folderId: toMaskedSecret(parsed.folderId, parsed.hasFolderId),
           backupTime: parsed.backupTime || "20:00",
           frequency: parsed.frequency || "daily",
           everyHours: Number(parsed.everyHours) || 4,
@@ -384,6 +472,11 @@ const Settings = () => {
           dayOfMonth: Number(parsed.dayOfMonth) || 1,
           monthOfYear: Number(parsed.monthOfYear) || 1,
           timezone: parsed.timezone || "Asia/Kolkata",
+          hasClientId: parsed.hasClientId === true,
+          hasClientSecret: parsed.hasClientSecret === true,
+          hasRefreshToken: parsed.hasRefreshToken === true,
+          hasBackupApiKey: parsed.hasBackupApiKey === true,
+          hasFolderId: parsed.hasFolderId === true,
         });
       }
     } catch (error) {
@@ -938,11 +1031,23 @@ const Settings = () => {
 
     if (resolvedCloudflareSettings) {
       normalizedSettings.cloudflareSettings = {
-        storeUrl: resolvedCloudflareSettings.storeUrl || "",
-        publicDomain: resolvedCloudflareSettings.publicDomain || "",
-        password: resolvedCloudflareSettings.password || "",
+        storeUrl: toMaskedSecret(
+          resolvedCloudflareSettings.storeUrl,
+          resolvedCloudflareSettings.hasStoreUrl === true,
+        ),
+        publicDomain: toMaskedSecret(
+          resolvedCloudflareSettings.publicDomain,
+          resolvedCloudflareSettings.hasPublicDomain === true,
+        ),
+        password: toMaskedSecret(
+          resolvedCloudflareSettings.password,
+          resolvedCloudflareSettings.hasPassword === true,
+        ),
         defaultFolder: resolvedCloudflareSettings.defaultFolder || "",
         folderOptions: resolvedCloudflareSettings.folderOptions || "",
+        hasStoreUrl: resolvedCloudflareSettings.hasStoreUrl === true,
+        hasPublicDomain: resolvedCloudflareSettings.hasPublicDomain === true,
+        hasPassword: resolvedCloudflareSettings.hasPassword === true,
       };
     }
 
@@ -1010,6 +1115,185 @@ const Settings = () => {
         [field]: value,
       },
     }));
+  };
+
+  const handleDriveSecretInputChange = (field, value) => {
+    setDriveConfig((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+
+    if (showDrivePassword[field]) {
+      scheduleDriveAutoHide(field);
+    }
+  };
+
+  const handleCloudflareSecretInputChange = (field, value) => {
+    if (!isSuperAdmin) return;
+
+    setBusinessSettings((prev) => ({
+      ...prev,
+      cloudflareSettings: {
+        ...(prev.cloudflareSettings || {}),
+        [field]: value,
+      },
+    }));
+
+    if (showCloudflareSecret[field]) {
+      scheduleCloudflareAutoHide(field);
+    }
+  };
+
+  const fetchRevealedBusinessSecret = async (scope, field) => {
+    const query = new URLSearchParams({
+      action: "reveal-secret",
+      scope,
+      field,
+    });
+
+    const response = await apiGet(
+      `${API_ENDPOINTS.BUSINESS_SETTINGS.GET}?${query.toString()}`,
+    );
+
+    return String(response?.data?.value || "");
+  };
+
+  const revealDriveField = async (field) => {
+    const currentValue = String(driveConfig?.[field] || "");
+    if (currentValue.trim() !== SECRET_MASK) {
+      return currentValue;
+    }
+
+    const revealed = await fetchRevealedBusinessSecret("backupSettings", field);
+    setDriveConfig((prev) => ({
+      ...prev,
+      [field]: revealed,
+    }));
+    return revealed;
+  };
+
+  const revealCloudflareField = async (field) => {
+    const currentValue = String(
+      businessSettings?.cloudflareSettings?.[field] || "",
+    );
+
+    if (currentValue.trim() !== SECRET_MASK) {
+      return currentValue;
+    }
+
+    const revealed = await fetchRevealedBusinessSecret(
+      "cloudflareSettings",
+      field,
+    );
+
+    setBusinessSettings((prev) => ({
+      ...prev,
+      cloudflareSettings: {
+        ...(prev.cloudflareSettings || {}),
+        [field]: revealed,
+      },
+    }));
+
+    return revealed;
+  };
+
+  const handleDriveRevealToggle = async (field) => {
+    const willShow = !Boolean(showDrivePassword[field]);
+    if (willShow) {
+      try {
+        await revealDriveField(field);
+      } catch (error) {
+        showError(error?.response?.data?.error || "Unable to reveal value");
+        return;
+      }
+
+      setShowDrivePassword((prev) => ({
+        ...prev,
+        [field]: true,
+      }));
+      scheduleDriveAutoHide(field);
+      return;
+    }
+
+    clearSecretTimer(driveSecretTimersRef, field);
+    setDriveConfig((prev) => ({
+      ...prev,
+      [field]: String(prev?.[field] || "").trim() ? SECRET_MASK : "",
+    }));
+    setShowDrivePassword((prev) => ({
+      ...prev,
+      [field]: false,
+    }));
+  };
+
+  const handleCloudflareRevealToggle = async (field) => {
+    const willShow = !Boolean(showCloudflareSecret[field]);
+    if (willShow) {
+      try {
+        await revealCloudflareField(field);
+      } catch (error) {
+        showError(error?.response?.data?.error || "Unable to reveal value");
+        return;
+      }
+
+      setShowCloudflareSecret((prev) => ({
+        ...prev,
+        [field]: true,
+      }));
+      scheduleCloudflareAutoHide(field);
+      return;
+    }
+
+    clearSecretTimer(cloudflareSecretTimersRef, field);
+    setBusinessSettings((prev) => ({
+      ...prev,
+      cloudflareSettings: {
+        ...(prev.cloudflareSettings || {}),
+        [field]: String(prev?.cloudflareSettings?.[field] || "").trim()
+          ? SECRET_MASK
+          : "",
+      },
+    }));
+    setShowCloudflareSecret((prev) => ({
+      ...prev,
+      [field]: false,
+    }));
+  };
+
+  const copyDriveFieldValue = async (field) => {
+    try {
+      const value = await revealDriveField(field);
+      if (!String(value || "").trim()) {
+        showError("Nothing to copy");
+        return;
+      }
+
+      await navigator.clipboard.writeText(String(value));
+      if (showDrivePassword[field]) {
+        scheduleDriveAutoHide(field);
+      }
+      showSuccess("Copied to clipboard");
+    } catch (error) {
+      showError(error?.response?.data?.error || "Copy failed");
+    }
+  };
+
+  const copyCloudflareFieldValue = async (field) => {
+    try {
+      const value = await revealCloudflareField(field);
+      if (!String(value || "").trim()) {
+        showError("Nothing to copy");
+        return;
+      }
+
+      await navigator.clipboard.writeText(String(value));
+      if (showCloudflareSecret[field]) {
+        scheduleCloudflareAutoHide(field);
+      }
+      showSuccess("Copied to clipboard");
+    } catch (error) {
+      showError(error?.response?.data?.error || "Copy failed");
+    }
   };
 
   const handleResetTermsToDefault = () => {
@@ -1743,7 +2027,21 @@ const Settings = () => {
       setIsDriveSaving(true);
 
       await apiPut(API_ENDPOINTS.BUSINESS_SETTINGS.UPDATE, {
-        backupSettings: driveConfig,
+        backupSettings: {
+          enabled: driveConfig.enabled,
+          clientId: driveConfig.clientId,
+          clientSecret: driveConfig.clientSecret,
+          refreshToken: driveConfig.refreshToken,
+          backupApiKey: driveConfig.backupApiKey,
+          folderId: driveConfig.folderId,
+          backupTime: driveConfig.backupTime,
+          frequency: driveConfig.frequency,
+          everyHours: driveConfig.everyHours,
+          dayOfWeek: driveConfig.dayOfWeek,
+          dayOfMonth: driveConfig.dayOfMonth,
+          monthOfYear: driveConfig.monthOfYear,
+          timezone: driveConfig.timezone,
+        },
       });
 
       // Reload settings to ensure enabled state persists
@@ -1752,47 +2050,9 @@ const Settings = () => {
       showSuccess("✅ Google Drive backup configuration saved successfully!");
 
       if (driveConfig.enabled) {
-        const maskSecret = (value = "") => {
-          const normalized = String(value || "");
-          if (!normalized) return "(not set)";
-          if (normalized.length <= 8) return "••••••••";
-          return `${normalized.slice(0, 4)}••••••${normalized.slice(-4)}`;
-        };
-
         showInfo(
-          "📌 Next: Add these credentials as GitHub Secrets to activate automation. Check console for details.",
+          "📌 Next: Add these credentials as GitHub Secrets to activate automation.",
         );
-
-        // Log detailed setup instructions
-        console.log("\n" + "=".repeat(70));
-        console.log(
-          "📋 GITHUB SECRETS SETUP - Copy these to GitHub Repository",
-        );
-        console.log("=".repeat(70));
-        console.log(
-          "\n🔗 Go to: Repository → Settings → Secrets → Actions → New secret\n",
-        );
-        console.log("Add these 7 secrets:\n");
-        console.log("1. GOOGLE_CLIENT_ID");
-        console.log(`   Value: ${maskSecret(driveConfig.clientId)}\n`);
-        console.log("2. GOOGLE_CLIENT_SECRET");
-        console.log(`   Value: ${maskSecret(driveConfig.clientSecret)}\n`);
-        console.log("3. GOOGLE_REFRESH_TOKEN");
-        console.log(`   Value: ${maskSecret(driveConfig.refreshToken)}\n`);
-        console.log("4. GOOGLE_DRIVE_FOLDER_ID");
-        console.log(`   Value: ${maskSecret(driveConfig.folderId)}\n`);
-        console.log("5. BACKUP_API_KEY");
-        console.log(`   Value: ${maskSecret(driveConfig.backupApiKey)}\n`);
-        console.log("6. NETLIFY_API_URL");
-        console.log(`   Value: https://billing.maxcode.in/api\n`);
-        console.log("7. MONGODB_URI");
-        console.log(`   Value: (your MongoDB connection string)\n`);
-        console.log("=".repeat(70));
-        console.log(
-          `📅 Backup Schedule: ${driveConfig.frequency.toUpperCase()}`,
-        );
-        console.log(`⏰ Backup Time: ${driveConfig.backupTime} IST`);
-        console.log("=".repeat(70) + "\n");
       }
     } catch (error) {
       console.error("Drive config save error:", error);
@@ -2005,6 +2265,10 @@ const Settings = () => {
           isSuperAdmin={isSuperAdmin}
           businessSettings={businessSettings}
           handleCloudflareChange={handleCloudflareChange}
+          handleCloudflareSecretInputChange={handleCloudflareSecretInputChange}
+          showCloudflareSecret={showCloudflareSecret}
+          handleCloudflareRevealToggle={handleCloudflareRevealToggle}
+          copyCloudflareFieldValue={copyCloudflareFieldValue}
         />
       );
     }
@@ -2069,8 +2333,10 @@ const Settings = () => {
           isImporting={isImporting}
           driveConfig={driveConfig}
           setDriveConfig={setDriveConfig}
+          handleDriveSecretInputChange={handleDriveSecretInputChange}
           showDrivePassword={showDrivePassword}
-          setShowDrivePassword={setShowDrivePassword}
+          handleDriveRevealToggle={handleDriveRevealToggle}
+          copyDriveFieldValue={copyDriveFieldValue}
           handleSaveDriveConfig={handleSaveDriveConfig}
           isDriveSaving={isDriveSaving}
           handleRunBackupNow={handleRunBackupNow}

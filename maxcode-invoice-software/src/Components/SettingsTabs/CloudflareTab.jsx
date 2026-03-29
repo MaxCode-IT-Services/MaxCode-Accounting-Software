@@ -1,5 +1,14 @@
 import React from "react";
 
+const getHiddenSecretInputStyle = (value = "") => {
+  if (!String(value || "").trim()) return undefined;
+  return {
+    color: "transparent",
+    textShadow: "0 0 6px rgba(33, 37, 41, 0.75)",
+    transition: "text-shadow 0.2s ease",
+  };
+};
+
 const CloudflareTab = ({
   handleSaveAll,
   isSaving,
@@ -7,6 +16,10 @@ const CloudflareTab = ({
   isSuperAdmin,
   businessSettings,
   handleCloudflareChange,
+  handleCloudflareSecretInputChange,
+  showCloudflareSecret,
+  handleCloudflareRevealToggle,
+  copyCloudflareFieldValue,
 }) => {
   return (
     <div className="business-details-container">
@@ -46,44 +59,122 @@ const CloudflareTab = ({
         <div className="row g-3">
           <div className="col-md-6">
             <label className="form-label fw-bold">Store URL</label>
-            <input
-              type="url"
-              className="form-control modern-input"
-              value={businessSettings.cloudflareSettings?.storeUrl || ""}
-              onChange={(e) =>
-                handleCloudflareChange("storeUrl", e.target.value)
-              }
-              placeholder="https://img.official-maxcode.workers.dev"
-              disabled={!isSuperAdmin}
-            />
+            <div className="input-group">
+              <input
+                type="text"
+                className="form-control modern-input"
+                value={businessSettings.cloudflareSettings?.storeUrl || ""}
+                onChange={(e) =>
+                  handleCloudflareSecretInputChange("storeUrl", e.target.value)
+                }
+                placeholder="https://img.official-maxcode.workers.dev"
+                disabled={!isSuperAdmin}
+                style={
+                  showCloudflareSecret?.storeUrl
+                    ? undefined
+                    : getHiddenSecretInputStyle(
+                        businessSettings.cloudflareSettings?.storeUrl,
+                      )
+                }
+              />
+              <button
+                className="btn btn-outline-secondary"
+                type="button"
+                onClick={() => handleCloudflareRevealToggle("storeUrl")}
+              >
+                <i
+                  className={`fas fa-eye${showCloudflareSecret?.storeUrl ? "-slash" : ""}`}
+                ></i>
+              </button>
+              <button
+                className="btn btn-outline-primary rounded-end-3"
+                type="button"
+                onClick={() => copyCloudflareFieldValue("storeUrl")}
+              >
+                <i className="fas fa-copy"></i>
+              </button>
+            </div>
           </div>
 
           <div className="col-md-6">
             <label className="form-label fw-bold">Public URL Domain</label>
-            <input
-              type="url"
-              className="form-control modern-input"
-              value={businessSettings.cloudflareSettings?.publicDomain || ""}
-              onChange={(e) =>
-                handleCloudflareChange("publicDomain", e.target.value)
-              }
-              placeholder="https://img.maxcodehub.com"
-              disabled={!isSuperAdmin}
-            />
+            <div className="input-group">
+              <input
+                type="text"
+                className="form-control modern-input"
+                value={businessSettings.cloudflareSettings?.publicDomain || ""}
+                onChange={(e) =>
+                  handleCloudflareSecretInputChange(
+                    "publicDomain",
+                    e.target.value,
+                  )
+                }
+                placeholder="https://img.maxcodehub.com"
+                disabled={!isSuperAdmin}
+                style={
+                  showCloudflareSecret?.publicDomain
+                    ? undefined
+                    : getHiddenSecretInputStyle(
+                        businessSettings.cloudflareSettings?.publicDomain,
+                      )
+                }
+              />
+              <button
+                className="btn btn-outline-secondary"
+                type="button"
+                onClick={() => handleCloudflareRevealToggle("publicDomain")}
+              >
+                <i
+                  className={`fas fa-eye${showCloudflareSecret?.publicDomain ? "-slash" : ""}`}
+                ></i>
+              </button>
+              <button
+                className="btn btn-outline-primary rounded-end-3"
+                type="button"
+                onClick={() => copyCloudflareFieldValue("publicDomain")}
+              >
+                <i className="fas fa-copy"></i>
+              </button>
+            </div>
           </div>
 
           <div className="col-md-6">
             <label className="form-label fw-bold">Password</label>
-            <input
-              type="password"
-              className="form-control modern-input"
-              value={businessSettings.cloudflareSettings?.password || ""}
-              onChange={(e) =>
-                handleCloudflareChange("password", e.target.value)
-              }
-              placeholder="Upload API password"
-              disabled={!isSuperAdmin}
-            />
+            <div className="input-group">
+              <input
+                type="text"
+                className="form-control modern-input"
+                value={businessSettings.cloudflareSettings?.password || ""}
+                onChange={(e) =>
+                  handleCloudflareSecretInputChange("password", e.target.value)
+                }
+                placeholder="Upload API password"
+                disabled={!isSuperAdmin}
+                style={
+                  showCloudflareSecret?.password
+                    ? undefined
+                    : getHiddenSecretInputStyle(
+                        businessSettings.cloudflareSettings?.password,
+                      )
+                }
+              />
+              <button
+                className="btn btn-outline-secondary"
+                type="button"
+                onClick={() => handleCloudflareRevealToggle("password")}
+              >
+                <i
+                  className={`fas fa-eye${showCloudflareSecret?.password ? "-slash" : ""}`}
+                ></i>
+              </button>
+              <button
+                className="btn btn-outline-primary rounded-end-3"
+                type="button"
+                onClick={() => copyCloudflareFieldValue("password")}
+              >
+                <i className="fas fa-copy"></i>
+              </button>
+            </div>
           </div>
 
           <div className="col-md-6">

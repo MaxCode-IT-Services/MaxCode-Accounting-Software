@@ -1,6 +1,222 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
+import crypto from "crypto";
+
+const SECRET_MASK = "********";
+const ENCRYPTED_PREFIX = "enc:v1:";
+const SENSITIVE_FIELDS = ["serverPassword", "databasePassword", "appPassword"];
+const SECRET_CUSTOM_FIELD_TYPES = [
+  "password",
+  "api-key",
+  "client-id",
+  "client-secret",
+  "refresh-token",
+  "access-token",
+  "secret",
+  "bearer-token",
+];
+
+let cachedEncryptionKey = null;
+
+const isMaskedSecretValue = (value = "") =>
+  String(value || "").trim() === SECRET_MASK;
+
+const maskSecretValue = (value = "") => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  return SECRET_MASK;
+};
+
+const isSecretCustomFieldType = (type = "") =>
+  SECRET_CUSTOM_FIELD_TYPES.includes(
+    String(type || "")
+      .trim()
+      .toLowerCase(),
+  );
+
+const getEncryptionKey = () => {
+  if (cachedEncryptionKey) return cachedEncryptionKey;
+
+  const raw = String(process.env.CREDENTIALS_ENCRYPTION_KEY || "").trim();
+  if (!raw) {
+    throw new Error(
+      "CREDENTIALS_ENCRYPTION_KEY is missing. Set a strong 128-char hex key for project credential encryption.",
+    );
+  }
+
+  if (!/^[a-fA-F0-9]{128}$/.test(raw)) {
+    throw new Error(
+      "CREDENTIALS_ENCRYPTION_KEY must be exactly 128 hex characters.",
+    );
+  }
+
+  const keyMaterial = Buffer.from(raw, "hex");
+  const keyBuffer = crypto.createHash("sha256").update(keyMaterial).digest();
+
+  cachedEncryptionKey = keyBuffer;
+  return cachedEncryptionKey;
+};
+
+const encryptSecretValue = (value = "") => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (normalized.startsWith(ENCRYPTED_PREFIX)) return normalized;
+
+  const key = getEncryptionKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([
+    cipher.update(normalized, "utf8"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+
+  return `${ENCRYPTED_PREFIX}${iv.toString("base64")}:${tag.toString("base64")}:${encrypted.toString("base64")}`;
+};
+
+const decryptSecretValue = (value = "") => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (!normalized.startsWith(ENCRYPTED_PREFIX)) return normalized;
+
+  const payload = normalized.slice(ENCRYPTED_PREFIX.length);
+  const parts = payload.split(":");
+  if (parts.length !== 3) {
+    throw new Error("Invalid encrypted secret format");
+  }
+
+  const [ivBase64, tagBase64, encryptedBase64] = parts;
+  const key = getEncryptionKey();
+  const iv = Buffer.from(ivBase64, "base64");
+  const tag = Buffer.from(tagBase64, "base64");
+  const encrypted = Buffer.from(encryptedBase64, "base64");
+
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+
+  const decrypted = Buffer.concat([
+    decipher.update(encrypted),
+    decipher.final(),
+  ]);
+
+  return decrypted.toString("utf8").trim();
+};
+
+const applySecretProtection = (nextPayload, existingRecord = null) => {
+  const protectedPayload = { ...nextPayload };
+
+  SENSITIVE_FIELDS.forEach((field) => {
+    const incomingValue = String(nextPayload?.[field] || "").trim();
+    const existingValue = String(existingRecord?.[field] || "").trim();
+
+    if (isMaskedSecretValue(incomingValue)) {
+      protectedPayload[field] = existingValue;
+      return;
+    }
+
+    if (!incomingValue) {
+      protectedPayload[field] = "";
+      return;
+    }
+
+    protectedPayload[field] = encryptSecretValue(incomingValue);
+  });
+
+  const previousCustomFields = Array.isArray(existingRecord?.customFields)
+    ? existingRecord.customFields
+    : [];
+
+  protectedPayload.customFields = Array.isArray(nextPayload?.customFields)
+    ? nextPayload.customFields.map((field) => {
+        if (!isSecretCustomFieldType(field?.type)) {
+          return field;
+        }
+
+        const incomingValue = String(field?.value || "").trim();
+        const previousField = previousCustomFields.find(
+          (candidate) =>
+            String(candidate?.id || "") === String(field?.id || ""),
+        );
+        const existingValue = String(previousField?.value || "").trim();
+
+        if (isMaskedSecretValue(incomingValue)) {
+          return { ...field, value: existingValue };
+        }
+
+        if (!incomingValue) {
+          return { ...field, value: "" };
+        }
+
+        return {
+          ...field,
+          value: encryptSecretValue(incomingValue),
+        };
+      })
+    : [];
+
+  return protectedPayload;
+};
+
+const sanitizeRecordForResponse = (record) => {
+  if (!record || typeof record !== "object") return record;
+
+  const sanitized = { ...record };
+
+  SENSITIVE_FIELDS.forEach((field) => {
+    sanitized[field] = maskSecretValue(record[field]);
+  });
+
+  sanitized.customFields = Array.isArray(record.customFields)
+    ? record.customFields.map((field) => {
+        if (!isSecretCustomFieldType(field?.type)) {
+          return field;
+        }
+
+        return {
+          ...field,
+          value: maskSecretValue(field?.value),
+        };
+      })
+    : [];
+
+  return sanitized;
+};
+
+const revealSecretValueFromRecord = ({ record, field, customFieldId }) => {
+  const normalizedField = String(field || "").trim();
+
+  if (SENSITIVE_FIELDS.includes(normalizedField)) {
+    return {
+      key: normalizedField,
+      value: decryptSecretValue(record?.[normalizedField] || ""),
+    };
+  }
+
+  const normalizedCustomFieldId = String(customFieldId || "").trim();
+  if (!normalizedCustomFieldId) {
+    throw new Error("customFieldId is required for custom field reveal");
+  }
+
+  const customField = Array.isArray(record?.customFields)
+    ? record.customFields.find(
+        (item) => String(item?.id || "").trim() === normalizedCustomFieldId,
+      )
+    : null;
+
+  if (!customField) {
+    throw new Error("Custom field not found");
+  }
+
+  if (!isSecretCustomFieldType(customField.type)) {
+    throw new Error("Selected custom field is not a secret field");
+  }
+
+  return {
+    key: normalizedCustomFieldId,
+    value: decryptSecretValue(customField.value || ""),
+  };
+};
 
 const normalizeCustomFields = (fields = []) => {
   if (!Array.isArray(fields)) return [];
@@ -52,6 +268,7 @@ export async function handler(event) {
 
     if (event.httpMethod === "GET") {
       const {
+        action,
         id,
         page = 1,
         limit = 10,
@@ -60,6 +277,58 @@ export async function handler(event) {
         sortOrder = "desc",
         filter,
       } = event.queryStringParameters || {};
+
+      if (String(action || "").trim() === "reveal-secret") {
+        const normalizedId = String(id || "").trim();
+        const field = String(
+          (event.queryStringParameters || {}).field || "",
+        ).trim();
+        const customFieldId = String(
+          (event.queryStringParameters || {}).customFieldId || "",
+        ).trim();
+
+        if (!normalizedId || !ObjectId.isValid(normalizedId)) {
+          return createResponse(400, { error: "Valid ID is required" }, origin);
+        }
+
+        if (!field) {
+          return createResponse(400, { error: "field is required" }, origin);
+        }
+
+        const record = await collection.findOne({
+          _id: new ObjectId(normalizedId),
+          isDeleted: { $ne: true },
+        });
+
+        if (!record) {
+          return createResponse(404, { error: "Record not found" }, origin);
+        }
+
+        try {
+          const revealed = revealSecretValueFromRecord({
+            record,
+            field,
+            customFieldId,
+          });
+
+          return createResponse(
+            200,
+            {
+              success: true,
+              field,
+              key: revealed.key,
+              value: revealed.value,
+            },
+            origin,
+          );
+        } catch (error) {
+          return createResponse(
+            400,
+            { error: error?.message || "Unable to reveal secret" },
+            origin,
+          );
+        }
+      }
 
       if (id) {
         if (!ObjectId.isValid(id)) {
@@ -75,7 +344,7 @@ export async function handler(event) {
           return createResponse(404, { error: "Record not found" }, origin);
         }
 
-        return createResponse(200, record, origin);
+        return createResponse(200, sanitizeRecordForResponse(record), origin);
       }
 
       const params = event.queryStringParameters || {};
@@ -191,6 +460,8 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
+      const sanitizedData = data.map((item) => sanitizeRecordForResponse(item));
+
       const clientNameValues = await collection.distinct("clientName", {
         isDeleted: { $ne: true },
         clientName: { $exists: true, $ne: "" },
@@ -233,7 +504,7 @@ export async function handler(event) {
       return createResponse(
         200,
         {
-          data,
+          data: sanitizedData,
           pagination: {
             page: pageNum,
             limit: limitNum,
@@ -266,6 +537,8 @@ export async function handler(event) {
         projectName: String(payload.projectName || "").trim(),
         customFields: normalizeCustomFields(payload.customFields),
       };
+
+      const securedPayload = applySecretProtection(normalizedPayload, null);
 
       if (!normalizedPayload.clientRefId) {
         return createResponse(
@@ -317,7 +590,7 @@ export async function handler(event) {
       }
 
       const result = await collection.insertOne({
-        ...normalizedPayload,
+        ...securedPayload,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -340,6 +613,15 @@ export async function handler(event) {
 
       const payload = JSON.parse(event.body || "{}");
 
+      const currentRecord = await collection.findOne({
+        _id: new ObjectId(id),
+        isDeleted: { $ne: true },
+      });
+
+      if (!currentRecord) {
+        return createResponse(404, { error: "Record not found" }, origin);
+      }
+
       const normalizedPayload = {
         ...payload,
         clientRefId: String(payload.clientRefId || "").trim(),
@@ -348,6 +630,11 @@ export async function handler(event) {
         projectName: String(payload.projectName || "").trim(),
         customFields: normalizeCustomFields(payload.customFields),
       };
+
+      const securedPayload = applySecretProtection(
+        normalizedPayload,
+        currentRecord,
+      );
 
       if (!normalizedPayload.clientRefId) {
         return createResponse(
@@ -403,7 +690,7 @@ export async function handler(event) {
         { _id: new ObjectId(id), isDeleted: { $ne: true } },
         {
           $set: {
-            ...normalizedPayload,
+            ...securedPayload,
             updatedAt: new Date(),
           },
         },

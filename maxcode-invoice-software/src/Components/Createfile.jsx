@@ -126,11 +126,6 @@ const safeChunkSizeMb = Number.isFinite(configuredChunkSizeMb)
 const CHUNK_SIZE_BYTES = safeChunkSizeMb * 1024 * 1024;
 const MAX_PARALLEL_CHUNKS = import.meta.env.DEV ? 1 : 2;
 const MAX_CHUNK_UPLOAD_RETRIES = 3;
-const MAX_DIRECT_UPLOAD_MB = Number(
-  import.meta.env.VITE_MAX_DIRECT_UPLOAD_MB || 95,
-);
-const MAX_DIRECT_UPLOAD_BYTES = Math.max(1, MAX_DIRECT_UPLOAD_MB) * 1024 * 1024;
-const MIN_MULTIPART_PART_BYTES = 5 * 1024 * 1024;
 
 const shouldUseChunkUpload = (file) => file && file.size > CHUNK_SIZE_BYTES / 2;
 
@@ -604,15 +599,9 @@ const Createfile = ({
     const headers = {
       "x-cloud-store-url": String(cloudflareSettings?.storeUrl || ""),
       "x-cloud-public-domain": String(cloudflareSettings?.publicDomain || ""),
-      "x-cloud-password": String(cloudflareSettings?.password || ""),
       "x-cloud-default-folder": String(cloudflareSettings?.defaultFolder || ""),
       ...extraHeaders,
     };
-
-    const token = localStorage.getItem("access_token");
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
 
     return headers;
   };
@@ -729,335 +718,6 @@ const Createfile = ({
     }
 
     return response.json();
-  };
-
-  const uploadFileDirectToCloudflare = async ({
-    file,
-    objectPath,
-    mimeType,
-  }) => {
-    if (isUploadCancelled()) {
-      throw new Error("Upload cancelled by user");
-    }
-
-    const cleanedStoreUrl = String(cloudflareSettings?.storeUrl || "").replace(
-      /\/+$/,
-      "",
-    );
-    const cleanedPath = String(objectPath || "").replace(/^\/+/, "");
-
-    if (!cleanedStoreUrl || !cleanedPath) {
-      throw new Error("Cloudflare store URL or path is missing");
-    }
-
-    const encodeR2Path = (value = "") =>
-      String(value || "")
-        .split("/")
-        .filter(Boolean)
-        .map((segment) => encodeURIComponent(segment))
-        .join("/");
-
-    const buildAuthHeaders = (extra = {}) => {
-      const token = localStorage.getItem("access_token");
-      const headers = {
-        "x-upload-password": String(cloudflareSettings?.password || ""),
-        "x-api-key": String(cloudflareSettings?.password || ""),
-        "x-password": String(cloudflareSettings?.password || ""),
-        ...extra,
-      };
-
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-
-      return headers;
-    };
-
-    if (Number(file?.size || 0) > MAX_DIRECT_UPLOAD_BYTES) {
-      const encodedPath = encodeR2Path(cleanedPath);
-      const createController = new AbortController();
-      uploadControlRef.current.controllers.add(createController);
-      const createRes = await fetch(
-        `${cleanedStoreUrl}/mpu/create/${encodedPath}`,
-        {
-          method: "POST",
-          signal: createController.signal,
-          headers: buildAuthHeaders(),
-        },
-      );
-      uploadControlRef.current.controllers.delete(createController);
-
-      if (!createRes.ok) {
-        const createErr = await createRes.text().catch(() => "");
-        throw new Error(
-          `Multipart init failed ${createRes.status} ${createErr}`,
-        );
-      }
-
-      const createJson = await createRes.json().catch(() => ({}));
-      const uploadId = String(createJson?.uploadId || "").trim();
-      if (!uploadId) {
-        throw new Error("Multipart init failed: uploadId missing");
-      }
-
-      const multipartPartSize = Math.max(
-        CHUNK_SIZE_BYTES,
-        MIN_MULTIPART_PART_BYTES,
-      );
-      const totalSize = Number(file?.size || 0);
-      const totalParts = Math.max(1, Math.ceil(totalSize / multipartPartSize));
-      const startedAt = Date.now();
-      let uploadedBytes = 0;
-      const parts = [];
-
-      try {
-        for (let partNumber = 1; partNumber <= totalParts; partNumber += 1) {
-          const start = (partNumber - 1) * multipartPartSize;
-          const end = Math.min(totalSize, start + multipartPartSize);
-          const partBlob = file.slice(start, end);
-
-          let uploadedPart = null;
-          let lastError = null;
-
-          for (
-            let attempt = 1;
-            attempt <= MAX_CHUNK_UPLOAD_RETRIES;
-            attempt += 1
-          ) {
-            if (isUploadCancelled()) {
-              throw new Error("Upload cancelled by user");
-            }
-
-            try {
-              const partUrl =
-                `${cleanedStoreUrl}/mpu/${encodedPath}` +
-                `?uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`;
-
-              const partController = new AbortController();
-              uploadControlRef.current.controllers.add(partController);
-              const partRes = await fetch(partUrl, {
-                method: "PUT",
-                signal: partController.signal,
-                headers: buildAuthHeaders({
-                  "Content-Type": mimeType || "application/octet-stream",
-                }),
-                body: partBlob,
-              });
-              uploadControlRef.current.controllers.delete(partController);
-
-              if (!partRes.ok) {
-                const partErr = await partRes.text().catch(() => "");
-                throw new Error(
-                  `Part ${partNumber}/${totalParts} failed ${partRes.status} ${partErr}`,
-                );
-              }
-
-              const partJson = await partRes.json().catch(() => ({}));
-              const etag = String(
-                partJson?.etag ||
-                  partJson?.httpEtag ||
-                  partRes.headers.get("etag") ||
-                  partRes.headers.get("ETag") ||
-                  "",
-              ).trim();
-
-              if (!etag) {
-                throw new Error(
-                  `Part ${partNumber}/${totalParts} uploaded but ETag missing`,
-                );
-              }
-
-              uploadedPart = { partNumber, etag };
-              break;
-            } catch (error) {
-              lastError = error;
-              if (attempt < MAX_CHUNK_UPLOAD_RETRIES) {
-                await new Promise((resolve) =>
-                  setTimeout(resolve, attempt * 700),
-                );
-              }
-            }
-          }
-
-          if (!uploadedPart) {
-            throw lastError || new Error("Multipart part upload failed");
-          }
-
-          parts.push(uploadedPart);
-          uploadedBytes += partBlob.size;
-
-          const percent =
-            totalSize > 0 ? Math.round((uploadedBytes / totalSize) * 100) : 0;
-          const elapsedSeconds = (Date.now() - startedAt) / 1000;
-          const speedBps =
-            elapsedSeconds > 0 ? uploadedBytes / elapsedSeconds : 0;
-          const remainingBytes = Math.max(0, totalSize - uploadedBytes);
-          const estimatedRemaining =
-            speedBps > 0 ? remainingBytes / speedBps : 0;
-
-          setUploadProgress((prev) => ({
-            ...prev,
-            [cleanedPath]: {
-              percentage: percent,
-              status: "uploading",
-              uploadedBytes,
-              totalBytes: totalSize,
-              estimatedRemaining,
-            },
-          }));
-        }
-
-        const completeController = new AbortController();
-        uploadControlRef.current.controllers.add(completeController);
-        const completeRes = await fetch(
-          `${cleanedStoreUrl}/mpu/complete/${encodedPath}?uploadId=${encodeURIComponent(uploadId)}`,
-          {
-            method: "POST",
-            signal: completeController.signal,
-            headers: buildAuthHeaders({
-              "Content-Type": "application/json",
-            }),
-            body: JSON.stringify({ parts }),
-          },
-        );
-        uploadControlRef.current.controllers.delete(completeController);
-
-        if (!completeRes.ok) {
-          const completeErr = await completeRes.text().catch(() => "");
-          throw new Error(
-            `Multipart complete failed ${completeRes.status} ${completeErr}`,
-          );
-        }
-
-        setUploadProgress((prev) => ({
-          ...prev,
-          [cleanedPath]: {
-            percentage: 100,
-            status: "completed",
-            uploadedBytes: totalSize,
-            totalBytes: totalSize,
-            estimatedRemaining: 0,
-          },
-        }));
-
-        return {
-          fileUrl: String(cloudflareSettings?.publicDomain || "").trim()
-            ? `${String(cloudflareSettings?.publicDomain || "").replace(/\/+$/, "")}/${cleanedPath}`
-            : `${cleanedStoreUrl}/${cleanedPath}`,
-          filePath: cleanedPath,
-        };
-      } catch (multipartError) {
-        try {
-          const abortController = new AbortController();
-          uploadControlRef.current.controllers.add(abortController);
-          await fetch(
-            `${cleanedStoreUrl}/mpu/${encodedPath}?uploadId=${encodeURIComponent(uploadId)}`,
-            {
-              method: "DELETE",
-              signal: abortController.signal,
-              headers: buildAuthHeaders(),
-            },
-          );
-          uploadControlRef.current.controllers.delete(abortController);
-        } catch {
-          // Ignore abort errors and bubble original upload error.
-        }
-        throw multipartError;
-      }
-    }
-
-    const uploadUrl = `${cleanedStoreUrl}/${cleanedPath}`;
-    const startedAt = Date.now();
-
-    await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("PUT", uploadUrl, true);
-      xhr.timeout = 120000;
-      uploadControlRef.current.xhrs.add(xhr);
-
-      const authHeaders = buildAuthHeaders({
-        "Content-Type": mimeType || "application/octet-stream",
-      });
-      Object.entries(authHeaders).forEach(([key, value]) => {
-        xhr.setRequestHeader(key, String(value));
-      });
-
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) return;
-
-        const loaded = Number(event.loaded || 0);
-        const total = Number(event.total || file.size || 0);
-        const percent = total > 0 ? Math.round((loaded / total) * 100) : 0;
-
-        const elapsedSeconds = (Date.now() - startedAt) / 1000;
-        const speedBps = elapsedSeconds > 0 ? loaded / elapsedSeconds : 0;
-        const remainingBytes = Math.max(0, total - loaded);
-        const estimatedRemaining = speedBps > 0 ? remainingBytes / speedBps : 0;
-
-        setUploadProgress((prev) => ({
-          ...prev,
-          [cleanedPath]: {
-            percentage: percent,
-            status: "uploading",
-            uploadedBytes: loaded,
-            totalBytes: total,
-            estimatedRemaining,
-          },
-        }));
-      };
-
-      xhr.onerror = () => {
-        uploadControlRef.current.xhrs.delete(xhr);
-        reject(new Error("Direct upload failed due to network error"));
-      };
-
-      xhr.ontimeout = () => {
-        uploadControlRef.current.xhrs.delete(xhr);
-        reject(
-          new Error(
-            "Direct upload timed out. Cloudflare endpoint may have request size/time limits.",
-          ),
-        );
-      };
-
-      xhr.onload = () => {
-        uploadControlRef.current.xhrs.delete(xhr);
-        if (xhr.status >= 200 && xhr.status < 300) {
-          setUploadProgress((prev) => ({
-            ...prev,
-            [cleanedPath]: {
-              percentage: 100,
-              status: "completed",
-              uploadedBytes: Number(file?.size || 0),
-              totalBytes: Number(file?.size || 0),
-              estimatedRemaining: 0,
-            },
-          }));
-          resolve(true);
-          return;
-        }
-
-        reject(
-          new Error(
-            `Cloudflare direct upload failed ${xhr.status} ${xhr.responseText || ""}`,
-          ),
-        );
-      };
-
-      xhr.onabort = () => {
-        uploadControlRef.current.xhrs.delete(xhr);
-        reject(new Error("Upload cancelled by user"));
-      };
-
-      xhr.send(file);
-    });
-
-    return {
-      fileUrl: String(cloudflareSettings?.publicDomain || "").trim()
-        ? `${String(cloudflareSettings?.publicDomain || "").replace(/\/+$/, "")}/${cleanedPath}`
-        : uploadUrl,
-      filePath: cleanedPath,
-    };
   };
 
   const chunkUpload = async ({
@@ -1201,7 +861,7 @@ const Createfile = ({
         return;
       }
     } else {
-      if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+      if (!cloudflareSettings?.storeUrl) {
         showError(
           "Cloudflare settings missing. Please configure it in Settings tab.",
         );
@@ -1250,7 +910,6 @@ const Createfile = ({
           {
             fileName: formData.fileName.trim(),
             folderName: formData.folderName.trim(),
-            cloudflareSettings,
           },
           {
             timeout: isCloudRecord ? 120000 : 30000,
@@ -1271,10 +930,12 @@ const Createfile = ({
           String(manualFileType || "").trim() ||
           String(item.file?.type || "application/octet-stream");
 
-        const result = await uploadFileDirectToCloudflare({
+        const securedResult = await uploadFileViaServerChunked({
           file: item.file,
           objectPath: relativePath,
-          mimeType: effectiveMimeType,
+          customMimeType: effectiveMimeType,
+          folderName: formData.folderName.trim(),
+          uploadDate: formData.uploadDate,
         });
 
         if (isUploadCancelled()) {
@@ -1282,7 +943,7 @@ const Createfile = ({
         }
 
         showSuccess("File uploaded successfully");
-        if (onSubmit) onSubmit(result || null);
+        if (onSubmit) onSubmit(securedResult || null);
       } else if (uploadMode === "multiple") {
         for (const item of selectedFiles) {
           if (isUploadCancelled()) {
@@ -1295,10 +956,12 @@ const Createfile = ({
             String(manualFileType || "").trim() ||
             String(item.file?.type || "application/octet-stream");
 
-          await uploadFileDirectToCloudflare({
+          await uploadFileViaServerChunked({
             file: item.file,
             objectPath: relativePath,
-            mimeType: effectiveMimeType,
+            customMimeType: effectiveMimeType,
+            folderName: formData.folderName.trim(),
+            uploadDate: formData.uploadDate,
           });
         }
 
@@ -1325,12 +988,15 @@ const Createfile = ({
             return `${folderUploadName.trim()}/${raw.slice(selectedRootName.length + 1)}`;
           })();
 
-          await uploadFileDirectToCloudflare({
+          await uploadFileViaServerChunked({
             file,
             objectPath: `${formData.folderName.trim()}/${relativeFilePath}`,
-            mimeType:
+            customMimeType:
               String(manualFileType || "").trim() ||
               String(file?.type || "application/octet-stream"),
+            folderName: formData.folderName.trim(),
+            uploadDate: formData.uploadDate,
+            folderUploadName: folderUploadName.trim(),
           });
         }
 

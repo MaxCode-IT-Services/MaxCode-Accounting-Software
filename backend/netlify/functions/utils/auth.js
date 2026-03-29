@@ -3,11 +3,16 @@ import bcrypt from "bcryptjs";
 import { createResponse } from "./mongodb.js";
 
 // JWT configuration
-const JWT_SECRET =
-  process.env.JWT_SECRET || "your-secret-key-change-in-production";
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = "1d";
 const AUTH_COOKIE_NAME = "maxcode_auth_token";
 const DEFAULT_COOKIE_MAX_AGE_SECONDS = 24 * 60 * 60;
+
+if (!JWT_SECRET || String(JWT_SECRET).trim().length < 32) {
+  throw new Error(
+    "JWT_SECRET is missing or too short. Set a strong secret (min 32 chars).",
+  );
+}
 
 function parseCookies(cookieHeader = "") {
   if (!cookieHeader || typeof cookieHeader !== "string") {
@@ -102,20 +107,18 @@ export function createAuthCookie(
   token,
   maxAgeSeconds = DEFAULT_COOKIE_MAX_AGE_SECONDS,
 ) {
-  const isProduction = process.env.NODE_ENV === "production";
-  const secureFlag = isProduction ? "Secure; " : "";
+  const secureFlag = "Secure; ";
   const normalizedMaxAge =
     Number.isInteger(maxAgeSeconds) && maxAgeSeconds > 0
       ? maxAgeSeconds
       : DEFAULT_COOKIE_MAX_AGE_SECONDS;
 
-  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; ${secureFlag}SameSite=Lax; Max-Age=${normalizedMaxAge}`;
+  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; ${secureFlag}SameSite=Strict; Max-Age=${normalizedMaxAge}`;
 }
 
 export function createClearAuthCookie() {
-  const isProduction = process.env.NODE_ENV === "production";
-  const secureFlag = isProduction ? "Secure; " : "";
-  return `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; ${secureFlag}SameSite=Lax; Max-Age=0`;
+  const secureFlag = "Secure; ";
+  return `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; ${secureFlag}SameSite=Strict; Max-Age=0`;
 }
 
 /**

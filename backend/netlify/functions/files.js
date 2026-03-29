@@ -2,6 +2,7 @@ import { verifyRequestToken } from "./utils/auth.js";
 import { connectToDatabase } from "./utils/mongodb.js";
 import Busboy from "busboy";
 import { inflateSync } from "node:zlib";
+import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
 
 const getCorsHeaders = (origin) => {
   const allowedOrigins = [
@@ -18,7 +19,7 @@ const getCorsHeaders = (origin) => {
   return {
     "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, x-cloud-store-url, x-cloud-public-domain, x-cloud-password, x-cloud-default-folder, x-upload-id, x-upload-file-path, x-upload-file-name, x-upload-file-type, x-upload-file-size, x-upload-chunk-index, x-upload-chunk-count",
+      "Content-Type, Authorization, x-cloud-store-url, x-cloud-public-domain, x-cloud-default-folder, x-upload-id, x-upload-file-path, x-upload-file-name, x-upload-file-type, x-upload-file-size, x-upload-chunk-index, x-upload-chunk-count",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
     "Access-Control-Allow-Credentials": "true",
   };
@@ -135,14 +136,12 @@ const getCloudflareSettingsFromEvent = (event = {}, body = {}) => {
   const headerSettings = {
     storeUrl: getHeaderValue(event?.headers, "x-cloud-store-url"),
     publicDomain: getHeaderValue(event?.headers, "x-cloud-public-domain"),
-    password: getHeaderValue(event?.headers, "x-cloud-password"),
     defaultFolder: getHeaderValue(event?.headers, "x-cloud-default-folder"),
   };
 
   const querySettings = {
     storeUrl: query.storeUrl,
     publicDomain: query.publicDomain,
-    password: query.password,
     defaultFolder: query.defaultFolder,
   };
 
@@ -155,6 +154,8 @@ const getCloudflareSettingsFromEvent = (event = {}, body = {}) => {
     ...querySettings,
     ...headerSettings,
     ...bodySettings,
+    // Password is always resolved from server-side settings.
+    password: "",
   });
 };
 
@@ -322,14 +323,23 @@ const getCloudflareSettingsFromDatabase = async () => {
     );
 
     const directSettings = {
-      storeUrl: source.storeUrl,
-      publicDomain: source.publicDomain,
-      password: source.password,
+      storeUrl: decryptSecretFromStorage(source.storeUrl),
+      publicDomain: decryptSecretFromStorage(source.publicDomain),
+      password: decryptSecretFromStorage(source.password),
       defaultFolder: source.defaultFolder,
     };
 
+    const nestedStoreUrl = decryptSecretFromStorage(nestedSettings?.storeUrl);
+    const nestedPublicDomain = decryptSecretFromStorage(
+      nestedSettings?.publicDomain,
+    );
+    const nestedPassword = decryptSecretFromStorage(nestedSettings?.password);
+
     return normalizeCloudflareSettings({
       ...(nestedSettings || {}),
+      storeUrl: directSettings.storeUrl || nestedStoreUrl,
+      publicDomain: directSettings.publicDomain || nestedPublicDomain,
+      password: directSettings.password || nestedPassword,
       ...directSettings,
     });
   } catch {
@@ -1310,7 +1320,7 @@ export async function handler(event) {
         400,
         {
           error:
-            "Cloudflare settings are required in request (storeUrl/publicDomain/password/defaultFolder).",
+            "Cloudflare configuration is missing on server. Configure it in Settings.",
         },
         origin,
       );

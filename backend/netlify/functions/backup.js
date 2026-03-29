@@ -1,6 +1,7 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
 import { serialize, deserialize } from "bson";
+import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
 
 /**
  * Backup API Endpoint
@@ -93,10 +94,122 @@ const toTrimmedString = (value) => {
   return String(value).trim();
 };
 
+const SECRET_MASK = "********";
+
+const isMaskedSecretValue = (value = "") =>
+  String(value || "").trim() === SECRET_MASK;
+
+const maskSecretValue = (value = "") => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  return SECRET_MASK;
+};
+
+const maskDriveConfigForResponse = (config = {}) => {
+  if (!config || typeof config !== "object") {
+    return {
+      enabled: false,
+      frequency: "daily",
+      backupTime: "20:00",
+      everyHours: 4,
+      dayOfWeek: "monday",
+      dayOfMonth: 1,
+      monthOfYear: 1,
+      timezone: "Asia/Kolkata",
+      clientId: "",
+      clientSecret: "",
+      refreshToken: "",
+      backupApiKey: "",
+      folderId: "",
+      hasClientId: false,
+      hasClientSecret: false,
+      hasRefreshToken: false,
+      hasBackupApiKey: false,
+      hasFolderId: false,
+    };
+  }
+
+  const clientId = toTrimmedString(config.clientId);
+  const clientSecret = toTrimmedString(config.clientSecret);
+  const refreshToken = toTrimmedString(config.refreshToken);
+  const backupApiKey = toTrimmedString(config.backupApiKey);
+  const folderId = toTrimmedString(config.folderId);
+
+  return {
+    enabled: Boolean(config.enabled),
+    frequency: toTrimmedString(config.frequency) || "daily",
+    backupTime: toTrimmedString(config.backupTime) || "20:00",
+    everyHours: Number.parseInt(config.everyHours, 10) || 4,
+    dayOfWeek: toTrimmedString(config.dayOfWeek) || "monday",
+    dayOfMonth: Number.parseInt(config.dayOfMonth, 10) || 1,
+    monthOfYear: Number.parseInt(config.monthOfYear, 10) || 1,
+    timezone: toTrimmedString(config.timezone) || "Asia/Kolkata",
+    clientId: maskSecretValue(clientId),
+    clientSecret: maskSecretValue(clientSecret),
+    refreshToken: maskSecretValue(refreshToken),
+    backupApiKey: maskSecretValue(backupApiKey),
+    folderId: maskSecretValue(folderId),
+    hasClientId: Boolean(clientId) && !isMaskedSecretValue(clientId),
+    hasClientSecret:
+      Boolean(clientSecret) && !isMaskedSecretValue(clientSecret),
+    hasRefreshToken:
+      Boolean(refreshToken) && !isMaskedSecretValue(refreshToken),
+    hasBackupApiKey:
+      Boolean(backupApiKey) && !isMaskedSecretValue(backupApiKey),
+    hasFolderId: Boolean(folderId) && !isMaskedSecretValue(folderId),
+  };
+};
+
+const normalizeDriveConfigSecrets = (config = {}) => {
+  if (!config || typeof config !== "object") {
+    return {};
+  }
+
+  const decryptOrEmpty = (value) => {
+    const normalized = toTrimmedString(value);
+    if (!normalized || isMaskedSecretValue(normalized)) return "";
+    return decryptSecretFromStorage(normalized);
+  };
+
+  return {
+    ...config,
+    clientId: decryptOrEmpty(config.clientId),
+    clientSecret: decryptOrEmpty(config.clientSecret),
+    refreshToken: decryptOrEmpty(config.refreshToken),
+    backupApiKey: decryptOrEmpty(config.backupApiKey),
+    folderId: decryptOrEmpty(config.folderId),
+  };
+};
+
+const mergeDriveConfigWithStored = (incoming = {}, stored = {}) => {
+  const incomingConfig =
+    incoming && typeof incoming === "object" ? incoming : {};
+  const storedConfig = stored && typeof stored === "object" ? stored : {};
+
+  const mergeSecret = (field) => {
+    const incomingValue = toTrimmedString(incomingConfig[field]);
+    const storedValue = toTrimmedString(storedConfig[field]);
+
+    if (isMaskedSecretValue(incomingValue)) {
+      return storedValue;
+    }
+
+    return incomingValue || storedValue;
+  };
+
+  return {
+    ...storedConfig,
+    ...incomingConfig,
+    clientId: mergeSecret("clientId"),
+    clientSecret: mergeSecret("clientSecret"),
+    refreshToken: mergeSecret("refreshToken"),
+    backupApiKey: mergeSecret("backupApiKey"),
+    folderId: mergeSecret("folderId"),
+  };
+};
+
 const getApiKeyFromRequest = (event) =>
-  event.headers["x-api-key"] ||
-  event.headers["X-API-Key"] ||
-  event.queryStringParameters?.apiKey;
+  event.headers["x-api-key"] || event.headers["X-API-Key"];
 
 const hasValidBackupApiKey = (event) => {
   const backupApiKey = process.env.BACKUP_API_KEY;
@@ -328,9 +441,7 @@ const getGoogleAccessToken = async (driveConfig) => {
     try {
       tokenPayload = JSON.parse(responseText);
     } catch (parseError) {
-      throw new Error(
-        `Invalid JSON from token endpoint: ${responseText.substring(0, 200)}`,
-      );
+      throw new Error("Invalid JSON from token endpoint");
     }
 
     if (!tokenResponse.ok || !tokenPayload?.access_token) {
@@ -448,9 +559,7 @@ const uploadToGoogleDrive = async (
     try {
       response = JSON.parse(responseText);
     } catch (parseError) {
-      throw new Error(
-        `Invalid JSON response from Google Drive: ${responseText.substring(0, 200)}`,
-      );
+      throw new Error("Invalid JSON response from Google Drive");
     }
 
     if (!uploadResponse.ok || !response?.id) {
@@ -569,7 +678,7 @@ export async function handler(event) {
         200,
         {
           success: true,
-          backupSettings,
+          backupSettings: maskDriveConfigForResponse(backupSettings),
           timestamp: new Date().toISOString(),
         },
         origin,
@@ -668,14 +777,12 @@ export async function handler(event) {
         // Remove the undo backup after use
         // Ensure _id is ObjectId for delete
         const { ObjectId } = await import("mongodb");
-        await db
-          .collection(UNDO_BACKUP_COLLECTION)
-          .deleteOne({
-            _id:
-              typeof undoDoc._id === "string"
-                ? new ObjectId(undoDoc._id)
-                : undoDoc._id,
-          });
+        await db.collection(UNDO_BACKUP_COLLECTION).deleteOne({
+          _id:
+            typeof undoDoc._id === "string"
+              ? new ObjectId(undoDoc._id)
+              : undoDoc._id,
+        });
         return createResponse(
           200,
           {
@@ -701,14 +808,12 @@ export async function handler(event) {
           // Expired, remove it
           // Ensure _id is ObjectId for delete
           const { ObjectId } = await import("mongodb");
-          await db
-            .collection(UNDO_BACKUP_COLLECTION)
-            .deleteOne({
-              _id:
-                typeof undoDoc._id === "string"
-                  ? new ObjectId(undoDoc._id)
-                  : undoDoc._id,
-            });
+          await db.collection(UNDO_BACKUP_COLLECTION).deleteOne({
+            _id:
+              typeof undoDoc._id === "string"
+                ? new ObjectId(undoDoc._id)
+                : undoDoc._id,
+          });
           return createResponse(200, { available: false }, origin);
         }
         return createResponse(
@@ -789,7 +894,19 @@ export async function handler(event) {
       }
 
       if (action === "test-drive-config") {
-        const validation = validateDriveConfigPayload(body.driveConfig || {});
+        const businessSettings = await getSharedBusinessSettings(
+          db,
+          user.userId,
+        );
+        const storedDriveConfig = businessSettings?.backupSettings || {};
+        const mergedDriveConfig = mergeDriveConfigWithStored(
+          body.driveConfig || {},
+          storedDriveConfig,
+        );
+        const resolvedDriveConfig =
+          normalizeDriveConfigSecrets(mergedDriveConfig);
+
+        const validation = validateDriveConfigPayload(resolvedDriveConfig);
 
         if (!validation.valid) {
           return createResponse(
@@ -804,7 +921,8 @@ export async function handler(event) {
 
         // Actually test the Google Drive connection
         try {
-          const testResult = await testGoogleDriveConnection(body.driveConfig);
+          const testResult =
+            await testGoogleDriveConnection(resolvedDriveConfig);
 
           return createResponse(
             200,
@@ -834,7 +952,9 @@ export async function handler(event) {
           user.userId,
         );
 
-        const driveConfig = businessSettings?.backupSettings;
+        const driveConfig = normalizeDriveConfigSecrets(
+          businessSettings?.backupSettings,
+        );
 
         // Check if Google Drive backup is enabled
         if (!driveConfig || !driveConfig.enabled) {
@@ -943,7 +1063,9 @@ export async function handler(event) {
         // Get backup settings from database (first user or system-wide settings)
         const businessSettings = await getSharedBusinessSettings(db);
 
-        const driveConfig = businessSettings?.backupSettings;
+        const driveConfig = normalizeDriveConfigSecrets(
+          businessSettings?.backupSettings,
+        );
 
         // Check if Google Drive backup is enabled
         if (!driveConfig || !driveConfig.enabled) {
@@ -1028,7 +1150,7 @@ export async function handler(event) {
       500,
       {
         error: "Failed to create backup",
-        message: error.message,
+        message: "Backup request failed",
       },
       origin,
     );

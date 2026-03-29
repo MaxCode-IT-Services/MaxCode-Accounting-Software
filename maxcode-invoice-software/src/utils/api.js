@@ -23,11 +23,7 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("access_token");
-  if (token) {
-    config.headers = config.headers || {};
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  // Auth is handled via secure HttpOnly cookie.
   return config;
 });
 
@@ -99,17 +95,13 @@ export const apiDelete = (url, config = {}) => api.delete(url, config);
 
 // Compatibility helper retained for existing imports.
 export const setAuthToken = (token) => {
-  if (token) {
-    localStorage.setItem("access_token", token);
-    return;
-  }
-
-  localStorage.removeItem("access_token");
+  // Deprecated: token is intentionally not stored in localStorage.
+  return token;
 };
 
 // Helper to get current token
 export const getAuthToken = () => {
-  return localStorage.getItem("access_token");
+  return null;
 };
 
 let verifySessionPromise = null;
@@ -178,7 +170,6 @@ export const verifyServerSession = async () => {
 
 // Helper to clear all auth data
 export const clearAuth = () => {
-  localStorage.removeItem("access_token");
   localStorage.removeItem("maxcode_auth");
   localStorage.removeItem("business_settings");
 };

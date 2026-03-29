@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
 import SelectRightLoader from "./SelectRightLoader";
 import { showError, showSuccess } from "./ToastNotification";
+import { apiGet } from "../utils/api";
+import API_ENDPOINTS from "../utils/apiEndpoints";
 import {
   fetchSelectableClients,
   filterRowsBySearch,
@@ -28,6 +30,27 @@ const INITIAL_FORM = {
   customFields: [],
 };
 
+const SECRET_MASK = "********";
+const SECRET_AUTO_HIDE_MS = 45 * 1000;
+const getHiddenSecretInputStyle = (value = "") => {
+  if (!String(value || "").trim()) return undefined;
+  return {
+    color: "transparent",
+    textShadow: "0 0 6px rgba(33, 37, 41, 0.75)",
+    transition: "text-shadow 0.2s ease",
+  };
+};
+const SECRET_CUSTOM_FIELD_TYPES = [
+  "password",
+  "api-key",
+  "client-id",
+  "client-secret",
+  "refresh-token",
+  "access-token",
+  "secret",
+  "bearer-token",
+];
+
 const CUSTOM_FIELD_TYPES = [
   { value: "color", label: "Color" },
   { value: "date", label: "Date" },
@@ -38,6 +61,13 @@ const CUSTOM_FIELD_TYPES = [
   { value: "numeric", label: "Numeric Value" },
   { value: "option", label: "Option" },
   { value: "password", label: "Password" },
+  { value: "api-key", label: "API Key" },
+  { value: "client-id", label: "Client ID" },
+  { value: "client-secret", label: "Client Secret" },
+  { value: "refresh-token", label: "Refresh Token" },
+  { value: "access-token", label: "Access Token" },
+  { value: "secret", label: "Secret" },
+  { value: "bearer-token", label: "Bearer Token" },
   { value: "phone", label: "Phone Number" },
   { value: "text", label: "Text" },
   { value: "textarea", label: "Textarea" },
@@ -109,6 +139,13 @@ const normalizeCustomFieldsForPayload = (fields) => {
     .filter((field) => field.name || field.value || field.options.length > 0);
 };
 
+const isSecretCustomFieldType = (type = "") =>
+  SECRET_CUSTOM_FIELD_TYPES.includes(
+    String(type || "")
+      .trim()
+      .toLowerCase(),
+  );
+
 const CreateCredentials = ({
   show,
   onClose,
@@ -131,10 +168,27 @@ const CreateCredentials = ({
   const [internalClientOptions, setInternalClientOptions] = useState([]);
   const [isClientLoading, setIsClientLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [secretLoading, setSecretLoading] = useState({});
   const clientSearchDebounceRef = useRef(null);
   const clientAbortControllerRef = useRef(null);
   const clientLoadingResetRef = useRef(null);
   const knownClientRowsRef = useRef([]);
+  const secretAutoHideTimersRef = useRef({});
+
+  const clearSecretAutoHideTimer = (key) => {
+    if (!key) return;
+    const existingTimer = secretAutoHideTimersRef.current[key];
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      delete secretAutoHideTimersRef.current[key];
+    }
+  };
+
+  const clearAllSecretAutoHideTimers = () => {
+    Object.keys(secretAutoHideTimersRef.current).forEach((key) => {
+      clearSecretAutoHideTimer(key);
+    });
+  };
 
   useEffect(() => {
     if (!isVisible) return;
@@ -180,6 +234,24 @@ const CreateCredentials = ({
     });
     setCustomPasswordVisibility({});
   }, [editingRecord, isVisible]);
+
+  useEffect(() => {
+    if (isVisible) return;
+
+    clearAllSecretAutoHideTimers();
+    setShowPasswords({
+      serverPassword: false,
+      databasePassword: false,
+      appPassword: false,
+    });
+    setCustomPasswordVisibility({});
+  }, [isVisible]);
+
+  useEffect(() => {
+    return () => {
+      clearAllSecretAutoHideTimers();
+    };
+  }, []);
 
   useEffect(() => {
     const normalizedOptions = Array.isArray(clientOptions) ? clientOptions : [];
@@ -279,6 +351,15 @@ const CreateCredentials = ({
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
 
+    if (showPasswords[name]) {
+      const key = getSecretStateKey(name);
+      clearSecretAutoHideTimer(key);
+      secretAutoHideTimersRef.current[key] = setTimeout(() => {
+        setShowPasswords((prev) => ({ ...prev, [name]: false }));
+        clearSecretAutoHideTimer(key);
+      }, SECRET_AUTO_HIDE_MS);
+    }
+
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
     }
@@ -373,15 +454,26 @@ const CreateCredentials = ({
           };
         }
 
-        return { ...field, [key]: value };
-      }),
-    }));
-  };
+        const updatedField = { ...field, [key]: value };
 
-  const toggleCustomPasswordVisibility = (fieldId) => {
-    setCustomPasswordVisibility((prev) => ({
-      ...prev,
-      [fieldId]: !prev[fieldId],
+        if (
+          key === "value" &&
+          isSecretCustomFieldType(field?.type) &&
+          customPasswordVisibility[fieldId]
+        ) {
+          const timerKey = getSecretStateKey(field.type, fieldId);
+          clearSecretAutoHideTimer(timerKey);
+          secretAutoHideTimersRef.current[timerKey] = setTimeout(() => {
+            setCustomPasswordVisibility((prevVisibility) => ({
+              ...prevVisibility,
+              [fieldId]: false,
+            }));
+            clearSecretAutoHideTimer(timerKey);
+          }, SECRET_AUTO_HIDE_MS);
+        }
+
+        return updatedField;
+      }),
     }));
   };
 
@@ -483,25 +575,172 @@ const CreateCredentials = ({
     return inputValue;
   };
 
-  const togglePasswordVisibility = (field) => {
-    setShowPasswords((prev) => ({
+  const getSecretStateKey = (field, customFieldId = "") =>
+    customFieldId ? `custom:${customFieldId}` : field;
+
+  const fetchDecryptedSecret = async (field, customFieldId = "") => {
+    const id = String(editingRecord?.id || editingRecord?._id || "").trim();
+    if (!id) {
+      throw new Error("Record ID not found");
+    }
+
+    const query = new URLSearchParams({
+      action: "reveal-secret",
+      field,
+    });
+
+    if (customFieldId) {
+      query.append("customFieldId", customFieldId);
+    }
+
+    const requestUrl = `${API_ENDPOINTS.PROJECT_CREDENTIALS.GET(id)}&${query.toString()}`;
+    const stateKey = getSecretStateKey(field, customFieldId);
+
+    setSecretLoading((prev) => ({ ...prev, [stateKey]: true }));
+    try {
+      const response = await apiGet(requestUrl);
+      return String(response?.data?.value || "");
+    } finally {
+      setSecretLoading((prev) => ({ ...prev, [stateKey]: false }));
+    }
+  };
+
+  const ensureSecretVisibleValue = async (field, customFieldId = "") => {
+    if (customFieldId) {
+      const targetField = (formData.customFields || []).find(
+        (item) => String(item.id || "") === String(customFieldId),
+      );
+      const currentValue = String(targetField?.value || "");
+      if (currentValue.trim() !== SECRET_MASK) {
+        return currentValue;
+      }
+
+      const decrypted = await fetchDecryptedSecret(field, customFieldId);
+      setFormData((prev) => ({
+        ...prev,
+        customFields: (prev.customFields || []).map((item) =>
+          String(item.id || "") === String(customFieldId)
+            ? { ...item, value: decrypted }
+            : item,
+        ),
+      }));
+      return decrypted;
+    }
+
+    const currentValue = String(formData[field] || "");
+    if (currentValue.trim() !== SECRET_MASK) {
+      return currentValue;
+    }
+
+    const decrypted = await fetchDecryptedSecret(field);
+    setFormData((prev) => ({ ...prev, [field]: decrypted }));
+    return decrypted;
+  };
+
+  const handleToggleMainSecretVisibility = async (field) => {
+    const key = getSecretStateKey(field);
+    const willShow = !Boolean(showPasswords[field]);
+    if (willShow) {
+      try {
+        await ensureSecretVisibleValue(field);
+      } catch (error) {
+        showError(error?.response?.data?.error || "Unable to reveal value");
+        return;
+      }
+
+      clearSecretAutoHideTimer(key);
+      setShowPasswords((prev) => ({ ...prev, [field]: true }));
+      secretAutoHideTimersRef.current[key] = setTimeout(() => {
+        setFormData((prev) => ({
+          ...prev,
+          [field]: String(prev?.[field] || "").trim() ? SECRET_MASK : "",
+        }));
+        setShowPasswords((prev) => ({ ...prev, [field]: false }));
+        clearSecretAutoHideTimer(key);
+      }, SECRET_AUTO_HIDE_MS);
+      return;
+    }
+
+    clearSecretAutoHideTimer(key);
+    setFormData((prev) => ({
       ...prev,
-      [field]: !prev[field],
+      [field]: String(prev?.[field] || "").trim() ? SECRET_MASK : "",
+    }));
+    setShowPasswords((prev) => ({ ...prev, [field]: false }));
+  };
+
+  const handleToggleCustomSecretVisibility = async (fieldId, fieldType) => {
+    const key = getSecretStateKey(fieldType, fieldId);
+    const willShow = !Boolean(customPasswordVisibility[fieldId]);
+    if (willShow) {
+      try {
+        await ensureSecretVisibleValue(
+          String(fieldType || "customField"),
+          fieldId,
+        );
+      } catch (error) {
+        showError(error?.response?.data?.error || "Unable to reveal value");
+        return;
+      }
+
+      clearSecretAutoHideTimer(key);
+      setCustomPasswordVisibility((prev) => ({
+        ...prev,
+        [fieldId]: true,
+      }));
+      secretAutoHideTimersRef.current[key] = setTimeout(() => {
+        setFormData((prev) => ({
+          ...prev,
+          customFields: (prev.customFields || []).map((item) =>
+            String(item.id || "") === String(fieldId)
+              ? {
+                  ...item,
+                  value: String(item?.value || "").trim() ? SECRET_MASK : "",
+                }
+              : item,
+          ),
+        }));
+        setCustomPasswordVisibility((prev) => ({
+          ...prev,
+          [fieldId]: false,
+        }));
+        clearSecretAutoHideTimer(key);
+      }, SECRET_AUTO_HIDE_MS);
+      return;
+    }
+
+    clearSecretAutoHideTimer(key);
+    setFormData((prev) => ({
+      ...prev,
+      customFields: (prev.customFields || []).map((item) =>
+        String(item.id || "") === String(fieldId)
+          ? {
+              ...item,
+              value: String(item?.value || "").trim() ? SECRET_MASK : "",
+            }
+          : item,
+      ),
+    }));
+    setCustomPasswordVisibility((prev) => ({
+      ...prev,
+      [fieldId]: false,
     }));
   };
 
-  const handleCopyValue = async (field) => {
+  const handleCopyValue = async (field, customFieldId = "") => {
     try {
-      const value = String(formData[field] || "");
-      if (!value) {
+      const value = await ensureSecretVisibleValue(field, customFieldId);
+      if (!value || !String(value).trim()) {
         showError("Nothing to copy");
         return;
       }
 
-      await navigator.clipboard.writeText(value);
+      await navigator.clipboard.writeText(String(value));
       showSuccess("Copied to clipboard");
     } catch (error) {
-      showError("Copy failed. Please try again.");
+      showError(
+        error?.response?.data?.error || "Copy failed. Please try again.",
+      );
     }
   };
 
@@ -635,11 +874,13 @@ const CreateCredentials = ({
       ? "form-control modern-input form-control-sm"
       : "form-control modern-input";
 
-    if (field.type === "password") {
+    if (isSecretCustomFieldType(field.type)) {
+      const loadingKey = getSecretStateKey(field.type, field.id);
+      const isBusy = secretLoading[loadingKey] === true;
       return (
         <div className="input-group">
           <input
-            type={customPasswordVisibility[field.id] ? "text" : "password"}
+            type="text"
             className={inputClass}
             value={field.value || ""}
             onChange={(e) =>
@@ -648,18 +889,33 @@ const CreateCredentials = ({
             readOnly={isViewMode}
             placeholder="Enter value"
             autoComplete="new-password"
+            style={
+              customPasswordVisibility[field.id]
+                ? undefined
+                : getHiddenSecretInputStyle(field.value)
+            }
           />
           <button
             type="button"
-            className={`btn btn-outline-secondary ${compact ? "rounded-end-3" : ""}`}
-            onClick={() => toggleCustomPasswordVisibility(field.id)}
-            disabled={isViewMode}
+            className="btn btn-outline-secondary"
+            onClick={() =>
+              handleToggleCustomSecretVisibility(field.id, field.type)
+            }
+            disabled={isBusy}
           >
             <i
               className={`fas ${
                 customPasswordVisibility[field.id] ? "fa-eye-slash" : "fa-eye"
               }`}
             ></i>
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline-primary rounded-end-3"
+            onClick={() => handleCopyValue(field.type, field.id)}
+            disabled={isBusy || !String(field.value || "").trim()}
+          >
+            <i className="fas fa-copy"></i>
           </button>
         </div>
       );
@@ -813,18 +1069,24 @@ const CreateCredentials = ({
         <input
           id={name}
           name={name}
-          type={showPasswords[name] ? "text" : "password"}
+          type="text"
           className="form-control modern-input"
           value={formData[name] || ""}
           onChange={handleInputChange}
           readOnly={isViewMode}
           placeholder={placeholder}
           autoComplete="new-password"
+          style={
+            showPasswords[name]
+              ? undefined
+              : getHiddenSecretInputStyle(formData[name])
+          }
         />
         <button
           type="button"
           className="btn btn-outline-secondary"
-          onClick={() => togglePasswordVisibility(name)}
+          onClick={() => handleToggleMainSecretVisibility(name)}
+          disabled={secretLoading[name] === true}
         >
           <i
             className={`fas ${showPasswords[name] ? "fa-eye-slash" : "fa-eye"}`}
@@ -834,6 +1096,7 @@ const CreateCredentials = ({
           type="button"
           className="btn btn-outline-primary rounded-end-3"
           onClick={() => handleCopyValue(name)}
+          disabled={!String(formData[name] || "").trim()}
         >
           <i className="fas fa-copy"></i>
         </button>
