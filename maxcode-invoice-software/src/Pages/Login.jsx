@@ -714,113 +714,84 @@ const Login = ({ settings, onAuthSuccess }) => {
         }}
       >
         <div className="row g-0">
-          {/* Left Side: Enhanced Branding Column */}
-          <div
-            className="col-lg-7 p-5 d-none d-lg-flex flex-column position-relative overflow-hidden"
-            style={{
-              background: "var(--header-gradient)",
-              minHeight: "500px",
-            }}
-          >
-            {/* Animated Background Elements */}
-            <div className="position-absolute top-0 start-0 w-100 h-100 opacity-10">
-              <div
-                className="position-absolute"
-                style={{
-                  top: "10%",
-                  right: "10%",
-                  width: "300px",
-                  height: "300px",
-                  background:
-                    "radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%)",
-                  borderRadius: "50%",
-                  animation: "pulse 4s ease-in-out infinite",
-                }}
-              ></div>
-              <div
-                className="position-absolute"
-                style={{
-                  bottom: "10%",
-                  left: "10%",
-                  width: "200px",
-                  height: "200px",
-                  background: "var(--header-gradient)",
-                  borderRadius: "50%",
-                  animation: "pulse 6s ease-in-out infinite reverse",
-                }}
-              ></div>
-            </div>
+          {/* Left Side: New Operations Cockpit Design */}
+          <div className="col-lg-7 p-5 d-none d-lg-flex flex-column position-relative overflow-hidden login-left-cockpit">
+            <div
+              className="cockpit-aura cockpit-aura-one"
+              aria-hidden="true"
+            ></div>
+            <div
+              className="cockpit-aura cockpit-aura-two"
+              aria-hidden="true"
+            ></div>
+            <div className="cockpit-grid" aria-hidden="true"></div>
 
             <div className="position-relative z-1 d-flex flex-column justify-content-between h-100">
               <div>
-                <h1
-                  className="display-5 fw-bold mb-4 text-white"
-                  style={{ lineHeight: 1.2 }}
-                >
+                <span className="cockpit-chip fs-5">MaxCode IT Services</span>
+                <h1 className="display-5 fw-bold mb-3 text-white cockpit-heading">
                   Welcome Back,
                   <br />
-                  <span className="text-white border-bottom border-3 border-white/30 pb-2">
+                  <span className="cockpit-heading-accent">
                     Vipin Khandelwal
                   </span>
                 </h1>
 
-                <p className="text-white mb-3 fs-5" style={{ maxWidth: "90%" }}>
+                <p className="text-white mb-4 fs-5 cockpit-subtitle">
                   Your complete business ecosystem. Manage invoices, inventory,
                   and analytics in one secure, encrypted platform.
                 </p>
               </div>
 
-              <div className="space-y-1">
-                {/* Feature Cards */}
-                <div className="d-flex gap-3 flex-wrap mb-3">
-                  <div
-                    className="d-flex align-items-center gap-3 bg-white/10 p-3 rounded-3 border border-white/20 backdrop-blur-sm"
-                    style={{ backdropFilter: "blur(5px)" }}
-                  >
-                    <div className="bg-white/20 p-2 rounded-2">
-                      <i className="fas fa-shield-alt text-white fs-5"></i>
-                    </div>
-                    <div>
-                      <span className="text-white fw-semibold d-block">
-                        Bank-Grade Security
-                      </span>
-                      <span className="text-white small">
-                        256-bit Encryption
-                      </span>
+              <div className="cockpit-metrics-wrap">
+                <div
+                  className="cockpit-process"
+                  aria-label="Login process steps"
+                >
+                  <div className="cockpit-step">
+                    <span className="cockpit-step-node">
+                      <i className="fas fa-mobile-screen-button"></i>
+                    </span>
+                    <div className="cockpit-step-content">
+                      <div className="cockpit-step-title">Identify User</div>
+                      <div className="cockpit-step-sub">
+                        Mobile number match
+                      </div>
                     </div>
                   </div>
 
-                  <div
-                    className="d-flex align-items-center gap-3 bg-white/10 p-3 rounded-3 border border-white/20 backdrop-blur-sm"
-                    style={{ backdropFilter: "blur(5px)" }}
-                  >
-                    <div className="bg-white/20 p-2 rounded-2">
-                      <i className="fas fa-chart-line text-white fs-5"></i>
-                    </div>
-                    <div>
-                      <span className="text-white fw-semibold d-block">
-                        Real-Time Sync
-                      </span>
-                      <span className="text-white small">
-                        Live Dashboard Updates
-                      </span>
+                  <div className="cockpit-step">
+                    <span className="cockpit-step-node">
+                      <i className="fas fa-key"></i>
+                    </span>
+                    <div className="cockpit-step-content">
+                      <div className="cockpit-step-title">Validate PIN</div>
+                      <div className="cockpit-step-sub">
+                        6-digit verification
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Company Info */}
-                <div className="border-top border-white/20 pt-2">
-                  <div className="d-flex align-items-center gap-2 mb-3">
-                    <i className="fas fa-fingerprint text-white"></i>
-                    <span className="text-white small fw-semibold">
-                      Secured Session • IP Protected
+                  <div className="cockpit-step">
+                    <span className="cockpit-step-node">
+                      <i className="fas fa-user-shield"></i>
                     </span>
+                    <div className="cockpit-step-content">
+                      <div className="cockpit-step-title">Security Layer</div>
+                      <div className="cockpit-step-sub">
+                        2FA, fingerprint & USB
+                      </div>
+                    </div>
                   </div>
-                  <div className="d-flex justify-content-between align-items-center">
-                    <span className="text-white small">v2.5.0 PRO</span>
-                    <span className="text-white fw-semibold small">
-                      MAXCODE IT SERVICES
+
+                  <div className="cockpit-step">
+                    <span className="cockpit-step-node">
+                      <i className="fas fa-gauge-high"></i>
                     </span>
+                    <div className="cockpit-step-content">
+                      <div className="cockpit-step-title">Dashboard Access</div>
+                      <div className="cockpit-step-sub">Secure session</div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1468,11 +1439,208 @@ const Login = ({ settings, onAuthSuccess }) => {
 
       {/* Styles */}
       <style>{`
+        @import url("https://fonts.cdnfonts.com/css/geom-graphic");
+
         :root {
           --primary-color: #007026;
           --primary-light: #e8f5e9;
           --primary-dark: #004d1a;
           --error: #dc3545;
+        }
+
+        .login-left-cockpit {
+          min-height: 440px;
+          background:
+            radial-gradient(circle at 18% 16%, rgba(255, 255, 255, 0.16), transparent 34%),
+            linear-gradient(155deg, #063528 0%, #0b5d45 44%, #078f6f 100%);
+        }
+
+        .cockpit-grid {
+          position: absolute;
+          inset: 0;
+          opacity: 0.28;
+          background-image:
+            linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+          background-size: 36px 36px;
+          mask-image: radial-gradient(circle at 28% 40%, black 32%, transparent 78%);
+        }
+
+        .cockpit-aura {
+          position: absolute;
+          border-radius: 999px;
+          filter: blur(8px);
+          animation: cockpitAura 6s ease-in-out infinite;
+        }
+
+        .cockpit-aura-one {
+          width: 280px;
+          height: 280px;
+          top: -90px;
+          right: -90px;
+          background: radial-gradient(circle, rgba(255, 255, 255, 0.5) 0%, transparent 72%);
+        }
+
+        .cockpit-aura-two {
+          width: 210px;
+          height: 210px;
+          bottom: -60px;
+          left: -70px;
+          background: radial-gradient(circle, rgba(239, 255, 245, 0.36) 0%, transparent 74%);
+          animation-delay: 1.4s;
+        }
+
+        .cockpit-chip {
+          display: inline-block;
+          padding: 0.35rem 0.85rem;
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.11);
+          color: #e6fff4;
+          font-size: 0.72rem;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          margin-bottom: 1rem;
+        }
+
+        .cockpit-heading {
+          font-family: "Geom Graphic", "Geom", "Segoe UI", sans-serif;
+          line-height: 1.14;
+          letter-spacing: 0.01em;
+        }
+
+        .cockpit-heading-accent {
+          color: #d0ffe9;
+          border-bottom: 3px solid rgba(208, 255, 233, 0.38);
+          padding-bottom: 0.12rem;
+        }
+
+        .cockpit-subtitle {
+          max-width: 88%;
+          color: rgba(243, 255, 249, 0.94);
+        }
+
+        .cockpit-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          background: #c8ffe4;
+          box-shadow: 0 0 0 0 rgba(200, 255, 228, 0.5);
+          animation: cockpitPing 2.2s ease-out infinite;
+        }
+
+        .cockpit-dot:nth-child(2) {
+          animation-delay: 0.35s;
+        }
+
+        .cockpit-dot:nth-child(3) {
+          animation-delay: 0.7s;
+        }
+
+        .cockpit-process {
+          position: relative;
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 0.75rem;
+          padding-top: 0.2rem;
+        }
+
+        .cockpit-process::before {
+          content: "";
+          position: absolute;
+          left: 8%;
+          right: 8%;
+          top: 17px;
+          height: 2px;
+          background: linear-gradient(
+            90deg,
+            rgba(198, 255, 230, 0.28) 0%,
+            rgba(198, 255, 230, 0.88) 52%,
+            rgba(198, 255, 230, 0.28) 100%
+          );
+        }
+
+        .cockpit-step {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+          z-index: 1;
+        }
+
+        .cockpit-step-node {
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          margin-bottom: 0.50rem;
+          display: grid;
+          place-items: center;
+          background: linear-gradient(145deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1));
+          border: 1px solid rgba(255, 255, 255, 0.28);
+          color: #dfffee;
+          font-size: 0.82rem;
+          box-shadow: 0 0 0 0 rgba(200, 255, 228, 0.45);
+          animation: cockpitNodePulse 2.8s ease-out infinite;
+        }
+
+        .cockpit-step:nth-child(2) .cockpit-step-node {
+          animation-delay: 0.35s;
+        }
+
+        .cockpit-step:nth-child(3) .cockpit-step-node {
+          animation-delay: 0.7s;
+        }
+
+        .cockpit-step:nth-child(4) .cockpit-step-node {
+          animation-delay: 1.05s;
+        }
+
+        .cockpit-step-content {
+          margin-top: 0.45rem;
+          padding: 0.4rem 0.35rem;
+          border-radius: 10px;
+          background: linear-gradient(
+            145deg,
+            rgba(255, 255, 255, 0.14),
+            rgba(255, 255, 255, 0.03)
+          );
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          min-height: 36px;
+          width: 100%;
+        }
+
+        .cockpit-step-title {
+          color: #f2fff8;
+          font-size: 0.74rem;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          line-height: 1.2;
+        }
+
+        .cockpit-step-sub {
+          color: rgba(228, 255, 245, 0.82);
+          font-size: 0.64rem;
+          margin-top: 0.12rem;
+          line-height: 1.2;
+        }
+
+        .cockpit-bottom-note {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.45rem;
+          color: rgba(232, 255, 246, 0.92);
+          font-size: 0.75rem;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+        }
+
+        .cockpit-bottom-note .note-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #c6ffe6;
+          animation: cockpitPing 2.4s ease-out infinite;
         }
 
         @keyframes pulse {
@@ -1484,6 +1652,36 @@ const Login = ({ settings, onAuthSuccess }) => {
           50% {
             transform: scale(1.2);
             opacity: 0.15;
+          }
+        }
+
+        @keyframes cockpitAura {
+          0%,
+          100% {
+            transform: scale(1);
+            opacity: 0.5;
+          }
+          50% {
+            transform: scale(1.12);
+            opacity: 0.7;
+          }
+        }
+
+        @keyframes cockpitPing {
+          0% {
+            box-shadow: 0 0 0 0 rgba(200, 255, 228, 0.52);
+          }
+          100% {
+            box-shadow: 0 0 0 14px rgba(200, 255, 228, 0);
+          }
+        }
+
+        @keyframes cockpitNodePulse {
+          0% {
+            box-shadow: 0 0 0 0 rgba(200, 255, 228, 0.45);
+          }
+          100% {
+            box-shadow: 0 0 0 12px rgba(200, 255, 228, 0);
           }
         }
 
@@ -1699,6 +1897,19 @@ const Login = ({ settings, onAuthSuccess }) => {
 
         /* Responsive */
         @media (max-width: 768px) {
+          .login-left-cockpit {
+            min-height: 400px;
+          }
+
+          .cockpit-process {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            row-gap: 0.6rem;
+          }
+
+          .cockpit-process::before {
+            display: none;
+          }
+
           .pin-container {
             gap: 4px;
           }
