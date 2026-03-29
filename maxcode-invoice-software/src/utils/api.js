@@ -1,5 +1,28 @@
 import axios from "axios";
 
+const formatApiErrorForLog = (payload) => {
+  if (typeof payload === "string") {
+    return payload;
+  }
+
+  if (payload && typeof payload === "object") {
+    if (typeof payload.error === "string" && payload.error.trim()) {
+      return payload.error.trim();
+    }
+    if (typeof payload.message === "string" && payload.message.trim()) {
+      return payload.message.trim();
+    }
+
+    try {
+      return JSON.stringify(payload);
+    } catch {
+      return "Unserializable error payload";
+    }
+  }
+
+  return "Unknown API error";
+};
+
 const getApiBaseUrl = () => {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
@@ -63,7 +86,11 @@ api.interceptors.response.use(
           console.error("Internal server error");
           break;
         default:
-          console.error("An error occurred:", error.response.data);
+          console.error(
+            `API request failed (${error.response.status}): ${formatApiErrorForLog(
+              error.response.data,
+            )}`,
+          );
       }
     } else if (error.request) {
       // Request made but no response received

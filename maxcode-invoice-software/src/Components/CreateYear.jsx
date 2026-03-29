@@ -1016,7 +1016,7 @@ const CreateYear = ({
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .form-check-input {
           width: 18px;
           height: 18px;

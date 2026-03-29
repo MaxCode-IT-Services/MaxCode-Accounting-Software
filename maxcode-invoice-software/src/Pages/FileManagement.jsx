@@ -68,6 +68,31 @@ const formatBytes = (bytes) => {
   return `${size.toFixed(size >= 100 || power === 0 ? 0 : 2)} ${units[power]}`;
 };
 
+const extractApiErrorMessage = (error, fallbackMessage = "Request failed") => {
+  const responsePayload = error?.response?.data;
+
+  const candidateValues = [
+    responsePayload?.error,
+    responsePayload?.message,
+    error?.message,
+  ];
+
+  for (const candidate of candidateValues) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+    if (candidate && typeof candidate === "object") {
+      const nestedMessage =
+        candidate.error || candidate.message || JSON.stringify(candidate);
+      if (typeof nestedMessage === "string" && nestedMessage.trim()) {
+        return nestedMessage.trim();
+      }
+    }
+  }
+
+  return fallbackMessage;
+};
+
 const parseFileSizeToBytes = (value) => {
   if (value === null || value === undefined) return 0;
 
@@ -472,6 +497,8 @@ const FileManagement = () => {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [isCleaningTempStorage, setIsCleaningTempStorage] = useState(false);
   const [showTempCleanupConfirm, setShowTempCleanupConfirm] = useState(false);
+  const [isCloudflareSettingsReady, setIsCloudflareSettingsReady] =
+    useState(false);
 
   const abortControllerRef = useRef(null);
 
@@ -481,8 +508,10 @@ const FileManagement = () => {
   }, []);
 
   useEffect(() => {
+    if (!isCloudflareSettingsReady) return;
     fetchFiles();
   }, [
+    isCloudflareSettingsReady,
     currentPage,
     recordsPerPage,
     filters,
@@ -500,6 +529,8 @@ const FileManagement = () => {
       setCloudflareSettings(response?.data?.settings?.cloudflareSettings || {});
     } catch {
       setCloudflareSettings({});
+    } finally {
+      setIsCloudflareSettingsReady(true);
     }
   };
 
@@ -765,7 +796,20 @@ const FileManagement = () => {
       setDynamicFilterOptions(firstResponseData?.filterOptions || {});
     } catch (error) {
       if (error.name === "CanceledError" || error.name === "AbortError") return;
-      showError(error?.response?.data?.error || "Failed to fetch files");
+      const backendError = extractApiErrorMessage(
+        error,
+        "Failed to fetch files",
+      );
+      if (
+        backendError ===
+        "Cloudflare configuration is missing on server. Configure it in Settings."
+      ) {
+        showInfo(
+          "Cloudflare settings missing. Please configure them in Settings to load cloud files.",
+        );
+      } else {
+        showError(backendError);
+      }
       setRecords([]);
       setTotalRecords(0);
       setStatistics({
@@ -968,10 +1012,10 @@ const FileManagement = () => {
         } catch (error) {
           failedCount += 1;
           if (!firstFailureMessage) {
-            firstFailureMessage =
-              error?.response?.data?.error ||
-              error?.message ||
-              "Cloudflare delete request failed.";
+            firstFailureMessage = extractApiErrorMessage(
+              error,
+              "Cloudflare delete request failed.",
+            );
           }
         }
       }
@@ -1213,7 +1257,7 @@ const FileManagement = () => {
       // Refresh file list
       await fetchFiles(effectiveCloudflareSettings);
     } catch (error) {
-      showError(error?.response?.data?.error || "Failed to delete file record");
+      showError(extractApiErrorMessage(error, "Failed to delete file record"));
     }
   };
 
@@ -1258,8 +1302,10 @@ const FileManagement = () => {
       await fetchFiles(effectiveSettings);
     } catch (error) {
       showError(
-        error?.response?.data?.error ||
+        extractApiErrorMessage(
+          error,
           "Failed to clear temporary Cloudflare storage",
+        ),
       );
     } finally {
       setIsCleaningTempStorage(false);

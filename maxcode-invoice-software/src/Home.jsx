@@ -778,7 +778,7 @@ const Home = () => {
         </div>
       </footer>
 
-      <style jsx>{`
+      <style>{`
         .maxcode-home {
           color: #1f2937;
           background: #ffffff;

@@ -887,7 +887,7 @@ const CreateQutation = ({
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .file-picker-input::file-selector-button,
         .file-picker-input::-webkit-file-upload-button {
           margin-right: 10px;

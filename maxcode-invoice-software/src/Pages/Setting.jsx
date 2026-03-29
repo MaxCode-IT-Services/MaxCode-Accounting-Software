@@ -2541,7 +2541,7 @@ const Settings = () => {
         </div>
       )}
 
-      <style jsx>{`
+      <style>{`
         .tabs-container {
           width: 100%;
           overflow: hidden;

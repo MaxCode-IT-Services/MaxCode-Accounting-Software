@@ -18,20 +18,28 @@ const globalMongo = globalThis.__maxcodeMongo || {
 };
 globalThis.__maxcodeMongo = globalMongo;
 
-const getPoolSize = () => {
-  const envValue = Number(process.env.MONGODB_MAX_POOL_SIZE);
+const readPositiveIntegerEnv = (envName, fallback) => {
+  const envValue = Number(process.env[envName]);
   if (!Number.isFinite(envValue) || envValue <= 0) {
-    return 20;
+    return fallback;
   }
-  return envValue;
+  return Math.floor(envValue);
+};
+
+const getPoolSize = () => {
+  return readPositiveIntegerEnv("MONGODB_MAX_POOL_SIZE", 50);
 };
 
 const getMaxConnecting = () => {
-  const envValue = Number(process.env.MONGODB_MAX_CONNECTING);
-  if (!Number.isFinite(envValue) || envValue <= 0) {
-    return 4;
+  return readPositiveIntegerEnv("MONGODB_MAX_CONNECTING", 8);
+};
+
+const getMinPoolSize = () => {
+  const envValue = Number(process.env.MONGODB_MIN_POOL_SIZE);
+  if (!Number.isFinite(envValue) || envValue < 0) {
+    return 0;
   }
-  return envValue;
+  return Math.floor(envValue);
 };
 
 /**
@@ -63,13 +71,31 @@ export async function connectToDatabase() {
     if (!cachedClientPromise && !globalMongo.clientPromise) {
       const poolSize = getPoolSize();
       const maxConnecting = getMaxConnecting();
+      const minPoolSize = getMinPoolSize();
       const client = new MongoClient(MONGODB_URI, {
         maxPoolSize: poolSize,
         maxConnecting,
-        minPoolSize: 1,
-        maxIdleTimeMS: 10000,
-        serverSelectionTimeoutMS: 5000,
-        waitQueueTimeoutMS: 5000,
+        minPoolSize,
+        maxIdleTimeMS: readPositiveIntegerEnv(
+          "MONGODB_MAX_IDLE_TIME_MS",
+          30000,
+        ),
+        serverSelectionTimeoutMS: readPositiveIntegerEnv(
+          "MONGODB_SERVER_SELECTION_TIMEOUT_MS",
+          15000,
+        ),
+        waitQueueTimeoutMS: readPositiveIntegerEnv(
+          "MONGODB_WAIT_QUEUE_TIMEOUT_MS",
+          20000,
+        ),
+        connectTimeoutMS: readPositiveIntegerEnv(
+          "MONGODB_CONNECT_TIMEOUT_MS",
+          10000,
+        ),
+        socketTimeoutMS: readPositiveIntegerEnv(
+          "MONGODB_SOCKET_TIMEOUT_MS",
+          45000,
+        ),
       });
 
       cachedClientPromise = client.connect();

@@ -342,9 +342,42 @@ const getCloudflareSettingsFromDatabase = async () => {
       password: directSettings.password || nestedPassword,
       ...directSettings,
     });
-  } catch {
-    return null;
+  } catch (error) {
+    const message = String(error?.message || "").toLowerCase();
+    const reason =
+      message.includes("credentials_encryption_key") ||
+      message.includes("invalid encrypted secret") ||
+      message.includes("auth")
+        ? "Unable to decrypt Cloudflare settings. Verify CREDENTIALS_ENCRYPTION_KEY on backend."
+        : "Unable to load Cloudflare settings from database.";
+
+    const wrappedError = new Error(reason);
+    wrappedError.cause = error;
+    throw wrappedError;
   }
+};
+
+const getCloudflareSettingsFromEnvironment = () => {
+  const readEnv = (...keys) => {
+    for (const key of keys) {
+      const value = String(process.env[key] || "").trim();
+      if (value) return value;
+    }
+    return "";
+  };
+
+  return normalizeCloudflareSettings({
+    storeUrl: readEnv("CLOUDFLARE_STORE_URL", "Cloudflare_Store_Url"),
+    publicDomain: readEnv(
+      "CLOUDFLARE_PUBLIC_DOMAIN",
+      "Cloudflare_Public_Domain",
+    ),
+    password: readEnv("CLOUDFLARE_API_PASSWORD", "Cloudflare_API_Password"),
+    defaultFolder: readEnv(
+      "CLOUDFLARE_DEFAULT_FOLDER",
+      "Cloudflare_Default_Folder",
+    ),
+  });
 };
 
 const ensureFolder = (value, fallback = "general") => {
@@ -1307,15 +1340,39 @@ export async function handler(event) {
     }
 
     let cloudflareSettings = getCloudflareSettingsFromEvent(event, parsedBody);
+    let cloudflareSettingsLoadError = null;
 
     if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-      const storedSettings = await getCloudflareSettingsFromDatabase();
-      if (storedSettings?.storeUrl && storedSettings?.password) {
-        cloudflareSettings = storedSettings;
+      try {
+        const storedSettings = await getCloudflareSettingsFromDatabase();
+        if (storedSettings?.storeUrl && storedSettings?.password) {
+          cloudflareSettings = storedSettings;
+        }
+      } catch (settingsError) {
+        cloudflareSettingsLoadError = settingsError;
       }
     }
 
     if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+      const envSettings = getCloudflareSettingsFromEnvironment();
+      if (envSettings?.storeUrl && envSettings?.password) {
+        cloudflareSettings = envSettings;
+      }
+    }
+
+    if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
+      if (cloudflareSettingsLoadError) {
+        return createResponse(
+          503,
+          {
+            error:
+              cloudflareSettingsLoadError.message ||
+              "Unable to load Cloudflare settings.",
+          },
+          origin,
+        );
+      }
+
       return createResponse(
         400,
         {

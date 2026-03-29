@@ -727,6 +727,7 @@ const Createfile = ({
     fileName,
     customMimeType,
     uploadDate,
+    folderUploadName,
   }) => {
     const uploadId =
       typeof crypto !== "undefined" && crypto.randomUUID
@@ -841,6 +842,28 @@ const Createfile = ({
     } finally {
       uploadControlRef.current.activeChunkUploadIds.delete(uploadId);
     }
+  };
+
+  const uploadFileViaServerChunked = async ({
+    file,
+    objectPath,
+    customMimeType,
+    folderName,
+    uploadDate,
+    folderUploadName,
+  }) => {
+    const resolvedFileName = String(file?.name || "file").trim() || "file";
+    const resolvedPath = String(objectPath || "").trim();
+
+    return chunkUpload({
+      file,
+      relativePath: resolvedPath,
+      folderName,
+      fileName: resolvedFileName,
+      customMimeType,
+      uploadDate,
+      folderUploadName,
+    });
   };
 
   const handleSubmit = async (e) => {

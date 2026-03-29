@@ -1467,7 +1467,7 @@ const Login = ({ settings, onAuthSuccess }) => {
       </div>
 
       {/* Styles */}
-      <style jsx>{`
+      <style>{`
         :root {
           --primary-color: #007026;
           --primary-light: #e8f5e9;

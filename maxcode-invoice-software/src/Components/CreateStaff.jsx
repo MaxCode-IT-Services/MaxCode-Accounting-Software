@@ -1027,7 +1027,7 @@ const CreateStaff = ({ show, onClose, onSubmit, editingRecord = null }) => {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .flag-india {
           background: linear-gradient(135deg, #ff9933, #ffffff, #138808);
           border: 2px solid #e9ecef;

@@ -1829,7 +1829,7 @@ const CreateSales = ({
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .modal-body::-webkit-scrollbar {
           width: 8px;
         }
