@@ -139,15 +139,15 @@ const HsnTab = ({
                               <button
                                 onClick={() => openEditServiceModal(service)}
                                 disabled={!isSuperAdmin}
-                                className="icon-action-btn edit"
+                                className="btn btn-sm btn-outline-success me-1"
                                 title="Edit"
                               >
-                                <i className="fas fa-pen"></i>
+                                <i class="fas fa-edit"></i>
                               </button>
                               <button
                                 onClick={() => removeService(service.id)}
                                 disabled={!isSuperAdmin}
-                                className="icon-action-btn delete"
+                                className="btn btn-sm btn-outline-danger me-1"
                                 title="Delete"
                               >
                                 <i className="fas fa-trash-alt"></i>

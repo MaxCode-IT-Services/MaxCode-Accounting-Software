@@ -43,6 +43,7 @@ const ALLOWED_FIELDS = [
   "invoiceTermsConditions",
   "selfInvoiceTermsConditions",
   "services",
+  "interestedServices",
   "backupSettings",
   "cloudflareSettings",
 ];

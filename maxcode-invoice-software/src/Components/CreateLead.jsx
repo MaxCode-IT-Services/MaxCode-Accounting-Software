@@ -2,6 +2,8 @@ import React, { useMemo, useState, useEffect } from "react";
 import Select from "react-select";
 import { showError } from "./ToastNotification";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
+import { apiGet } from "../utils/api";
+import API_ENDPOINTS from "../utils/apiEndpoints";
 
 const LEAD_STATUS_OPTIONS = [
   "New",
@@ -36,17 +38,6 @@ const CONTACT_BY_OPTIONS = [
   "Call + WhatsApp + Email",
 ];
 
-const INTEREST_OPTIONS = [
-  "Website Development",
-  "Mobile App Development",
-  "SEO",
-  "Social Media Marketing",
-  "Hosting",
-  "Billing Software",
-  "Custom Software",
-  "Other",
-];
-
 const CreateLead = ({ show, onClose, onSubmit, editingRecord = null }) => {
   const [formData, setFormData] = useState({
     leadName: "",
@@ -68,65 +59,34 @@ const CreateLead = ({ show, onClose, onSubmit, editingRecord = null }) => {
   });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [interestedServices, setInterestedServices] = useState([]);
+  const [loadingServices, setLoadingServices] = useState(false);
 
+  // Load interested services from backend
   useEffect(() => {
-    if (show) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "auto";
-    }
+    const loadInterestedServices = async () => {
+      try {
+        setLoadingServices(true);
+        const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
+        const services = response?.data?.settings?.interestedServices || [];
 
-    return () => {
-      document.body.style.overflow = "auto";
+        // Keep only active services with valid names from backend
+        const activeServices = services
+          .filter((s) => s.status === "active" && s?.name)
+          .map((s) => String(s.name).trim())
+          .filter(Boolean);
+
+        setInterestedServices(activeServices);
+      } catch (error) {
+        console.error("Failed to load interested services:", error);
+        setInterestedServices([]);
+      } finally {
+        setLoadingServices(false);
+      }
     };
-  }, [show]);
 
-  useEffect(() => {
-    if (!show) return;
-
-    if (editingRecord) {
-      setFormData({
-        leadName: editingRecord.leadName || "",
-        businessName: editingRecord.businessName || "",
-        phoneNumber: editingRecord.phoneNumber || "",
-        whatsappNumber: editingRecord.whatsappNumber || "",
-        interestedService: editingRecord.interestedService || "",
-        leadSource: editingRecord.leadSource || "",
-        contactBy: editingRecord.contactBy || "",
-        priority: editingRecord.priority || "Medium",
-        leadStatus: editingRecord.leadStatus || "New",
-        email: editingRecord.email || "",
-        address: editingRecord.address || "",
-        lastContactedDate: editingRecord.lastContactedDate || "",
-        followUpDate: editingRecord.followUpDate || "",
-        expectedBudget: editingRecord.expectedBudget || "",
-        notes: editingRecord.notes || "",
-        status: editingRecord.status || "Active",
-      });
-      setErrors({});
-      return;
-    }
-
-    setFormData({
-      leadName: "",
-      businessName: "",
-      phoneNumber: "",
-      whatsappNumber: "",
-      interestedService: "",
-      leadSource: "",
-      contactBy: "",
-      priority: "Medium",
-      leadStatus: "New",
-      email: "",
-      address: "",
-      lastContactedDate: "",
-      followUpDate: "",
-      expectedBudget: "",
-      notes: "",
-      status: "Active",
-    });
-    setErrors({});
-  }, [show, editingRecord]);
+    loadInterestedServices();
+  }, []);
 
   const isViewMode = editingRecord?.isViewMode;
 
@@ -395,12 +355,13 @@ const CreateLead = ({ show, onClose, onSubmit, editingRecord = null }) => {
                         interestedService: option?.value || "",
                       }))
                     }
-                    options={INTEREST_OPTIONS.map((item) => ({
+                    options={interestedServices.map((item) => ({
                       value: item,
                       label: item,
                     }))}
                     isClearable={false}
                     isSearchable
+                    isLoading={loadingServices}
                     placeholder="Select interested service"
                   />
                   {errors.interestedService && (

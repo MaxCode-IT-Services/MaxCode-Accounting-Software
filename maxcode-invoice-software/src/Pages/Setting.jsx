@@ -16,6 +16,7 @@ import CloudflareTab from "../Components/SettingsTabs/CloudflareTab";
 import TermsTab from "../Components/SettingsTabs/TermsTab";
 import HsnTab from "../Components/SettingsTabs/HsnTab";
 import BackupTab from "../Components/SettingsTabs/BackupTab";
+import InterestedServiceTab from "../Components/SettingsTabs/InterestedServiceTab";
 import {
   getStoredBiometricConfig,
   isBiometricSupported,
@@ -160,6 +161,9 @@ const Settings = () => {
       },
     ],
 
+    // Interested Services Master
+    interestedServices: [],
+
     // Cloud Master Sync
     dbSyncEnabled: false,
     mongoConnectionString: "",
@@ -228,6 +232,23 @@ const Settings = () => {
   const [serviceSearch, setServiceSearch] = useState("");
   const [selectedServices, setSelectedServices] = useState([]);
   const [confirmDeleteServices, setConfirmDeleteServices] = useState([]);
+
+  // Interested Services State
+  const [isInterestedServiceModalOpen, setIsInterestedServiceModalOpen] =
+    useState(false);
+  const [editingInterestedServiceId, setEditingInterestedServiceId] =
+    useState(null);
+  const [interestedServiceFormData, setInterestedServiceFormData] = useState({
+    name: "",
+    status: "active",
+  });
+  const [interestedServiceSearch, setInterestedServiceSearch] = useState("");
+  const [selectedInterestedServices, setSelectedInterestedServices] = useState(
+    [],
+  );
+  const [confirmDeleteInterestedServices, setConfirmDeleteInterestedServices] =
+    useState([]);
+
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isBusinessLoading, setIsBusinessLoading] = useState(false);
@@ -1295,6 +1316,204 @@ const Settings = () => {
     }
   };
 
+  // Interested Services Functions
+  const getInterestedServiceStatus = (service) => service.status || "active";
+
+  const syncInterestedServicesToBackend = async (nextServices) => {
+    if (!ensureSuperAdminAccess("update interested services")) return null;
+
+    const normalizedServices = nextServices.map((service) => ({
+      id: String(service.id),
+      name: service.name?.trim() || "",
+      status: getInterestedServiceStatus(service),
+    }));
+
+    const response = await apiPut(API_ENDPOINTS.BUSINESS_SETTINGS.UPDATE, {
+      interestedServices: normalizedServices,
+    });
+
+    const remoteServices = response?.data?.settings?.interestedServices;
+
+    if (Array.isArray(remoteServices)) {
+      handleBusinessChange("interestedServices", remoteServices);
+      return remoteServices;
+    }
+
+    handleBusinessChange("interestedServices", normalizedServices);
+    return normalizedServices;
+  };
+
+  const openAddInterestedServiceModal = () => {
+    if (!ensureSuperAdminAccess("add interested service")) return;
+
+    setEditingInterestedServiceId(null);
+    setInterestedServiceFormData({ name: "", status: "active" });
+    setIsInterestedServiceModalOpen(true);
+  };
+
+  const openEditInterestedServiceModal = (service) => {
+    if (!ensureSuperAdminAccess("edit interested service")) return;
+
+    setEditingInterestedServiceId(service.id);
+    setInterestedServiceFormData({
+      name: service.name,
+      status: getInterestedServiceStatus(service),
+    });
+    setIsInterestedServiceModalOpen(true);
+  };
+
+  const closeInterestedServiceModal = () => {
+    setIsInterestedServiceModalOpen(false);
+    setEditingInterestedServiceId(null);
+    setInterestedServiceFormData({ name: "", status: "active" });
+  };
+
+  const handleInterestedServiceFormChange = (field, value) => {
+    setInterestedServiceFormData((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const saveInterestedService = async () => {
+    if (!ensureSuperAdminAccess("save interested service")) return;
+
+    const serviceName = interestedServiceFormData.name.trim();
+
+    if (!serviceName) {
+      showError("Please enter service name");
+      return;
+    }
+
+    if (editingInterestedServiceId) {
+      const updatedServices = businessSettings.interestedServices.map(
+        (service) =>
+          service.id === editingInterestedServiceId
+            ? {
+                ...service,
+                name: serviceName,
+                status: interestedServiceFormData.status,
+              }
+            : service,
+      );
+      try {
+        await syncInterestedServicesToBackend(updatedServices);
+        showSuccess("Service updated successfully");
+      } catch (error) {
+        showError(error?.response?.data?.error || "Failed to update service");
+        return;
+      }
+    } else {
+      const newService = {
+        id: Date.now().toString(),
+        name: serviceName,
+        status: interestedServiceFormData.status,
+      };
+      try {
+        await syncInterestedServicesToBackend([
+          ...businessSettings.interestedServices,
+          newService,
+        ]);
+        showSuccess("Service added to interested services");
+      } catch (error) {
+        showError(error?.response?.data?.error || "Failed to add service");
+        return;
+      }
+    }
+
+    closeInterestedServiceModal();
+  };
+
+  const removeInterestedService = async (id) => {
+    if (!ensureSuperAdminAccess("remove interested service")) return;
+
+    const remainingServices = businessSettings.interestedServices.filter(
+      (s) => s.id !== id,
+    );
+
+    try {
+      await syncInterestedServicesToBackend(remainingServices);
+      showSuccess("Service removed");
+    } catch (error) {
+      showError(error?.response?.data?.error || "Failed to remove service");
+    }
+  };
+
+  const handleBulkDeleteInterestedServices = async () => {
+    if (!ensureSuperAdminAccess("remove selected services")) return;
+
+    if (confirmDeleteInterestedServices.length === 0) return;
+
+    const remaining = businessSettings.interestedServices.filter(
+      (s) => !confirmDeleteInterestedServices.includes(s.id),
+    );
+
+    try {
+      await syncInterestedServicesToBackend(remaining);
+      showSuccess(
+        `${confirmDeleteInterestedServices.length} services removed successfully`,
+      );
+      setConfirmDeleteInterestedServices([]);
+      setSelectedInterestedServices([]);
+    } catch (error) {
+      showError(error?.response?.data?.error || "Failed to remove services");
+    }
+  };
+
+  const filteredInterestedServices = businessSettings.interestedServices.filter(
+    (s) => s.name.toLowerCase().includes(interestedServiceSearch.toLowerCase()),
+  );
+
+  const toggleInterestedSelectAll = () => {
+    if (
+      selectedInterestedServices.length === filteredInterestedServices.length
+    ) {
+      setSelectedInterestedServices([]);
+    } else {
+      setSelectedInterestedServices(
+        filteredInterestedServices.map((s) => s.id),
+      );
+    }
+  };
+
+  const toggleInterestedSelectRow = (id) => {
+    setSelectedInterestedServices((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
+    );
+  };
+
+  const toggleInterestedServiceStatus = async (id) => {
+    if (!ensureSuperAdminAccess("change service status")) return;
+
+    let updatedStatus = "inactive";
+    const updatedServices = businessSettings.interestedServices.map(
+      (service) =>
+        service.id === id
+          ? {
+              ...service,
+              status:
+                getInterestedServiceStatus(service) === "active"
+                  ? "inactive"
+                  : "active",
+            }
+          : service,
+    );
+
+    const targetService = updatedServices.find((service) => service.id === id);
+    if (targetService) {
+      updatedStatus = getInterestedServiceStatus(targetService);
+    }
+
+    try {
+      await syncInterestedServicesToBackend(updatedServices);
+      showSuccess(
+        `Service marked as ${updatedStatus === "active" ? "Active" : "Inactive"}`,
+      );
+    } catch (error) {
+      showError(error?.response?.data?.error || "Failed to update status");
+    }
+  };
+
   // Export Backup Handler
   // Export Backup Handler - BSON Format
   // Update the Export Backup Handler in your Settings component
@@ -1860,6 +2079,38 @@ const Settings = () => {
       );
     }
 
+    if (activeTab === "interestedService") {
+      return (
+        <InterestedServiceTab
+          interestedServiceSearch={interestedServiceSearch}
+          setInterestedServiceSearch={setInterestedServiceSearch}
+          selectedInterestedServices={selectedInterestedServices}
+          setConfirmDeleteInterestedServices={
+            setConfirmDeleteInterestedServices
+          }
+          openAddInterestedServiceModal={openAddInterestedServiceModal}
+          isSuperAdmin={isSuperAdmin}
+          filteredInterestedServices={filteredInterestedServices}
+          toggleSelectAll={toggleInterestedSelectAll}
+          toggleSelectRow={toggleInterestedSelectRow}
+          getInterestedServiceStatus={getInterestedServiceStatus}
+          toggleInterestedServiceStatus={toggleInterestedServiceStatus}
+          openEditInterestedServiceModal={openEditInterestedServiceModal}
+          removeInterestedService={removeInterestedService}
+          isInterestedServiceModalOpen={isInterestedServiceModalOpen}
+          editingInterestedServiceId={editingInterestedServiceId}
+          closeInterestedServiceModal={closeInterestedServiceModal}
+          interestedServiceFormData={interestedServiceFormData}
+          handleInterestedServiceFormChange={handleInterestedServiceFormChange}
+          saveInterestedService={saveInterestedService}
+          confirmDeleteInterestedServices={confirmDeleteInterestedServices}
+          handleBulkDeleteInterestedServices={
+            handleBulkDeleteInterestedServices
+          }
+        />
+      );
+    }
+
     return null;
   };
 
@@ -2343,27 +2594,6 @@ const Settings = () => {
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
-        .icon-action-btn {
-          width: 32px;
-          height: 32px;
-          border-radius: 6px;
-          border: none;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          background-color: transparent;
-          transition: all 0.2s;
-        }
-
-        .icon-action-btn.edit {
-          color: #667eea;
-        }
-
-        .icon-action-btn.delete {
-          color: #ef4444;
-        }
-
         .status-toggle-wrap {
           display: inline-flex;
           align-items: center;
@@ -2425,11 +2655,6 @@ const Settings = () => {
 
         .status-text.inactive {
           color: #991b1b;
-        }
-
-        .icon-action-btn:hover {
-          background-color: #f1f5f9;
-          transform: scale(1.1);
         }
 
         .empty-state {

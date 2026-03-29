@@ -1,15 +1,8 @@
+import { SETTINGS_TABS } from "./settingsTabsConfig";
+
 export const CRUD_ACTIONS = ["create", "read", "update", "delete", "export"];
 
-export const SETTINGS_TABS = [
-  { key: "profile", label: "Profile", icon: "fa-solid fa-user" },
-  { key: "pin", label: "PIN", icon: "fa-solid fa-lock" },
-  { key: "2fa", label: "Two-Factor Auth", icon: "fa-solid fa-shield-alt" },
-  { key: "business", label: "Business Settings", icon: "fa-solid fa-building" },
-  { key: "cloudflare", label: "Cloudflare", icon: "fa-solid fa-cloud" },
-  { key: "terms", label: "Invoice Terms", icon: "fa-solid fa-file-contract" },
-  { key: "hsn", label: "HSN Codes", icon: "fa-solid fa-barcode" },
-  { key: "backup", label: "Backup & Security", icon: "fa-solid fa-database" },
-];
+export { SETTINGS_TABS };
 
 export const PERMISSION_MODULES = [
   {
