@@ -42,6 +42,10 @@ const getMinPoolSize = () => {
   return Math.floor(envValue);
 };
 
+const shouldRunDbSetupOnConnect = () =>
+  String(process.env.MONGODB_RUN_SETUP_ON_CONNECT || "").toLowerCase() ===
+  "true";
+
 /**
  * Connects to MongoDB using connection pooling
  * Reuses existing connection if available
@@ -118,7 +122,11 @@ export async function connectToDatabase() {
     globalMongo.client = client;
     globalMongo.db = db;
 
-    if (!isDbSetupCompleted && !globalMongo.isDbSetupCompleted) {
+    if (
+      shouldRunDbSetupOnConnect() &&
+      !isDbSetupCompleted &&
+      !globalMongo.isDbSetupCompleted
+    ) {
       if (!cachedSetupPromise && !globalMongo.setupPromise) {
         cachedSetupPromise = setupDb(db);
         globalMongo.setupPromise = cachedSetupPromise;

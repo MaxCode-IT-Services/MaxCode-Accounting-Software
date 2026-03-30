@@ -118,7 +118,16 @@ export async function setupDb(db) {
         key: { dateKey: 1, templateType: 1, isDeleted: 1 },
         name: "dateKey_templateType_isDeleted",
       },
+      {
+        key: { isDeleted: 1, "readBy.userId": 1, createdAt: -1 },
+        name: "isDeleted_readByUserId_createdAt",
+      },
     ]),
+    db
+      .collection("userPreferences")
+      .createIndexes([
+        { key: { userId: 1 }, name: "userId_unique", unique: true },
+      ]),
   ]);
 
   try {

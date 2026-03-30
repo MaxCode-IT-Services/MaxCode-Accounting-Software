@@ -2,6 +2,12 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const PURCHASES_META_CACHE_TTL_MS = 60000;
+let purchasesMetaCache = {
+  value: null,
+  expiresAt: 0,
+};
+
 const normalizeCloudflareSettings = (settings = {}) => {
   if (!settings || typeof settings !== "object") return null;
 
@@ -585,76 +591,126 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
-      // Get vendors for reference
-      const vendors = await vendorsCollection
-        .find({ isDeleted: { $ne: true } })
-        .toArray();
+      let vendors = [];
+      let paymentStatusValues = [];
+      let paymentMethodValues = [];
+      let invoiceTypeValues = [];
+      let placeOfSupplyValues = [];
+      let totalRecordsCount = 0;
+      let partialCount = 0;
+      let totalAmount = 0;
+      let paidAmount = 0;
 
-      // Get distinct values for dynamic filter options
-      const paymentStatusValues = await purchasesCollection.distinct(
-        "paymentStatus",
-        { isDeleted: { $ne: true }, paymentStatus: { $exists: true, $ne: "" } },
-      );
+      if (
+        purchasesMetaCache.value &&
+        purchasesMetaCache.expiresAt > Date.now()
+      ) {
+        ({
+          vendors,
+          paymentStatusValues,
+          paymentMethodValues,
+          invoiceTypeValues,
+          placeOfSupplyValues,
+          totalRecordsCount,
+          partialCount,
+          totalAmount,
+          paidAmount,
+        } = purchasesMetaCache.value);
+      } else {
+        vendors = await vendorsCollection
+          .find({ isDeleted: { $ne: true } })
+          .project({ _id: 1, vendorName: 1, businessName: 1 })
+          .toArray();
 
-      const paymentMethodValues = await purchasesCollection.distinct(
-        "paymentMethod",
-        { isDeleted: { $ne: true }, paymentMethod: { $exists: true, $ne: "" } },
-      );
+        paymentStatusValues = await purchasesCollection.distinct(
+          "paymentStatus",
+          {
+            isDeleted: { $ne: true },
+            paymentStatus: { $exists: true, $ne: "" },
+          },
+        );
 
-      const invoiceTypeValues = await purchasesCollection.distinct(
-        "invoiceType",
-        { isDeleted: { $ne: true }, invoiceType: { $exists: true, $ne: "" } },
-      );
+        paymentMethodValues = await purchasesCollection.distinct(
+          "paymentMethod",
+          {
+            isDeleted: { $ne: true },
+            paymentMethod: { $exists: true, $ne: "" },
+          },
+        );
 
-      const placeOfSupplyValues = await purchasesCollection.distinct(
-        "placeOfSupply",
-        { isDeleted: { $ne: true }, placeOfSupply: { $exists: true, $ne: "" } },
-      );
+        invoiceTypeValues = await purchasesCollection.distinct("invoiceType", {
+          isDeleted: { $ne: true },
+          invoiceType: { $exists: true, $ne: "" },
+        });
 
-      // Get statistics for dashboard cards
-      const totalRecordsCount = await purchasesCollection.countDocuments({
-        isDeleted: { $ne: true },
-      });
+        placeOfSupplyValues = await purchasesCollection.distinct(
+          "placeOfSupply",
+          {
+            isDeleted: { $ne: true },
+            placeOfSupply: { $exists: true, $ne: "" },
+          },
+        );
 
-      const paidCount = await purchasesCollection.countDocuments({
-        isDeleted: { $ne: true },
-        paymentStatus: "Paid",
-      });
+        const [totalAll, partialOnly] = await Promise.all([
+          purchasesCollection.countDocuments({ isDeleted: { $ne: true } }),
+          purchasesCollection.countDocuments({
+            isDeleted: { $ne: true },
+            paymentStatus: "Partial",
+          }),
+        ]);
 
-      const unpaidCount = await purchasesCollection.countDocuments({
-        isDeleted: { $ne: true },
-        paymentStatus: "Unpaid",
-      });
+        totalRecordsCount = totalAll;
+        partialCount = partialOnly;
 
-      const partialCount = await purchasesCollection.countDocuments({
-        isDeleted: { $ne: true },
-        paymentStatus: "Partial",
-      });
+        const allPurchases = await purchasesCollection
+          .find({ isDeleted: { $ne: true } })
+          .project({
+            paymentStatus: 1,
+            amountReceived: 1,
+            "taxData.totalAmount": 1,
+          })
+          .toArray();
 
-      // Calculate total amount
-      const allPurchases = await purchasesCollection
-        .find({ isDeleted: { $ne: true } })
-        .toArray();
+        totalAmount = allPurchases.reduce(
+          (sum, p) => sum + (p.taxData?.totalAmount || 0),
+          0,
+        );
 
-      const totalAmount = allPurchases.reduce(
-        (sum, p) => sum + (p.taxData?.totalAmount || 0),
-        0,
-      );
+        paidAmount = allPurchases
+          .filter(
+            (p) => p.paymentStatus === "Paid" || p.paymentStatus === "Partial",
+          )
+          .reduce((sum, p) => {
+            if (p.amountReceived !== undefined && p.amountReceived !== null) {
+              return sum + (p.amountReceived || 0);
+            }
 
-      const paidAmount = allPurchases
-        .filter(
-          (p) => p.paymentStatus === "Paid" || p.paymentStatus === "Partial",
-        )
-        .reduce((sum, p) => {
-          if (p.amountReceived !== undefined && p.amountReceived !== null) {
-            return sum + (p.amountReceived || 0);
-          } else if (p.paymentStatus === "Paid") {
-            return sum + (p.taxData?.totalAmount || 0);
-          } else if (p.paymentStatus === "Partial") {
-            return sum + (p.taxData?.totalAmount || 0) / 2;
-          }
-          return sum;
-        }, 0);
+            if (p.paymentStatus === "Paid") {
+              return sum + (p.taxData?.totalAmount || 0);
+            }
+
+            if (p.paymentStatus === "Partial") {
+              return sum + (p.taxData?.totalAmount || 0) / 2;
+            }
+
+            return sum;
+          }, 0);
+
+        purchasesMetaCache = {
+          value: {
+            vendors,
+            paymentStatusValues,
+            paymentMethodValues,
+            invoiceTypeValues,
+            placeOfSupplyValues,
+            totalRecordsCount,
+            partialCount,
+            totalAmount,
+            paidAmount,
+          },
+          expiresAt: Date.now() + PURCHASES_META_CACHE_TTL_MS,
+        };
+      }
 
       const unpaidAmount = totalAmount - paidAmount;
 
@@ -687,11 +743,6 @@ export async function handler(event) {
             vendorName: v.vendorName,
             businessName: v.businessName,
           })),
-          debug: {
-            filterQuery,
-            params,
-            dateRanges,
-          },
         },
         origin,
       );

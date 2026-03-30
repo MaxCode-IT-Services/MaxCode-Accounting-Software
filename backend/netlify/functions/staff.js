@@ -2,6 +2,12 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const STAFF_META_CACHE_TTL_MS = 60000;
+let staffMetaCache = {
+  value: null,
+  expiresAt: 0,
+};
+
 const IMAGE_FIELDS = ["profilePhotoUrl"];
 
 const getBaseUrl = (event) => {
@@ -346,38 +352,59 @@ export async function handler(event) {
       let totalWithoutPhoto = 0;
 
       if (shouldIncludeMeta) {
-        [
-          statusValues,
-          totalActive,
-          totalInactive,
-          totalWithPhoto,
-          totalWithoutPhoto,
-        ] = await Promise.all([
-          staffCollection.distinct("status", {
-            isDeleted: { $ne: true },
-            status: { $exists: true, $ne: "" },
-          }),
-          staffCollection.countDocuments({
-            isDeleted: { $ne: true },
-            status: "Active",
-          }),
-          staffCollection.countDocuments({
-            isDeleted: { $ne: true },
-            status: "Inactive",
-          }),
-          staffCollection.countDocuments({
-            isDeleted: { $ne: true },
-            profilePhotoUrl: { $exists: true, $nin: ["", null] },
-          }),
-          staffCollection.countDocuments({
-            isDeleted: { $ne: true },
-            $or: [
-              { profilePhotoUrl: { $exists: false } },
-              { profilePhotoUrl: "" },
-              { profilePhotoUrl: null },
+        if (staffMetaCache.value && staffMetaCache.expiresAt > Date.now()) {
+          [
+            statusValues,
+            totalActive,
+            totalInactive,
+            totalWithPhoto,
+            totalWithoutPhoto,
+          ] = staffMetaCache.value;
+        } else {
+          [
+            statusValues,
+            totalActive,
+            totalInactive,
+            totalWithPhoto,
+            totalWithoutPhoto,
+          ] = await Promise.all([
+            staffCollection.distinct("status", {
+              isDeleted: { $ne: true },
+              status: { $exists: true, $ne: "" },
+            }),
+            staffCollection.countDocuments({
+              isDeleted: { $ne: true },
+              status: "Active",
+            }),
+            staffCollection.countDocuments({
+              isDeleted: { $ne: true },
+              status: "Inactive",
+            }),
+            staffCollection.countDocuments({
+              isDeleted: { $ne: true },
+              profilePhotoUrl: { $exists: true, $nin: ["", null] },
+            }),
+            staffCollection.countDocuments({
+              isDeleted: { $ne: true },
+              $or: [
+                { profilePhotoUrl: { $exists: false } },
+                { profilePhotoUrl: "" },
+                { profilePhotoUrl: null },
+              ],
+            }),
+          ]);
+
+          staffMetaCache = {
+            value: [
+              statusValues,
+              totalActive,
+              totalInactive,
+              totalWithPhoto,
+              totalWithoutPhoto,
             ],
-          }),
-        ]);
+            expiresAt: Date.now() + STAFF_META_CACHE_TTL_MS,
+          };
+        }
       }
 
       const mappedStaff = staffList.map((staff) =>

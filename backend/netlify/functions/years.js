@@ -2,6 +2,12 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const YEARS_LIST_CACHE_TTL_MS = 120000;
+let yearsListCache = {
+  value: null,
+  expiresAt: 0,
+};
+
 /**
  * Financial Year Management API
  * Handles CRUD operations for financial years
@@ -81,10 +87,21 @@ export async function handler(event) {
       ].some((key) => Object.prototype.hasOwnProperty.call(params, key));
 
       if (!hasServerSideParams) {
-        const years = await yearsCollection
-          .find({ isDeleted: { $ne: true } })
-          .sort({ startDate: -1, createdAt: -1 })
-          .toArray();
+        let years = [];
+
+        if (yearsListCache.value && yearsListCache.expiresAt > Date.now()) {
+          years = yearsListCache.value;
+        } else {
+          years = await yearsCollection
+            .find({ isDeleted: { $ne: true } })
+            .sort({ startDate: -1, createdAt: -1 })
+            .toArray();
+
+          yearsListCache = {
+            value: years,
+            expiresAt: Date.now() + YEARS_LIST_CACHE_TTL_MS,
+          };
+        }
 
         return createResponse(200, years, origin);
       }

@@ -2,6 +2,12 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const LEADS_META_CACHE_TTL_MS = 60000;
+let leadsMetaCache = {
+  value: null,
+  expiresAt: 0,
+};
+
 /**
  * Lead Management API
  * Handles CRUD operations for leads with pagination and filters
@@ -204,56 +210,84 @@ export async function handler(event) {
         totalProposalSent,
         totalSuccess,
         totalLost,
-      ] = await Promise.all([
-        leadsCollection.distinct("leadSource", {
-          isDeleted: { $ne: true },
-          leadSource: { $exists: true, $ne: "" },
-        }),
-        leadsCollection.distinct("priority", {
-          isDeleted: { $ne: true },
-          priority: { $exists: true, $ne: "" },
-        }),
-        leadsCollection.distinct("leadStatus", {
-          isDeleted: { $ne: true },
-          leadStatus: { $exists: true, $ne: "" },
-        }),
-        leadsCollection.distinct("interestedService", {
-          isDeleted: { $ne: true },
-          interestedService: { $exists: true, $ne: "" },
-        }),
-        leadsCollection.distinct("contactBy", {
-          isDeleted: { $ne: true },
-          contactBy: { $exists: true, $ne: "" },
-        }),
-        leadsCollection.distinct("status", {
-          isDeleted: { $ne: true },
-          status: { $exists: true, $ne: "" },
-        }),
-        leadsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          leadStatus: "New",
-        }),
-        leadsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          leadStatus: "Contacted",
-        }),
-        leadsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          leadStatus: "Qualified",
-        }),
-        leadsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          leadStatus: "Proposal Sent",
-        }),
-        leadsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          leadStatus: "Success",
-        }),
-        leadsCollection.countDocuments({
-          isDeleted: { $ne: true },
-          leadStatus: "Lost",
-        }),
-      ]);
+        totalAll,
+      ] =
+        leadsMetaCache.value && leadsMetaCache.expiresAt > Date.now()
+          ? leadsMetaCache.value
+          : await Promise.all([
+              leadsCollection.distinct("leadSource", {
+                isDeleted: { $ne: true },
+                leadSource: { $exists: true, $ne: "" },
+              }),
+              leadsCollection.distinct("priority", {
+                isDeleted: { $ne: true },
+                priority: { $exists: true, $ne: "" },
+              }),
+              leadsCollection.distinct("leadStatus", {
+                isDeleted: { $ne: true },
+                leadStatus: { $exists: true, $ne: "" },
+              }),
+              leadsCollection.distinct("interestedService", {
+                isDeleted: { $ne: true },
+                interestedService: { $exists: true, $ne: "" },
+              }),
+              leadsCollection.distinct("contactBy", {
+                isDeleted: { $ne: true },
+                contactBy: { $exists: true, $ne: "" },
+              }),
+              leadsCollection.distinct("status", {
+                isDeleted: { $ne: true },
+                status: { $exists: true, $ne: "" },
+              }),
+              leadsCollection.countDocuments({
+                isDeleted: { $ne: true },
+                leadStatus: "New",
+              }),
+              leadsCollection.countDocuments({
+                isDeleted: { $ne: true },
+                leadStatus: "Contacted",
+              }),
+              leadsCollection.countDocuments({
+                isDeleted: { $ne: true },
+                leadStatus: "Qualified",
+              }),
+              leadsCollection.countDocuments({
+                isDeleted: { $ne: true },
+                leadStatus: "Proposal Sent",
+              }),
+              leadsCollection.countDocuments({
+                isDeleted: { $ne: true },
+                leadStatus: "Success",
+              }),
+              leadsCollection.countDocuments({
+                isDeleted: { $ne: true },
+                leadStatus: "Lost",
+              }),
+              leadsCollection.countDocuments({
+                isDeleted: { $ne: true },
+              }),
+            ]);
+
+      if (!leadsMetaCache.value || leadsMetaCache.expiresAt <= Date.now()) {
+        leadsMetaCache = {
+          value: [
+            leadSourceValues,
+            priorityValues,
+            leadStatusValues,
+            interestedServiceValues,
+            contactByValues,
+            statusValues,
+            totalNew,
+            totalContacted,
+            totalQualified,
+            totalProposalSent,
+            totalSuccess,
+            totalLost,
+            totalAll,
+          ],
+          expiresAt: Date.now() + LEADS_META_CACHE_TTL_MS,
+        };
+      }
 
       return createResponse(
         200,
@@ -266,9 +300,7 @@ export async function handler(event) {
             totalPages: Math.ceil(totalRecords / limitNum),
           },
           statistics: {
-            total: await leadsCollection.countDocuments({
-              isDeleted: { $ne: true },
-            }),
+            total: totalAll,
             new: totalNew,
             contacted: totalContacted,
             qualified: totalQualified,

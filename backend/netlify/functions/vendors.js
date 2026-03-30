@@ -2,6 +2,12 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
 
+const VENDORS_META_CACHE_TTL_MS = 60000;
+let vendorsMetaCache = {
+  value: null,
+  expiresAt: 0,
+};
+
 /**
  * Vendor Management API
  * Handles CRUD operations for vendors with pagination support
@@ -215,54 +221,79 @@ export async function handler(event) {
       let totalWithoutGST = 0;
 
       if (shouldIncludeMeta) {
-        const [
-          distinctPlaceValues,
-          distinctStatusValues,
-          gstStatusRaw,
-          activeCount,
-          inactiveCount,
-          withGstCount,
-          withoutGstCount,
-        ] = await Promise.all([
-          vendorsCollection.distinct("placeOfSupply", {
-            isDeleted: { $ne: true },
-            placeOfSupply: { $exists: true, $ne: "" },
-          }),
-          vendorsCollection.distinct("status", {
-            isDeleted: { $ne: true },
-            status: { $exists: true, $ne: "" },
-          }),
-          vendorsCollection.distinct("hasGSTIN", {
-            isDeleted: { $ne: true },
-            hasGSTIN: { $exists: true },
-          }),
-          vendorsCollection.countDocuments({
-            isDeleted: { $ne: true },
-            status: "Active",
-          }),
-          vendorsCollection.countDocuments({
-            isDeleted: { $ne: true },
-            status: "Inactive",
-          }),
-          vendorsCollection.countDocuments({
-            isDeleted: { $ne: true },
-            hasGSTIN: true,
-          }),
-          vendorsCollection.countDocuments({
-            isDeleted: { $ne: true },
-            hasGSTIN: false,
-          }),
-        ]);
+        if (vendorsMetaCache.value && vendorsMetaCache.expiresAt > Date.now()) {
+          ({
+            placeOfSupplyValues,
+            statusValues,
+            gstStatusValues,
+            totalActive,
+            totalInactive,
+            totalWithGST,
+            totalWithoutGST,
+          } = vendorsMetaCache.value);
+        } else {
+          const [
+            distinctPlaceValues,
+            distinctStatusValues,
+            gstStatusRaw,
+            activeCount,
+            inactiveCount,
+            withGstCount,
+            withoutGstCount,
+          ] = await Promise.all([
+            vendorsCollection.distinct("placeOfSupply", {
+              isDeleted: { $ne: true },
+              placeOfSupply: { $exists: true, $ne: "" },
+            }),
+            vendorsCollection.distinct("status", {
+              isDeleted: { $ne: true },
+              status: { $exists: true, $ne: "" },
+            }),
+            vendorsCollection.distinct("hasGSTIN", {
+              isDeleted: { $ne: true },
+              hasGSTIN: { $exists: true },
+            }),
+            vendorsCollection.countDocuments({
+              isDeleted: { $ne: true },
+              status: "Active",
+            }),
+            vendorsCollection.countDocuments({
+              isDeleted: { $ne: true },
+              status: "Inactive",
+            }),
+            vendorsCollection.countDocuments({
+              isDeleted: { $ne: true },
+              hasGSTIN: true,
+            }),
+            vendorsCollection.countDocuments({
+              isDeleted: { $ne: true },
+              hasGSTIN: false,
+            }),
+          ]);
 
-        placeOfSupplyValues = distinctPlaceValues;
-        statusValues = distinctStatusValues;
-        gstStatusValues = gstStatusRaw.map((val) =>
-          val ? "Registered" : "Unregistered",
-        );
-        totalActive = activeCount;
-        totalInactive = inactiveCount;
-        totalWithGST = withGstCount;
-        totalWithoutGST = withoutGstCount;
+          placeOfSupplyValues = distinctPlaceValues;
+          statusValues = distinctStatusValues;
+          gstStatusValues = gstStatusRaw.map((val) =>
+            val ? "Registered" : "Unregistered",
+          );
+          totalActive = activeCount;
+          totalInactive = inactiveCount;
+          totalWithGST = withGstCount;
+          totalWithoutGST = withoutGstCount;
+
+          vendorsMetaCache = {
+            value: {
+              placeOfSupplyValues,
+              statusValues,
+              gstStatusValues,
+              totalActive,
+              totalInactive,
+              totalWithGST,
+              totalWithoutGST,
+            },
+            expiresAt: Date.now() + VENDORS_META_CACHE_TTL_MS,
+          };
+        }
       }
 
       // Return paginated response with metadata
@@ -292,12 +323,6 @@ export async function handler(event) {
                 },
               }
             : {}),
-          // Debug info for troubleshooting
-          debug: {
-            filterQuery,
-            params,
-            dateRanges,
-          },
         },
         origin,
       );

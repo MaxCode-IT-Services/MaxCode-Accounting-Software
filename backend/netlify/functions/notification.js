@@ -5,6 +5,9 @@ import { verifyRequestToken } from "./utils/auth.js";
 const ALERT_DAYS = [15, 10, 7, 3, 2, 1, 0];
 const LEAD_FOLLOWUP_ALERT_DAYS = [1, 0];
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const NOTIFICATION_RESPONSE_CACHE_TTL_MS = 15000;
+
+let notificationResponseCache = new Map();
 
 const toNumber = (value) => {
   const parsed = parseFloat(String(value ?? "").replace(/,/g, ""));
@@ -228,11 +231,22 @@ export async function handler(event) {
     const usersCollection = db.collection("users");
 
     if (event.httpMethod === "GET") {
+      const query = event.queryStringParameters || {};
+      const limitNum = Math.min(
+        Math.max(parseInt(query.limit, 10) || 100, 1),
+        300,
+      );
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const dateKey = getDateString(today);
       const notificationType = "daily-reminders";
       const currentUserId = resolveCurrentUserId(decodedToken);
+      const cacheKey = `${currentUserId || "anonymous"}|${limitNum}`;
+
+      const cachedResponse = notificationResponseCache.get(cacheKey);
+      if (cachedResponse && cachedResponse.expiresAt > Date.now()) {
+        return createResponse(200, cachedResponse.payload, origin);
+      }
 
       let loggedInUser = null;
       if (currentUserId && ObjectId.isValid(currentUserId)) {
@@ -422,6 +436,7 @@ export async function handler(event) {
           },
         )
         .sort({ createdAt: -1 })
+        .limit(limitNum)
         .toArray();
 
       const responseNotifications = notifications
@@ -454,18 +469,23 @@ export async function handler(event) {
         (item) => !item.read,
       ).length;
 
-      return createResponse(
-        200,
-        {
-          dateKey,
-          unreadCount,
-          notifications: responseNotifications,
-        },
-        origin,
-      );
+      const responsePayload = {
+        dateKey,
+        limit: limitNum,
+        unreadCount,
+        notifications: responseNotifications,
+      };
+
+      notificationResponseCache.set(cacheKey, {
+        payload: responsePayload,
+        expiresAt: Date.now() + NOTIFICATION_RESPONSE_CACHE_TTL_MS,
+      });
+
+      return createResponse(200, responsePayload, origin);
     }
 
     if (event.httpMethod === "PATCH") {
+      notificationResponseCache = new Map();
       const body = JSON.parse(event.body || "{}");
       const { action, id, read } = body;
       const currentUserId = resolveCurrentUserId(decodedToken);
@@ -593,6 +613,7 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === "DELETE") {
+      notificationResponseCache = new Map();
       const { id } = event.queryStringParameters || {};
 
       if (!id || !ObjectId.isValid(id)) {

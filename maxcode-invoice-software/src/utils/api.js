@@ -1,5 +1,105 @@
 import axios from "axios";
 
+const GET_REQUEST_CACHE_TTL_MS = {
+  "/years": 60000,
+  "/user-preferences": 300000,
+  "/business-settings": 30000,
+};
+const USER_PREFERENCES_POST_DEDUPE_MS = 60000;
+
+const inflightGetRequests = new Map();
+const getResponseCache = new Map();
+let lastUserPreferencesPostSignature = "";
+let lastUserPreferencesPostAt = 0;
+
+const stableStringify = (value) => {
+  if (value === null || value === undefined) return String(value);
+  if (typeof value !== "object") return JSON.stringify(value);
+
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+
+  const keys = Object.keys(value).sort();
+  return `{${keys
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+    .join(",")}}`;
+};
+
+const normalizePathFromUrl = (url) => {
+  const rawUrl = String(url || "").trim();
+  if (!rawUrl) return "";
+
+  if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+    try {
+      return new URL(rawUrl).pathname || "";
+    } catch {
+      return rawUrl.split("?")[0] || rawUrl;
+    }
+  }
+
+  return rawUrl.split("?")[0] || rawUrl;
+};
+
+const buildGetRequestKey = (url, config = {}) => {
+  const path = normalizePathFromUrl(url);
+  const paramsSignature = stableStringify(config?.params || {});
+  return `GET|${path}|${paramsSignature}`;
+};
+
+const getCacheTtlForPath = (path = "") => {
+  return GET_REQUEST_CACHE_TTL_MS[path] || 0;
+};
+
+const shouldCacheGetRequest = (url, config = {}) => {
+  if (config?.cache === false) return false;
+  const path = normalizePathFromUrl(url);
+  return getCacheTtlForPath(path) > 0;
+};
+
+const invalidateGetCacheByPath = (path = "") => {
+  if (!path) return;
+
+  for (const key of getResponseCache.keys()) {
+    if (key.includes(`|${path}|`)) {
+      getResponseCache.delete(key);
+    }
+  }
+};
+
+const isUserPreferencesPath = (url) => {
+  const path = normalizePathFromUrl(url);
+  return path === "/user-preferences";
+};
+
+const getCachedGetResponse = (url, config = {}) => {
+  const requestKey = buildGetRequestKey(url, config);
+  const cachedEntry = getResponseCache.get(requestKey);
+  if (!cachedEntry) return null;
+  if (cachedEntry.expiresAt <= Date.now()) {
+    getResponseCache.delete(requestKey);
+    return null;
+  }
+  return cachedEntry.response;
+};
+
+const isNoopUserPreferencesUpdate = (payload = {}) => {
+  if (!payload || typeof payload !== "object") return false;
+
+  const cachedPreferencesResponse = getCachedGetResponse("/user-preferences");
+  const currentPreferences = cachedPreferencesResponse?.data;
+  if (!currentPreferences || typeof currentPreferences !== "object") {
+    return false;
+  }
+
+  const entries = Object.entries(payload);
+  if (entries.length === 0) return true;
+
+  return entries.every(([key, value]) => {
+    return stableStringify(currentPreferences[key]) === stableStringify(value);
+  });
+};
+
 const formatApiErrorForLog = (payload) => {
   if (typeof payload === "string") {
     return payload;
@@ -111,14 +211,112 @@ api.interceptors.response.use(
 export default api;
 
 // Convenience methods for common operations
-export const apiGet = (url, config = {}) => api.get(url, config);
-export const apiPost = (url, data = {}, config = {}) =>
-  api.post(url, data, config);
-export const apiPut = (url, data = {}, config = {}) =>
-  api.put(url, data, config);
-export const apiPatch = (url, data = {}, config = {}) =>
-  api.patch(url, data, config);
-export const apiDelete = (url, config = {}) => api.delete(url, config);
+export const apiGet = (url, config = {}) => {
+  const requestKey = buildGetRequestKey(url, config);
+  const shouldCache = shouldCacheGetRequest(url, config);
+  const shouldDedupe = config?.dedupe !== false;
+  const forceRefresh = config?.forceRefresh === true;
+
+  if (shouldCache && !forceRefresh) {
+    const cachedEntry = getResponseCache.get(requestKey);
+    if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+      return Promise.resolve(cachedEntry.response);
+    }
+    if (cachedEntry && cachedEntry.expiresAt <= Date.now()) {
+      getResponseCache.delete(requestKey);
+    }
+  }
+
+  if (shouldDedupe && inflightGetRequests.has(requestKey)) {
+    return inflightGetRequests.get(requestKey);
+  }
+
+  const requestPromise = api.get(url, config).then((response) => {
+    if (shouldCache) {
+      const ttl = getCacheTtlForPath(normalizePathFromUrl(url));
+      if (ttl > 0) {
+        getResponseCache.set(requestKey, {
+          response,
+          expiresAt: Date.now() + ttl,
+        });
+      }
+    }
+    return response;
+  });
+
+  if (shouldDedupe) {
+    inflightGetRequests.set(requestKey, requestPromise);
+    requestPromise.finally(() => {
+      inflightGetRequests.delete(requestKey);
+    });
+  }
+
+  return requestPromise;
+};
+
+export const apiPost = (url, data = {}, config = {}) => {
+  if (isUserPreferencesPath(url)) {
+    if (isNoopUserPreferencesUpdate(data)) {
+      return Promise.resolve({
+        status: 200,
+        statusText: "OK",
+        data: { skippedNoChanges: true },
+        headers: {},
+        config,
+        request: null,
+      });
+    }
+
+    const signature = stableStringify(data || {});
+    const now = Date.now();
+    if (
+      signature === lastUserPreferencesPostSignature &&
+      now - lastUserPreferencesPostAt < USER_PREFERENCES_POST_DEDUPE_MS
+    ) {
+      return Promise.resolve({
+        status: 200,
+        statusText: "OK",
+        data: { skippedDuplicate: true },
+        headers: {},
+        config,
+        request: null,
+      });
+    }
+
+    lastUserPreferencesPostSignature = signature;
+    lastUserPreferencesPostAt = now;
+  }
+
+  const path = normalizePathFromUrl(url);
+  return api.post(url, data, config).then((response) => {
+    invalidateGetCacheByPath(path);
+    return response;
+  });
+};
+
+export const apiPut = (url, data = {}, config = {}) => {
+  const path = normalizePathFromUrl(url);
+  return api.put(url, data, config).then((response) => {
+    invalidateGetCacheByPath(path);
+    return response;
+  });
+};
+
+export const apiPatch = (url, data = {}, config = {}) => {
+  const path = normalizePathFromUrl(url);
+  return api.patch(url, data, config).then((response) => {
+    invalidateGetCacheByPath(path);
+    return response;
+  });
+};
+
+export const apiDelete = (url, config = {}) => {
+  const path = normalizePathFromUrl(url);
+  return api.delete(url, config).then((response) => {
+    invalidateGetCacheByPath(path);
+    return response;
+  });
+};
 
 // Compatibility helper retained for existing imports.
 export const setAuthToken = (token) => {
