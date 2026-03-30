@@ -224,7 +224,7 @@ button:focus-visible {
   --transparent: color-mix(in sRGB, var(--base) 0%, #0000);
   appearance: none;
   font-size: 1em;
-  width: min(100%, 20em);
+  width: min(100%, 29em);
   height: 2em;
   border: 0.5em solid #fff;
   border-radius: 2em;
@@ -533,7 +533,7 @@ button:focus-visible {
   }
 
   [type="range"].kawaii {
-    width: min(100%, 16em);
+    width: min(100%, 20em);
     font-size: 0.86em;
   }
 

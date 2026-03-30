@@ -692,7 +692,13 @@ const Login = ({ settings, onAuthSuccess }) => {
     : twoFACode.every((digit) => digit !== "");
 
   return (
-    <div className="min-vh-100 d-flex align-items-center justify-content-center bg-gradient-to-br from-slate-50 to-slate-100 p-3">
+    <div
+      className="login-shell min-vh-100 d-flex align-items-center justify-content-center p-3"
+      style={{
+        background:
+          "radial-gradient(circle at 10% 18%, rgba(212, 143, 63, 0.2) 0%, transparent 34%), radial-gradient(circle at 86% 82%, rgba(61, 126, 145, 0.2) 0%, transparent 35%), linear-gradient(132deg, #f7f2e9 0%, #fdf8ef 45%, #edf5f7 100%)",
+      }}
+    >
       {/* Background Pattern */}
       <div
         className="position-fixed top-0 start-0 w-100 h-100 opacity-10"
@@ -704,7 +710,7 @@ const Login = ({ settings, onAuthSuccess }) => {
       ></div>
 
       <div
-        className="card border-0 shadow-2xl rounded-4 overflow-hidden animate__animated animate__fadeInUp"
+        className="card road-board-card border-0 shadow-2xl rounded-4 overflow-hidden animate__animated animate__fadeInUp"
         style={{
           maxWidth: "1100px",
           width: "100%",
@@ -1455,6 +1461,69 @@ const Login = ({ settings, onAuthSuccess }) => {
             linear-gradient(155deg, #063528 0%, #0b5d45 44%, #078f6f 100%);
         }
 
+        .road-board-card {
+          position: relative;
+          border: 4px solid #5f6772 !important;
+          border-radius: 22px !important;
+          box-shadow:
+            0 28px 48px rgba(21, 28, 38, 0.34),
+            0 0 0 2px rgba(240, 245, 255, 0.8) inset,
+            0 0 0 10px rgba(67, 73, 84, 0.22) inset;
+          background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(246, 250, 255, 0.94) 100%),
+            repeating-linear-gradient(
+              -10deg,
+              rgba(54, 64, 82, 0.03) 0,
+              rgba(54, 64, 82, 0.03) 12px,
+              rgba(255, 255, 255, 0.03) 12px,
+              rgba(255, 255, 255, 0.03) 24px
+            );
+        }
+
+        .road-board-card::before,
+        .road-board-card::after {
+          content: "";
+          position: absolute;
+          width: 34px;
+          height: 14px;
+          top: -10px;
+          border-radius: 10px;
+          background:
+            radial-gradient(circle at 50% 35%, rgba(255, 228, 138, 0.88) 0%, rgba(255, 228, 138, 0) 56%),
+            linear-gradient(180deg, #949ca9 0%, #69707d 100%);
+          border: 1px solid rgba(63, 70, 80, 0.6);
+          box-shadow:
+            0 5px 8px rgba(28, 33, 41, 0.3),
+            0 22px 30px rgba(255, 214, 92, 0.5),
+            0 62px 82px rgba(255, 198, 64, 0.34),
+            0 118px 150px rgba(255, 186, 48, 0.2);
+          filter: saturate(1.1);
+          z-index: 4;
+          animation: clampGlowBounce 2.8s ease-in-out infinite;
+        }
+
+        .road-board-card::before {
+          left: 52px;
+        }
+
+        .road-board-card::after {
+          right: 52px;
+          animation-delay: 1.1s;
+        }
+
+        .road-board-card .row {
+          position: relative;
+        }
+
+        .road-board-card .row::before {
+          content: "";
+          position: absolute;
+          inset: 10px;
+          pointer-events: none;
+          border-radius: 16px;
+          border: 2px dashed rgba(108, 120, 138, 0.35);
+        }
+
         .cockpit-grid {
           position: absolute;
           inset: 0;
@@ -1664,6 +1733,24 @@ const Login = ({ settings, onAuthSuccess }) => {
           50% {
             transform: scale(1.12);
             opacity: 0.7;
+          }
+        }
+
+        @keyframes clampGlowBounce {
+          0%,
+          100% {
+            box-shadow:
+              0 5px 8px rgba(28, 33, 41, 0.3),
+              0 18px 24px rgba(255, 214, 92, 0.42),
+              0 54px 70px rgba(255, 198, 64, 0.28),
+              0 98px 126px rgba(255, 186, 48, 0.16);
+          }
+          50% {
+            box-shadow:
+              0 5px 8px rgba(28, 33, 41, 0.3),
+              0 28px 38px rgba(255, 214, 92, 0.62),
+              0 78px 100px rgba(255, 198, 64, 0.42),
+              0 138px 176px rgba(255, 186, 48, 0.26);
           }
         }
 
@@ -1897,6 +1984,31 @@ const Login = ({ settings, onAuthSuccess }) => {
 
         /* Responsive */
         @media (max-width: 768px) {
+          .road-board-card {
+            border-width: 3px !important;
+            border-radius: 16px !important;
+          }
+
+          .road-board-card::before,
+          .road-board-card::after {
+            width: 26px;
+            height: 11px;
+            top: -8px;
+            box-shadow:
+              0 4px 6px rgba(28, 33, 41, 0.28),
+              0 14px 18px rgba(221, 166, 4, 0.78),
+              0 40px 54px rgba(215, 151, 1, 0.82),
+              0 74px 96px rgba(255, 186, 48, 0.83);
+          }
+
+          .road-board-card::before {
+            left: 28px;
+          }
+
+          .road-board-card::after {
+            right: 28px;
+          }
+
           .login-left-cockpit {
             min-height: 400px;
           }
