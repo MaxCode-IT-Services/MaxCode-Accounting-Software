@@ -42,6 +42,7 @@ const getHiddenSecretInputStyle = (value = "") => {
 };
 const SECRET_CUSTOM_FIELD_TYPES = [
   "password",
+  "env-variable",
   "api-key",
   "client-id",
   "client-secret",
@@ -61,6 +62,7 @@ const CUSTOM_FIELD_TYPES = [
   { value: "numeric", label: "Numeric Value" },
   { value: "option", label: "Option" },
   { value: "password", label: "Password" },
+  { value: "env-variable", label: "Environment Variable" },
   { value: "api-key", label: "API Key" },
   { value: "client-id", label: "Client ID" },
   { value: "client-secret", label: "Client Secret" },

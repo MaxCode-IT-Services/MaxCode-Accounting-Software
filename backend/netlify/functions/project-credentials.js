@@ -8,6 +8,7 @@ const ENCRYPTED_PREFIX = "enc:v1:";
 const SENSITIVE_FIELDS = ["serverPassword", "databasePassword", "appPassword"];
 const SECRET_CUSTOM_FIELD_TYPES = [
   "password",
+  "env-variable",
   "api-key",
   "client-id",
   "client-secret",

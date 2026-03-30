@@ -41,10 +41,26 @@ const normalizePathFromUrl = (url) => {
   return rawUrl.split("?")[0] || rawUrl;
 };
 
+const normalizeUrlForRequestKey = (url) => {
+  const rawUrl = String(url || "").trim();
+  if (!rawUrl) return "";
+
+  if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+    try {
+      const parsed = new URL(rawUrl);
+      return `${parsed.pathname || ""}${parsed.search || ""}`;
+    } catch {
+      return rawUrl;
+    }
+  }
+
+  return rawUrl;
+};
+
 const buildGetRequestKey = (url, config = {}) => {
-  const path = normalizePathFromUrl(url);
+  const normalizedUrl = normalizeUrlForRequestKey(url);
   const paramsSignature = stableStringify(config?.params || {});
-  return `GET|${path}|${paramsSignature}`;
+  return `GET|${normalizedUrl}|${paramsSignature}`;
 };
 
 const getCacheTtlForPath = (path = "") => {
@@ -53,6 +69,13 @@ const getCacheTtlForPath = (path = "") => {
 
 const shouldCacheGetRequest = (url, config = {}) => {
   if (config?.cache === false) return false;
+  if (
+    String(url || "")
+      .toLowerCase()
+      .includes("action=reveal-secret")
+  ) {
+    return false;
+  }
   const path = normalizePathFromUrl(url);
   return getCacheTtlForPath(path) > 0;
 };

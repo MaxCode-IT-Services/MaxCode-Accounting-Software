@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { Player } from "@lottiefiles/react-lottie-player";
 import ColumnSelectorOffcanvas from "./ColumnSelectorOffcanvas";
 import AdvancedFilterOffcanvas from "./AdvancedFilterOffcanvas";
 import ConfirmationModal from "./ConfirmationModal";
@@ -2282,15 +2283,20 @@ const ReusableTable = ({
                   <tr>
                     <td
                       colSpan={getOrderedColumns().length}
-                      className="text-center py-5"
+                      className="text-center py-4"
                     >
-                      <div
-                        className="spinner-border text-primary"
-                        role="status"
-                      >
-                        <span className="visually-hidden">Loading...</span>
+                      <div className="d-flex justify-content-center">
+                        <Player
+                          autoplay
+                          loop
+                          src="/Json/loading3.json"
+                          style={{
+                            width: "110px",
+                            height: "110px",
+                          }}
+                        />
                       </div>
-                      <p className="mt-2 mb-0">Loading data...</p>
+                      <p className="mt-2 mb-0 fw-bold">Loading data...</p>
                     </td>
                   </tr>
                 ) : paginatedData.length > 0 ? (
