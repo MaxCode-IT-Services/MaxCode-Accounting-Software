@@ -762,6 +762,7 @@ const CreatePurchase = ({
   const isViewMode = editingRecord?.isViewMode;
   const uploadedInvoiceViewUrl =
     editingRecord?.invoiceFileURL ||
+    editingRecord?.invoiceFileLink ||
     (editingRecord?.invoiceFilePath ? editingRecord?.invoiceURL : "") ||
     "";
   const isRajasthan = formData.placeOfSupply
@@ -1722,34 +1723,34 @@ const CreatePurchase = ({
                             Invoice Upload (Image/PDF)
                           </label>
 
-                          {!isViewMode ? (
-                            <>
-                              <input
-                                type="file"
-                                className="form-control modern-input file-picker-input"
-                                accept="image/*,application/pdf"
-                                onChange={handleInvoiceFileChange}
-                              />
-                            </>
-                          ) : (
-                            <div className="d-flex align-items-center gap-2">
-                              {uploadedInvoiceViewUrl ? (
-                                <a
-                                  href={uploadedInvoiceViewUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="btn btn-sm btn-outline-primary"
-                                  title="Open uploaded invoice in new tab"
-                                >
-                                  <i class="fa-solid fa-file-contract"></i>
-                                </a>
-                              ) : (
+                          {!isViewMode && (
+                            <input
+                              type="file"
+                              className="form-control modern-input file-picker-input"
+                              accept="image/*,application/pdf"
+                              onChange={handleInvoiceFileChange}
+                            />
+                          )}
+
+                          <div className="d-flex align-items-center gap-2 mt-2">
+                            {uploadedInvoiceViewUrl ? (
+                              <a
+                                href={uploadedInvoiceViewUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-sm btn-outline-primary"
+                                title="Open uploaded invoice in new tab"
+                              >
+                                <i class="fa-solid fa-file-contract"></i>
+                              </a>
+                            ) : (
+                              isViewMode && (
                                 <span className="text-muted small">
                                   No invoice uploaded
                                 </span>
-                              )}
-                            </div>
-                          )}
+                              )
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

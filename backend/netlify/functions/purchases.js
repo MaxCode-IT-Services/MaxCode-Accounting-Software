@@ -1,6 +1,7 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
+import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
 
 const PURCHASES_META_CACHE_TTL_MS = 60000;
 let purchasesMetaCache = {
@@ -53,11 +54,23 @@ const getCloudflareSettingsFromDatabase = async (db) => {
       source.cloudStorageSettings ||
       {};
 
+    const decryptOrEmpty = (value = "") => {
+      const normalized = String(value || "").trim();
+      if (!normalized || normalized === "********") return "";
+      try {
+        return decryptSecretFromStorage(normalized);
+      } catch {
+        return "";
+      }
+    };
+
     return normalizeCloudflareSettings({
       ...nestedSettings,
-      storeUrl: source.storeUrl || nestedSettings.storeUrl,
-      publicDomain: source.publicDomain || nestedSettings.publicDomain,
-      password: source.password || nestedSettings.password,
+      storeUrl: decryptOrEmpty(source.storeUrl || nestedSettings.storeUrl),
+      publicDomain: decryptOrEmpty(
+        source.publicDomain || nestedSettings.publicDomain,
+      ),
+      password: decryptOrEmpty(source.password || nestedSettings.password),
     });
   } catch {
     return null;

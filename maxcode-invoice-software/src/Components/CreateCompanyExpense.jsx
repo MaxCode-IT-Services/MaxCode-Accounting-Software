@@ -210,6 +210,7 @@ const CreateCompanyExpense = ({
   const isViewMode = Boolean(editingRecord?.isViewMode);
   const uploadedExpenseViewUrl =
     editingRecord?.expenseFileURL ||
+    editingRecord?.expenseFileLink ||
     (editingRecord?.expenseFilePath
       ? formData.expenseURL || editingRecord?.expenseURL || ""
       : "") ||
@@ -800,27 +801,33 @@ const CreateCompanyExpense = ({
                     Upload Expense Document (Image/PDF)
                   </label>
 
-                  {!isViewMode ? (
+                  {!isViewMode && (
                     <input
                       type="file"
                       className="form-control modern-input file-picker-input"
                       accept="image/*,application/pdf"
                       onChange={handleExpenseFileChange}
                     />
-                  ) : uploadedExpenseViewUrl ? (
-                    <a
-                      href={uploadedExpenseViewUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-sm btn-outline-primary"
-                      title="Open uploaded expense document in new tab"
-                    >
-                      <i class="fa-solid fa-file-contract"></i>
-                    </a>
+                  )}
+
+                  {uploadedExpenseViewUrl ? (
+                    <div className="mt-2">
+                      <a
+                        href={uploadedExpenseViewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-sm btn-outline-primary"
+                        title="Open uploaded expense document in new tab"
+                      >
+                        <i class="fa-solid fa-file-contract"></i>
+                      </a>
+                    </div>
                   ) : (
-                    <span className="text-muted small">
-                      No uploaded expense file
-                    </span>
+                    isViewMode && (
+                      <span className="text-muted small">
+                        No uploaded expense file
+                      </span>
+                    )
                   )}
                 </div>
 

@@ -1101,6 +1101,7 @@ const CreateProject = ({
   const isViewMode = editingRecord?.isViewMode;
   const uploadedAgreementViewUrl =
     editingRecord?.projectAgreementFileURL ||
+    editingRecord?.projectAgreementFileLink ||
     (editingRecord?.projectAgreementFilePath
       ? formData.projectAgreementURL ||
         editingRecord?.projectAgreementURL ||
@@ -2327,27 +2328,33 @@ const CreateProject = ({
                             Upload Project Agreement (Image/PDF)
                           </label>
 
-                          {!isViewMode ? (
+                          {!isViewMode && (
                             <input
                               type="file"
                               className="form-control modern-input file-picker-input"
                               accept="image/*,application/pdf"
                               onChange={handleAgreementFileChange}
                             />
-                          ) : uploadedAgreementViewUrl ? (
-                            <a
-                              href={uploadedAgreementViewUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn btn-sm btn-outline-primary"
-                              title="Open uploaded agreement in new tab"
-                            >
-                              <i class="fa-solid fa-file-contract"></i>
-                            </a>
+                          )}
+
+                          {uploadedAgreementViewUrl ? (
+                            <div className="mt-2">
+                              <a
+                                href={uploadedAgreementViewUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-sm btn-outline-primary"
+                                title="Open uploaded agreement in new tab"
+                              >
+                                <i class="fa-solid fa-file-contract"></i>
+                              </a>
+                            </div>
                           ) : (
-                            <span className="text-muted small">
-                              No uploaded agreement file
-                            </span>
+                            isViewMode && (
+                              <span className="text-muted small">
+                                No uploaded agreement file
+                              </span>
+                            )
                           )}
                         </div>
                       </div>

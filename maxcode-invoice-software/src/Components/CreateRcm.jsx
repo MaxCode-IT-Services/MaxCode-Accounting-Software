@@ -636,6 +636,7 @@ const CreateRcm = ({
   const isViewMode = editingRecord?.isViewMode;
   const uploadedRcmViewUrl =
     editingRecord?.rcmFileURL ||
+    editingRecord?.rcmFileLink ||
     (editingRecord?.rcmFilePath
       ? formData.rcmURL || editingRecord?.rcmURL || ""
       : "") ||
@@ -1633,27 +1634,33 @@ const CreateRcm = ({
                             Upload RCM Document (Image/PDF)
                           </label>
 
-                          {!isViewMode ? (
+                          {!isViewMode && (
                             <input
                               type="file"
                               className="form-control modern-input file-picker-input"
                               accept="image/*,application/pdf"
                               onChange={handleRcmFileChange}
                             />
-                          ) : uploadedRcmViewUrl ? (
-                            <a
-                              href={uploadedRcmViewUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn btn-sm btn-outline-primary"
-                              title="Open uploaded RCM in new tab"
-                            >
-                              <i class="fa-solid fa-file-contract"></i>
-                            </a>
+                          )}
+
+                          {uploadedRcmViewUrl ? (
+                            <div className="mt-2">
+                              <a
+                                href={uploadedRcmViewUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-sm btn-outline-primary"
+                                title="Open uploaded RCM in new tab"
+                              >
+                                <i class="fa-solid fa-file-contract"></i>
+                              </a>
+                            </div>
                           ) : (
-                            <span className="text-muted small">
-                              No uploaded RCM file
-                            </span>
+                            isViewMode && (
+                              <span className="text-muted small">
+                                No uploaded RCM file
+                              </span>
+                            )
                           )}
                         </div>
                       </div>

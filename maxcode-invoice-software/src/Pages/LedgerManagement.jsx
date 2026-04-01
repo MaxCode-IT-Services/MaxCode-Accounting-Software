@@ -866,14 +866,17 @@ const LedgerManagement = () => {
       const totalAmount = getTotalAmount(record);
       const taxAmount = getTaxAmount(record);
       const taxableAmount = getTaxableAmount(record);
-      const paidAmount = getPaidAmount(record, totalAmount);
+      const paidAmount = Math.min(
+        getPaidAmount(record, totalAmount),
+        Math.max(taxableAmount, 0),
+      );
 
       totals.purchaseDebit += taxableAmount;
       totals.gstOutputCredit += taxAmount;
       totals.gstInputDebit += taxAmount;
       totals.rcmTaxOutput += taxAmount;
       totals.rcmTaxInput += taxAmount;
-      totals.sundryCreditorsCredit += Math.max(totalAmount - paidAmount, 0);
+      totals.sundryCreditorsCredit += Math.max(taxableAmount - paidAmount, 0);
 
       if (isCashPayment(record.paymentMethod)) {
         if (isOwnerPersonalPayment(record)) {
