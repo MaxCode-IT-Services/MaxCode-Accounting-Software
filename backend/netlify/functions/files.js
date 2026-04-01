@@ -1,6 +1,7 @@
 import { verifyRequestToken } from "./utils/auth.js";
 import { connectToDatabase } from "./utils/mongodb.js";
 import Busboy from "busboy";
+import JSZip from "jszip";
 import { inflateSync } from "node:zlib";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
 
@@ -39,12 +40,28 @@ const createResponse = (
   body: JSON.stringify(body),
 });
 
+const createBinaryResponse = (
+  statusCode,
+  buffer,
+  origin = null,
+  extraHeaders = {},
+) => ({
+  statusCode,
+  isBase64Encoded: true,
+  headers: {
+    ...getCorsHeaders(origin),
+    ...extraHeaders,
+  },
+  body: Buffer.from(buffer || Buffer.alloc(0)).toString("base64"),
+});
+
 const CLOUD_LIST_CACHE_TTL_MS = 20 * 1000;
 const cloudListCache = new Map();
 const CLOUD_LIST_ATTEMPT_TIMEOUT_MS = 7000;
 const CANCELLED_UPLOAD_TTL_MS = 10 * 60 * 1000;
 const cancelledUploads = new Map();
 const TEMP_UPLOAD_RETENTION_MS = 6 * 60 * 60 * 1000;
+const SECRET_MASK = "********";
 
 const getCloudCacheKey = (storeUrl = "", password = "") =>
   `${String(storeUrl || "").trim()}|${String(password || "").trim()}`;
@@ -106,8 +123,16 @@ const normalizeCloudflareSettings = (settings = {}) => {
     return null;
   }
 
+  const normalizeSecretValue = (value = "") => {
+    const normalized = String(value || "").trim();
+    if (!normalized || normalized === SECRET_MASK) {
+      return "";
+    }
+    return normalized;
+  };
+
   const normalizeUrl = (value = "") => {
-    const trimmed = String(value || "").trim();
+    const trimmed = normalizeSecretValue(value);
     if (!trimmed) return "";
     if (/^https?:\/\//i.test(trimmed)) {
       return trimmed.replace(/\/+$/, "");
@@ -118,9 +143,29 @@ const normalizeCloudflareSettings = (settings = {}) => {
   return {
     storeUrl: normalizeUrl(settings.storeUrl),
     publicDomain: normalizeUrl(settings.publicDomain),
-    password: String(settings.password || "").trim(),
+    password: normalizeSecretValue(settings.password),
     defaultFolder: String(settings.defaultFolder || "").trim() || "general",
   };
+};
+
+const mergeCloudflareSettings = (...settingsList) => {
+  const merged = {
+    storeUrl: "",
+    publicDomain: "",
+    password: "",
+    defaultFolder: "general",
+  };
+
+  settingsList.forEach((item) => {
+    const normalized = normalizeCloudflareSettings(item) || {};
+    if (normalized.storeUrl) merged.storeUrl = normalized.storeUrl;
+    if (normalized.publicDomain) merged.publicDomain = normalized.publicDomain;
+    if (normalized.password) merged.password = normalized.password;
+    if (normalized.defaultFolder)
+      merged.defaultFolder = normalized.defaultFolder;
+  });
+
+  return normalizeCloudflareSettings(merged);
 };
 
 const getHeaderValue = (headers = {}, key = "") => {
@@ -312,10 +357,17 @@ const getCloudflareSettingsFromDatabase = async () => {
         );
 
     const source = globalSettings || latestSettings || {};
+    const sourceSettings =
+      source?.settings && typeof source.settings === "object"
+        ? source.settings
+        : {};
     const nestedSettingsCandidates = [
       source.cloudflareSettings,
       source.r2Settings,
       source.cloudStorageSettings,
+      sourceSettings.cloudflareSettings,
+      sourceSettings.r2Settings,
+      sourceSettings.cloudStorageSettings,
     ];
 
     const nestedSettings = nestedSettingsCandidates.find(
@@ -329,19 +381,29 @@ const getCloudflareSettingsFromDatabase = async () => {
       defaultFolder: source.defaultFolder,
     };
 
+    const directSettingsFromWrapped = {
+      storeUrl: decryptSecretFromStorage(sourceSettings.storeUrl),
+      publicDomain: decryptSecretFromStorage(sourceSettings.publicDomain),
+      password: decryptSecretFromStorage(sourceSettings.password),
+      defaultFolder: sourceSettings.defaultFolder,
+    };
+
     const nestedStoreUrl = decryptSecretFromStorage(nestedSettings?.storeUrl);
     const nestedPublicDomain = decryptSecretFromStorage(
       nestedSettings?.publicDomain,
     );
     const nestedPassword = decryptSecretFromStorage(nestedSettings?.password);
 
-    return normalizeCloudflareSettings({
-      ...(nestedSettings || {}),
-      storeUrl: directSettings.storeUrl || nestedStoreUrl,
-      publicDomain: directSettings.publicDomain || nestedPublicDomain,
-      password: directSettings.password || nestedPassword,
-      ...directSettings,
-    });
+    return mergeCloudflareSettings(
+      nestedSettings || {},
+      {
+        storeUrl: nestedStoreUrl,
+        publicDomain: nestedPublicDomain,
+        password: nestedPassword,
+      },
+      directSettingsFromWrapped,
+      directSettings,
+    );
   } catch (error) {
     const message = String(error?.message || "").toLowerCase();
     const reason =
@@ -367,12 +429,26 @@ const getCloudflareSettingsFromEnvironment = () => {
   };
 
   return normalizeCloudflareSettings({
-    storeUrl: readEnv("CLOUDFLARE_STORE_URL", "Cloudflare_Store_Url"),
+    storeUrl: readEnv(
+      "CLOUDFLARE_STORE_URL",
+      "Cloudflare_Store_Url",
+      "CLOUDFLARE_WORKER_URL",
+      "R2_WORKER_URL",
+      "R2_STORE_URL",
+    ),
     publicDomain: readEnv(
       "CLOUDFLARE_PUBLIC_DOMAIN",
       "Cloudflare_Public_Domain",
+      "CLOUDFLARE_R2_PUBLIC_DOMAIN",
+      "R2_PUBLIC_DOMAIN",
     ),
-    password: readEnv("CLOUDFLARE_API_PASSWORD", "Cloudflare_API_Password"),
+    password: readEnv(
+      "CLOUDFLARE_API_PASSWORD",
+      "Cloudflare_API_Password",
+      "CLOUDFLARE_PASSWORD",
+      "R2_API_PASSWORD",
+      "R2_PASSWORD",
+    ),
     defaultFolder: readEnv(
       "CLOUDFLARE_DEFAULT_FOLDER",
       "Cloudflare_Default_Folder",
@@ -393,6 +469,44 @@ const safeFileName = (value = "") =>
   String(value || "")
     .trim()
     .replace(/[\\/]+/g, "-") || `file-${Date.now()}`;
+
+const normalizePathForMatch = (value = "") =>
+  String(value || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join("/");
+
+const removeRootSegment = (value = "") => {
+  const segments = normalizePathForMatch(value).split("/").filter(Boolean);
+  if (segments.length <= 1) return normalizePathForMatch(value);
+  return segments.slice(1).join("/");
+};
+
+const isPathInsideFolder = (recordPath = "", folderPath = "") => {
+  const normalizedRecordPath = normalizePathForMatch(recordPath);
+  const normalizedFolderPath = normalizePathForMatch(folderPath);
+
+  if (!normalizedRecordPath || !normalizedFolderPath) return false;
+
+  if (
+    normalizedRecordPath === normalizedFolderPath ||
+    normalizedRecordPath.startsWith(`${normalizedFolderPath}/`)
+  ) {
+    return true;
+  }
+
+  const trimmedRecordPath = removeRootSegment(normalizedRecordPath);
+  const trimmedFolderPath = removeRootSegment(normalizedFolderPath);
+
+  if (!trimmedRecordPath || !trimmedFolderPath) return false;
+
+  return (
+    trimmedRecordPath === trimmedFolderPath ||
+    trimmedRecordPath.startsWith(`${trimmedFolderPath}/`)
+  );
+};
 
 const sanitizePathSegment = (value = "") =>
   String(value || "")
@@ -1339,15 +1453,17 @@ export async function handler(event) {
       }
     }
 
-    let cloudflareSettings = getCloudflareSettingsFromEvent(event, parsedBody);
+    const eventSettings = getCloudflareSettingsFromEvent(event, parsedBody);
+    let cloudflareSettings = mergeCloudflareSettings(eventSettings);
     let cloudflareSettingsLoadError = null;
 
     if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
       try {
         const storedSettings = await getCloudflareSettingsFromDatabase();
-        if (storedSettings?.storeUrl && storedSettings?.password) {
-          cloudflareSettings = storedSettings;
-        }
+        cloudflareSettings = mergeCloudflareSettings(
+          cloudflareSettings,
+          storedSettings,
+        );
       } catch (settingsError) {
         cloudflareSettingsLoadError = settingsError;
       }
@@ -1355,9 +1471,10 @@ export async function handler(event) {
 
     if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
       const envSettings = getCloudflareSettingsFromEnvironment();
-      if (envSettings?.storeUrl && envSettings?.password) {
-        cloudflareSettings = envSettings;
-      }
+      cloudflareSettings = mergeCloudflareSettings(
+        cloudflareSettings,
+        envSettings,
+      );
     }
 
     if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
@@ -1415,6 +1532,7 @@ export async function handler(event) {
 
     if (event.httpMethod === "GET") {
       const {
+        action,
         id,
         page = 1,
         limit = 10,
@@ -1431,6 +1549,129 @@ export async function handler(event) {
       } = query;
 
       const allCloudRows = await getCloudRows();
+
+      if (String(action || "").toLowerCase() === "download-file") {
+        const rawFilePath = String(query.filePath || "").trim();
+        const decodedFilePath = (() => {
+          try {
+            return decodeURIComponent(rawFilePath);
+          } catch {
+            return rawFilePath;
+          }
+        })();
+
+        const normalizedTargetPath = normalizePathForMatch(decodedFilePath);
+        if (!normalizedTargetPath) {
+          return createResponse(
+            400,
+            { error: "filePath is required for file download." },
+            origin,
+          );
+        }
+
+        const targetRow = allCloudRows.find((row) => {
+          const rowPath = normalizePathForMatch(row?.filePath || "");
+          return rowPath.toLowerCase() === normalizedTargetPath.toLowerCase();
+        });
+
+        if (!targetRow) {
+          return createResponse(404, { error: "File not found." }, origin);
+        }
+
+        const downloaded = await downloadFromCloudflareStore({
+          storeUrl: cloudflareSettings.storeUrl,
+          password: cloudflareSettings.password,
+          objectPath: targetRow.filePath,
+          fallbackUrl: targetRow.fileUrl,
+        });
+
+        const downloadFileName = safeFileName(
+          targetRow.fileName ||
+            normalizePathForMatch(targetRow.filePath).split("/").pop() ||
+            "download",
+        );
+
+        return createBinaryResponse(200, downloaded.buffer, origin, {
+          "Content-Type": downloaded.mimeType || "application/octet-stream",
+          "Content-Disposition": `attachment; filename="${downloadFileName}"`,
+          "Cache-Control": "no-store",
+        });
+      }
+
+      if (String(action || "").toLowerCase() === "download-folder-zip") {
+        const folderPath = String(query.folderPath || "").trim();
+        if (!folderPath) {
+          return createResponse(
+            400,
+            { error: "folderPath is required for zip download." },
+            origin,
+          );
+        }
+
+        const matchingRows = allCloudRows.filter((row) => {
+          const filePath = String(row?.filePath || "").trim();
+          return filePath && isPathInsideFolder(filePath, folderPath);
+        });
+
+        if (!matchingRows.length) {
+          return createResponse(
+            404,
+            { error: "No files found in selected folder." },
+            origin,
+          );
+        }
+
+        const normalizedFolderPath = normalizePathForMatch(folderPath);
+        const zip = new JSZip();
+
+        for (const row of matchingRows) {
+          const objectPath = String(row?.filePath || "").trim();
+          if (!objectPath) continue;
+
+          const relativePathCandidate = normalizePathForMatch(
+            objectPath,
+          ).startsWith(`${normalizedFolderPath}/`)
+            ? normalizePathForMatch(objectPath).slice(
+                normalizedFolderPath.length + 1,
+              )
+            : removeRootSegment(objectPath);
+
+          const relativePath = String(relativePathCandidate || "")
+            .replace(/^\/+/, "")
+            .trim();
+
+          const zipEntryPath = relativePath || safeFileName(row.fileName || "");
+
+          const downloaded = await downloadFromCloudflareStore({
+            storeUrl: cloudflareSettings.storeUrl,
+            password: cloudflareSettings.password,
+            objectPath,
+            fallbackUrl: row.fileUrl,
+          });
+
+          zip.file(zipEntryPath, downloaded.buffer);
+        }
+
+        const zipBuffer = await zip.generateAsync({
+          type: "nodebuffer",
+          compression: "DEFLATE",
+          compressionOptions: { level: 6 },
+        });
+
+        const folderSegments = normalizePathForMatch(folderPath)
+          .split("/")
+          .filter(Boolean);
+        const zipBaseName = safeFileName(
+          folderSegments[folderSegments.length - 1] || "folder",
+        );
+
+        return createBinaryResponse(200, zipBuffer, origin, {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${zipBaseName}.zip"`,
+          "Cache-Control": "no-store",
+        });
+      }
+
       let filtered = [...allCloudRows];
 
       if (id) {

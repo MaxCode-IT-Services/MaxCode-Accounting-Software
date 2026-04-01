@@ -262,11 +262,11 @@ const buildTreeRows = (records = [], expandedFolderKeys = {}) => {
   };
 
   records.forEach((record, recordIndex) => {
-    const fullSegments = splitPath(record.filePath || "");
-    const displaySegments =
-      fullSegments.length > 1 ? fullSegments.slice(1) : [];
+    const fullSegments = splitPath(
+      record.filePath || `${record.folderName || ""}/${record.fileName || ""}`,
+    );
 
-    if (displaySegments.length <= 1) {
+    if (fullSegments.length <= 1) {
       const absolutePath =
         record.filePath || `${record.folderName}/${record.fileName}`;
       const uniqueFileRef = String(
@@ -302,52 +302,12 @@ const buildTreeRows = (records = [], expandedFolderKeys = {}) => {
     }
 
     let parentNode = null;
-    displaySegments.forEach((segment, index) => {
-      const isLast = index === displaySegments.length - 1;
-      const absolutePath = [
-        fullSegments[0],
-        ...displaySegments.slice(0, index + 1),
-      ].join("/");
+    const fileSegment =
+      fullSegments[fullSegments.length - 1] || record.fileName;
 
-      if (isLast) {
-        const uniqueFileRef = String(
-          record.id ||
-            record._id ||
-            absolutePath ||
-            `${record.folderName || ""}/${record.fileName || ""}` ||
-            `row-${recordIndex}`,
-        );
-        const fileSizeBytes =
-          Number(record.fileSizeBytes || 0) ||
-          parseFileSizeToBytes(record.fileSize);
-
-        const fileNode = {
-          id: `file:${uniqueFileRef}`,
-          key: `file:${uniqueFileRef}`,
-          rowType: "file",
-          name: segment || record.fileName,
-          fileName: segment || record.fileName,
-          depth: index,
-          absolutePath,
-          children: [],
-          folderName: record.folderName || "-",
-          uploadDate: record.uploadDate,
-          fileType: record.fileType,
-          fileSizeBytes,
-          fileSize: record.fileSize,
-          fileUrl: record.fileUrl,
-          sourceRecord: record,
-          isExpandable: false,
-        };
-
-        if (parentNode) {
-          parentNode.children.push(fileNode);
-        } else {
-          roots.push(fileNode);
-        }
-        return;
-      }
-
+    for (let index = 0; index < fullSegments.length - 1; index += 1) {
+      const segment = fullSegments[index];
+      const absolutePath = fullSegments.slice(0, index + 1).join("/");
       const folderKey = `folder:${absolutePath}`;
       const folderNode = ensureFolderNode({
         key: folderKey,
@@ -365,7 +325,44 @@ const buildTreeRows = (records = [], expandedFolderKeys = {}) => {
       }
 
       parentNode = folderNode;
-    });
+    }
+
+    const absolutePath = fullSegments.join("/");
+    const uniqueFileRef = String(
+      record.id ||
+        record._id ||
+        absolutePath ||
+        `${record.folderName || ""}/${record.fileName || ""}` ||
+        `row-${recordIndex}`,
+    );
+    const fileSizeBytes =
+      Number(record.fileSizeBytes || 0) ||
+      parseFileSizeToBytes(record.fileSize);
+
+    const fileNode = {
+      id: `file:${uniqueFileRef}`,
+      key: `file:${uniqueFileRef}`,
+      rowType: "file",
+      name: fileSegment || record.fileName,
+      fileName: fileSegment || record.fileName,
+      depth: Math.max(0, fullSegments.length - 1),
+      absolutePath,
+      children: [],
+      folderName: record.folderName || "-",
+      uploadDate: record.uploadDate,
+      fileType: record.fileType,
+      fileSizeBytes,
+      fileSize: record.fileSize,
+      fileUrl: record.fileUrl,
+      sourceRecord: record,
+      isExpandable: false,
+    };
+
+    if (parentNode) {
+      parentNode.children.push(fileNode);
+    } else {
+      roots.push(fileNode);
+    }
   });
 
   const sortNodes = (nodes = []) => {
@@ -461,6 +458,19 @@ const buildTreeRows = (records = [], expandedFolderKeys = {}) => {
   }));
 };
 
+const MIN_DOWNLOAD_SPINNER_MS = 500;
+
+const buildStableDownloadKey = (value = "") =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const waitForUiPaint = async () => {
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+};
+
 const FileManagement = () => {
   const moduleKey = "fileManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
@@ -499,6 +509,8 @@ const FileManagement = () => {
   const [showTempCleanupConfirm, setShowTempCleanupConfirm] = useState(false);
   const [isCloudflareSettingsReady, setIsCloudflareSettingsReady] =
     useState(false);
+  const [downloadingFolderKey, setDownloadingFolderKey] = useState("");
+  const [downloadingFileKey, setDownloadingFileKey] = useState("");
 
   const abortControllerRef = useRef(null);
 
@@ -540,7 +552,7 @@ const FileManagement = () => {
     "x-cloud-default-folder": String(settings?.defaultFolder || ""),
   });
 
-  const resolveCloudflareSettingsForRequest = async () => {
+  const resolveCloudflareSettingsForRequest = async (persistToState = true) => {
     const hasStateSettings = Boolean(cloudflareSettings?.storeUrl);
 
     if (hasStateSettings) {
@@ -552,7 +564,9 @@ const FileManagement = () => {
       const latestSettings = response?.data?.settings?.cloudflareSettings || {};
 
       if (latestSettings?.storeUrl) {
-        setCloudflareSettings(latestSettings);
+        if (persistToState) {
+          setCloudflareSettings(latestSettings);
+        }
         return latestSettings;
       }
     } catch {
@@ -567,8 +581,13 @@ const FileManagement = () => {
       ? settingsOverride
       : cloudflareSettings;
 
+    // Abort previous request if still pending
     if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+      try {
+        abortControllerRef.current.abort();
+      } catch {
+        // Ignore abort errors
+      }
     }
 
     const controller = new AbortController();
@@ -754,7 +773,6 @@ const FileManagement = () => {
       }, []);
 
       setRecords(normalizeRows(deduplicatedRows));
-      setExpandedFolderKeys({});
 
       const folderNames = Array.from(
         new Set(
@@ -795,7 +813,17 @@ const FileManagement = () => {
       );
       setDynamicFilterOptions(firstResponseData?.filterOptions || {});
     } catch (error) {
-      if (error.name === "CanceledError" || error.name === "AbortError") return;
+      // Silently ignore abort/cancel errors - expected when requests are cancelled
+      const isCancellationError =
+        error.name === "CanceledError" ||
+        error.name === "AbortError" ||
+        (error.code && error.code === "ECONNABORTED");
+
+      if (isCancellationError) {
+        // Don't log or show errors for cancelled requests
+        return;
+      }
+
       const backendError = extractApiErrorMessage(
         error,
         "Failed to fetch files",
@@ -917,6 +945,130 @@ const FileManagement = () => {
     showInfo(
       "Folder rename currently not available. Please edit individual files.",
     );
+  };
+
+  const handleFolderDownloadZip = async (folderRecord) => {
+    const folderPath = String(folderRecord?.absolutePath || "").trim();
+    const downloadKey = buildStableDownloadKey(
+      folderRecord?.expandKey || folderPath || "",
+    );
+    const spinnerStartedAt = Date.now();
+
+    if (!folderPath) {
+      showError("Folder path not found for download");
+      return;
+    }
+
+    setDownloadingFolderKey(downloadKey);
+    await waitForUiPaint();
+    showInfo("Your ZIP file is being prepared. Please wait...");
+
+    try {
+      const effectiveSettings =
+        await resolveCloudflareSettingsForRequest(false);
+      const response = await apiGet(
+        API_ENDPOINTS.FILES.DOWNLOAD_FOLDER_ZIP(folderPath),
+        {
+          headers: getCloudRequestHeaders(effectiveSettings),
+          responseType: "blob",
+          cache: false,
+          timeout: 180000,
+        },
+      );
+
+      const folderName =
+        splitPath(folderPath)[splitPath(folderPath).length - 1] || "folder";
+      const fileName = `${folderName}.zip`;
+      const blob = new Blob([response.data], { type: "application/zip" });
+      const downloadUrl = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      showSuccess(`Folder zip download started: ${fileName}`);
+    } catch (error) {
+      showError(extractApiErrorMessage(error, "Failed to download folder zip"));
+    } finally {
+      const elapsed = Date.now() - spinnerStartedAt;
+      if (elapsed < MIN_DOWNLOAD_SPINNER_MS) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, MIN_DOWNLOAD_SPINNER_MS - elapsed),
+        );
+      }
+      setDownloadingFolderKey("");
+    }
+  };
+
+  const handleFileDownload = async (fileRecord) => {
+    const source = fileRecord?.sourceRecord || fileRecord;
+    const filePath = String(source?.filePath || "")
+      .replace(/^\/+/, "")
+      .trim();
+    const fileKey = buildStableDownloadKey(
+      source?.id || source?._id || filePath || "",
+    );
+    const spinnerStartedAt = Date.now();
+
+    if (!filePath) {
+      showError("File path not found for download");
+      return;
+    }
+
+    setDownloadingFileKey(fileKey);
+    await waitForUiPaint();
+    showInfo("Your file is being prepared for download. Please wait...");
+
+    try {
+      const effectiveSettings =
+        await resolveCloudflareSettingsForRequest(false);
+      const response = await apiGet(
+        API_ENDPOINTS.FILES.DOWNLOAD_FILE(filePath),
+        {
+          headers: getCloudRequestHeaders(effectiveSettings),
+          responseType: "blob",
+          cache: false,
+          timeout: 180000,
+        },
+      );
+
+      const headerDisposition = String(
+        response?.headers?.["content-disposition"] || "",
+      );
+      const filenameMatch = headerDisposition.match(/filename="?([^";]+)"?/i);
+      const fileName =
+        (filenameMatch && filenameMatch[1]) ||
+        String(source?.fileName || "downloaded-file");
+
+      const blob = new Blob([response.data], {
+        type: response?.headers?.["content-type"] || "application/octet-stream",
+      });
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      showSuccess(`File download started: ${fileName}`);
+    } catch (error) {
+      showError(extractApiErrorMessage(error, "Failed to download file"));
+    } finally {
+      const elapsed = Date.now() - spinnerStartedAt;
+      if (elapsed < MIN_DOWNLOAD_SPINNER_MS) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, MIN_DOWNLOAD_SPINNER_MS - elapsed),
+        );
+      }
+      setDownloadingFileKey("");
+    }
   };
 
   const handleFolderDelete = async (folderRecord) => {
@@ -1135,10 +1287,20 @@ const FileManagement = () => {
     {
       key: "action",
       label: "Actions",
-      width: 180,
+      width: 220,
       render: (_, record) => {
         const sourceRecord = record.sourceRecord;
         const isFile = record.rowType === "file";
+        const folderDownloadKey = buildStableDownloadKey(
+          record.expandKey || record.absolutePath || "",
+        );
+        const isDownloadingFolder =
+          !isFile && downloadingFolderKey === folderDownloadKey;
+        const fileDownloadKey = buildStableDownloadKey(
+          sourceRecord?.id || sourceRecord?._id || sourceRecord?.filePath || "",
+        );
+        const isDownloadingFile =
+          isFile && downloadingFileKey === fileDownloadKey;
 
         return (
           <div className="d-flex">
@@ -1155,6 +1317,38 @@ const FileManagement = () => {
               disabled={isFile ? !record.fileUrl : false}
             >
               <i className="fa-solid fa-eye"></i>
+            </button>
+            <button
+              className="btn btn-sm btn-outline-success me-1"
+              onClick={() => {
+                if (isFile && sourceRecord) {
+                  handleFileDownload(sourceRecord);
+                } else {
+                  handleFolderDownloadZip(record);
+                }
+              }}
+              title={isFile ? "Download File" : "Download Folder Zip"}
+              disabled={isFile ? isDownloadingFile : isDownloadingFolder}
+            >
+              {isFile ? (
+                isDownloadingFile ? (
+                  <span
+                    className="spinner-border spinner-border-sm"
+                    role="status"
+                    aria-hidden="true"
+                  ></span>
+                ) : (
+                  <i className="fa-solid fa-download"></i>
+                )
+              ) : isDownloadingFolder ? (
+                <span
+                  className="spinner-border spinner-border-sm"
+                  role="status"
+                  aria-hidden="true"
+                ></span>
+              ) : (
+                <i className="fa-solid fa-download"></i>
+              )}
             </button>
             <button
               className="btn btn-sm btn-outline-primary me-1"
@@ -1415,7 +1609,11 @@ const FileManagement = () => {
         moduleKey={moduleKey}
         columns={columns}
         data={visiblePageRows}
-        loading={loading}
+        loading={
+          loading &&
+          !Boolean(downloadingFileKey) &&
+          !Boolean(downloadingFolderKey)
+        }
         totalRecords={totalRecords}
         onDelete={handleDelete}
         onEdit={handleEditOpen}

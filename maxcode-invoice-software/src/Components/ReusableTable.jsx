@@ -266,6 +266,32 @@ const ReusableTable = ({
     setAllData(data);
   }, [data]);
 
+  // Keep internal table column definitions in sync with latest prop renderers.
+  // Preserve user-resized widths when possible so UX stays consistent.
+  useEffect(() => {
+    setTableColumns((prevColumns) => {
+      const previousByKey = new Map(
+        (Array.isArray(prevColumns) ? prevColumns : []).map((col) => [
+          col.key,
+          col,
+        ]),
+      );
+
+      return (Array.isArray(columns) ? columns : []).map((column) => {
+        const previous = previousByKey.get(column.key);
+        if (!previous) return column;
+
+        return {
+          ...column,
+          width:
+            previous.width !== undefined && previous.width !== null
+              ? previous.width
+              : column.width,
+        };
+      });
+    });
+  }, [columns]);
+
   // Update currentPage when prop changes
   useEffect(() => {
     setCurrentPage(propCurrentPage);

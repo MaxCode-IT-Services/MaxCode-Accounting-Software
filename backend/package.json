@@ -17,6 +17,7 @@
     "dotenv": "^16.4.5",
     "googleapis": "^171.4.0",
     "jsonwebtoken": "^9.0.2",
+    "jszip": "^3.10.1",
     "mongodb": "^6.3.0",
     "qrcode": "^1.5.3",
     "speakeasy": "^2.0.0"

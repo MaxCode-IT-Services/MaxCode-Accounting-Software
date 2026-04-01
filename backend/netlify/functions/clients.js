@@ -8,6 +8,19 @@ let clientsMetaCache = {
   expiresAt: 0,
 };
 
+const buildClientIdFromNameAndMobile = ({ name = "", phoneNumber = "" }) => {
+  const normalizedPhone = String(phoneNumber).replace(/\D/g, "");
+  const normalizedName = String(name)
+    .replace(/[^a-zA-Z]/g, "")
+    .toUpperCase();
+
+  if (normalizedPhone.length !== 10 || normalizedName.length < 2) {
+    return null;
+  }
+
+  return `MC${normalizedPhone.slice(0, 2)}${normalizedName.slice(0, 2)}${normalizedPhone.slice(-6)}`;
+};
+
 /**
  * Client Management API
  * Handles CRUD operations for clients with pagination support
@@ -32,6 +45,7 @@ export async function handler(event) {
     // GET - Fetch all clients or specific client by ID with pagination support
     if (event.httpMethod === "GET") {
       const {
+        action,
         id,
         page = 1,
         limit = 10,
@@ -46,6 +60,38 @@ export async function handler(event) {
         sortOrder = "desc",
         filter, // For card filters
       } = event.queryStringParameters || {};
+
+      if (action === "generate-client-id") {
+        const generatedClientId = buildClientIdFromNameAndMobile({
+          name: event.queryStringParameters?.name,
+          phoneNumber: event.queryStringParameters?.phoneNumber,
+        });
+
+        if (!generatedClientId) {
+          return createResponse(
+            400,
+            {
+              error:
+                "A valid 10-digit phone number and minimum 2-letter client name are required.",
+            },
+            origin,
+          );
+        }
+
+        const existingClient = await clientsCollection.findOne({
+          clientId: generatedClientId,
+          isDeleted: { $ne: true },
+        });
+
+        return createResponse(
+          200,
+          {
+            clientId: generatedClientId,
+            exists: Boolean(existingClient),
+          },
+          origin,
+        );
+      }
 
       // If ID is provided, return single client
       if (id) {

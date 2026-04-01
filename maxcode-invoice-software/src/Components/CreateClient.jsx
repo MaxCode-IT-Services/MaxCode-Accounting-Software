@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Select from "react-select";
 import { showSuccess, showError } from "./ToastNotification";
-import { apiPost, apiPut } from "../utils/api";
+import { apiGet, apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
@@ -20,6 +20,7 @@ const CreateClient = ({ show, onClose, onSubmit, editingRecord = null }) => {
   });
 
   const [errors, setErrors] = useState({});
+  const [isGeneratingClientId, setIsGeneratingClientId] = useState(false);
 
   // GSTIN validation function (same pattern as Laravel code)
   const validateGSTIN = (gstin) => {
@@ -317,6 +318,75 @@ const CreateClient = ({ show, onClose, onSubmit, editingRecord = null }) => {
 
   const [submitting, setSubmitting] = useState(false);
 
+  const canAutoGenerateClientId =
+    !editingRecord &&
+    /^[A-Za-z\s]{2,}/.test(formData.clientName || "") &&
+    /^\d{10}$/.test(formData.phoneNumber || "");
+
+  useEffect(() => {
+    if (editingRecord || !show) return;
+
+    if (!canAutoGenerateClientId) {
+      setFormData((prev) => {
+        if (!prev.clientId) return prev;
+        return { ...prev, clientId: "" };
+      });
+      return;
+    }
+
+    let isActive = true;
+    const timeoutId = setTimeout(async () => {
+      setIsGeneratingClientId(true);
+      try {
+        const response = await apiGet(
+          API_ENDPOINTS.CLIENTS.GENERATE_ID(
+            formData.clientName,
+            formData.phoneNumber,
+          ),
+        );
+
+        if (!isActive) return;
+
+        const generatedClientId = response?.data?.clientId || "";
+        const idExists = response?.data?.exists === true;
+
+        setFormData((prev) => ({
+          ...prev,
+          clientId: generatedClientId,
+        }));
+
+        setErrors((prev) => ({
+          ...prev,
+          clientId: idExists
+            ? "Generated Client ID already exists. Please change Name or Phone Number."
+            : "",
+        }));
+      } catch (error) {
+        if (!isActive) return;
+        setFormData((prev) => ({ ...prev, clientId: "" }));
+        setErrors((prev) => ({
+          ...prev,
+          clientId: "Unable to generate Client ID right now. Please try again.",
+        }));
+      } finally {
+        if (isActive) {
+          setIsGeneratingClientId(false);
+        }
+      }
+    }, 350);
+
+    return () => {
+      isActive = false;
+      clearTimeout(timeoutId);
+    };
+  }, [
+    canAutoGenerateClientId,
+    editingRecord,
+    formData.clientName,
+    formData.phoneNumber,
+    show,
+  ]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -429,8 +499,12 @@ const CreateClient = ({ show, onClose, onSubmit, editingRecord = null }) => {
                     name="clientId"
                     value={formData.clientId}
                     onChange={handleInputChange}
-                    placeholder="Enter Client ID (e.g., CL001)"
-                    readOnly={isViewMode}
+                    placeholder={
+                      editingRecord
+                        ? "Enter Client ID"
+                        : "Auto generated from Name and Phone"
+                    }
+                    readOnly={isViewMode || !editingRecord}
                     maxLength="20"
                   />
                   {errors.clientId && (

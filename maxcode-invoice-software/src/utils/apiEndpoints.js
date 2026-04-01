@@ -15,6 +15,8 @@ const API_ENDPOINTS = {
   CLIENTS: {
     LIST: "/clients",
     CREATE: "/clients",
+    GENERATE_ID: (name, phoneNumber) =>
+      `/clients?action=generate-client-id&name=${encodeURIComponent(name || "")}&phoneNumber=${encodeURIComponent(phoneNumber || "")}`,
     GET: (id) => `/clients?id=${id}`,
     UPDATE: (id) => `/clients?id=${id}`,
     DELETE: (id) => `/clients?id=${id}`,
@@ -33,6 +35,10 @@ const API_ENDPOINTS = {
   FILES: {
     LIST: "/files",
     CREATE: "/files",
+    DOWNLOAD_FOLDER_ZIP: (folderPath) =>
+      `/files?action=download-folder-zip&folderPath=${encodeURIComponent(folderPath || "")}`,
+    DOWNLOAD_FILE: (filePath) =>
+      `/files?action=download-file&filePath=${encodeURIComponent(filePath || "")}`,
     GET: (id) => `/files?id=${encodeURIComponent(id)}`,
     UPDATE: (id) => `/files?id=${encodeURIComponent(id)}`,
     DELETE: (id) => `/files?id=${encodeURIComponent(id)}`,
