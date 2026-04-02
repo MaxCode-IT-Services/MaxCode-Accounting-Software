@@ -27,15 +27,44 @@ const CARD_FILTERS = {
   withServer: (record) =>
     Boolean(
       String(record.serverName || "").trim() ||
-      String(record.serverUsername || "").trim() ||
-      String(record.serverPassword || "").trim(),
+      String(record.serverRootUsername || record.serverUsername || "").trim() ||
+      String(record.serverRootPassword || record.serverPassword || "").trim(),
     ),
   withDatabase: (record) =>
     Boolean(
       String(record.databaseName || "").trim() ||
-      String(record.databaseId || "").trim() ||
-      String(record.databasePassword || "").trim(),
+      String(record.databaseRootUsername || record.databaseId || "").trim() ||
+      String(
+        record.databaseRootPassword || record.databasePassword || "",
+      ).trim(),
     ),
+};
+
+const DATE_FILTER_COLUMNS = ["createdDateTime"];
+
+const formatDateTimeForDisplay = (dateString) => {
+  if (!dateString) return "";
+
+  try {
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return dateString;
+
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+
+    let hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const seconds = String(date.getSeconds()).padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+
+    hours = hours % 12;
+    hours = hours || 12;
+
+    return `${day}/${month}/${year} | ${String(hours).padStart(2, "0")}:${minutes}:${seconds} ${ampm}`;
+  } catch (error) {
+    return dateString;
+  }
 };
 
 const ProjectCredentials = () => {
@@ -166,9 +195,9 @@ const ProjectCredentials = () => {
           record.appGithubRepoName,
           record.appGithubUrl,
           record.serverName,
-          record.serverUsername,
+          record.serverRootUsername || record.serverUsername,
           record.databaseName,
-          record.databaseId,
+          record.databaseRootUsername || record.databaseId,
           record.appUsername,
         ]
           .join(" ")
@@ -242,6 +271,19 @@ const ProjectCredentials = () => {
           )
             return;
 
+          if (
+            DATE_FILTER_COLUMNS.includes(key) &&
+            value &&
+            typeof value === "object"
+          ) {
+            const backendKey = key === "createdDateTime" ? "createdAt" : key;
+            if (value.startDate)
+              params.append(`${backendKey}_start`, value.startDate);
+            if (value.endDate)
+              params.append(`${backendKey}_end`, value.endDate);
+            return;
+          }
+
           if (Array.isArray(value) && value.length > 0) {
             params.append(key, value.join(","));
           } else if (!Array.isArray(value)) {
@@ -250,7 +292,10 @@ const ProjectCredentials = () => {
         });
 
         if (sortField && sortDirection !== "normal") {
-          params.append("sortBy", sortField);
+          params.append(
+            "sortBy",
+            sortField === "createdDateTime" ? "createdAt" : sortField,
+          );
           params.append(
             "sortOrder",
             sortDirection === "ascending" ? "asc" : "desc",
@@ -279,6 +324,16 @@ const ProjectCredentials = () => {
           data.map((record, index) => ({
             ...record,
             id: record._id || record.id,
+            serverRootUsername:
+              record.serverRootUsername || record.serverUsername || "",
+            serverRootPassword:
+              record.serverRootPassword || record.serverPassword || "",
+            databaseRootUsername:
+              record.databaseRootUsername || record.databaseId || "",
+            databaseRootPassword:
+              record.databaseRootPassword || record.databasePassword || "",
+            createdDate:
+              record.createdDate || record.createdAt || record.created_on,
             sn: (currentPage - 1) * recordsPerPage + index + 1,
           })),
         );
@@ -296,6 +351,16 @@ const ProjectCredentials = () => {
       const source = (response.data?.data || []).map((record) => ({
         ...record,
         id: record._id || record.id,
+        serverRootUsername:
+          record.serverRootUsername || record.serverUsername || "",
+        serverRootPassword:
+          record.serverRootPassword || record.serverPassword || "",
+        databaseRootUsername:
+          record.databaseRootUsername || record.databaseId || "",
+        databaseRootPassword:
+          record.databaseRootPassword || record.databasePassword || "",
+        createdDate:
+          record.createdDate || record.createdAt || record.created_on,
       }));
 
       setAllClientSideRecords(source);
@@ -399,9 +464,17 @@ const ProjectCredentials = () => {
     { key: "appGithubRepoName", label: "App Repo", width: 180 },
     { key: "appGithubUrl", label: "App URL", width: 220 },
     { key: "serverName", label: "Server Name", width: 150 },
-    { key: "serverUsername", label: "Server UserName", width: 150 },
+    {
+      key: "serverRootUsername",
+      label: "Server Root UserName",
+      width: 170,
+    },
     { key: "databaseName", label: "Database Name", width: 160 },
-    { key: "databaseId", label: "Database ID", width: 150 },
+    {
+      key: "databaseRootUsername",
+      label: "Database Root User Name",
+      width: 190,
+    },
     { key: "appUsername", label: "App User Name", width: 150 },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
     { key: "action", label: "Actions", width: 140 },
@@ -524,8 +597,12 @@ const ProjectCredentials = () => {
   const getCardNumber = (index) => (index % 8) + 1;
 
   const preparedData = useMemo(() => {
-    return serverSide ? records : records;
-  }, [records, serverSide, allClientSideRecords]);
+    return records.map((record) => ({
+      ...record,
+      createdDateTime:
+        record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
+    }));
+  }, [records, allClientSideRecords]);
 
   return (
     <>

@@ -20,11 +20,11 @@ const INITIAL_FORM = {
   appGithubRepoName: "",
   appGithubUrl: "",
   serverName: "",
-  serverUsername: "",
-  serverPassword: "",
+  serverRootUsername: "",
+  serverRootPassword: "",
   databaseName: "",
-  databaseId: "",
-  databasePassword: "",
+  databaseRootUsername: "",
+  databaseRootPassword: "",
   appUsername: "",
   appPassword: "",
   customFields: [],
@@ -50,6 +50,7 @@ const SECRET_CUSTOM_FIELD_TYPES = [
   "access-token",
   "secret",
   "bearer-token",
+  "user-id",
 ];
 
 const CUSTOM_FIELD_TYPES = [
@@ -66,6 +67,7 @@ const CUSTOM_FIELD_TYPES = [
   { value: "api-key", label: "API Key" },
   { value: "client-id", label: "Client ID" },
   { value: "client-secret", label: "Client Secret" },
+  { value: "user-id", label: "User/ID" },
   { value: "refresh-token", label: "Refresh Token" },
   { value: "access-token", label: "Access Token" },
   { value: "secret", label: "Secret" },
@@ -76,7 +78,9 @@ const CUSTOM_FIELD_TYPES = [
   { value: "time", label: "Time" },
   { value: "url", label: "URL" },
   { value: "week", label: "Week" },
-];
+].sort((a, b) =>
+  a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+);
 
 const createCustomFieldRow = (seed = Date.now()) => ({
   id: `${seed}-${Math.random().toString(36).slice(2, 8)}`,
@@ -162,8 +166,11 @@ const CreateCredentials = ({
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
   const [showPasswords, setShowPasswords] = useState({
-    serverPassword: false,
-    databasePassword: false,
+    serverRootUsername: false,
+    serverRootPassword: false,
+    databaseRootUsername: false,
+    databaseRootPassword: false,
+    appUsername: false,
     appPassword: false,
   });
   const [customPasswordVisibility, setCustomPasswordVisibility] = useState({});
@@ -215,11 +222,21 @@ const CreateCredentials = ({
         appGithubRepoName: editingRecord.appGithubRepoName || "",
         appGithubUrl: editingRecord.appGithubUrl || "",
         serverName: editingRecord.serverName || "",
-        serverUsername: editingRecord.serverUsername || "",
-        serverPassword: editingRecord.serverPassword || "",
+        serverRootUsername:
+          editingRecord.serverRootUsername ||
+          editingRecord.serverUsername ||
+          "",
+        serverRootPassword:
+          editingRecord.serverRootPassword ||
+          editingRecord.serverPassword ||
+          "",
         databaseName: editingRecord.databaseName || "",
-        databaseId: editingRecord.databaseId || "",
-        databasePassword: editingRecord.databasePassword || "",
+        databaseRootUsername:
+          editingRecord.databaseRootUsername || editingRecord.databaseId || "",
+        databaseRootPassword:
+          editingRecord.databaseRootPassword ||
+          editingRecord.databasePassword ||
+          "",
         appUsername: editingRecord.appUsername || "",
         appPassword: editingRecord.appPassword || "",
         customFields: normalizeCustomFieldsForForm(editingRecord.customFields),
@@ -230,8 +247,11 @@ const CreateCredentials = ({
 
     setErrors({});
     setShowPasswords({
-      serverPassword: false,
-      databasePassword: false,
+      serverRootUsername: false,
+      serverRootPassword: false,
+      databaseRootUsername: false,
+      databaseRootPassword: false,
+      appUsername: false,
       appPassword: false,
     });
     setCustomPasswordVisibility({});
@@ -242,8 +262,11 @@ const CreateCredentials = ({
 
     clearAllSecretAutoHideTimers();
     setShowPasswords({
-      serverPassword: false,
-      databasePassword: false,
+      serverRootUsername: false,
+      serverRootPassword: false,
+      databaseRootUsername: false,
+      databaseRootPassword: false,
+      appUsername: false,
       appPassword: false,
     });
     setCustomPasswordVisibility({});
@@ -838,24 +861,9 @@ const CreateCredentials = ({
       : `Edit Credentials - ${editingRecord.projectName || ""}`
     : "Add Project Credentials";
 
-  const sortedCustomFields = (() => {
-    const fields = Array.isArray(formData.customFields)
-      ? formData.customFields
-      : [];
-    return [...fields].sort((a, b) => {
-      const nameA = String(a?.name || "")
-        .trim()
-        .toLowerCase();
-      const nameB = String(b?.name || "")
-        .trim()
-        .toLowerCase();
-
-      if (!nameA && !nameB) return 0;
-      if (!nameA) return 1;
-      if (!nameB) return -1;
-      return nameA.localeCompare(nameB);
-    });
-  })();
+  const orderedCustomFields = Array.isArray(formData.customFields)
+    ? formData.customFields
+    : [];
 
   const getCustomFieldInputType = (type) => {
     if (type === "number" || type === "numeric") return "number";
@@ -1206,32 +1214,32 @@ const CreateCredentials = ({
                   "Server Name",
                   "Enter server name",
                 )}
-                {renderTextInput(
-                  "serverUsername",
-                  "Server UserName",
-                  "Enter server username",
+                {renderPasswordInput(
+                  "serverRootUsername",
+                  "Server Root UserName",
+                  "Enter server root username",
                 )}
                 {renderPasswordInput(
-                  "serverPassword",
-                  "Server Password",
-                  "Enter server password",
+                  "serverRootPassword",
+                  "Server Root Password",
+                  "Enter server root password",
                 )}
                 {renderTextInput(
                   "databaseName",
                   "Database Name",
                   "Enter database name",
                 )}
-                {renderTextInput(
-                  "databaseId",
-                  "Database ID",
-                  "Enter database ID",
+                {renderPasswordInput(
+                  "databaseRootUsername",
+                  "Database Root User Name",
+                  "Enter database root user name",
                 )}
                 {renderPasswordInput(
-                  "databasePassword",
-                  "Database Password",
-                  "Enter database password",
+                  "databaseRootPassword",
+                  "Database Root User Password",
+                  "Enter database root user password",
                 )}
-                {renderTextInput(
+                {renderPasswordInput(
                   "appUsername",
                   "App User Name",
                   "Enter app username",
@@ -1302,7 +1310,7 @@ const CreateCredentials = ({
                             </tr>
                           </thead>
                           <tbody>
-                            {sortedCustomFields.map((field, index) => (
+                            {orderedCustomFields.map((field, index) => (
                               <tr key={field.id}>
                                 <td className="text-center align-middle">
                                   <strong>{index + 1}</strong>
@@ -1416,7 +1424,7 @@ const CreateCredentials = ({
                       </div>
 
                       <div className="d-lg-none">
-                        {sortedCustomFields.map((field, index) => (
+                        {orderedCustomFields.map((field, index) => (
                           <div
                             key={field.id}
                             className="card border mb-3 shadow-sm"

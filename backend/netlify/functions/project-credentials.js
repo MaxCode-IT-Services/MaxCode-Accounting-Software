@@ -5,7 +5,22 @@ import crypto from "crypto";
 
 const SECRET_MASK = "********";
 const ENCRYPTED_PREFIX = "enc:v1:";
-const SENSITIVE_FIELDS = ["serverPassword", "databasePassword", "appPassword"];
+const SENSITIVE_FIELDS = [
+  "serverRootUsername",
+  "serverRootPassword",
+  "databaseRootUsername",
+  "databaseRootPassword",
+  "appUsername",
+  "appPassword",
+];
+const LEGACY_SENSITIVE_ALIASES = {
+  serverRootUsername: ["serverRootUsername", "serverUsername"],
+  serverRootPassword: ["serverRootPassword", "serverPassword"],
+  databaseRootUsername: ["databaseRootUsername", "databaseId"],
+  databaseRootPassword: ["databaseRootPassword", "databasePassword"],
+  appUsername: ["appUsername"],
+  appPassword: ["appPassword"],
+};
 const SECRET_CUSTOM_FIELD_TYPES = [
   "password",
   "env-variable",
@@ -16,6 +31,7 @@ const SECRET_CUSTOM_FIELD_TYPES = [
   "access-token",
   "secret",
   "bearer-token",
+  "user-id",
 ];
 
 let cachedEncryptionKey = null;
@@ -109,7 +125,12 @@ const applySecretProtection = (nextPayload, existingRecord = null) => {
 
   SENSITIVE_FIELDS.forEach((field) => {
     const incomingValue = String(nextPayload?.[field] || "").trim();
-    const existingValue = String(existingRecord?.[field] || "").trim();
+    const aliases = LEGACY_SENSITIVE_ALIASES[field] || [field];
+    const existingValue = String(
+      aliases
+        .map((key) => existingRecord?.[key])
+        .find((value) => String(value || "").trim()) || "",
+    ).trim();
 
     if (isMaskedSecretValue(incomingValue)) {
       protectedPayload[field] = existingValue;
@@ -162,10 +183,26 @@ const applySecretProtection = (nextPayload, existingRecord = null) => {
 const sanitizeRecordForResponse = (record) => {
   if (!record || typeof record !== "object") return record;
 
-  const sanitized = { ...record };
+  const sanitized = {
+    ...record,
+    serverRootUsername:
+      record.serverRootUsername || String(record.serverUsername || "").trim(),
+    serverRootPassword:
+      record.serverRootPassword || String(record.serverPassword || "").trim(),
+    databaseRootUsername:
+      record.databaseRootUsername || String(record.databaseId || "").trim(),
+    databaseRootPassword:
+      record.databaseRootPassword ||
+      String(record.databasePassword || "").trim(),
+  };
+
+  delete sanitized.serverUsername;
+  delete sanitized.serverPassword;
+  delete sanitized.databaseId;
+  delete sanitized.databasePassword;
 
   SENSITIVE_FIELDS.forEach((field) => {
-    sanitized[field] = maskSecretValue(record[field]);
+    sanitized[field] = maskSecretValue(sanitized[field]);
   });
 
   sanitized.customFields = Array.isArray(record.customFields)
@@ -188,9 +225,16 @@ const revealSecretValueFromRecord = ({ record, field, customFieldId }) => {
   const normalizedField = String(field || "").trim();
 
   if (SENSITIVE_FIELDS.includes(normalizedField)) {
+    const aliases = LEGACY_SENSITIVE_ALIASES[normalizedField] || [
+      normalizedField,
+    ];
+    const rawValue = aliases
+      .map((key) => record?.[key])
+      .find((value) => String(value || "").trim());
+
     return {
       key: normalizedField,
-      value: decryptSecretValue(record?.[normalizedField] || ""),
+      value: decryptSecretValue(rawValue || ""),
     };
   }
 
@@ -408,6 +452,8 @@ export async function handler(event) {
           case "withServer":
             filterQuery.$or = [
               { serverName: { $exists: true, $ne: "" } },
+              { serverRootUsername: { $exists: true, $ne: "" } },
+              { serverRootPassword: { $exists: true, $ne: "" } },
               { serverUsername: { $exists: true, $ne: "" } },
               { serverPassword: { $exists: true, $ne: "" } },
             ];
@@ -415,6 +461,8 @@ export async function handler(event) {
           case "withDatabase":
             filterQuery.$or = [
               { databaseName: { $exists: true, $ne: "" } },
+              { databaseRootUsername: { $exists: true, $ne: "" } },
+              { databaseRootPassword: { $exists: true, $ne: "" } },
               { databaseId: { $exists: true, $ne: "" } },
               { databasePassword: { $exists: true, $ne: "" } },
             ];
@@ -436,8 +484,10 @@ export async function handler(event) {
             { appGithubRepoName: { $regex: search, $options: "i" } },
             { appGithubUrl: { $regex: search, $options: "i" } },
             { serverName: { $regex: search, $options: "i" } },
+            { serverRootUsername: { $regex: search, $options: "i" } },
             { serverUsername: { $regex: search, $options: "i" } },
             { databaseName: { $regex: search, $options: "i" } },
+            { databaseRootUsername: { $regex: search, $options: "i" } },
             { databaseId: { $regex: search, $options: "i" } },
             { appUsername: { $regex: search, $options: "i" } },
           ],
@@ -489,6 +539,8 @@ export async function handler(event) {
         isDeleted: { $ne: true },
         $or: [
           { serverName: { $exists: true, $ne: "" } },
+          { serverRootUsername: { $exists: true, $ne: "" } },
+          { serverRootPassword: { $exists: true, $ne: "" } },
           { serverUsername: { $exists: true, $ne: "" } },
           { serverPassword: { $exists: true, $ne: "" } },
         ],
@@ -497,6 +549,8 @@ export async function handler(event) {
         isDeleted: { $ne: true },
         $or: [
           { databaseName: { $exists: true, $ne: "" } },
+          { databaseRootUsername: { $exists: true, $ne: "" } },
+          { databaseRootPassword: { $exists: true, $ne: "" } },
           { databaseId: { $exists: true, $ne: "" } },
           { databasePassword: { $exists: true, $ne: "" } },
         ],
@@ -536,8 +590,25 @@ export async function handler(event) {
         clientName: String(payload.clientName || "").trim(),
         businessName: String(payload.businessName || "").trim(),
         projectName: String(payload.projectName || "").trim(),
+        serverRootUsername: String(
+          payload.serverRootUsername || payload.serverUsername || "",
+        ).trim(),
+        serverRootPassword: String(
+          payload.serverRootPassword || payload.serverPassword || "",
+        ).trim(),
+        databaseRootUsername: String(
+          payload.databaseRootUsername || payload.databaseId || "",
+        ).trim(),
+        databaseRootPassword: String(
+          payload.databaseRootPassword || payload.databasePassword || "",
+        ).trim(),
         customFields: normalizeCustomFields(payload.customFields),
       };
+
+      delete normalizedPayload.serverUsername;
+      delete normalizedPayload.serverPassword;
+      delete normalizedPayload.databaseId;
+      delete normalizedPayload.databasePassword;
 
       const securedPayload = applySecretProtection(normalizedPayload, null);
 
@@ -629,8 +700,25 @@ export async function handler(event) {
         clientName: String(payload.clientName || "").trim(),
         businessName: String(payload.businessName || "").trim(),
         projectName: String(payload.projectName || "").trim(),
+        serverRootUsername: String(
+          payload.serverRootUsername || payload.serverUsername || "",
+        ).trim(),
+        serverRootPassword: String(
+          payload.serverRootPassword || payload.serverPassword || "",
+        ).trim(),
+        databaseRootUsername: String(
+          payload.databaseRootUsername || payload.databaseId || "",
+        ).trim(),
+        databaseRootPassword: String(
+          payload.databaseRootPassword || payload.databasePassword || "",
+        ).trim(),
         customFields: normalizeCustomFields(payload.customFields),
       };
+
+      delete normalizedPayload.serverUsername;
+      delete normalizedPayload.serverPassword;
+      delete normalizedPayload.databaseId;
+      delete normalizedPayload.databasePassword;
 
       const securedPayload = applySecretProtection(
         normalizedPayload,
@@ -693,6 +781,12 @@ export async function handler(event) {
           $set: {
             ...securedPayload,
             updatedAt: new Date(),
+          },
+          $unset: {
+            serverUsername: "",
+            serverPassword: "",
+            databaseId: "",
+            databasePassword: "",
           },
         },
       );

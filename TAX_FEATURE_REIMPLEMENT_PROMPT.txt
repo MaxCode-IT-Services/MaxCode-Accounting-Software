@@ -1,0 +1,85 @@
+Re-implement Tax Management Feature (Future Use Prompt)
+
+Goal
+- Rebuild a full Tax Management module for GST workflows without breaking existing legacy behavior.
+- Keep old records and old calculations viewable exactly as before.
+- Apply new logic only where new tax entries/features are used.
+
+Key Requirement: Backward Compatibility
+- Existing historical data (old purchases/sales/ledgers) must continue to render exactly as current old system behavior.
+- New logic should be additive and non-destructive.
+- If new tax entries are not present, old calculations should remain unchanged.
+- If new tax entries are present, apply new tax-aware adjustments only for those affected periods/records.
+
+Frontend Scope
+1. Create Tax Entry Modal
+- Fields: Entry Date, Entry Type, Amount, Payment Method, Payment Source, Reference Number, Related Record Type, Related Record ID, Notes.
+- Financial year should default from selected default year (hidden or auto-populated field).
+- Modal should be fullscreen with background page scroll lock.
+- Form layout: main fields in col-md-4 pattern, notes in col-md-12.
+- Include an info alert below notes explaining how each entry type impacts accounting.
+
+2. Tax Management Page
+- Table + cards pattern consistent with existing management pages.
+- Server-side/client-side mode toggle via user preference.
+- Search, sort, pagination, and filters.
+- Dropdown filters for entryType, paymentMethod, paymentSource.
+- Financial-year-aware listing based on selected/default financial year.
+
+3. Routing/Navigation/Permissions
+- Add route in App.
+- Add sidebar menu item.
+- Add permission module key for tax management.
+- Add API endpoint constants.
+
+Backend Scope
+1. Netlify Function: tax-management.js
+- CRUD for tax entries.
+- Validate entryType and payment methods.
+- Validate entry date within selected financial year range.
+- Soft delete support.
+- Server-side pagination, sorting, filtering, search.
+- Statistics response for cards.
+
+2. Security & Validation
+- Keep token verification.
+- Keep consistent CORS response handling.
+- Validate object IDs for get/update/delete.
+
+Accounting Integration Scope
+1. Ledger Integration
+- Load tax entries with other datasets.
+- Apply effects:
+  - GST_PAYMENT: reduce GST output liability; impact bank/cash.
+  - RCM_ITC_CLAIM: increase GST input (and RCM input tracking if used).
+  - INPUT_ITC_ADD: increase GST input.
+  - ITC_ADJUSTMENT: offset output vs input tax.
+- Ensure integration does not alter old records when tax entries are absent.
+
+2. Balance Sheet Integration
+- Load tax entries and apply same tax-impact logic.
+- Preserve old behavior for periods without tax entries.
+
+Data Migration/Compatibility Strategy
+- Do not rewrite existing purchase/sales documents.
+- Treat tax entries as a separate, additive ledger of tax events.
+- For old periods without tax entries, show old computed values.
+- For new periods with tax entries, show tax-aware values.
+- If needed, gate new behavior via feature flag or conditional checks.
+
+Testing Checklist
+- Create/edit/view/delete tax entry.
+- Server-side filters and pagination.
+- Financial year validation.
+- Ledger totals with and without tax entries.
+- Balance sheet totals with and without tax entries.
+- Regression check: old data screens remain same when no tax entries exist.
+
+User Experience Notes
+- Keep labels simple and business-friendly.
+- Keep defaults automatic but transparent.
+- Add concise helper text for tax entry meanings.
+
+Important
+- Preserve old system output for old data.
+- Apply new implementation only for new data paths where tax entries exist.
