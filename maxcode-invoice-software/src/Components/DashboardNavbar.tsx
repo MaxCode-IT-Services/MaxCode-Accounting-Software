@@ -8,6 +8,7 @@ import {
   withRolePrefix,
 } from "../utils/permissions";
 import Notification from "./Notification";
+import ConfirmationModal from "./ConfirmationModal";
 
 interface DashboardNavbarProps {
   children: React.ReactNode;
@@ -50,6 +51,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   const [financialYearDropdownOpen, setFinancialYearDropdownOpen] =
     useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [user, setUser] = useState({
     name: "Guest User",
     email: "guest@example.com",
@@ -276,6 +278,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       .toUpperCase()}`;
   };
 
+  const requestLogout = (event?: React.MouseEvent<HTMLElement>) => {
+    event?.preventDefault();
+    setDropdownOpen(false);
+    setShowLogoutConfirm(true);
+  };
+
   // Logout function - Clear localStorage and redirect
   const handleLogout = async () => {
     try {
@@ -290,11 +298,13 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
 
       // Close dropdown
       setDropdownOpen(false);
+      setShowLogoutConfirm(false);
 
       // Redirect to login
       navigate("/login", { replace: true });
     } catch (error) {
       console.error("Logout error:", error);
+      setShowLogoutConfirm(false);
       navigate("/login", { replace: true });
     }
   };
@@ -800,7 +810,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                         className="dropdown-item p-3"
                         href="#"
                         style={dropdownStyle.dropdownItem}
-                        onClick={handleLogout}
+                        onClick={requestLogout}
                       >
                         <i className="fa-solid fa-right-from-bracket me-2 fs-16 align-middle text-danger"></i>
                         <span>Logout</span>
@@ -860,7 +870,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                   <a
                     href="#"
                     style={{ padding: "10px", display: "block" }}
-                    onClick={handleLogout}
+                    onClick={requestLogout}
                   >
                     <i className="fa-solid fa-right-from-bracket"></i>
                     <span> Logout </span>
@@ -903,6 +913,17 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
 
       {/* Notification Component */}
       <Notification onUnreadCountChange={handleUnreadCountChange} />
+
+      <ConfirmationModal
+        show={showLogoutConfirm}
+        onHide={() => setShowLogoutConfirm(false)}
+        onConfirm={handleLogout}
+        title="Logout Confirmation"
+        message="Are you sure you want to logout from your account?"
+        confirmText="Logout"
+        cancelText="Cancel"
+        variant="warning"
+      />
 
       <style>{`
         @media (max-width: 768px) {
