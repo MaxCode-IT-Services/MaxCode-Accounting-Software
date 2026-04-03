@@ -4,10 +4,64 @@ import ColumnSelectorOffcanvas from "./ColumnSelectorOffcanvas";
 import AdvancedFilterOffcanvas from "./AdvancedFilterOffcanvas";
 import ConfirmationModal from "./ConfirmationModal";
 import { showSuccess, showError, showInfo } from "./ToastNotification";
-import { hasActionPermission } from "../utils/permissions";
+import {
+  getDataAccessScope,
+  getStoredUserInfo,
+  hasActionPermission,
+} from "../utils/permissions";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 dayjs.extend(customParseFormat);
+
+const DEFAULT_OWNERSHIP_FIELDS = [
+  "userId",
+  "createdBy",
+  "createdById",
+  "ownerId",
+  "teamMemberId",
+  "assignedUserId",
+  "assignedTo",
+  "addedBy",
+  "authorId",
+];
+
+const CREATED_BY_DISPLAY_KEY = "createdByDisplay";
+const CREATED_BY_NAME_FIELDS = [
+  "createdByName",
+  "creatorName",
+  "createdByUserName",
+  "addedByName",
+  "ownerName",
+  "userName",
+  "createdBy",
+  "addedBy",
+];
+
+const resolveCreatedByName = (record = {}) => {
+  for (const field of CREATED_BY_NAME_FIELDS) {
+    const value = record?.[field];
+
+    if (value === null || value === undefined || value === "") {
+      continue;
+    }
+
+    if (typeof value === "object") {
+      const nested =
+        value.name ||
+        value.fullName ||
+        value.displayName ||
+        value.userName ||
+        value.email ||
+        value.phone;
+      if (nested) return String(nested);
+      continue;
+    }
+
+    return String(value);
+  }
+
+  return "-";
+};
 
 let cachedPdfLibsPromise = null;
 let cachedXlsxLibPromise = null;
@@ -118,6 +172,10 @@ const ReusableTable = ({
   exportApi = null,
   extraExportItems = [],
   exportRequestHeaders = {},
+  permissionPage = null,
+  dataOwnershipFields = [],
+  ensureCreatedByColumn = false,
+  createdByLabel = "Created By",
 
   // Additional
   customActions,
@@ -129,13 +187,78 @@ const ReusableTable = ({
   cards,
   moduleKey = null,
 }) => {
+  const effectiveColumns = useMemo(() => {
+    const nextColumns = Array.isArray(columns) ? [...columns] : [];
+    const alreadyExists = nextColumns.some(
+      (column) => column?.key === CREATED_BY_DISPLAY_KEY,
+    );
+
+    if (!ensureCreatedByColumn || alreadyExists) {
+      return nextColumns;
+    }
+
+    const createdByColumn = {
+      key: CREATED_BY_DISPLAY_KEY,
+      label: createdByLabel,
+      width: 180,
+      sortable: true,
+    };
+
+    const createdDateTimeIndex = nextColumns.findIndex(
+      (column) => column?.key === "createdDateTime",
+    );
+    if (createdDateTimeIndex !== -1) {
+      nextColumns.splice(createdDateTimeIndex, 0, createdByColumn);
+      return nextColumns;
+    }
+
+    const actionIndex = nextColumns.findIndex(
+      (column) => column?.key === "action",
+    );
+    if (actionIndex === -1) {
+      nextColumns.push(createdByColumn);
+    } else {
+      nextColumns.splice(actionIndex, 0, createdByColumn);
+    }
+
+    return nextColumns;
+  }, [columns, ensureCreatedByColumn, createdByLabel]);
+
+  const effectiveColumnsWithDropdownFilter = useMemo(() => {
+    const base = Array.isArray(columnsWithDropdownFilter)
+      ? [...columnsWithDropdownFilter]
+      : [];
+
+    if (ensureCreatedByColumn && !base.includes(CREATED_BY_DISPLAY_KEY)) {
+      base.push(CREATED_BY_DISPLAY_KEY);
+    }
+
+    return base;
+  }, [columnsWithDropdownFilter, ensureCreatedByColumn]);
+
+  const prepareRecordsWithCreatedBy = (records = []) => {
+    if (!Array.isArray(records)) return [];
+
+    return records.map((record) => {
+      if (!record || typeof record !== "object") {
+        return record;
+      }
+
+      return {
+        ...record,
+        [CREATED_BY_DISPLAY_KEY]:
+          record[CREATED_BY_DISPLAY_KEY] || resolveCreatedByName(record),
+      };
+    });
+  };
+
   // State management
 
   // Filtering state
   const [columnFilters, setColumnFilters] = useState(() => {
     const filters = {};
-    columns.forEach((col) => {
-      if (columnsWithDropdownFilter.includes(col.key)) {
+    effectiveColumns.forEach((col) => {
+      if (effectiveColumnsWithDropdownFilter.includes(col.key)) {
         filters[col.key] = ["All"];
       } else {
         filters[col.key] = "";
@@ -144,11 +267,11 @@ const ReusableTable = ({
     return filters;
   });
 
-  const [tableColumns, setTableColumns] = useState(columns);
-  const [allData, setAllData] = useState(data);
+  const [tableColumns, setTableColumns] = useState(effectiveColumns);
+  const [allData, setAllData] = useState(prepareRecordsWithCreatedBy(data));
   const [visibleColumns, setVisibleColumns] = useState(() => {
     const initialVisible = {};
-    columns.forEach((col) => {
+    effectiveColumns.forEach((col) => {
       initialVisible[col.key] = fixedColumns.includes(col.key)
         ? true
         : defaultVisibleColumns.includes(col.key);
@@ -230,10 +353,119 @@ const ReusableTable = ({
   const onFilteredDataChangeRef = useRef(onFilteredDataChange);
   const prevSortedDataRef = useRef(null);
 
-  const canRead = moduleKey ? hasActionPermission(moduleKey, "read") : true;
-  const canUpdate = moduleKey ? hasActionPermission(moduleKey, "update") : true;
-  const canDelete = moduleKey ? hasActionPermission(moduleKey, "delete") : true;
-  const canExport = moduleKey ? hasActionPermission(moduleKey, "export") : true;
+  const storedUserInfo = useMemo(() => getStoredUserInfo(), []);
+  const resolvedDataScope = useMemo(() => {
+    if (!moduleKey) return "all";
+    return getDataAccessScope(moduleKey, storedUserInfo, permissionPage);
+  }, [moduleKey, storedUserInfo, permissionPage]);
+  const currentUserId =
+    storedUserInfo?.id ||
+    storedUserInfo?._id ||
+    storedUserInfo?.userId ||
+    storedUserInfo?.teamMemberId ||
+    null;
+  const ownershipFields =
+    Array.isArray(dataOwnershipFields) && dataOwnershipFields.length > 0
+      ? dataOwnershipFields
+      : DEFAULT_OWNERSHIP_FIELDS;
+
+  const isRecordOwnedByCurrentUser = (record) => {
+    if (resolvedDataScope !== "self") return true;
+    if (!currentUserId) return false;
+
+    const userIdString = String(currentUserId);
+
+    const matchesValue = (value) => {
+      if (value === null || value === undefined || value === "") {
+        return false;
+      }
+
+      if (Array.isArray(value)) {
+        return value.some(matchesValue);
+      }
+
+      if (typeof value === "object") {
+        return [
+          value.id,
+          value._id,
+          value.userId,
+          value.teamMemberId,
+          value.createdBy,
+        ].some(matchesValue);
+      }
+
+      return String(value) === userIdString;
+    };
+
+    return ownershipFields.some((field) => matchesValue(record?.[field]));
+  };
+
+  const applyDataScopeToRecords = (records = []) => {
+    if (!Array.isArray(records)) return [];
+    if (resolvedDataScope !== "self") return records;
+    return records.filter((record) => isRecordOwnedByCurrentUser(record));
+  };
+
+  const appendDataScopeToFilters = (filterParams = {}) => {
+    if (resolvedDataScope === "self") {
+      return { ...filterParams, dataScope: "self" };
+    }
+
+    return filterParams;
+  };
+
+  const getServerFilterKey = (key) => {
+    if (key === CREATED_BY_DISPLAY_KEY) return "createdBy";
+    return key;
+  };
+
+  const getClientFilterKey = (key) => {
+    if (key === "createdBy") return CREATED_BY_DISPLAY_KEY;
+    return key;
+  };
+
+  const normalizeFilterOptionsForTable = (rawOptions = {}) => {
+    const normalized = {};
+
+    Object.entries(rawOptions || {}).forEach(([rawKey, rawValues]) => {
+      const clientKey = getClientFilterKey(rawKey);
+      const safeValues = Array.isArray(rawValues) ? rawValues : [];
+      const valuesWithoutAll = safeValues
+        .filter(
+          (value) => value !== null && value !== undefined && value !== "",
+        )
+        .map((value) => String(value))
+        .filter((value) => value !== "All");
+
+      const existingValues = Array.isArray(normalized[clientKey])
+        ? normalized[clientKey].filter((value) => value !== "All")
+        : [];
+
+      normalized[clientKey] = [
+        "All",
+        ...Array.from(new Set([...existingValues, ...valuesWithoutAll])),
+      ];
+    });
+
+    return normalized;
+  };
+
+  const canRead = moduleKey
+    ? hasActionPermission(moduleKey, "read", null, permissionPage)
+    : true;
+  const canShowTableData = moduleKey
+    ? hasActionPermission(moduleKey, "showTableData", null, permissionPage)
+    : true;
+  const canUpdate = moduleKey
+    ? hasActionPermission(moduleKey, "update", null, permissionPage)
+    : true;
+  const canDelete = moduleKey
+    ? hasActionPermission(moduleKey, "delete", null, permissionPage)
+    : true;
+  const canExport = moduleKey
+    ? hasActionPermission(moduleKey, "export", null, permissionPage) &&
+      canShowTableData
+    : true;
 
   const isSortableColumn = (column) => {
     if (!column) return false;
@@ -263,7 +495,7 @@ const ReusableTable = ({
 
   // Update allData when data prop changes
   useEffect(() => {
-    setAllData(data);
+    setAllData(prepareRecordsWithCreatedBy(data));
   }, [data]);
 
   // Keep internal table column definitions in sync with latest prop renderers.
@@ -277,7 +509,7 @@ const ReusableTable = ({
         ]),
       );
 
-      return (Array.isArray(columns) ? columns : []).map((column) => {
+      return effectiveColumns.map((column) => {
         const previous = previousByKey.get(column.key);
         if (!previous) return column;
 
@@ -290,7 +522,33 @@ const ReusableTable = ({
         };
       });
     });
-  }, [columns]);
+  }, [effectiveColumns]);
+
+  useEffect(() => {
+    setVisibleColumns((prev) => {
+      const next = { ...prev };
+      let changed = false;
+
+      effectiveColumns.forEach((col) => {
+        if (next[col.key] === undefined) {
+          next[col.key] =
+            fixedColumns.includes(col.key) ||
+            defaultVisibleColumns.includes(col.key);
+          changed = true;
+        }
+      });
+
+      Object.keys(next).forEach((key) => {
+        const exists = effectiveColumns.some((column) => column.key === key);
+        if (!exists) {
+          delete next[key];
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [effectiveColumns, fixedColumns, defaultVisibleColumns]);
 
   // Update currentPage when prop changes
   useEffect(() => {
@@ -304,16 +562,19 @@ const ReusableTable = ({
 
   // Dynamic filter options
   const [dynamicFilterOptions, setDynamicFilterOptions] = useState(() => {
+    const normalizedPropFilterOptions =
+      normalizeFilterOptionsForTable(propFilterOptions);
+
     if (serverSide) {
-      return propFilterOptions;
+      return normalizedPropFilterOptions;
     }
 
     const options = {};
-    columnsWithDropdownFilter.forEach((key) => {
+    effectiveColumnsWithDropdownFilter.forEach((key) => {
       options[key] = ["All"];
     });
 
-    return { ...propFilterOptions, ...options };
+    return { ...normalizedPropFilterOptions, ...options };
   });
 
   // Helper function to parse date
@@ -360,22 +621,54 @@ const ReusableTable = ({
 
   // Update filter options based on data (for client-side)
   useEffect(() => {
+    const scopedData = applyDataScopeToRecords(allData);
+
     if (serverSide) {
+      const normalizedPropFilterOptions =
+        normalizeFilterOptionsForTable(propFilterOptions);
+      const mergedOptions = { ...normalizedPropFilterOptions };
+
+      effectiveColumnsWithDropdownFilter.forEach((key) => {
+        const fromServer = Array.isArray(mergedOptions[key])
+          ? mergedOptions[key].filter((value) => value !== "All")
+          : [];
+
+        const fromData = Array.from(
+          new Set(
+            scopedData
+              .map((record) => record?.[key])
+              .filter(
+                (value) =>
+                  value !== null && value !== undefined && value !== "",
+              )
+              .map((value) => String(value)),
+          ),
+        ).sort();
+
+        mergedOptions[key] = [
+          "All",
+          ...Array.from(new Set([...fromServer, ...fromData])),
+        ];
+      });
+
       setDynamicFilterOptions((prevOptions) => {
         const hasChanged =
-          JSON.stringify(prevOptions) !== JSON.stringify(propFilterOptions);
-        return hasChanged ? propFilterOptions : prevOptions;
+          JSON.stringify(prevOptions) !== JSON.stringify(mergedOptions);
+        return hasChanged ? mergedOptions : prevOptions;
       });
       return;
     }
 
-    if (!serverSide && allData.length > 0) {
-      const newOptions = { ...propFilterOptions };
+    const normalizedPropFilterOptions =
+      normalizeFilterOptionsForTable(propFilterOptions);
 
-      columnsWithDropdownFilter.forEach((key) => {
+    if (!serverSide && scopedData.length > 0) {
+      const newOptions = { ...normalizedPropFilterOptions };
+
+      effectiveColumnsWithDropdownFilter.forEach((key) => {
         const uniqueValues = Array.from(
           new Set(
-            allData
+            scopedData
               .map((r) => r[key])
               .filter((val) => val !== null && val !== undefined && val !== ""),
           ),
@@ -390,7 +683,12 @@ const ReusableTable = ({
         return hasChanged ? newOptions : prevOptions;
       });
     }
-  }, [allData, columnsWithDropdownFilter, serverSide, propFilterOptions]);
+  }, [
+    allData,
+    effectiveColumnsWithDropdownFilter,
+    serverSide,
+    propFilterOptions,
+  ]);
 
   // Handle click outside dropdown
   useEffect(() => {
@@ -412,7 +710,7 @@ const ReusableTable = ({
   // Apply card filter (client-side)
   const getCardFilteredData = useMemo(() => {
     if (serverSide) {
-      return allData;
+      return applyDataScopeToRecords(allData);
     }
 
     if (
@@ -420,10 +718,10 @@ const ReusableTable = ({
       activeCardFilter === "total" ||
       activeCardFilter === "addNew"
     ) {
-      return allData;
+      return applyDataScopeToRecords(allData);
     }
 
-    let filtered = [...allData];
+    let filtered = [...applyDataScopeToRecords(allData)];
 
     if (activeCardFilter === "active") {
       filtered = filtered.filter((r) => r.status === "Active");
@@ -488,7 +786,7 @@ const ReusableTable = ({
         const recordValue = record[key];
 
         // Dropdown filter
-        if (columnsWithDropdownFilter.includes(key)) {
+        if (effectiveColumnsWithDropdownFilter.includes(key)) {
           if (filterValue.includes("All") || filterValue.length === 0) {
             continue;
           }
@@ -520,7 +818,7 @@ const ReusableTable = ({
     columnFilters,
     dateFilters,
     visibleColumns,
-    columnsWithDropdownFilter,
+    effectiveColumnsWithDropdownFilter,
     serverSide,
   ]);
 
@@ -583,13 +881,13 @@ const ReusableTable = ({
   // Apply pagination
   const paginatedData = useMemo(() => {
     if (serverSide) {
-      return data;
+      return applyDataScopeToRecords(allData);
     }
 
     const start = (currentPage - 1) * recordsPerPage;
     const end = start + recordsPerPage;
     return sortedData.slice(start, end);
-  }, [sortedData, currentPage, recordsPerPage, serverSide, data]);
+  }, [sortedData, currentPage, recordsPerPage, serverSide, allData]);
 
   // Calculate total records
   const totalRecords = serverSide ? propTotalRecords : filteredData.length;
@@ -604,13 +902,16 @@ const ReusableTable = ({
     const filterParams = {};
 
     Object.entries(updatedFilters || columnFilters).forEach(([key, value]) => {
-      if (columnsWithDropdownFilter.includes(key)) {
+      const serverKey = getServerFilterKey(key);
+      if (effectiveColumnsWithDropdownFilter.includes(key)) {
         if (value && !value.includes("All") && value.length > 0) {
-          filterParams[key] = Array.isArray(value) ? value.join(",") : value;
+          filterParams[serverKey] = Array.isArray(value)
+            ? value.join(",")
+            : value;
         }
       } else {
         if (value && value.trim() !== "") {
-          filterParams[key] = value;
+          filterParams[serverKey] = value;
         }
       }
     });
@@ -635,7 +936,7 @@ const ReusableTable = ({
       filterParams.filter = activeCardFilter;
     }
 
-    onServerSideFilter(filterParams);
+    onServerSideFilter(appendDataScopeToFilters(filterParams));
   }
 
   // Ensure filter applies when columnFilters change (for AdvancedFilterOffcanvas)
@@ -692,15 +993,16 @@ const ReusableTable = ({
 
       // Add column filters
       Object.entries(columnFilters).forEach(([colKey, colValue]) => {
-        if (columnsWithDropdownFilter.includes(colKey)) {
+        const serverKey = getServerFilterKey(colKey);
+        if (effectiveColumnsWithDropdownFilter.includes(colKey)) {
           if (colValue && !colValue.includes("All") && colValue.length > 0) {
-            filterParams[colKey] = Array.isArray(colValue)
+            filterParams[serverKey] = Array.isArray(colValue)
               ? colValue.join(",")
               : colValue;
           }
         } else {
           if (colValue && colValue.trim() !== "") {
-            filterParams[colKey] = colValue;
+            filterParams[serverKey] = colValue;
           }
         }
       });
@@ -726,7 +1028,8 @@ const ReusableTable = ({
 
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
-      if (onServerSideFilter) onServerSideFilter(filterParams);
+      if (onServerSideFilter)
+        onServerSideFilter(appendDataScopeToFilters(filterParams));
     } else {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
@@ -785,7 +1088,8 @@ const ReusableTable = ({
       const filterParams = {};
 
       Object.entries(columnFilters).forEach(([colKey, colValue]) => {
-        if (columnsWithDropdownFilter.includes(colKey)) {
+        const serverKey = getServerFilterKey(colKey);
+        if (effectiveColumnsWithDropdownFilter.includes(colKey)) {
           if (colKey === key) {
             const updatedValue = [...(columnFilters[key] || [])];
             if (value === "All") {
@@ -799,18 +1103,18 @@ const ReusableTable = ({
               }
             }
             if (updatedValue.length > 0 && !updatedValue.includes("All")) {
-              filterParams[colKey] = updatedValue.join(",");
+              filterParams[serverKey] = updatedValue.join(",");
             }
           } else {
             if (colValue && !colValue.includes("All") && colValue.length > 0) {
-              filterParams[colKey] = Array.isArray(colValue)
+              filterParams[serverKey] = Array.isArray(colValue)
                 ? colValue.join(",")
                 : colValue;
             }
           }
         } else {
           if (colValue && colValue.trim() !== "") {
-            filterParams[colKey] = colValue;
+            filterParams[serverKey] = colValue;
           }
         }
       });
@@ -834,7 +1138,8 @@ const ReusableTable = ({
 
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
-      if (onServerSideFilter) onServerSideFilter(filterParams);
+      if (onServerSideFilter)
+        onServerSideFilter(appendDataScopeToFilters(filterParams));
     } else {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
@@ -892,7 +1197,7 @@ const ReusableTable = ({
   const handleRefresh = () => {
     const resetFilters = {};
     Object.keys(columnFilters).forEach((key) => {
-      if (columnsWithDropdownFilter.includes(key)) {
+      if (effectiveColumnsWithDropdownFilter.includes(key)) {
         resetFilters[key] = ["All"];
       } else {
         resetFilters[key] = "";
@@ -917,7 +1222,7 @@ const ReusableTable = ({
       if (onPageChange) onPageChange(1);
 
       if (onServerSideFilter) {
-        onServerSideFilter({});
+        onServerSideFilter(appendDataScopeToFilters({}));
       }
 
       if (onServerSideSearch) {
@@ -940,7 +1245,7 @@ const ReusableTable = ({
   const handleClearFilters = () => {
     const resetFilters = {};
     Object.keys(columnFilters).forEach((key) => {
-      if (columnsWithDropdownFilter.includes(key)) {
+      if (effectiveColumnsWithDropdownFilter.includes(key)) {
         resetFilters[key] = ["All"];
       } else {
         resetFilters[key] = "";
@@ -964,7 +1269,7 @@ const ReusableTable = ({
       if (onPageChange) onPageChange(1);
 
       if (onServerSideFilter) {
-        onServerSideFilter({});
+        onServerSideFilter(appendDataScopeToFilters({}));
       }
 
       if (onServerSideSearch) {
@@ -1023,7 +1328,7 @@ const ReusableTable = ({
   const getFilterDisplayText = (key) => {
     const filters = columnFilters[key];
 
-    if (columnsWithDropdownFilter.includes(key)) {
+    if (effectiveColumnsWithDropdownFilter.includes(key)) {
       if (
         !filters ||
         filters.length === 0 ||
@@ -1056,15 +1361,16 @@ const ReusableTable = ({
         const filterParams = {};
 
         Object.entries(columnFilters).forEach(([colKey, colValue]) => {
-          if (columnsWithDropdownFilter.includes(colKey)) {
+          const serverKey = getServerFilterKey(colKey);
+          if (effectiveColumnsWithDropdownFilter.includes(colKey)) {
             if (colValue && !colValue.includes("All") && colValue.length > 0) {
-              filterParams[colKey] = Array.isArray(colValue)
+              filterParams[serverKey] = Array.isArray(colValue)
                 ? colValue.join(",")
                 : colValue;
             }
           } else {
             if (colValue && colValue.trim() !== "") {
-              filterParams[colKey] = colValue;
+              filterParams[serverKey] = colValue;
             }
           }
         });
@@ -1090,12 +1396,13 @@ const ReusableTable = ({
 
         setCurrentPage(1);
         if (onPageChange) onPageChange(1);
-        if (onServerSideFilter) onServerSideFilter(filterParams);
+        if (onServerSideFilter)
+          onServerSideFilter(appendDataScopeToFilters(filterParams));
       }
     } else {
       const updatedFilters = {
         ...columnFilters,
-        [key]: columnsWithDropdownFilter.includes(key) ? ["All"] : "",
+        [key]: effectiveColumnsWithDropdownFilter.includes(key) ? ["All"] : "",
       };
 
       setColumnFilters(updatedFilters);
@@ -1627,6 +1934,7 @@ const ReusableTable = ({
           requestHeaders: exportRequestHeaders,
         });
       }
+      exportRows = applyDataScopeToRecords(exportRows);
       const visibleColumnKeys = getOrderedColumns()
         .filter((col) => visibleColumns[col.key])
         .map((col) => col.key);
@@ -1726,6 +2034,7 @@ const ReusableTable = ({
           requestHeaders: exportRequestHeaders,
         });
       }
+      exportRows = applyDataScopeToRecords(exportRows);
       const visibleColumnKeys = getOrderedColumns()
         .filter((col) => visibleColumns[col.key])
         .map((col) => col.key);
@@ -1781,6 +2090,7 @@ const ReusableTable = ({
           requestHeaders: exportRequestHeaders,
         });
       }
+      exportRows = applyDataScopeToRecords(exportRows);
       const visibleColumnKeys = getOrderedColumns()
         .filter((col) => visibleColumns[col.key])
         .map((col) => col.key);
@@ -1817,13 +2127,16 @@ const ReusableTable = ({
   function buildServerFilterParams() {
     const filterParams = {};
     Object.entries(columnFilters).forEach(([key, value]) => {
-      if (columnsWithDropdownFilter.includes(key)) {
+      const serverKey = getServerFilterKey(key);
+      if (effectiveColumnsWithDropdownFilter.includes(key)) {
         if (value && !value.includes("All") && value.length > 0) {
-          filterParams[key] = Array.isArray(value) ? value.join(",") : value;
+          filterParams[serverKey] = Array.isArray(value)
+            ? value.join(",")
+            : value;
         }
       } else {
         if (value && value.trim() !== "") {
-          filterParams[key] = value;
+          filterParams[serverKey] = value;
         }
       }
     });
@@ -1845,7 +2158,7 @@ const ReusableTable = ({
     if (searchTerm && searchTerm.trim() !== "") {
       filterParams.search = searchTerm.trim();
     }
-    return filterParams;
+    return appendDataScopeToFilters(filterParams);
   }
 
   // Handle export
@@ -2246,7 +2559,7 @@ const ReusableTable = ({
                                       className="form-control form-control-sm"
                                       placeholder={`Filter ${column.label}`}
                                       value={
-                                        columnsWithDropdownFilter.includes(
+                                        effectiveColumnsWithDropdownFilter.includes(
                                           column.key,
                                         )
                                           ? getFilterDisplayText(column.key)
@@ -2261,7 +2574,7 @@ const ReusableTable = ({
                                       }
                                       onClick={(e) => e.stopPropagation()}
                                     />
-                                    {columnsWithDropdownFilter.includes(
+                                    {effectiveColumnsWithDropdownFilter.includes(
                                       column.key,
                                     ) && (
                                       <button
@@ -2323,6 +2636,41 @@ const ReusableTable = ({
                         />
                       </div>
                       <p className="mt-2 mb-0 fw-bold">Loading data...</p>
+                    </td>
+                  </tr>
+                ) : !canShowTableData ? (
+                  <tr>
+                    <td
+                      colSpan={getOrderedColumns().length}
+                      className="text-center py-3"
+                    >
+                      <div
+                        className="d-flex flex-column align-items-center justify-content-center mx-auto px-3 py-3"
+                        style={{
+                          maxWidth: "460px",
+                          borderRadius: "16px",
+                          border: "1px solid #e9eef5",
+                          background:
+                            "linear-gradient(135deg, #f7fbff 0%, #fff9f2 100%)",
+                        }}
+                      >
+                        <div
+                          className="rounded-circle d-flex align-items-center justify-content-center mb-3"
+                          style={{
+                            width: "56px",
+                            height: "56px",
+                            background: "rgba(255, 193, 7, 0.18)",
+                            color: "#8f6200",
+                          }}
+                        >
+                          <i className="fas fa-eye-slash fs-4"></i>
+                        </div>
+                        <h6 className="mb-1 fw-semibold">Table data hidden</h6>
+                        <p className="mb-0 text-muted small">
+                          You do not have permission to view table data for this
+                          module.
+                        </p>
+                      </div>
                     </td>
                   </tr>
                 ) : paginatedData.length > 0 ? (

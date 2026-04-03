@@ -1448,6 +1448,8 @@ const LedgerManagement = () => {
       </div>
 
       <ReusableTable
+          ensureCreatedByColumn={true}
+          createdByLabel="Created By"
         columns={columns}
         data={filteredLedgerRows}
         loading={loading}

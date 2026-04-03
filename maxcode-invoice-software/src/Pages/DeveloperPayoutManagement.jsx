@@ -575,6 +575,8 @@ const DeveloperPayoutManagement = () => {
       </div>
 
       <ReusableTable
+          ensureCreatedByColumn={true}
+          createdByLabel="Created By"
         moduleKey="developerPayoutManagement"
         columns={columns}
         data={tableData}

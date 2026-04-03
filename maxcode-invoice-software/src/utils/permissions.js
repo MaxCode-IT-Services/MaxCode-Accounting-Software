@@ -1,6 +1,8 @@
 import { SETTINGS_TABS } from "./settingsTabsConfig";
 
 export const CRUD_ACTIONS = ["create", "read", "update", "delete", "export"];
+export const TABLE_VISIBILITY_ACTIONS = ["showTableData"];
+export const DATA_SCOPE_ACTIONS = ["selfData", "allData"];
 
 export { SETTINGS_TABS };
 
@@ -197,6 +199,9 @@ const createActionMatrix = () => ({
   update: false,
   delete: false,
   export: false,
+  showTableData: false,
+  selfData: false,
+  allData: false,
 });
 
 export const createDefaultPermissions = () => {
@@ -338,7 +343,12 @@ export const hasModuleAccess = (moduleKey, userInfo = null) => {
   return candidateKeys.some((key) => permissions[key]?.active === true);
 };
 
-export const hasActionPermission = (moduleKey, action, userInfo = null) => {
+export const hasActionPermission = (
+  moduleKey,
+  action,
+  userInfo = null,
+  pageName = null,
+) => {
   const resolvedUser = userInfo || getStoredUserInfo();
 
   if (!resolvedUser) return true;
@@ -355,11 +365,81 @@ export const hasActionPermission = (moduleKey, action, userInfo = null) => {
     permissions[moduleKey];
 
   if (!modulePermission?.active) return false;
-  if (!modulePermission.pages) return action === "read";
+  if (!modulePermission.pages) {
+    if (action === "showTableData")
+      return modulePermission.showTableData === true;
+    if (DATA_SCOPE_ACTIONS.includes(action))
+      return modulePermission[action] === true;
+    return action === "read";
+  }
 
-  return Object.values(modulePermission.pages).some(
-    (pagePermissions) => pagePermissions?.[action] === true,
+  const getActionValue = (pagePermissions) => {
+    if (!pagePermissions) return false;
+    if (action === "showTableData") {
+      if (pagePermissions.showTableData !== undefined) {
+        return pagePermissions.showTableData === true;
+      }
+
+      return false;
+    }
+
+    if (DATA_SCOPE_ACTIONS.includes(action)) {
+      return pagePermissions[action] === true;
+    }
+
+    return pagePermissions[action] === true;
+  };
+
+  if (pageName) {
+    return getActionValue(modulePermission.pages?.[pageName]);
+  }
+
+  return Object.values(modulePermission.pages).some((pagePermissions) =>
+    getActionValue(pagePermissions),
   );
+};
+
+export const getDataAccessScope = (
+  moduleKey,
+  userInfo = null,
+  pageName = null,
+) => {
+  const resolvedUser = userInfo || getStoredUserInfo();
+
+  if (!resolvedUser) return "all";
+
+  const isTeamMember = resolvedUser.userType === "team-member";
+  if (!isTeamMember) return "all";
+
+  const permissions = resolvedUser.permissions || {};
+  const candidateKeys = getPermissionAliasKeys(moduleKey);
+  const modulePermission =
+    candidateKeys
+      .map((key) => permissions[key])
+      .find((permission) => permission?.active === true) ||
+    permissions[moduleKey];
+
+  if (!modulePermission?.active || !modulePermission.pages) {
+    return "all";
+  }
+
+  const inspectPage = (pagePermissions) => {
+    if (!pagePermissions) return null;
+    if (pagePermissions.allData === true) return "all";
+    if (pagePermissions.selfData === true) return "self";
+    return null;
+  };
+
+  if (pageName) {
+    return inspectPage(modulePermission.pages?.[pageName]) || "all";
+  }
+
+  for (const pagePermissions of Object.values(modulePermission.pages)) {
+    const scope = inspectPage(pagePermissions);
+    if (scope) return scope;
+  }
+
+  return "all";
 };
 
 export const canAccessSettingsTab = (tabKey, userInfo = null) => {

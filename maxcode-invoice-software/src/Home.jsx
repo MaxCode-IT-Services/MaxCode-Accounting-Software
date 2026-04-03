@@ -1,5 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  getDefaultDashboardRoute,
+  getFirstAllowedRoute,
+  getStoredUserInfo,
+} from "./utils/permissions";
 
 const randomBetween = (min, max) =>
   Math.floor(Math.random() * (max - min + 1)) + min;
@@ -135,7 +140,21 @@ const checkAuthStatus = () => {
   return authFlag;
 };
 
+const getHomeAuthRoute = (isLoggedIn) => {
+  if (!isLoggedIn) return "/login";
+
+  const userInfo = getStoredUserInfo();
+  const firstAllowedRoute = getFirstAllowedRoute(userInfo);
+
+  if (firstAllowedRoute && firstAllowedRoute !== "/login") {
+    return firstAllowedRoute;
+  }
+
+  return getDefaultDashboardRoute(userInfo);
+};
+
 const Home = () => {
+  const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(() => checkAuthStatus());
   const [activeSection, setActiveSection] = useState("features");
@@ -164,12 +183,35 @@ const Home = () => {
     "pricing",
     "footer",
   ];
-  const primaryCtaPath = isLoggedIn ? "/admin/dashboard" : "/login";
+  const primaryCtaPath = getHomeAuthRoute(isLoggedIn);
   const primaryCtaLabel = isLoggedIn ? "Open Dashboard" : "Start Login";
   const navLinkClass = (sectionId) =>
     `nav-link px-3 ${activeSection === sectionId ? "active" : ""}`;
   const mobileNavLinkClass = (sectionId) =>
     `nav-link py-2 ${activeSection === sectionId ? "active" : ""}`;
+
+  const closeMobileMenu = () => {
+    const menuElement = document.getElementById("mobileMenu");
+    if (!menuElement) return;
+
+    if (window.bootstrap?.Offcanvas) {
+      const instance =
+        window.bootstrap.Offcanvas.getOrCreateInstance(menuElement);
+      instance.hide();
+      return;
+    }
+
+    menuElement.classList.remove("show");
+    document.body.classList.remove("offcanvas-backdrop", "show");
+    document.body.style.overflow = "";
+  };
+
+  const handleAuthNavFromMobile = (event) => {
+    event.preventDefault();
+    closeMobileMenu();
+
+    navigate(primaryCtaPath);
+  };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -279,7 +321,7 @@ const Home = () => {
               Privacy Policy
             </Link>
             <Link
-              to={isLoggedIn ? "/admin/dashboard" : "/login"}
+              to={primaryCtaPath}
               className={`btn ${
                 isLoggedIn ? "btn-success" : "btn-outline-success"
               } rounded-pill px-4 fw-semibold`}
@@ -354,11 +396,11 @@ const Home = () => {
             Privacy Policy
           </Link>
           <Link
-            to={isLoggedIn ? "/admin/dashboard" : "/login"}
+            to={primaryCtaPath}
             className={`btn ${
               isLoggedIn ? "btn-success" : "btn-outline-success"
             } rounded-pill mt-3 fw-semibold`}
-            data-bs-dismiss="offcanvas"
+            onClick={handleAuthNavFromMobile}
           >
             {isLoggedIn ? "Dashboard" : "Login"}
           </Link>

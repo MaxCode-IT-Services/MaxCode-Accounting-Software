@@ -1,6 +1,6 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
-import { verifyRequestToken } from "./utils/auth.js";
+import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 
 const CLIENTS_META_CACHE_TTL_MS = 60000;
 let clientsMetaCache = {
@@ -464,6 +464,7 @@ export async function handler(event) {
         ...clientData,
         createdAt: new Date(),
         updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "create"),
       });
 
       return createResponse(

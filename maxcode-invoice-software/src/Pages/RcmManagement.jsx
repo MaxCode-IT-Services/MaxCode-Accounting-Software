@@ -1453,6 +1453,8 @@ const RcmManagement = () => {
 
         {/* Reusable Table */}
         <ReusableTable
+          ensureCreatedByColumn={true}
+          createdByLabel="Created By"
           moduleKey={moduleKey}
           columns={columns}
           data={serverSide ? preparedData : filteredClientSideData}

@@ -1,6 +1,6 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
-import { verifyRequestToken } from "./utils/auth.js";
+import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 
 const YEARS_LIST_CACHE_TTL_MS = 120000;
 let yearsListCache = {
@@ -438,6 +438,7 @@ export async function handler(event) {
         taxPercentage: Number(payload.taxPercentage),
         createdAt: new Date(),
         updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "create"),
       };
       const result = await yearsCollection.insertOne(docToInsert);
 

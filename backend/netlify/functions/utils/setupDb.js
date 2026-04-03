@@ -1,4 +1,4 @@
-import { hashPassword } from "./auth";
+import { hashPassword } from "./auth.js";
 
 async function ensureNotificationRunsUniqueIndex(db) {
   const notificationRunsCollection = db.collection("notificationRuns");

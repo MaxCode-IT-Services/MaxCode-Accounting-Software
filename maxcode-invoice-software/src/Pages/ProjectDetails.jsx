@@ -710,6 +710,8 @@ const ProjectDetails = () => {
       </div>
 
       <ReusableTable
+          ensureCreatedByColumn={true}
+          createdByLabel="Created By"
         moduleKey="projectDetails"
         columns={columns}
         data={tableData}

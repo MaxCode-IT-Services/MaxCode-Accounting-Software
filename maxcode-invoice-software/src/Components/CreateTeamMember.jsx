@@ -4,8 +4,10 @@ import { apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import {
   CRUD_ACTIONS,
+  DATA_SCOPE_ACTIONS,
   PERMISSION_MODULES,
   SETTINGS_TABS,
+  TABLE_VISIBILITY_ACTIONS,
   createDefaultPermissions,
 } from "../utils/permissions";
 
@@ -27,6 +29,82 @@ const normalizeRoleValue = (role = "") => {
     return "Team";
   }
   return role;
+};
+
+const PERMISSION_TABLE_ACTIONS = [
+  ...CRUD_ACTIONS,
+  ...TABLE_VISIBILITY_ACTIONS,
+  ...DATA_SCOPE_ACTIONS,
+];
+
+const normalizePagePermissions = (pagePermissions = {}) => {
+  if (!pagePermissions || typeof pagePermissions !== "object") {
+    return {};
+  }
+
+  const normalized = {
+    create: false,
+    read: false,
+    update: false,
+    delete: false,
+    export: false,
+    showTableData: false,
+    selfData: false,
+    allData: false,
+    ...pagePermissions,
+  };
+
+  if (
+    normalized.tableData !== undefined &&
+    normalized.showTableData === undefined
+  ) {
+    normalized.showTableData = normalized.tableData === true;
+  }
+
+  delete normalized.tableData;
+
+  PERMISSION_TABLE_ACTIONS.forEach((action) => {
+    if (normalized[action] !== undefined) {
+      normalized[action] = normalized[action] === true;
+    }
+  });
+
+  return normalized;
+};
+
+const normalizePermissionState = (permissionState = {}) => {
+  if (!permissionState || typeof permissionState !== "object") {
+    return createDefaultPermissions();
+  }
+
+  const nextPermissions = createDefaultPermissions();
+
+  Object.keys(nextPermissions).forEach((moduleKey) => {
+    if (!permissionState[moduleKey]) return;
+
+    const modulePermission = permissionState[moduleKey];
+
+    nextPermissions[moduleKey] = {
+      ...nextPermissions[moduleKey],
+      ...modulePermission,
+    };
+
+    if (modulePermission.pages && typeof modulePermission.pages === "object") {
+      nextPermissions[moduleKey].pages = Object.fromEntries(
+        Object.entries(modulePermission.pages).map(
+          ([pageName, pagePermissions]) => [
+            pageName,
+            {
+              ...nextPermissions[moduleKey].pages?.[pageName],
+              ...normalizePagePermissions(pagePermissions),
+            },
+          ],
+        ),
+      );
+    }
+  });
+
+  return nextPermissions;
 };
 
 const CreateTeamMember = ({
@@ -87,14 +165,10 @@ const CreateTeamMember = ({
         editingRecord.permissions &&
         typeof editingRecord.permissions === "object"
       ) {
-        Object.keys(nextPermissions).forEach((moduleKey) => {
-          if (!editingRecord.permissions[moduleKey]) return;
-
-          nextPermissions[moduleKey] = {
-            ...nextPermissions[moduleKey],
-            ...editingRecord.permissions[moduleKey],
-          };
-        });
+        Object.assign(
+          nextPermissions,
+          normalizePermissionState(editingRecord.permissions),
+        );
       }
 
       setPermissions(nextPermissions);
@@ -185,6 +259,15 @@ const CreateTeamMember = ({
           [pageName]: {
             ...prev[moduleKey].pages[pageName],
             [action]: checked,
+            ...(action === "selfData" && checked
+              ? { showTableData: true, allData: false }
+              : {}),
+            ...(action === "allData" && checked
+              ? { showTableData: true, selfData: false }
+              : {}),
+            ...(action === "showTableData" && !checked
+              ? { selfData: false, allData: false }
+              : {}),
           },
         },
       },
@@ -202,7 +285,7 @@ const CreateTeamMember = ({
         const updatedPages = { ...moduleData.pages };
         Object.keys(updatedPages).forEach((pageName) => {
           const updatedRow = { ...updatedPages[pageName] };
-          CRUD_ACTIONS.forEach((action) => {
+          PERMISSION_TABLE_ACTIONS.forEach((action) => {
             updatedRow[action] = checked;
           });
           updatedPages[pageName] = updatedRow;
@@ -221,7 +304,9 @@ const CreateTeamMember = ({
   const areAllTablePermissionsSelected = () => {
     if (tableRows.length === 0) return false;
     return tableRows.every((row) =>
-      CRUD_ACTIONS.every((action) => row.pagePermissions[action] === true),
+      PERMISSION_TABLE_ACTIONS.every(
+        (action) => row.pagePermissions[action] === true,
+      ),
     );
   };
 
@@ -281,7 +366,9 @@ const CreateTeamMember = ({
 
       const hasAnyPermission = Object.values(moduleData.pages).some(
         (pagePermissions) =>
-          CRUD_ACTIONS.some((action) => pagePermissions[action] === true),
+          PERMISSION_TABLE_ACTIONS.some(
+            (action) => pagePermissions[action] === true,
+          ),
       );
 
       if (!hasAnyPermission) {
@@ -319,7 +406,7 @@ const CreateTeamMember = ({
       const payload = {
         ...formData,
         role: normalizeRoleValue(formData.role),
-        permissions,
+        permissions: normalizePermissionState(permissions),
       };
 
       if (editingRecord && !editingRecord.isViewMode) {
@@ -760,6 +847,9 @@ const CreateTeamMember = ({
                             <th className="text-center">Update</th>
                             <th className="text-center">Delete</th>
                             <th className="text-center">Export</th>
+                            <th className="text-center">Table Data</th>
+                            <th className="text-center">Self Data</th>
+                            <th className="text-center">All Data</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -767,7 +857,7 @@ const CreateTeamMember = ({
                             <tr key={`${row.module.key}-${row.pageName}`}>
                               <td>{row.module.label}</td>
                               <td>{row.pageName}</td>
-                              {CRUD_ACTIONS.map((action) => (
+                              {PERMISSION_TABLE_ACTIONS.map((action) => (
                                 <td key={action} className="text-center">
                                   <input
                                     type="checkbox"

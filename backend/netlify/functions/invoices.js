@@ -1,6 +1,6 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
-import { verifyRequestToken } from "./utils/auth.js";
+import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 
 const META_CACHE_TTL_MS = 30 * 1000;
 const invoiceMetaCache = {
@@ -596,6 +596,7 @@ export async function handler(event) {
         ...invoiceData,
         createdAt: new Date(),
         updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "create"),
       });
 
       invoiceMetaCache.value = null;

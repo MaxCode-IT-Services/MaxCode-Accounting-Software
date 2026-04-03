@@ -1606,6 +1606,8 @@ const FileManagement = () => {
       </div>
 
       <ReusableTable
+          ensureCreatedByColumn={true}
+          createdByLabel="Created By"
         moduleKey={moduleKey}
         columns={columns}
         data={visiblePageRows}

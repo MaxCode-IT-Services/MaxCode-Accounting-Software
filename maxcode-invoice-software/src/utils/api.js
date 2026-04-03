@@ -95,6 +95,10 @@ const isUserPreferencesPath = (url) => {
   return path === "/user-preferences";
 };
 
+const isProtectedAppPath = (path = "") => {
+  return /^\/(admin|team|super)(?=\/|$)/i.test(String(path || ""));
+};
+
 const getCachedGetResponse = (url, config = {}) => {
   const requestKey = buildGetRequestKey(url, config);
   const cachedEntry = getResponseCache.get(requestKey);
@@ -193,9 +197,13 @@ api.interceptors.response.use(
       // Server responded with error status
       switch (error.response.status) {
         case 401:
-          // Unauthorized - clear auth state and redirect to login
+          // Unauthorized - clear local auth state.
+          // Redirect only from protected app routes, not from public pages.
           clearAuth();
-          if (window.location.pathname !== "/login") {
+          if (
+            window.location.pathname !== "/login" &&
+            isProtectedAppPath(window.location.pathname)
+          ) {
             window.location.href = "/login";
           }
           break;

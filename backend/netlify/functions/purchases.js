@@ -1,6 +1,6 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
-import { verifyRequestToken } from "./utils/auth.js";
+import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
 
 const PURCHASES_META_CACHE_TTL_MS = 60000;
@@ -844,6 +844,7 @@ export async function handler(event) {
         ...purchaseData,
         createdAt: new Date(),
         updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "create"),
       });
 
       return createResponse(

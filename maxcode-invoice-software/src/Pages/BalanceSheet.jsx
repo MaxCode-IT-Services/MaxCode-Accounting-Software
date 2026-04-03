@@ -996,6 +996,8 @@ const BalanceSheet = () => {
       </div>
 
       <ReusableTable
+          ensureCreatedByColumn={true}
+          createdByLabel="Created By"
         columns={columns}
         data={filteredRows}
         loading={loading}

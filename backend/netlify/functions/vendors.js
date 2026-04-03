@@ -1,6 +1,6 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
-import { verifyRequestToken } from "./utils/auth.js";
+import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 
 const VENDORS_META_CACHE_TTL_MS = 60000;
 let vendorsMetaCache = {
@@ -428,6 +428,7 @@ export async function handler(event) {
         _id: new ObjectId(),
         createdAt: new Date(),
         updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "create"),
       };
       const result = await vendorsCollection.insertOne(docToInsert);
 

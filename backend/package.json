@@ -9,7 +9,11 @@
     "test": "echo 'Tests not configured yet'",
     "deploy": "netlify deploy --prod",
     "deploy:preview": "netlify deploy",
-    "functions:invoke": "netlify functions:invoke"
+    "functions:invoke": "netlify functions:invoke",
+    "migrate:created-by:dry": "node scripts/migrate-created-by.js --dry-run",
+    "migrate:created-by": "node scripts/migrate-created-by.js --apply",
+    "migrate:team-permissions:dry": "node scripts/normalize-team-member-permissions.js --dry-run",
+    "migrate:team-permissions": "node scripts/normalize-team-member-permissions.js --apply"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

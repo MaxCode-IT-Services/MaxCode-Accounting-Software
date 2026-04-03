@@ -1,13 +1,94 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
-import { verifyRequestToken, hashPassword } from "./utils/auth.js";
+import {
+  verifyRequestToken,
+  hashPassword,
+  getAuditFieldsFromEvent,
+} from "./utils/auth.js";
 
 const normalizePermissions = (permissions = {}) => {
   if (!permissions || typeof permissions !== "object") {
     return {};
   }
 
-  return permissions;
+  const normalizePagePermissions = (pagePermissions = {}) => {
+    if (!pagePermissions || typeof pagePermissions !== "object") {
+      return {};
+    }
+
+    const normalized = {
+      create: false,
+      read: false,
+      update: false,
+      delete: false,
+      export: false,
+      showTableData: false,
+      selfData: false,
+      allData: false,
+      ...pagePermissions,
+    };
+
+    if (
+      normalized.tableData !== undefined &&
+      normalized.showTableData === undefined
+    ) {
+      normalized.showTableData = normalized.tableData === true;
+    }
+
+    delete normalized.tableData;
+
+    [
+      "create",
+      "read",
+      "update",
+      "delete",
+      "export",
+      "showTableData",
+      "selfData",
+      "allData",
+    ].forEach((key) => {
+      if (normalized[key] !== undefined) {
+        normalized[key] = normalized[key] === true;
+      }
+    });
+
+    return normalized;
+  };
+
+  const normalizedPermissions = { ...permissions };
+
+  Object.keys(normalizedPermissions).forEach((moduleKey) => {
+    const modulePermission = normalizedPermissions[moduleKey];
+
+    if (!modulePermission || typeof modulePermission !== "object") {
+      return;
+    }
+
+    if (Array.isArray(modulePermission.pages)) {
+      return;
+    }
+
+    if (modulePermission.pages && typeof modulePermission.pages === "object") {
+      normalizedPermissions[moduleKey] = {
+        ...modulePermission,
+        pages: Object.fromEntries(
+          Object.entries(modulePermission.pages).map(
+            ([pageName, pagePermissions]) => [
+              pageName,
+              normalizePagePermissions(pagePermissions),
+            ],
+          ),
+        ),
+      };
+      return;
+    }
+
+    normalizedPermissions[moduleKey] = {
+      ...modulePermission,
+    };
+  });
+
+  return normalizedPermissions;
 };
 
 const ROLE_VALUES = new Set(["Team", "Admin", "Super Admin"]);
@@ -93,6 +174,7 @@ export async function handler(event) {
           200,
           {
             ...teamMember,
+            permissions: normalizePermissions(teamMember.permissions),
             pin: "",
           },
           origin,
@@ -278,6 +360,7 @@ export async function handler(event) {
         {
           data: teamMembers.map((member) => ({
             ...member,
+            permissions: normalizePermissions(member.permissions),
             pin: "",
           })),
           pagination: {
@@ -400,6 +483,7 @@ export async function handler(event) {
         userType: "team-member",
         createdAt: new Date(),
         updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "create"),
       };
 
       // Always assign _id as ObjectId

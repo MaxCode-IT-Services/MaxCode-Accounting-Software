@@ -689,6 +689,8 @@ const LeadManagement = () => {
         </div>
 
         <ReusableTable
+          ensureCreatedByColumn={true}
+          createdByLabel="Created By"
           moduleKey={moduleKey}
           columns={columns}
           data={filteredClientSideData}

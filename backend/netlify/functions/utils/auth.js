@@ -186,3 +186,56 @@ export function sanitizeUser(user) {
   delete sanitized.pin;
   return sanitized;
 }
+
+const resolveActorFromToken = (decoded = {}) => {
+  if (!decoded || typeof decoded !== "object") {
+    return null;
+  }
+
+  const id =
+    decoded.userId || decoded.id || decoded._id || decoded.sub || decoded.uid;
+  const name =
+    decoded.name ||
+    decoded.userName ||
+    decoded.username ||
+    decoded.displayName ||
+    decoded.email ||
+    decoded.phone ||
+    "";
+
+  if (!id && !name) {
+    return null;
+  }
+
+  return {
+    id: id ? String(id) : "",
+    name: name ? String(name) : "",
+  };
+};
+
+export function getAuditFieldsFromEvent(event, mode = "create") {
+  try {
+    const decoded = verifyRequestToken(event);
+    const actor = resolveActorFromToken(decoded);
+
+    if (!actor) {
+      return {};
+    }
+
+    if (mode === "update") {
+      return {
+        updatedBy: actor.name || actor.id,
+        updatedById: actor.id || undefined,
+        updatedByName: actor.name || undefined,
+      };
+    }
+
+    return {
+      createdBy: actor.name || actor.id,
+      createdById: actor.id || undefined,
+      createdByName: actor.name || undefined,
+    };
+  } catch (error) {
+    return {};
+  }
+}

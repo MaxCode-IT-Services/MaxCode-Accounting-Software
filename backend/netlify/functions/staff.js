@@ -1,6 +1,6 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
-import { verifyRequestToken } from "./utils/auth.js";
+import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 
 const STAFF_META_CACHE_TTL_MS = 60000;
 let staffMetaCache = {
@@ -526,6 +526,7 @@ export async function handler(event) {
         status: staffData.status || "Active",
         createdAt: new Date(),
         updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "create"),
       };
       const result = await staffCollection.insertOne(docToInsert);
 

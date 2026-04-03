@@ -1259,6 +1259,8 @@ const ServicesManagement = () => {
         </div>
 
         <ReusableTable
+          ensureCreatedByColumn={true}
+          createdByLabel="Created By"
           key={serverSide ? "services-table-server" : "services-table-client"}
           moduleKey={moduleKey}
           columns={columns}

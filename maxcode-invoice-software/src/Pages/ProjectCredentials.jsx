@@ -706,6 +706,8 @@ const ProjectCredentials = () => {
         </div>
 
         <ReusableTable
+          ensureCreatedByColumn={true}
+          createdByLabel="Created By"
           moduleKey={moduleKey}
           columns={columns}
           data={preparedData}

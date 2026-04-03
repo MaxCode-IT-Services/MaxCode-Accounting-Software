@@ -17476,7 +17476,7 @@ input[type="radio"] {
 
 @media (max-width: 768px) {
   body {
-    padding: 10px;
+    padding: 0px 10px;
   }
 
   .table-header {
