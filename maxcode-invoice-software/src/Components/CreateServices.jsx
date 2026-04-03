@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
 import SelectRightLoader from "./SelectRightLoader";
+import ConfirmationModal from "./ConfirmationModal";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
@@ -132,6 +133,8 @@ const CreateServices = ({
   const [errors, setErrors] = useState({});
   const [isClientLoading, setIsClientLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const clientSearchDebounceRef = useRef(null);
   const clientAbortControllerRef = useRef(null);
   const clientLoadingResetRef = useRef(null);
@@ -612,6 +615,16 @@ const CreateServices = ({
     setServices((prev) => prev.filter((service) => service.id !== id));
   };
 
+  const requestRemoveService = (id) => {
+    if (services.length <= 1) {
+      showError("At least one service is required");
+      return;
+    }
+
+    setDeleteTarget({ type: "service", id });
+    setShowDeleteConfirm(true);
+  };
+
   const handleTransactionChange = (id, field, value) => {
     setTransactions((prev) =>
       prev.map((transaction) => {
@@ -663,6 +676,28 @@ const CreateServices = ({
     setTransactions((prev) =>
       prev.filter((transaction) => transaction.id !== id),
     );
+  };
+
+  const requestRemoveTransaction = (id) => {
+    if (transactions.length <= 1) {
+      showError("At least one transaction row is required");
+      return;
+    }
+
+    setDeleteTarget({ type: "transaction", id });
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteRow = () => {
+    if (!deleteTarget?.id) return;
+
+    if (deleteTarget.type === "service") {
+      removeService(deleteTarget.id);
+    } else if (deleteTarget.type === "transaction") {
+      removeTransaction(deleteTarget.id);
+    }
+
+    setDeleteTarget(null);
   };
 
   const getSummary = () => {
@@ -1282,7 +1317,9 @@ const CreateServices = ({
                                 <button
                                   type="button"
                                   className="btn btn-danger btn-sm"
-                                  onClick={() => removeService(service.id)}
+                                  onClick={() =>
+                                    requestRemoveService(service.id)
+                                  }
                                   disabled={services.length === 1}
                                 >
                                   <i className="fas fa-trash"></i>
@@ -1307,7 +1344,7 @@ const CreateServices = ({
                             <button
                               type="button"
                               className="btn btn-danger btn-sm"
-                              onClick={() => removeService(service.id)}
+                              onClick={() => requestRemoveService(service.id)}
                               disabled={services.length === 1}
                             >
                               <i className="fas fa-trash"></i>
@@ -1645,7 +1682,7 @@ const CreateServices = ({
                                   type="button"
                                   className="btn btn-danger btn-sm"
                                   onClick={() =>
-                                    removeTransaction(transaction.id)
+                                    requestRemoveTransaction(transaction.id)
                                   }
                                   disabled={transactions.length === 1}
                                 >
@@ -1671,7 +1708,9 @@ const CreateServices = ({
                             <button
                               type="button"
                               className="btn btn-danger btn-sm"
-                              onClick={() => removeTransaction(transaction.id)}
+                              onClick={() =>
+                                requestRemoveTransaction(transaction.id)
+                              }
                               disabled={transactions.length === 1}
                             >
                               <i className="fas fa-trash"></i>
@@ -1934,6 +1973,28 @@ const CreateServices = ({
           </div>
         </div>
       </div>
+
+      <ConfirmationModal
+        show={showDeleteConfirm}
+        onHide={() => {
+          setShowDeleteConfirm(false);
+          setDeleteTarget(null);
+        }}
+        onConfirm={confirmDeleteRow}
+        title={
+          deleteTarget?.type === "transaction"
+            ? "Delete Transaction"
+            : "Delete Service"
+        }
+        message={
+          deleteTarget?.type === "transaction"
+            ? "Are you sure you want to delete this transaction row?"
+            : "Are you sure you want to delete this service row?"
+        }
+        confirmText="Delete"
+        variant="danger"
+        confirmationText="delete"
+      />
 
       <style>{`
         .modal-body::-webkit-scrollbar {

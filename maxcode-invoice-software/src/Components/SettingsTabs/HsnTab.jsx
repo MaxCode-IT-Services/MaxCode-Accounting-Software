@@ -145,7 +145,9 @@ const HsnTab = ({
                                 <i class="fas fa-edit"></i>
                               </button>
                               <button
-                                onClick={() => removeService(service.id)}
+                                onClick={() =>
+                                  setConfirmDeleteServices([service.id])
+                                }
                                 disabled={!isSuperAdmin}
                                 className="btn btn-sm btn-outline-danger me-1"
                                 title="Delete"
@@ -238,11 +240,12 @@ const HsnTab = ({
         show={confirmDeleteServices.length > 0}
         onHide={() => setConfirmDeleteServices([])}
         onConfirm={handleBulkDeleteServices}
-        title="Remove Services?"
+        title="Delete Services"
         message={`Are you sure you want to remove ${confirmDeleteServices.length} service(s) from the master database?`}
-        confirmText="Yes, Remove"
+        confirmText="Delete"
         cancelText="Cancel"
         variant="danger"
+        confirmationText="delete"
       />
     </div>
   );

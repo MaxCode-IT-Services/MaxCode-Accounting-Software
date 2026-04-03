@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateSales from "../Components/CreateSales";
 import InvoicePreview from "../Components/InvoicePreview";
+import ConfirmationModal from "../Components/ConfirmationModal";
 import {
   showSuccess,
   showError,
@@ -73,6 +74,8 @@ const SalesManagement = () => {
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showInvoicePreview, setShowInvoicePreview] = useState(false);
   const [previewRecord, setPreviewRecord] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState(null);
   const [exportingInvoices, setExportingInvoices] = useState(false);
   const [businessSettings, setBusinessSettings] = useState({
     companyName: "",
@@ -994,7 +997,15 @@ const SalesManagement = () => {
 
   // Handle delete
   const handleDelete = (id) => {
-    handleDeleteInvoice(id);
+    setInvoiceToDelete(id);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!invoiceToDelete) return;
+    await handleDeleteInvoice(invoiceToDelete);
+    setShowDeleteConfirm(false);
+    setInvoiceToDelete(null);
   };
 
   const handleDeleteInvoice = async (id) => {
@@ -1514,6 +1525,20 @@ const SalesManagement = () => {
           clients={clients}
           defaultFinancialYear={getDefaultFinancialYearRecord()}
           existingInvoices={records}
+        />
+
+        <ConfirmationModal
+          show={showDeleteConfirm}
+          onHide={() => {
+            setShowDeleteConfirm(false);
+            setInvoiceToDelete(null);
+          }}
+          onConfirm={confirmDelete}
+          title="Delete Sales"
+          message="Are you sure you want to delete this sales record?"
+          confirmText="Delete"
+          variant="danger"
+          confirmationText="delete"
         />
       </div>
 

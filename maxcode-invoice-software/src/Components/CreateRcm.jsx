@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import Select from "react-select";
+import ConfirmationModal from "./ConfirmationModal";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
@@ -68,6 +69,8 @@ const CreateRcm = ({
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [selectedRcmFile, setSelectedRcmFile] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
 
   useEffect(() => {
     if (show) {
@@ -504,6 +507,21 @@ const CreateRcm = ({
       taxData.taxPercentage,
       formData.roundingAmount,
     );
+  };
+
+  const requestRemoveItem = (id) => {
+    if (items.length <= 1) {
+      showError("At least one item is required");
+      return;
+    }
+    setItemToDelete(id);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmRemoveItem = () => {
+    if (!itemToDelete) return;
+    handleRemoveItem(itemToDelete);
+    setItemToDelete(null);
   };
 
   const handleTaxChange = (e) => {
@@ -1050,7 +1068,7 @@ const CreateRcm = ({
                                 <button
                                   type="button"
                                   className="btn btn-danger btn-sm"
-                                  onClick={() => handleRemoveItem(item.id)}
+                                  onClick={() => requestRemoveItem(item.id)}
                                   disabled={items.length === 1}
                                 >
                                   <i className="fas fa-trash"></i>
@@ -1073,7 +1091,7 @@ const CreateRcm = ({
                             <button
                               type="button"
                               className="btn btn-danger btn-sm"
-                              onClick={() => handleRemoveItem(item.id)}
+                              onClick={() => requestRemoveItem(item.id)}
                               disabled={items.length === 1}
                             >
                               <i className="fas fa-trash"></i>
@@ -1707,6 +1725,20 @@ const CreateRcm = ({
           </div>
         </div>
       </div>
+
+      <ConfirmationModal
+        show={showDeleteConfirm}
+        onHide={() => {
+          setShowDeleteConfirm(false);
+          setItemToDelete(null);
+        }}
+        onConfirm={confirmRemoveItem}
+        title="Delete Item"
+        message="Are you sure you want to delete this item row?"
+        confirmText="Delete"
+        variant="danger"
+        confirmationText="delete"
+      />
 
       <style>{`
         .file-picker-input::file-selector-button,

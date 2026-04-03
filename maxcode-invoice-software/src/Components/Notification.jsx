@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { apiDelete, apiGet, apiPatch } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import ConfirmationModal from "./ConfirmationModal";
 
 // Audio files - you can replace these with your own sound files
 const newNotificationSound = "/Sound/Text.mp3";
@@ -837,50 +838,17 @@ const Notification = ({ onUnreadCountChange }) => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && (
-        <div
-          className="modal fade show d-block"
-          tabIndex="-1"
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-        >
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">Delete Notification</h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={cancelDelete}
-                  aria-label="Close"
-                ></button>
-              </div>
-              <div className="modal-body">
-                <p>
-                  Are you sure you want to delete this notification? This action
-                  cannot be undone.
-                </p>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={cancelDelete}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-danger"
-                  onClick={confirmDelete}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmationModal
+        show={showDeleteModal}
+        onHide={cancelDelete}
+        onConfirm={confirmDelete}
+        title="Delete Notification"
+        message="Are you sure you want to delete this notification? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+        confirmationText="delete"
+      />
 
       {/* Custom CSS */}
       <style>{`

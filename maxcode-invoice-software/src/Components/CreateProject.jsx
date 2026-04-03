@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
 import SelectRightLoader from "./SelectRightLoader";
+import ConfirmationModal from "./ConfirmationModal";
 import { showError } from "./ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiGet } from "../utils/api";
@@ -139,6 +140,8 @@ const CreateProject = ({
   const [isClientLoading, setIsClientLoading] = useState(false);
   const [isStaffLoading, setIsStaffLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [selectedAgreementFile, setSelectedAgreementFile] = useState(null);
   const clientSearchDebounceRef = useRef(null);
   const clientAbortControllerRef = useRef(null);
@@ -749,6 +752,16 @@ const CreateProject = ({
     setPaymentDetails((prev) => prev.filter((payment) => payment.id !== id));
   };
 
+  const requestRemovePaymentRow = (id) => {
+    if (paymentDetails.length <= 1) {
+      showError("At least one payment row is required");
+      return;
+    }
+
+    setDeleteTarget({ type: "payment", id });
+    setShowDeleteConfirm(true);
+  };
+
   const handlePayoutChange = (id, field, value) => {
     setDeveloperTransactions((prev) =>
       prev.map((transaction) => {
@@ -805,6 +818,28 @@ const CreateProject = ({
     }
 
     setDeveloperTransactions((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const requestRemoveDeveloperTransactionRow = (id) => {
+    if (developerTransactions.length <= 1) {
+      showError("At least one developer transaction row is required");
+      return;
+    }
+
+    setDeleteTarget({ type: "developerTransaction", id });
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteRow = () => {
+    if (!deleteTarget?.id) return;
+
+    if (deleteTarget.type === "payment") {
+      removePaymentRow(deleteTarget.id);
+    } else if (deleteTarget.type === "developerTransaction") {
+      removeDeveloperTransactionRow(deleteTarget.id);
+    }
+
+    setDeleteTarget(null);
   };
 
   const filteredInvoices = useMemo(() => {
@@ -1601,7 +1636,9 @@ const CreateProject = ({
                                 <button
                                   type="button"
                                   className="btn btn-danger btn-sm"
-                                  onClick={() => removePaymentRow(payment.id)}
+                                  onClick={() =>
+                                    requestRemovePaymentRow(payment.id)
+                                  }
                                   disabled={paymentDetails.length === 1}
                                 >
                                   <i className="fas fa-trash"></i>
@@ -1626,7 +1663,9 @@ const CreateProject = ({
                             <button
                               type="button"
                               className="btn btn-danger btn-sm"
-                              onClick={() => removePaymentRow(payment.id)}
+                              onClick={() =>
+                                requestRemovePaymentRow(payment.id)
+                              }
                               disabled={paymentDetails.length === 1}
                             >
                               <i className="fas fa-trash"></i>
@@ -1976,7 +2015,7 @@ const CreateProject = ({
                                     type="button"
                                     className="btn btn-danger btn-sm"
                                     onClick={() =>
-                                      removeDeveloperTransactionRow(
+                                      requestRemoveDeveloperTransactionRow(
                                         transaction.id,
                                       )
                                     }
@@ -2016,7 +2055,9 @@ const CreateProject = ({
                                 type="button"
                                 className="btn btn-danger btn-sm"
                                 onClick={() =>
-                                  removeDeveloperTransactionRow(transaction.id)
+                                  requestRemoveDeveloperTransactionRow(
+                                    transaction.id,
+                                  )
                                 }
                                 disabled={developerTransactions.length === 1}
                               >
@@ -2401,6 +2442,28 @@ const CreateProject = ({
           </div>
         </div>
       </div>
+
+      <ConfirmationModal
+        show={showDeleteConfirm}
+        onHide={() => {
+          setShowDeleteConfirm(false);
+          setDeleteTarget(null);
+        }}
+        onConfirm={confirmDeleteRow}
+        title={
+          deleteTarget?.type === "developerTransaction"
+            ? "Delete Developer Transaction"
+            : "Delete Payment"
+        }
+        message={
+          deleteTarget?.type === "developerTransaction"
+            ? "Are you sure you want to delete this developer payout row?"
+            : "Are you sure you want to delete this payment row?"
+        }
+        confirmText="Delete"
+        variant="danger"
+        confirmationText="delete"
+      />
 
       <style>{`
         .file-picker-input::file-selector-button,

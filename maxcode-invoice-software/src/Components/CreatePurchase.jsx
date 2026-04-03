@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Select from "react-select";
 import SelectRightLoader from "./SelectRightLoader";
+import ConfirmationModal from "./ConfirmationModal";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
@@ -118,6 +119,8 @@ const CreatePurchase = ({
   const [isVendorLoading, setIsVendorLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedInvoiceFile, setSelectedInvoiceFile] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
   const vendorSearchDebounceRef = useRef(null);
   const vendorAbortControllerRef = useRef(null);
   const vendorLoadingResetRef = useRef(null);
@@ -515,6 +518,21 @@ const CreatePurchase = ({
     } else {
       showError("At least one item is required");
     }
+  };
+
+  const requestRemoveItem = (id) => {
+    if (items.length <= 1) {
+      showError("At least one item is required");
+      return;
+    }
+    setItemToDelete(id);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmRemoveItem = () => {
+    if (!itemToDelete) return;
+    handleRemoveItem(itemToDelete);
+    setItemToDelete(null);
   };
 
   // Calculate totals and taxes
@@ -1159,7 +1177,7 @@ const CreatePurchase = ({
                                 <button
                                   type="button"
                                   className="btn btn-danger btn-sm"
-                                  onClick={() => handleRemoveItem(item.id)}
+                                  onClick={() => requestRemoveItem(item.id)}
                                   disabled={items.length === 1}
                                 >
                                   <i className="fas fa-trash"></i>
@@ -1182,7 +1200,7 @@ const CreatePurchase = ({
                             <button
                               type="button"
                               className="btn btn-danger btn-sm"
-                              onClick={() => handleRemoveItem(item.id)}
+                              onClick={() => requestRemoveItem(item.id)}
                               disabled={items.length === 1}
                             >
                               <i className="fas fa-trash"></i>
@@ -1796,6 +1814,20 @@ const CreatePurchase = ({
           </div>
         </div>
       </div>
+
+      <ConfirmationModal
+        show={showDeleteConfirm}
+        onHide={() => {
+          setShowDeleteConfirm(false);
+          setItemToDelete(null);
+        }}
+        onConfirm={confirmRemoveItem}
+        title="Delete Item"
+        message="Are you sure you want to delete this item row?"
+        confirmText="Delete"
+        variant="danger"
+        confirmationText="delete"
+      />
 
       <style>{`
         .file-picker-input::file-selector-button,

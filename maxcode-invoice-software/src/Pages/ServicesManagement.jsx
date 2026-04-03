@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateServices from "../Components/CreateServices";
+import ConfirmationModal from "../Components/ConfirmationModal";
 import {
   showSuccess,
   showError,
@@ -72,6 +73,8 @@ const ServicesManagement = () => {
   const [totalRecords, setTotalRecords] = useState(0);
   const [showCreateServicesForm, setShowCreateServicesForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [serviceToDelete, setServiceToDelete] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -1066,11 +1069,20 @@ const ServicesManagement = () => {
     showInfo(`Viewing service: ${record.serviceNumber}`);
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = (id) => {
+    setServiceToDelete(id);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!serviceToDelete) return;
+
     try {
-      await apiDelete(API_ENDPOINTS.SERVICES.DELETE(id));
+      await apiDelete(API_ENDPOINTS.SERVICES.DELETE(serviceToDelete));
       await fetchServices();
       showSuccess("Service deleted successfully!");
+      setShowDeleteConfirm(false);
+      setServiceToDelete(null);
     } catch (error) {
       console.error("Error deleting service:", error);
       showError(
@@ -1323,6 +1335,20 @@ const ServicesManagement = () => {
           financialYears={financialYears}
           selectedFinancialYear={selectedFinancialYear}
           defaultFinancialYear={getDefaultFinancialYearRecord()}
+        />
+
+        <ConfirmationModal
+          show={showDeleteConfirm}
+          onHide={() => {
+            setShowDeleteConfirm(false);
+            setServiceToDelete(null);
+          }}
+          onConfirm={confirmDelete}
+          title="Delete Service"
+          message="Are you sure you want to delete this service record?"
+          confirmText="Delete"
+          variant="danger"
+          confirmationText="delete"
         />
       </div>
     </>

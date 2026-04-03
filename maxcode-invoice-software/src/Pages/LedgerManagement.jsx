@@ -1448,8 +1448,9 @@ const LedgerManagement = () => {
       </div>
 
       <ReusableTable
-          ensureCreatedByColumn={true}
-          createdByLabel="Created By"
+        ensureCreatedByColumn={true}
+        createdByLabel="Created By"
+        moduleKey="ledgerManagement"
         columns={columns}
         data={filteredLedgerRows}
         loading={loading}

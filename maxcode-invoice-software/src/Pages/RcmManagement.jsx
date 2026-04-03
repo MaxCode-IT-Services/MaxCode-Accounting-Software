@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateRcm from "../Components/CreateRcm";
 import SelfInvoicePreview from "../Components/SelfInvoicePreview";
+import ConfirmationModal from "../Components/ConfirmationModal";
 import {
   showSuccess,
   showError,
@@ -71,6 +72,8 @@ const RcmManagement = () => {
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showSelfInvoicePreview, setShowSelfInvoicePreview] = useState(false);
   const [previewRecord, setPreviewRecord] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [rcmToDelete, setRcmToDelete] = useState(null);
   const [exportingInvoices, setExportingInvoices] = useState(false);
   const [businessSettings, setBusinessSettings] = useState({
     companyName: "",
@@ -993,7 +996,15 @@ const RcmManagement = () => {
 
   // Handle delete
   const handleDelete = (id) => {
-    handleDeleteRcm(id);
+    setRcmToDelete(id);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!rcmToDelete) return;
+    await handleDeleteRcm(rcmToDelete);
+    setShowDeleteConfirm(false);
+    setRcmToDelete(null);
   };
 
   const handleDeleteRcm = async (id) => {
@@ -1541,6 +1552,20 @@ const RcmManagement = () => {
           editingRecord={editingRecord}
           defaultFinancialYear={getDefaultFinancialYearRecord()}
           existingInvoices={records}
+        />
+
+        <ConfirmationModal
+          show={showDeleteConfirm}
+          onHide={() => {
+            setShowDeleteConfirm(false);
+            setRcmToDelete(null);
+          }}
+          onConfirm={confirmDelete}
+          title="Delete RCM"
+          message="Are you sure you want to delete this RCM record?"
+          confirmText="Delete"
+          variant="danger"
+          confirmationText="delete"
         />
       </div>
 

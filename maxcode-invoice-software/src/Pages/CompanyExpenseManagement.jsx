@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateCompanyExpense from "../Components/CreateCompanyExpense";
+import ConfirmationModal from "../Components/ConfirmationModal";
 import {
   showSuccess,
   showError,
@@ -67,6 +68,8 @@ const CompanyExpenseManagement = () => {
   const [totalRecords, setTotalRecords] = useState(0);
   const [showCreateExpenseForm, setShowCreateExpenseForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [expenseToDelete, setExpenseToDelete] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [exportingExpenses, setExportingExpenses] = useState(false);
 
@@ -931,7 +934,15 @@ const CompanyExpenseManagement = () => {
 
   // Handle delete
   const handleDelete = (id) => {
-    handleDeleteExpense(id);
+    setExpenseToDelete(id);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!expenseToDelete) return;
+    await handleDeleteExpense(expenseToDelete);
+    setShowDeleteConfirm(false);
+    setExpenseToDelete(null);
   };
 
   const handleDeleteExpense = async (id) => {
@@ -1171,6 +1182,20 @@ const CompanyExpenseManagement = () => {
           defaultFinancialYear={getDefaultFinancialYearRecord()}
           financialYears={financialYears}
           selectedFinancialYear={selectedFinancialYear}
+        />
+
+        <ConfirmationModal
+          show={showDeleteConfirm}
+          onHide={() => {
+            setShowDeleteConfirm(false);
+            setExpenseToDelete(null);
+          }}
+          onConfirm={confirmDelete}
+          title="Delete Company Expense"
+          message="Are you sure you want to delete this company expense record?"
+          confirmText="Delete"
+          variant="danger"
+          confirmationText="delete"
         />
       </div>
     </>

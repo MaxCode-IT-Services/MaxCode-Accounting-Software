@@ -488,6 +488,8 @@ const FileManagement = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [fileToDelete, setFileToDelete] = useState(null);
+  const [folderToDelete, setFolderToDelete] = useState(null);
+  const [deleteTargetName, setDeleteTargetName] = useState("");
   const [deleteFromCloudflare, setDeleteFromCloudflare] = useState(false);
   const [isCloudDeleteTarget, setIsCloudDeleteTarget] = useState(false);
   const [formMode, setFormMode] = useState("create");
@@ -1367,9 +1369,18 @@ const FileManagement = () => {
               className="btn btn-sm btn-outline-danger"
               onClick={() => {
                 if (isFile && sourceRecord) {
-                  handleDelete(sourceRecord.id || sourceRecord._id);
+                  handleDelete(sourceRecord.id || sourceRecord._id, {
+                    name:
+                      sourceRecord.fileName ||
+                      sourceRecord.originalName ||
+                      sourceRecord.name ||
+                      record.name ||
+                      "",
+                  });
                 } else {
-                  handleFolderDelete(record);
+                  setFolderToDelete(record);
+                  setDeleteTargetName(String(record?.name || "").trim());
+                  setShowDeleteConfirm(true);
                 }
               }}
               title="Delete"
@@ -1398,9 +1409,25 @@ const FileManagement = () => {
     setCurrentPage(1);
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = (id, options = {}) => {
     const cloudTarget = String(id || "").startsWith("cloud:");
+    const fallbackRecord = records.find(
+      (item) =>
+        String(item?.id || item?._id || "") === String(id || "") ||
+        String(item?.filePath || "") ===
+          String(id || "").replace(/^cloud:/, ""),
+    );
+    const resolvedName = String(
+      options?.name ||
+        fallbackRecord?.fileName ||
+        fallbackRecord?.originalName ||
+        fallbackRecord?.name ||
+        "",
+    ).trim();
+
+    setFolderToDelete(null);
     setFileToDelete(id);
+    setDeleteTargetName(resolvedName);
     setIsCloudDeleteTarget(cloudTarget);
     setDeleteFromCloudflare(cloudTarget ? true : false);
     setShowDeleteConfirm(true);
@@ -1422,6 +1449,13 @@ const FileManagement = () => {
   };
 
   const confirmDelete = async () => {
+    if (folderToDelete) {
+      const folderRecord = folderToDelete;
+      setFolderToDelete(null);
+      await handleFolderDelete(folderRecord);
+      return;
+    }
+
     if (!fileToDelete) return;
 
     try {
@@ -1440,6 +1474,7 @@ const FileManagement = () => {
           : "File deleted successfully",
       );
       setFileToDelete(null);
+      setDeleteTargetName("");
       setDeleteFromCloudflare(false);
       setIsCloudDeleteTarget(false);
 
@@ -1606,8 +1641,8 @@ const FileManagement = () => {
       </div>
 
       <ReusableTable
-          ensureCreatedByColumn={true}
-          createdByLabel="Created By"
+        ensureCreatedByColumn={true}
+        createdByLabel="Created By"
         moduleKey={moduleKey}
         columns={columns}
         data={visiblePageRows}
@@ -1705,33 +1740,57 @@ const FileManagement = () => {
         onHide={() => {
           setShowDeleteConfirm(false);
           setFileToDelete(null);
+          setFolderToDelete(null);
+          setDeleteTargetName("");
           setDeleteFromCloudflare(false);
           setIsCloudDeleteTarget(false);
         }}
         onConfirm={confirmDelete}
-        title="Delete File"
+        title={folderToDelete ? "Delete Folder" : "Delete File"}
         message={
-          <div>
-            <div>Are you sure you want to delete this file record?</div>
-            <div className="form-check form-switch mt-3">
-              <input
-                className="form-check-input"
-                type="checkbox"
-                id="deleteFromCloudflareToggle"
-                checked={deleteFromCloudflare}
-                disabled={isCloudDeleteTarget}
-                onChange={(e) => setDeleteFromCloudflare(e.target.checked)}
-              />
-              <label
-                className="form-check-label"
-                htmlFor="deleteFromCloudflareToggle"
-              >
-                {isCloudDeleteTarget
-                  ? "Cloud file will be deleted directly from Cloudflare"
-                  : "Also delete file from Cloudflare"}
-              </label>
+          folderToDelete ? (
+            <div>
+              <div>
+                Are you sure you want to delete this folder and all files inside
+                it?
+              </div>
+              {deleteTargetName && (
+                <div className="mt-2">
+                  <strong>Folder:</strong> {deleteTargetName}
+                </div>
+              )}
+              <div className="mt-2 text-danger small">
+                This action permanently deletes folder files from Cloudflare.
+              </div>
             </div>
-          </div>
+          ) : (
+            <div>
+              <div>Are you sure you want to delete this file record?</div>
+              {deleteTargetName && (
+                <div className="mt-2">
+                  <strong>File:</strong> {deleteTargetName}
+                </div>
+              )}
+              <div className="form-check form-switch mt-3">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="deleteFromCloudflareToggle"
+                  checked={deleteFromCloudflare}
+                  disabled={isCloudDeleteTarget}
+                  onChange={(e) => setDeleteFromCloudflare(e.target.checked)}
+                />
+                <label
+                  className="form-check-label"
+                  htmlFor="deleteFromCloudflareToggle"
+                >
+                  {isCloudDeleteTarget
+                    ? "Cloud file will be deleted directly from Cloudflare"
+                    : "Also delete file from Cloudflare"}
+                </label>
+              </div>
+            </div>
+          )
         }
         confirmText="Delete"
         cancelText="Cancel"

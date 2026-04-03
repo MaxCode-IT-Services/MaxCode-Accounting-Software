@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
 import SelectRightLoader from "./SelectRightLoader";
+import ConfirmationModal from "./ConfirmationModal";
 import { showError, showSuccess } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
@@ -178,6 +179,8 @@ const CreateCredentials = ({
   const [isClientLoading, setIsClientLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [secretLoading, setSecretLoading] = useState({});
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [customFieldToDelete, setCustomFieldToDelete] = useState(null);
   const clientSearchDebounceRef = useRef(null);
   const clientAbortControllerRef = useRef(null);
   const clientLoadingResetRef = useRef(null);
@@ -452,6 +455,27 @@ const CreateCredentials = ({
       delete next[fieldId];
       return next;
     });
+  };
+
+  const requestRemoveCustomField = (fieldId) => {
+    const targetField = (formData.customFields || []).find(
+      (field) => field.id === fieldId,
+    );
+    const hasLockedValue = Boolean(String(targetField?.value || "").trim());
+
+    if (hasLockedValue) {
+      showError("Value filled field cannot be deleted");
+      return;
+    }
+
+    setCustomFieldToDelete(fieldId);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmRemoveCustomField = () => {
+    if (!customFieldToDelete) return;
+    removeCustomField(customFieldToDelete);
+    setCustomFieldToDelete(null);
   };
 
   const updateCustomField = (fieldId, key, value) => {
@@ -1400,7 +1424,7 @@ const CreateCredentials = ({
                                       type="button"
                                       className="btn btn-danger btn-sm"
                                       onClick={() =>
-                                        removeCustomField(field.id)
+                                        requestRemoveCustomField(field.id)
                                       }
                                       disabled={Boolean(
                                         String(field.value || "").trim(),
@@ -1435,7 +1459,9 @@ const CreateCredentials = ({
                                 <button
                                   type="button"
                                   className="btn btn-danger btn-sm"
-                                  onClick={() => removeCustomField(field.id)}
+                                  onClick={() =>
+                                    requestRemoveCustomField(field.id)
+                                  }
                                   disabled={Boolean(
                                     String(field.value || "").trim(),
                                   )}
@@ -1571,6 +1597,20 @@ const CreateCredentials = ({
               </div>
             </form>
           </div>
+
+          <ConfirmationModal
+            show={showDeleteConfirm}
+            onHide={() => {
+              setShowDeleteConfirm(false);
+              setCustomFieldToDelete(null);
+            }}
+            onConfirm={confirmRemoveCustomField}
+            title="Delete Custom Field"
+            message="Are you sure you want to delete this custom field?"
+            confirmText="Delete"
+            variant="danger"
+            confirmationText="delete"
+          />
 
           <div className="modal-footer">
             <button

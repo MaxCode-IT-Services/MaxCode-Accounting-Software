@@ -383,7 +383,9 @@ const InterestedServiceTab = ({
                               </button>
                               <button
                                 onClick={() =>
-                                  removeInterestedService(service.id)
+                                  setConfirmDeleteInterestedServices([
+                                    service.id,
+                                  ])
                                 }
                                 disabled={!isSuperAdmin}
                                 className="btn btn-sm btn-outline-danger me-1"
@@ -468,11 +470,15 @@ const InterestedServiceTab = ({
 
       {confirmDeleteInterestedServices.length > 0 && (
         <ConfirmationModal
+          show={confirmDeleteInterestedServices.length > 0}
           title="Delete Services"
           message={`Are you sure you want to delete ${confirmDeleteInterestedServices.length} service(s)? This action cannot be undone.`}
           onConfirm={handleBulkDeleteInterestedServices}
-          onCancel={() => setConfirmDeleteInterestedServices([])}
-          isDangerous={true}
+          onHide={() => setConfirmDeleteInterestedServices([])}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="danger"
+          confirmationText="delete"
         />
       )}
     </div>

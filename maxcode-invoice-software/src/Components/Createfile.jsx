@@ -164,6 +164,9 @@ const Createfile = ({
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({});
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [selectedFileIndexToDelete, setSelectedFileIndexToDelete] =
+    useState(null);
   const fileInputRef = useRef(null);
   const uploadControlRef = useRef({
     cancelled: false,
@@ -572,6 +575,23 @@ const Createfile = ({
 
       return next;
     });
+  };
+
+  const requestRemoveSelectedFile = (indexToRemove) => {
+    setSelectedFileIndexToDelete(indexToRemove);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmRemoveSelectedFile = () => {
+    if (
+      selectedFileIndexToDelete === null ||
+      selectedFileIndexToDelete === undefined
+    ) {
+      return;
+    }
+
+    handleRemoveSelectedFile(selectedFileIndexToDelete);
+    setSelectedFileIndexToDelete(null);
   };
 
   const handleFolderChange = (event) => {
@@ -1350,7 +1370,7 @@ const Createfile = ({
                                   type="button"
                                   className="btn btn-outline-danger"
                                   onClick={() =>
-                                    handleRemoveSelectedFile(index)
+                                    requestRemoveSelectedFile(index)
                                   }
                                   title="Remove file"
                                 >
@@ -1576,6 +1596,21 @@ const Createfile = ({
         confirmText="Yes, Cancel Upload"
         cancelText="Continue Upload"
         variant="warning"
+      />
+
+      <ConfirmationModal
+        show={showDeleteConfirm}
+        onHide={() => {
+          setShowDeleteConfirm(false);
+          setSelectedFileIndexToDelete(null);
+        }}
+        onConfirm={confirmRemoveSelectedFile}
+        title="Delete Selected File"
+        message="Are you sure you want to remove this selected file?"
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+        confirmationText="delete"
       />
     </div>
   );
