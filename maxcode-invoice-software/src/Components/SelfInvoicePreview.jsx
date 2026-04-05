@@ -3,6 +3,8 @@ import React, { useState, useEffect } from "react";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 
+const SELF_INVOICE_SINGLE_LINE_ADDRESS_MAX_LENGTH = 57;
+
 const SelfInvoicePreview = ({
   id,
   invoiceData: providedInvoiceData,
@@ -193,6 +195,9 @@ const SelfInvoicePreview = ({
   const selfInvoiceNumber =
     invoiceData.selfInvoiceNumber || invoiceData.invoiceNumber;
   const originalRefNo = invoiceData.originalRefNo || invoiceData.orderNumber;
+  const supplierAddress = String(invoiceData.clientAddress || "")
+    .replace(/\s+/g, " ")
+    .trim();
 
   useEffect(() => {
     if (isPrintMode) return;
@@ -948,8 +953,21 @@ const SelfInvoicePreview = ({
                       <h5 className="fw-black mb-2 fw-bold">
                         {invoiceData.serviceProviderBusinessName || "-"}
                       </h5>
-                      <p className="mb-1 small fs-6">
-                        {invoiceData.clientAddress}
+                      <p
+                        className="mb-1 small fs-6"
+                        style={{
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                        title={supplierAddress || "-"}
+                      >
+                        {supplierAddress
+                          ? supplierAddress.slice(
+                              0,
+                              SELF_INVOICE_SINGLE_LINE_ADDRESS_MAX_LENGTH,
+                            )
+                          : "-"}
                       </p>
                       <div className="fs-6">
                         <div className="mb-1">
@@ -1228,7 +1246,7 @@ const SelfInvoicePreview = ({
                       style={{ marginTop: "75px" }}
                     >
                       {/* Customer Signature */}
-                      <div className="col-6">
+                      <div className="col-6" style={{ visibility: "hidden" }}>
                         <div
                           className="pt-2"
                           style={{

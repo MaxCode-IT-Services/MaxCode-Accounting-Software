@@ -6,6 +6,10 @@ import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
+const SELF_INVOICE_SINGLE_LINE_ADDRESS_MAX_LENGTH = 57;
+const RCM_ITEM_NAME_MAX_LENGTH = 25;
+const RCM_ITEM_DESCRIPTION_MAX_LENGTH = 27;
+
 const toBase64 = (file) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -432,9 +436,17 @@ const CreateRcm = ({
         }));
       }
     } else {
+      const nextValue =
+        name === "address"
+          ? String(value || "")
+              .replace(/\s+/g, " ")
+              .trimStart()
+              .slice(0, SELF_INVOICE_SINGLE_LINE_ADDRESS_MAX_LENGTH)
+          : value;
+
       setFormData((prev) => ({
         ...prev,
-        [name]: name === "placeOfSupply" ? "Rajasthan (08)" : value,
+        [name]: name === "placeOfSupply" ? "Rajasthan (08)" : nextValue,
       }));
     }
 
@@ -465,12 +477,21 @@ const CreateRcm = ({
   };
 
   const handleItemChange = (id, field, value) => {
+    let nextValue = value;
+    if (field === "itemName") {
+      nextValue = String(value || "").slice(0, RCM_ITEM_NAME_MAX_LENGTH);
+    } else if (field === "itemDescription") {
+      nextValue = String(value || "").slice(0, RCM_ITEM_DESCRIPTION_MAX_LENGTH);
+    }
+
     const updatedItems = items.map((item) => {
       if (item.id === id) {
-        const updatedItem = { ...item, [field]: value };
+        const updatedItem = { ...item, [field]: nextValue };
         if (field === "qty" || field === "price") {
-          const qty = toNumber(field === "qty" ? value : updatedItem.qty);
-          const price = toNumber(field === "price" ? value : updatedItem.price);
+          const qty = toNumber(field === "qty" ? nextValue : updatedItem.qty);
+          const price = toNumber(
+            field === "price" ? nextValue : updatedItem.price,
+          );
           updatedItem.amount = qty * price;
         }
         return updatedItem;
@@ -581,6 +602,14 @@ const CreateRcm = ({
 
     if (formData.rcmURL && !/^https?:\/\//i.test(formData.rcmURL)) {
       newErrors.rcmURL = "Please enter a valid URL";
+    }
+
+    if (
+      formData.address &&
+      formData.address.trim().length >
+        SELF_INVOICE_SINGLE_LINE_ADDRESS_MAX_LENGTH
+    ) {
+      newErrors.address = `Address must be ${SELF_INVOICE_SINGLE_LINE_ADDRESS_MAX_LENGTH} characters or less`;
     }
 
     setErrors(newErrors);
@@ -918,16 +947,35 @@ const CreateRcm = ({
                     <i className="fas fa-map-marker-alt me-2 text-primary"></i>
                     Address <RequiredStar />
                   </label>
-                  <input
-                    type="text"
-                    className={`form-control modern-input ${errors.address ? "is-invalid" : ""}`}
-                    id="address"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleInputChange}
-                    placeholder="Enter Address"
-                    readOnly={isViewMode}
-                  />
+                  <div className="position-relative">
+                    <input
+                      type="text"
+                      className={`form-control modern-input ${errors.address ? "is-invalid" : ""}`}
+                      id="address"
+                      name="address"
+                      value={formData.address}
+                      onChange={handleInputChange}
+                      placeholder="Enter Address"
+                      maxLength={SELF_INVOICE_SINGLE_LINE_ADDRESS_MAX_LENGTH}
+                      readOnly={isViewMode}
+                      style={{ paddingRight: "64px" }}
+                    />
+                    <span
+                      className="position-absolute top-50 end-0 translate-middle-y me-2 rounded-circle d-inline-flex align-items-center justify-content-center"
+                      style={{
+                        width: "34px",
+                        height: "34px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        backgroundColor: "#e9f8ef",
+                        color: "#0f5132",
+                        border: "1px solid #b7e4c7",
+                      }}
+                      aria-label="Address character count"
+                    >
+                      {(formData.address || "").length}
+                    </span>
+                  </div>
                   {errors.address && (
                     <div className="invalid-feedback d-block">
                       {errors.address}
@@ -970,36 +1018,74 @@ const CreateRcm = ({
                               <strong>{index + 1}</strong>
                             </td>
                             <td>
-                              <input
-                                type="text"
-                                className="form-control modern-input form-control-sm"
-                                value={item.itemName}
-                                onChange={(e) =>
-                                  handleItemChange(
-                                    item.id,
-                                    "itemName",
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="Item Name"
-                                readOnly={isViewMode}
-                              />
+                              <div className="position-relative">
+                                <input
+                                  type="text"
+                                  className="form-control modern-input form-control-sm"
+                                  value={item.itemName}
+                                  maxLength={RCM_ITEM_NAME_MAX_LENGTH}
+                                  onChange={(e) =>
+                                    handleItemChange(
+                                      item.id,
+                                      "itemName",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="Item Name"
+                                  readOnly={isViewMode}
+                                  style={{ paddingRight: "38px" }}
+                                />
+                                <span
+                                  className="position-absolute top-50 end-0 translate-middle-y me-2 rounded-circle d-inline-flex align-items-center justify-content-center"
+                                  style={{
+                                    width: "24px",
+                                    height: "24px",
+                                    fontSize: "9px",
+                                    fontWeight: 700,
+                                    backgroundColor: "#e9f8ef",
+                                    color: "#0f5132",
+                                    border: "1px solid #b7e4c7",
+                                  }}
+                                  aria-label="Item name character count"
+                                >
+                                  {(item.itemName || "").length}
+                                </span>
+                              </div>
                             </td>
                             <td>
-                              <input
-                                type="text"
-                                className="form-control modern-input form-control-sm"
-                                value={item.itemDescription}
-                                onChange={(e) =>
-                                  handleItemChange(
-                                    item.id,
-                                    "itemDescription",
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="Description"
-                                readOnly={isViewMode}
-                              />
+                              <div className="position-relative">
+                                <input
+                                  type="text"
+                                  className="form-control modern-input form-control-sm"
+                                  value={item.itemDescription}
+                                  maxLength={RCM_ITEM_DESCRIPTION_MAX_LENGTH}
+                                  onChange={(e) =>
+                                    handleItemChange(
+                                      item.id,
+                                      "itemDescription",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="Description"
+                                  readOnly={isViewMode}
+                                  style={{ paddingRight: "38px" }}
+                                />
+                                <span
+                                  className="position-absolute top-50 end-0 translate-middle-y me-2 rounded-circle d-inline-flex align-items-center justify-content-center"
+                                  style={{
+                                    width: "24px",
+                                    height: "24px",
+                                    fontSize: "9px",
+                                    fontWeight: 700,
+                                    backgroundColor: "#e9f8ef",
+                                    color: "#0f5132",
+                                    border: "1px solid #b7e4c7",
+                                  }}
+                                  aria-label="Item description character count"
+                                >
+                                  {(item.itemDescription || "").length}
+                                </span>
+                              </div>
                             </td>
                             <td>
                               <input
@@ -1105,20 +1191,39 @@ const CreateRcm = ({
                               <label className="form-label fw-semibold">
                                 Item Name
                               </label>
-                              <input
-                                type="text"
-                                className="form-control modern-input"
-                                value={item.itemName}
-                                onChange={(e) =>
-                                  handleItemChange(
-                                    item.id,
-                                    "itemName",
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="Item Name"
-                                readOnly={isViewMode}
-                              />
+                              <div className="position-relative">
+                                <input
+                                  type="text"
+                                  className="form-control modern-input"
+                                  value={item.itemName}
+                                  maxLength={RCM_ITEM_NAME_MAX_LENGTH}
+                                  onChange={(e) =>
+                                    handleItemChange(
+                                      item.id,
+                                      "itemName",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="Item Name"
+                                  readOnly={isViewMode}
+                                  style={{ paddingRight: "44px" }}
+                                />
+                                <span
+                                  className="position-absolute top-50 end-0 translate-middle-y me-2 rounded-circle d-inline-flex align-items-center justify-content-center"
+                                  style={{
+                                    width: "28px",
+                                    height: "28px",
+                                    fontSize: "10px",
+                                    fontWeight: 700,
+                                    backgroundColor: "#e9f8ef",
+                                    color: "#0f5132",
+                                    border: "1px solid #b7e4c7",
+                                  }}
+                                  aria-label="Item name character count"
+                                >
+                                  {(item.itemName || "").length}
+                                </span>
+                              </div>
                             </div>
 
                             {/* Row 2: Description */}
@@ -1126,20 +1231,39 @@ const CreateRcm = ({
                               <label className="form-label fw-semibold">
                                 Description
                               </label>
-                              <input
-                                type="text"
-                                className="form-control modern-input"
-                                value={item.itemDescription}
-                                onChange={(e) =>
-                                  handleItemChange(
-                                    item.id,
-                                    "itemDescription",
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="Item Description"
-                                readOnly={isViewMode}
-                              />
+                              <div className="position-relative">
+                                <input
+                                  type="text"
+                                  className="form-control modern-input"
+                                  value={item.itemDescription}
+                                  maxLength={RCM_ITEM_DESCRIPTION_MAX_LENGTH}
+                                  onChange={(e) =>
+                                    handleItemChange(
+                                      item.id,
+                                      "itemDescription",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="Item Description"
+                                  readOnly={isViewMode}
+                                  style={{ paddingRight: "44px" }}
+                                />
+                                <span
+                                  className="position-absolute top-50 end-0 translate-middle-y me-2 rounded-circle d-inline-flex align-items-center justify-content-center"
+                                  style={{
+                                    width: "28px",
+                                    height: "28px",
+                                    fontSize: "10px",
+                                    fontWeight: 700,
+                                    backgroundColor: "#e9f8ef",
+                                    color: "#0f5132",
+                                    border: "1px solid #b7e4c7",
+                                  }}
+                                  aria-label="Item description character count"
+                                >
+                                  {(item.itemDescription || "").length}
+                                </span>
+                              </div>
                             </div>
 
                             {/* Row 3: HSN Code and QTY - Side by Side */}

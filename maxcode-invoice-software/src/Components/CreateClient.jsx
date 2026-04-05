@@ -5,6 +5,8 @@ import { apiGet, apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
+const CLIENT_ADDRESS_MAX_LENGTH = 57;
+
 const CreateClient = ({ show, onClose, onSubmit, editingRecord = null }) => {
   const [formData, setFormData] = useState({
     clientId: "",
@@ -225,9 +227,17 @@ const CreateClient = ({ show, onClose, onSubmit, editingRecord = null }) => {
         }));
       }
     } else {
+      const nextValue =
+        name === "address"
+          ? String(value || "")
+              .replace(/\s+/g, " ")
+              .trimStart()
+              .slice(0, CLIENT_ADDRESS_MAX_LENGTH)
+          : value;
+
       setFormData((prev) => ({
         ...prev,
-        [name]: value,
+        [name]: nextValue,
       }));
     }
 
@@ -589,7 +599,7 @@ const CreateClient = ({ show, onClose, onSubmit, editingRecord = null }) => {
                     </span>
                     <input
                       type="tel"
-                      className={`form-control modern-input ${errors.phoneNumber ? "is-invalid" : ""}`}
+                      className={`form-control modern-input rounded-end-3 ${errors.phoneNumber ? "is-invalid" : ""}`}
                       id="phoneNumber"
                       name="phoneNumber"
                       value={formData.phoneNumber}
@@ -636,22 +646,42 @@ const CreateClient = ({ show, onClose, onSubmit, editingRecord = null }) => {
                     <i className="fas fa-map-marker-alt me-2 text-primary"></i>
                     Address <RequiredStar />
                   </label>
-                  <input
-                    type="text"
-                    className={`form-control modern-input ${errors.address ? "is-invalid" : ""}`}
-                    id="address"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleInputChange}
-                    placeholder="Enter Complete Address"
-                    readOnly={isViewMode}
-                    onInput={(e) => {
-                      e.target.value = e.target.value.replace(/\b\w/g, (char) =>
-                        char.toUpperCase(),
-                      );
-                      handleInputChange(e);
-                    }}
-                  />
+                  <div className="position-relative">
+                    <input
+                      type="text"
+                      className={`form-control modern-input ${errors.address ? "is-invalid" : ""}`}
+                      id="address"
+                      name="address"
+                      value={formData.address}
+                      onChange={handleInputChange}
+                      placeholder="Enter Complete Address"
+                      maxLength={CLIENT_ADDRESS_MAX_LENGTH}
+                      readOnly={isViewMode}
+                      style={{ paddingRight: "64px" }}
+                      onInput={(e) => {
+                        e.target.value = e.target.value.replace(
+                          /\b\w/g,
+                          (char) => char.toUpperCase(),
+                        );
+                        handleInputChange(e);
+                      }}
+                    />
+                    <span
+                      className="position-absolute top-50 end-0 translate-middle-y me-2 rounded-circle d-inline-flex align-items-center justify-content-center"
+                      style={{
+                        width: "34px",
+                        height: "34px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        backgroundColor: "#e9f8ef",
+                        color: "#0f5132",
+                        border: "1px solid #b7e4c7",
+                      }}
+                      aria-label="Address character count"
+                    >
+                      {(formData.address || "").length}
+                    </span>
+                  </div>
                   {errors.address && (
                     <div className="invalid-feedback d-block">
                       {errors.address}

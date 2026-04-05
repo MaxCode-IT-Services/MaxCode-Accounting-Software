@@ -461,7 +461,7 @@ const CreateVendor = ({ show, onClose, onSubmit, editingRecord = null }) => {
                     </span>
                     <input
                       type="tel"
-                      className={`form-control modern-input ${errors.phoneNumber ? "is-invalid" : ""}`}
+                      className={`form-control modern-input rounded-end-3 ${errors.phoneNumber ? "is-invalid" : ""}`}
                       id="phoneNumber"
                       name="phoneNumber"
                       value={formData.phoneNumber}

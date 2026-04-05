@@ -12,6 +12,8 @@ import {
 } from "../utils/fetchAllEntities";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 
+const SALES_ITEM_DESCRIPTION_MAX_LENGTH = 27;
+
 // Indian states list for Place of Supply dropdown
 const INDIAN_STATES = [
   { code: "01", name: "Jammu & Kashmir" },
@@ -677,12 +679,19 @@ const CreateSales = ({
   };
 
   const handleItemChange = (id, field, value) => {
+    const nextValue =
+      field === "itemDescription"
+        ? String(value || "").slice(0, SALES_ITEM_DESCRIPTION_MAX_LENGTH)
+        : value;
+
     const updatedItems = items.map((item) => {
       if (item.id === id) {
-        const updatedItem = { ...item, [field]: value };
+        const updatedItem = { ...item, [field]: nextValue };
         if (field === "qty" || field === "price") {
-          const qty = toNumber(field === "qty" ? value : updatedItem.qty);
-          const price = toNumber(field === "price" ? value : updatedItem.price);
+          const qty = toNumber(field === "qty" ? nextValue : updatedItem.qty);
+          const price = toNumber(
+            field === "price" ? nextValue : updatedItem.price,
+          );
           updatedItem.amount = qty * price;
         }
         return updatedItem;
@@ -1173,20 +1182,39 @@ const CreateSales = ({
                               />
                             </td>
                             <td>
-                              <input
-                                type="text"
-                                className="form-control modern-input form-control-sm"
-                                value={item.itemDescription}
-                                onChange={(e) =>
-                                  handleItemChange(
-                                    item.id,
-                                    "itemDescription",
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="Description"
-                                readOnly={isViewMode}
-                              />
+                              <div className="position-relative">
+                                <input
+                                  type="text"
+                                  className="form-control modern-input form-control-sm"
+                                  value={item.itemDescription}
+                                  maxLength={SALES_ITEM_DESCRIPTION_MAX_LENGTH}
+                                  onChange={(e) =>
+                                    handleItemChange(
+                                      item.id,
+                                      "itemDescription",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="Description"
+                                  readOnly={isViewMode}
+                                  style={{ paddingRight: "38px" }}
+                                />
+                                <span
+                                  className="position-absolute top-50 end-0 translate-middle-y me-2 rounded-circle d-inline-flex align-items-center justify-content-center"
+                                  style={{
+                                    width: "24px",
+                                    height: "24px",
+                                    fontSize: "9px",
+                                    fontWeight: 700,
+                                    backgroundColor: "#e9f8ef",
+                                    color: "#0f5132",
+                                    border: "1px solid #b7e4c7",
+                                  }}
+                                  aria-label="Item description character count"
+                                >
+                                  {(item.itemDescription || "").length}
+                                </span>
+                              </div>
                             </td>
                             <td>
                               <input
@@ -1325,20 +1353,39 @@ const CreateSales = ({
                               <label className="form-label fw-semibold">
                                 Description
                               </label>
-                              <input
-                                type="text"
-                                className="form-control modern-input"
-                                value={item.itemDescription}
-                                onChange={(e) =>
-                                  handleItemChange(
-                                    item.id,
-                                    "itemDescription",
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="Item Description"
-                                readOnly={isViewMode}
-                              />
+                              <div className="position-relative">
+                                <input
+                                  type="text"
+                                  className="form-control modern-input"
+                                  value={item.itemDescription}
+                                  maxLength={SALES_ITEM_DESCRIPTION_MAX_LENGTH}
+                                  onChange={(e) =>
+                                    handleItemChange(
+                                      item.id,
+                                      "itemDescription",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="Item Description"
+                                  readOnly={isViewMode}
+                                  style={{ paddingRight: "44px" }}
+                                />
+                                <span
+                                  className="position-absolute top-50 end-0 translate-middle-y me-2 rounded-circle d-inline-flex align-items-center justify-content-center"
+                                  style={{
+                                    width: "28px",
+                                    height: "28px",
+                                    fontSize: "10px",
+                                    fontWeight: 700,
+                                    backgroundColor: "#e9f8ef",
+                                    color: "#0f5132",
+                                    border: "1px solid #b7e4c7",
+                                  }}
+                                  aria-label="Item description character count"
+                                >
+                                  {(item.itemDescription || "").length}
+                                </span>
+                              </div>
                             </div>
 
                             {/* Row 3: HSN Code and QTY - Side by Side */}
