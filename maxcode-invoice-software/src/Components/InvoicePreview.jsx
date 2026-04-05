@@ -35,6 +35,7 @@ const InvoicePreview = ({
   const [termsConditions, setTermsConditions] = useState(
     defaultTermsConditions,
   );
+  const [businessSettings, setBusinessSettings] = useState({});
 
   // Sample data for preview
   const fallbackInvoiceData = {
@@ -143,6 +144,52 @@ const InvoicePreview = ({
 
   const isPrintMode = renderMode === "print";
 
+  const getFirstNonEmptyValue = (...values) => {
+    for (const value of values) {
+      const normalized = String(value ?? "").trim();
+      if (normalized) return normalized;
+    }
+    return "";
+  };
+
+  const contactDetails = {
+    companyName: getFirstNonEmptyValue(
+      businessSettings.companyName,
+      providedInvoiceData?.companyName,
+    ),
+    companyPhone: getFirstNonEmptyValue(
+      businessSettings.companyPhone,
+      businessSettings.phone,
+      businessSettings.phoneNumber,
+      businessSettings.contactPhone,
+      providedInvoiceData?.companyPhone,
+    ),
+    companyWebsite: getFirstNonEmptyValue(
+      businessSettings.companyWebsite,
+      businessSettings.website,
+      businessSettings.webSite,
+      businessSettings.companyUrl,
+      businessSettings.websiteUrl,
+      providedInvoiceData?.companyWebsite,
+    ),
+    companyEmail: getFirstNonEmptyValue(
+      businessSettings.companyEmail,
+      businessSettings.email,
+      businessSettings.officialEmail,
+      businessSettings.contactEmail,
+      providedInvoiceData?.companyEmail,
+    ),
+    companyAddress: getFirstNonEmptyValue(
+      businessSettings.companyAddress,
+      providedInvoiceData?.companyAddress,
+    ),
+    companyGstin: getFirstNonEmptyValue(
+      businessSettings.gstin,
+      businessSettings.companyGstin,
+      providedInvoiceData?.companyGstin,
+    ),
+  };
+
   useEffect(() => {
     if (isPrintMode) return;
 
@@ -182,6 +229,7 @@ const InvoicePreview = ({
 
     const applyTerms = (settings) => {
       if (!mounted || !settings || typeof settings !== "object") return;
+      setBusinessSettings(settings);
       const parsed = parseTerms(
         settings.invoiceTermsConditions,
         defaultTermsConditions,
@@ -238,7 +286,7 @@ const InvoicePreview = ({
   const qrAmount = totalAmount;
   const upiAmount = Number.isFinite(qrAmount) ? qrAmount : 0;
   const upiPayload = `upi://pay?pa=maxcode@aubank&pn=${encodeURIComponent(
-    invoiceData.companyName || "",
+    contactDetails.companyName || "",
   )}&am=${upiAmount.toFixed(2)}&cu=INR`;
 
   const formatDateTimeForDisplay = (dateString) => {
@@ -836,16 +884,16 @@ const InvoicePreview = ({
                         className="mb-0 fw-black text-dark"
                         style={{ fontSize: "32px", fontWeight: "900" }}
                       >
-                        {invoiceData.companyName}
+                        {contactDetails.companyName || "-"}
                       </h2>
                       <p className="mb-0 fw-bold" style={{ fontSize: "16px" }}>
-                        {invoiceData.companyAddress}
+                        {contactDetails.companyAddress || "-"}
                       </p>
                       <p
                         className="mb-0 fw-bold text-dark"
                         style={{ fontSize: "16px" }}
                       >
-                        GSTIN: {invoiceData.companyGstin}
+                        GSTIN: {contactDetails.companyGstin || "-"}
                       </p>
                     </div>
                   </div>
@@ -906,9 +954,12 @@ const InvoicePreview = ({
                       }}
                     >
                       <h6 className="fw-bold mb-3 fs-5 fw-bold">Bill To :</h6>
-                      <h6 className="fw-black mb-2 fw-bold">
-                        {invoiceData.clientName}
-                      </h6>
+                      <h5 className="fw-black mb-2 fw-bold">
+                        {invoiceData.businessName ||
+                          invoiceData.clientBusinessName ||
+                          invoiceData.clientName ||
+                          "-"}
+                      </h5>
                       <p className="mb-1 small fs-6">
                         {invoiceData.clientAddress}
                       </p>
@@ -1051,7 +1102,8 @@ const InvoicePreview = ({
                     >
                       <p className="mb-2">
                         <strong>Notes : </strong>Thank you for choosing{" "}
-                        {invoiceData.companyName} for your business needs.
+                        {contactDetails.companyName || "our company"} for your
+                        business needs.
                       </p>
                       <div className="row g-0">
                         {/* Bank Details */}
@@ -1309,7 +1361,7 @@ const InvoicePreview = ({
                                   className="fs-6 fw-bold"
                                   style={{ lineHeight: 1.1 }}
                                 >
-                                  {invoiceData.companyPhone}
+                                  {contactDetails.companyPhone || "-"}
                                 </div>
                               </div>
                             </div>
@@ -1331,7 +1383,8 @@ const InvoicePreview = ({
                                   className="fs-6 fw-bold"
                                   style={{ lineHeight: 1.1 }}
                                 >
-                                  {invoiceData.companyWebsite}
+                                  {contactDetails.companyWebsite ||
+                                    "www.maxcode.in"}
                                 </div>
                               </div>
                             </div>
@@ -1353,7 +1406,7 @@ const InvoicePreview = ({
                                   className="fs-6 fw-bold"
                                   style={{ lineHeight: 1.1 }}
                                 >
-                                  {invoiceData.companyEmail}
+                                  {contactDetails.companyEmail || "-"}
                                 </div>
                               </div>
                             </div>
@@ -1376,7 +1429,7 @@ const InvoicePreview = ({
                                   className="fs-6 fw-bold"
                                   style={{ lineHeight: 1.1 }}
                                 >
-                                  {invoiceData.companyAddress}
+                                  {contactDetails.companyAddress || "-"}
                                 </div>
                               </div>
                             </div>

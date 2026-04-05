@@ -1267,6 +1267,7 @@ const RcmManagement = () => {
       originalRefNo: record.originalRefNo || "",
       orderNumber: record.originalRefNo || "",
       placeOfSupply: record.placeOfSupply || "Rajasthan (08)",
+      serviceProviderBusinessName: record.serviceProviderBusinessName || "",
       clientName: record.serviceProviderBusinessName || "",
       clientAddress: record.address || "",
       clientPhone: record.phoneNumber || "",

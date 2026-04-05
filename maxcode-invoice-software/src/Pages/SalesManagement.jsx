@@ -1239,7 +1239,10 @@ const SalesManagement = () => {
       orderNumber: record.clientId || record.clientRefId || "",
       clientId: record.clientId || record.clientRefId || "",
       placeOfSupply: record.placeOfSupply || "",
-      clientName: record.clientName || record.businessName || "",
+      clientName: record.clientName || "",
+      businessName: record.businessName || record.clientBusinessName || "",
+      clientBusinessName:
+        record.clientBusinessName || record.businessName || "",
       clientAddress: record.address || "",
       clientPhone: record.phoneNumber || "",
       clientEmail: record.email || "",
