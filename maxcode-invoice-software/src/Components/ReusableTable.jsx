@@ -70,6 +70,9 @@ let canvasDevanagariFontLoadPromise = null;
 
 const EXPORT_FALLBACK_PAGE_SIZE = 500;
 const EXPORT_MAX_PAGES = 200;
+const PDF_WIDTH_MEASUREMENT_SAMPLE_SIZE = 350;
+const PDF_CELL_PADDING_PX = 5;
+const MM_PER_PX = 0.264583;
 const PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY =
   "pdfExportSinglePageColumnsMode";
 const DEVANAGARI_FONT_NAME = "NotoSansDevanagari";
@@ -2330,16 +2333,8 @@ const ReusableTable = ({
     const headerFontSize = isPortrait
       ? 9
       : Math.min(11, Math.max(bodyFontSize + 1, 9));
-    const bodyCellPadding = isPortrait
-      ? "3px 6px"
-      : bodyFontSize >= 9
-        ? "4px 6px"
-        : "3px 6px";
-    const headCellPadding = isPortrait
-      ? "4px 6px"
-      : headerFontSize >= 10
-        ? "5px 6px"
-        : "4px 6px";
+    const bodyCellPadding = `${PDF_CELL_PADDING_PX}px`;
+    const headCellPadding = `${PDF_CELL_PADDING_PX}px`;
 
     const container = document.createElement("div");
     container.style.position = "fixed";
@@ -2364,27 +2359,29 @@ const ReusableTable = ({
         section.style.background = "#ffffff";
         section.style.color = "#000000";
 
-        const title = document.createElement("h2");
-        title.textContent = exportTitle;
-        title.style.margin = "0 0 6px";
-        title.style.textAlign = "center";
-        title.style.fontSize = "26px";
-        title.style.fontWeight = "700";
-        section.appendChild(title);
+        if (pageIndex === 0) {
+          const title = document.createElement("h2");
+          title.textContent = exportTitle;
+          title.style.margin = "0 0 6px";
+          title.style.textAlign = "center";
+          title.style.fontSize = "26px";
+          title.style.fontWeight = "700";
+          section.appendChild(title);
 
-        const divider = document.createElement("div");
-        divider.style.height = "2px";
-        divider.style.background = "#ffcc00";
-        divider.style.margin = "0 0 8px";
-        section.appendChild(divider);
+          const divider = document.createElement("div");
+          divider.style.height = "2px";
+          divider.style.background = "#ffcc00";
+          divider.style.margin = "0 0 8px";
+          section.appendChild(divider);
 
-        const meta = document.createElement("div");
-        meta.style.display = "flex";
-        meta.style.justifyContent = "space-between";
-        meta.style.fontSize = "11px";
-        meta.style.margin = "0 0 8px";
-        meta.innerHTML = `<span>Generated on: ${formatDateTime(now.toISOString())}</span><span>Total Records: ${exportData.length}</span>`;
-        section.appendChild(meta);
+          const meta = document.createElement("div");
+          meta.style.display = "flex";
+          meta.style.justifyContent = "space-between";
+          meta.style.fontSize = "11px";
+          meta.style.margin = "0 0 8px";
+          meta.innerHTML = `<span>Generated on: ${formatDateTime(now.toISOString())}</span><span>Total Records: ${exportData.length}</span>`;
+          section.appendChild(meta);
+        }
 
         const table = document.createElement("table");
         table.style.width = "100%";
@@ -2422,11 +2419,11 @@ const ReusableTable = ({
             td.style.border = "1px solid #d7d7d7";
             td.style.padding = bodyCellPadding;
             td.style.fontSize = `${bodyFontSize}px`;
-            td.style.wordBreak = "break-word";
-            td.style.overflowWrap = "anywhere";
+            td.style.wordBreak = "normal";
+            td.style.overflowWrap = "normal";
             td.style.fontWeight = "600";
             td.style.color = "#000000";
-            td.style.whiteSpace = "normal";
+            td.style.whiteSpace = "nowrap";
             td.style.verticalAlign = "top";
             tr.appendChild(td);
           });
@@ -2483,28 +2480,19 @@ const ReusableTable = ({
     const pdfFont = await resolvePdfFont({ doc, columnLabels, exportData });
     const useIndicFont = pdfFont === DEVANAGARI_FONT_NAME;
     const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
     const tableLeftMargin = 10;
     const tableRightMargin = 10;
     const availableWidth = pageWidth - tableLeftMargin - tableRightMargin;
     const measurementRows =
-      exportData.length > 1200 ? exportData.slice(0, 1200) : exportData;
-    const heightMeasurementRows =
-      exportData.length > 700 ? exportData.slice(0, 700) : exportData;
-    const cellPaddingTopBottom = 1.32;
-    const cellPaddingLeftRight = 1.32;
+      exportData.length > PDF_WIDTH_MEASUREMENT_SAMPLE_SIZE
+        ? exportData.slice(0, PDF_WIDTH_MEASUREMENT_SAMPLE_SIZE)
+        : exportData;
+    const cellPaddingTopBottom = PDF_CELL_PADDING_PX * MM_PER_PX;
+    const cellPaddingLeftRight = PDF_CELL_PADDING_PX * MM_PER_PX;
     const horizontalPadding = cellPaddingLeftRight * 2;
     const widthSafetyFactor = 0.998;
 
     const measureColumnsAtFontSize = (fontSize) => {
-      const maxColumnWidthCap =
-        availableWidth *
-        (columnLabels.length <= 4
-          ? 0.42
-          : columnLabels.length <= 7
-            ? 0.32
-            : 0.24);
-
       return columnLabels.map((label, columnIndex) => {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(fontSize + 0.6);
@@ -2523,49 +2511,11 @@ const ReusableTable = ({
         const preferredWidth =
           Math.max(headerWidth, maxBodyWidth) + horizontalPadding + 0.8;
 
-        return Math.min(preferredWidth, Math.max(16, maxColumnWidthCap));
+        return Math.max(6, preferredWidth);
       });
     };
 
-    const estimateTableHeight = (fontSize, widths) => {
-      const lineHeightMm = fontSize * 0.3528 * 1.15;
-      const headFontSize = Math.max(fontSize + 0.4, 1.2);
-      const headLineHeightMm = headFontSize * 0.3528 * 1.2;
-      const safeWidths = widths.map((width) =>
-        Math.max(1, width - horizontalPadding),
-      );
-
-      const headHeight = headLineHeightMm + cellPaddingTopBottom * 2 + 0.8;
-
-      const bodyHeight = heightMeasurementRows.reduce((sum, row) => {
-        let maxLines = 1;
-
-        row.forEach((cellValue, columnIndex) => {
-          const text = String(cellValue ?? "");
-          const columnWidth = safeWidths[columnIndex] || safeWidths[0] || 10;
-          const fontName =
-            hasIndicCharacters(text) && useIndicFont ? pdfFont : "helvetica";
-
-          doc.setFont(fontName, "normal");
-          doc.setFontSize(fontSize);
-
-          const wrapped = doc.splitTextToSize(text, columnWidth);
-          const lineCount = Array.isArray(wrapped)
-            ? Math.max(wrapped.length, 1)
-            : 1;
-          if (lineCount > maxLines) {
-            maxLines = lineCount;
-          }
-        });
-
-        const rowHeight = lineHeightMm * maxLines + cellPaddingTopBottom * 2;
-        return sum + rowHeight;
-      }, 0);
-
-      return headHeight + bodyHeight;
-    };
-
-    const minFontSize = 7;
+    const minFontSize = 1.8;
     const maxFontSize = 9.5;
     let computedFontSize = 8;
     let columnWidths = measureColumnsAtFontSize(computedFontSize);
@@ -2613,48 +2563,19 @@ const ReusableTable = ({
     columnWidths = measureColumnsAtFontSize(computedFontSize);
     totalWidth = columnWidths.reduce((sum, width) => sum + width, 0);
 
-    let widthScale = totalWidth > 0 ? maxAllowedWidth / totalWidth : 1;
-
-    const scaledWidthsForHeight = columnWidths.map((width) =>
-      Math.max(0.8, width * widthScale),
-    );
-    const tableTopY = 30;
-    const tableBottomMargin = 5;
-    const maxTableHeight = pageHeight - tableTopY - tableBottomMargin;
-    const estimatedTableHeight = estimateTableHeight(
-      computedFontSize,
-      scaledWidthsForHeight,
-    );
-
-    if (
-      orientation !== "portrait" &&
-      estimatedTableHeight < maxTableHeight * 0.88
+    let guard = 0;
+    while (
+      totalWidth > maxAllowedWidth &&
+      computedFontSize > minFontSize &&
+      guard < 16
     ) {
-      let low = computedFontSize;
-      let high = maxFontSize;
-
-      for (let i = 0; i < 18; i += 1) {
-        const mid = (low + high) / 2;
-        const midWidths = measureColumnsAtFontSize(mid);
-        const midTotal = midWidths.reduce((sum, width) => sum + width, 0);
-        const midScale = midTotal > 0 ? maxAllowedWidth / midTotal : 1;
-        const midScaledWidths = midWidths.map((width) =>
-          Math.max(0.8, width * midScale),
-        );
-        const midHeight = estimateTableHeight(mid, midScaledWidths);
-
-        if (midHeight <= maxTableHeight) {
-          low = mid;
-        } else {
-          high = mid;
-        }
-      }
-
-      computedFontSize = low;
+      computedFontSize = Math.max(minFontSize, computedFontSize * 0.94);
       columnWidths = measureColumnsAtFontSize(computedFontSize);
       totalWidth = columnWidths.reduce((sum, width) => sum + width, 0);
-      widthScale = totalWidth > 0 ? maxAllowedWidth / totalWidth : 1;
+      guard += 1;
     }
+
+    const widthScale = totalWidth > 0 ? maxAllowedWidth / totalWidth : 1;
 
     const columnStyles = columnWidths.reduce((styles, width, columnIndex) => {
       styles[columnIndex] = {
@@ -2695,7 +2616,7 @@ const ReusableTable = ({
           bottom: cellPaddingTopBottom,
           left: cellPaddingLeftRight,
         },
-        overflow: "linebreak",
+        overflow: "visible",
         lineWidth: 0.1,
         lineColor: [200, 200, 200],
         textColor: [0, 0, 0],
@@ -2712,7 +2633,7 @@ const ReusableTable = ({
         fillColor: [245, 245, 245],
       },
       margin: {
-        top: 30,
+        top: 8,
         bottom: 5,
         left: tableLeftMargin,
         right: tableRightMargin,
@@ -2724,7 +2645,7 @@ const ReusableTable = ({
       theme: "grid",
       columnStyles,
       didParseCell: (data) => {
-        data.cell.styles.overflow = "linebreak";
+        data.cell.styles.overflow = "visible";
 
         if (data.section === "body") {
           data.cell.styles.fillColor =
@@ -2874,7 +2795,7 @@ const ReusableTable = ({
           fillColor: [245, 245, 245],
         },
         margin: {
-          top: 30,
+          top: 8,
           bottom: 5,
           left: 8,
           right: 8,
