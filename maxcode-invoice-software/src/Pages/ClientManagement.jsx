@@ -296,7 +296,7 @@ const ClientManagement = () => {
         hours = hours ? hours : 12;
         const formattedHours = String(hours).padStart(2, "0");
 
-        return `${day}/${month}/${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
+        return `${day}-${month}-${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
       }
 
       return dateString;

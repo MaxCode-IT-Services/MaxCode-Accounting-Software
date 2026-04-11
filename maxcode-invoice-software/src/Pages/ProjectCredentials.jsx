@@ -61,7 +61,7 @@ const formatDateTimeForDisplay = (dateString) => {
     hours = hours % 12;
     hours = hours || 12;
 
-    return `${day}/${month}/${year} | ${String(hours).padStart(2, "0")}:${minutes}:${seconds} ${ampm}`;
+    return `${day}-${month}-${year} | ${String(hours).padStart(2, "0")}:${minutes}:${seconds} ${ampm}`;
   } catch (error) {
     return dateString;
   }

@@ -65,6 +65,13 @@ const resolveCreatedByName = (record = {}) => {
 
 let cachedPdfLibsPromise = null;
 let cachedXlsxLibPromise = null;
+let devanagariFontBase64Promise = null;
+
+const EXPORT_FALLBACK_PAGE_SIZE = 500;
+const EXPORT_MAX_PAGES = 200;
+const DEVANAGARI_FONT_NAME = "NotoSansDevanagari";
+const DEVANAGARI_FONT_FILE = "NotoSansDevanagari-Regular.ttf";
+const DEVANAGARI_FONT_URL = "/fonts/NotoSansDevanagari-Regular.ttf";
 
 const loadPdfExportLibs = async () => {
   if (!cachedPdfLibsPromise) {
@@ -88,6 +95,101 @@ const loadXlsxLib = async () => {
   return cachedXlsxLibPromise;
 };
 
+const extractExportRows = (payload) => {
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  return [];
+};
+
+const extractRowIdentity = (row) =>
+  String(
+    row?._id || row?.id || row?.registrationNumber || row?.phoneNumber || "",
+  );
+
+const mergeRowsWithoutDuplicates = (baseRows = [], incomingRows = []) => {
+  const merged = [...baseRows];
+  const seen = new Set(baseRows.map(extractRowIdentity).filter(Boolean));
+
+  incomingRows.forEach((row) => {
+    const identity = extractRowIdentity(row);
+    if (!identity) {
+      merged.push(row);
+      return;
+    }
+
+    if (!seen.has(identity)) {
+      seen.add(identity);
+      merged.push(row);
+    }
+  });
+
+  return merged;
+};
+
+const arrayBufferToBase64 = (buffer) => {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return window.btoa(binary);
+};
+
+const loadDevanagariFontBase64 = async () => {
+  if (!devanagariFontBase64Promise) {
+    devanagariFontBase64Promise = fetch(DEVANAGARI_FONT_URL)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Font download failed: ${response.status}`);
+        }
+
+        return response.arrayBuffer();
+      })
+      .then((buffer) => arrayBufferToBase64(buffer));
+  }
+
+  return devanagariFontBase64Promise;
+};
+
+const hasIndicCharacters = (value) =>
+  /[\u0900-\u097F]/.test(String(value || ""));
+
+const buildUrlWithParams = (baseUrl, params) => {
+  const separator = String(baseUrl).includes("?") ? "&" : "?";
+  return `${baseUrl}${separator}${new URLSearchParams(params).toString()}`;
+};
+
+const parseJsonResponseOrThrow = async (response, requestUrl) => {
+  const contentType = String(response.headers.get("content-type") || "");
+  const rawText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Export API failed (${response.status})`);
+  }
+
+  if (!contentType.toLowerCase().includes("application/json")) {
+    const preview = rawText.slice(0, 80).trim().toLowerCase();
+    const isHtml =
+      preview.startsWith("<!doctype") || preview.startsWith("<html");
+    if (isHtml) {
+      throw new Error(
+        `Export API returned HTML instead of JSON. Check exportApi route: ${requestUrl}`,
+      );
+    }
+  }
+
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    throw new Error("Export API returned invalid JSON");
+  }
+};
+
 // Helper: fetch all filtered data for export (server-side)
 async function fetchAllServerDataForExport({
   exportApi,
@@ -98,20 +200,79 @@ async function fetchAllServerDataForExport({
 }) {
   try {
     if (onExportStart) onExportStart();
-    // You may need to adjust this API call as per your backend
-    const params = new URLSearchParams({ ...filterParams, export: 1 });
     const mergedHeaders = {
       ...requestHeaders,
     };
 
-    const res = await fetch(`${exportApi}?${params.toString()}`, {
+    const baseParams = {
+      ...filterParams,
+      export: 1,
+      page: 1,
+      limit: EXPORT_FALLBACK_PAGE_SIZE,
+    };
+    const firstUrl = buildUrlWithParams(exportApi, baseParams);
+
+    const firstRes = await fetch(firstUrl, {
       headers: mergedHeaders,
       credentials: "include",
     });
-    if (!res.ok) throw new Error("Export data fetch failed");
-    const json = await res.json();
+    const firstJson = await parseJsonResponseOrThrow(firstRes, firstUrl);
+
+    let allRows = extractExportRows(firstJson);
+    const pagination = firstJson?.pagination || {};
+    const totalPages = Math.max(Number(pagination?.totalPages) || 1, 1);
+    const totalRecords = Math.max(Number(pagination?.totalRecords) || 0, 0);
+    const hasPaginationMeta =
+      Number.isFinite(Number(pagination?.totalPages)) ||
+      Number.isFinite(Number(pagination?.totalRecords));
+
+    if (totalPages > 1 && allRows.length < totalRecords) {
+      for (let page = 2; page <= totalPages; page += 1) {
+        const nextUrl = buildUrlWithParams(exportApi, {
+          ...baseParams,
+          page,
+        });
+        const nextRes = await fetch(nextUrl, {
+          headers: mergedHeaders,
+          credentials: "include",
+        });
+
+        if (!nextRes.ok) break;
+        const nextJson = await parseJsonResponseOrThrow(nextRes, nextUrl);
+        const nextRows = extractExportRows(nextJson);
+        if (!nextRows.length) break;
+        allRows = mergeRowsWithoutDuplicates(allRows, nextRows);
+      }
+    }
+
+    if (!hasPaginationMeta && allRows.length >= EXPORT_FALLBACK_PAGE_SIZE) {
+      for (let page = 2; page <= EXPORT_MAX_PAGES; page += 1) {
+        const nextUrl = buildUrlWithParams(exportApi, {
+          ...baseParams,
+          page,
+        });
+        const nextRes = await fetch(nextUrl, {
+          headers: mergedHeaders,
+          credentials: "include",
+        });
+
+        if (!nextRes.ok) break;
+        const nextJson = await parseJsonResponseOrThrow(nextRes, nextUrl);
+        const nextRows = extractExportRows(nextJson);
+        if (!nextRows.length) break;
+
+        const previousLength = allRows.length;
+        allRows = mergeRowsWithoutDuplicates(allRows, nextRows);
+        const hasGrown = allRows.length > previousLength;
+
+        if (!hasGrown || nextRows.length < EXPORT_FALLBACK_PAGE_SIZE) {
+          break;
+        }
+      }
+    }
+
     if (onExportEnd) onExportEnd();
-    return json.data || json || [];
+    return allRows;
   } catch (err) {
     if (onExportEnd) onExportEnd();
     showError("Failed to fetch all data for export");
@@ -176,6 +337,15 @@ const ReusableTable = ({
   dataOwnershipFields = [],
   ensureCreatedByColumn = false,
   createdByLabel = "Created By",
+
+  // Optional expandable row support (opt-in)
+  expandableRows = false,
+  canExpandRow,
+  isRowExpanded,
+  renderExpandedRow,
+  expandedRowClassName = "bg-light",
+  onToggleExpandRow,
+  showExpandToggleInSn = false,
 
   // Additional
   customActions,
@@ -581,11 +751,18 @@ const ReusableTable = ({
   const parseDate = (dateStr) => {
     if (!dateStr) return null;
 
-    if (dayjs(dateStr, "DD/MM/YYYY | hh:mm:ss A").isValid()) {
-      return dayjs(dateStr, "DD/MM/YYYY | hh:mm:ss A").toDate();
+    if (dayjs(dateStr, "DD-MM-YYYY | hh:mm:ss A", true).isValid()) {
+      return dayjs(dateStr, "DD-MM-YYYY | hh:mm:ss A", true).toDate();
     }
-    if (dayjs(dateStr, "DD/MM/YYYY").isValid()) {
-      return dayjs(dateStr, "DD/MM/YYYY").toDate();
+    if (dayjs(dateStr, "DD-MM-YYYY", true).isValid()) {
+      return dayjs(dateStr, "DD-MM-YYYY", true).toDate();
+    }
+    // Backward compatibility for old stored values.
+    if (dayjs(dateStr, "DD/MM/YYYY | hh:mm:ss A", true).isValid()) {
+      return dayjs(dateStr, "DD/MM/YYYY | hh:mm:ss A", true).toDate();
+    }
+    if (dayjs(dateStr, "DD/MM/YYYY", true).isValid()) {
+      return dayjs(dateStr, "DD/MM/YYYY", true).toDate();
     }
     if (dayjs(dateStr).isValid()) {
       return dayjs(dateStr).toDate();
@@ -600,9 +777,10 @@ const ReusableTable = ({
     try {
       if (
         typeof dateString === "string" &&
-        /^\d{2}\/\d{2}\/\d{4}$/.test(dateString)
+        (/^\d{2}-\d{2}-\d{4}$/.test(dateString) ||
+          /^\d{2}\/\d{2}\/\d{4}$/.test(dateString))
       ) {
-        return dateString;
+        return dateString.replace(/\//g, "-");
       }
 
       const date = new Date(dateString);
@@ -610,7 +788,7 @@ const ReusableTable = ({
         const day = String(date.getDate()).padStart(2, "0");
         const month = String(date.getMonth() + 1).padStart(2, "0");
         const year = date.getFullYear();
-        return `${day}/${month}/${year}`;
+        return `${day}-${month}-${year}`;
       }
 
       return dateString;
@@ -892,6 +1070,26 @@ const ReusableTable = ({
   // Calculate total records
   const totalRecords = serverSide ? propTotalRecords : filteredData.length;
 
+  const buildServerSideColumnSearchTerm = (filters = {}) => {
+    if (!serverSide) return "";
+
+    return Object.entries(filters || {})
+      .filter(([key, value]) => {
+        if (effectiveColumnsWithDropdownFilter.includes(key)) return false;
+        if (columnsWithDateFilter.includes(key)) return false;
+        return String(value || "").trim() !== "";
+      })
+      .map(([, value]) => String(value || "").trim())
+      .filter(Boolean)
+      .join(" ");
+  };
+
+  const syncServerSideColumnSearch = (filters = {}) => {
+    if (!serverSide || !onServerSideSearch) return;
+    const columnSearch = buildServerSideColumnSearchTerm(filters);
+    onServerSideSearch(columnSearch, appendDataScopeToFilters({}));
+  };
+
   // Server-side filter change handler
   function triggerServerSideFilter(updatedFilters) {
     if (!serverSide || !onServerSideFilter) return;
@@ -937,6 +1135,7 @@ const ReusableTable = ({
     }
 
     onServerSideFilter(appendDataScopeToFilters(filterParams));
+    syncServerSideColumnSearch(updatedFilters || columnFilters);
   }
 
   // Ensure filter applies when columnFilters change (for AdvancedFilterOffcanvas)
@@ -961,7 +1160,7 @@ const ReusableTable = ({
     }
 
     searchDebounceTimer.current = setTimeout(() => {
-      onServerSideSearch(value);
+      onServerSideSearch(value, appendDataScopeToFilters({}));
     }, 500);
   };
 
@@ -1030,6 +1229,7 @@ const ReusableTable = ({
       if (onPageChange) onPageChange(1);
       if (onServerSideFilter)
         onServerSideFilter(appendDataScopeToFilters(filterParams));
+      syncServerSideColumnSearch(columnFilters);
     } else {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
@@ -1140,6 +1340,31 @@ const ReusableTable = ({
       if (onPageChange) onPageChange(1);
       if (onServerSideFilter)
         onServerSideFilter(appendDataScopeToFilters(filterParams));
+
+      const nextColumnFilters = {
+        ...columnFilters,
+        [key]: (() => {
+          const currentFilters = [...(columnFilters[key] || [])];
+
+          if (value === "All") {
+            return isChecked ? ["All"] : [];
+          }
+
+          let newFilters;
+          if (isChecked) {
+            newFilters = [...currentFilters.filter((v) => v !== "All"), value];
+          } else {
+            newFilters = currentFilters.filter((v) => v !== value);
+          }
+
+          if (newFilters.length === 0) {
+            newFilters = ["All"];
+          }
+
+          return newFilters;
+        })(),
+      };
+      syncServerSideColumnSearch(nextColumnFilters);
     } else {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
@@ -1189,7 +1414,7 @@ const ReusableTable = ({
     if (serverSide && onServerSideSort) {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
-      onServerSideSort(key, direction);
+      onServerSideSort(key, direction, appendDataScopeToFilters({}));
     }
   };
 
@@ -1226,11 +1451,11 @@ const ReusableTable = ({
       }
 
       if (onServerSideSearch) {
-        onServerSideSearch("");
+        onServerSideSearch("", appendDataScopeToFilters({}));
       }
 
       if (onServerSideSort) {
-        onServerSideSort(null, "normal");
+        onServerSideSort(null, "normal", appendDataScopeToFilters({}));
       }
     } else {
       setCurrentPage(1);
@@ -1273,7 +1498,7 @@ const ReusableTable = ({
       }
 
       if (onServerSideSearch) {
-        onServerSideSearch("");
+        onServerSideSearch("", appendDataScopeToFilters({}));
       }
     } else {
       setCurrentPage(1);
@@ -1288,7 +1513,7 @@ const ReusableTable = ({
     setCurrentPage(page);
 
     if (serverSide && onServerSidePageChange) {
-      onServerSidePageChange(page);
+      onServerSidePageChange(page, appendDataScopeToFilters({}));
     }
 
     if (onPageChange) onPageChange(page);
@@ -1300,7 +1525,7 @@ const ReusableTable = ({
     setCurrentPage(1);
 
     if (serverSide && onServerSideRecordsPerPageChange) {
-      onServerSideRecordsPerPageChange(value);
+      onServerSideRecordsPerPageChange(value, appendDataScopeToFilters({}));
     }
 
     if (onRecordsPerPageChange) onRecordsPerPageChange(value);
@@ -1398,6 +1623,7 @@ const ReusableTable = ({
         if (onPageChange) onPageChange(1);
         if (onServerSideFilter)
           onServerSideFilter(appendDataScopeToFilters(filterParams));
+        syncServerSideColumnSearch(columnFilters);
       }
     } else {
       const updatedFilters = {
@@ -1902,6 +2128,132 @@ const ReusableTable = ({
     return result.charAt(0).toUpperCase() + result.slice(1);
   };
 
+  const isPhoneLikeColumn = (key = "", columnName = "") => {
+    const normalizedKey = String(key || "").toLowerCase();
+    const normalizedLabel = String(columnName || "").toLowerCase();
+    return /phone|mobile|whatsapp/.test(`${normalizedKey} ${normalizedLabel}`);
+  };
+
+  const isWhatsAppColumn = (key = "", columnName = "") => {
+    const normalizedKey = String(key || "").toLowerCase();
+    const normalizedLabel = String(columnName || "").toLowerCase();
+    return /whatsapp/.test(`${normalizedKey} ${normalizedLabel}`);
+  };
+
+  const resolveWhatsAppExportValue = (record, key) => {
+    const directValue = record?.[key];
+    if (String(directValue ?? "").trim()) {
+      return directValue;
+    }
+
+    const fallbackKeys = [
+      "phoneNumber",
+      "phone",
+      "mobile",
+      "holderPhone",
+      "giftDeliveredByPhone",
+    ];
+
+    for (const fallbackKey of fallbackKeys) {
+      const fallbackValue = record?.[fallbackKey];
+      if (String(fallbackValue ?? "").trim()) {
+        return fallbackValue;
+      }
+    }
+
+    return directValue;
+  };
+
+  const normalizePhoneForWhatsApp = (value) => {
+    const rawValue = String(value ?? "").trim();
+    if (!rawValue) return "";
+
+    const digits = rawValue.replace(/\D/g, "");
+    if (!digits) return rawValue;
+
+    if (digits.length === 10) {
+      return `91${digits}`;
+    }
+
+    if (digits.length === 11 && digits.startsWith("0")) {
+      return `91${digits.slice(1)}`;
+    }
+
+    if (digits.length === 12 && digits.startsWith("91")) {
+      return digits;
+    }
+
+    return rawValue;
+  };
+
+  const getExportValue = (record, key, columnName, index) => {
+    if (key === "sn") {
+      return index + 1;
+    }
+
+    if (columnsWithDateFilter.includes(key)) {
+      return formatDateForDisplay(record[key]);
+    }
+
+    if (isPhoneLikeColumn(key, columnName)) {
+      const exportValue = isWhatsAppColumn(key, columnName)
+        ? resolveWhatsAppExportValue(record, key)
+        : record[key];
+      return normalizePhoneForWhatsApp(exportValue);
+    }
+
+    const rawValue = record?.[key];
+    return rawValue ?? "";
+  };
+
+  const getExportRows = async () => {
+    if (typeof exportApi === "string" && exportApi.trim() !== "") {
+      const filterParams = buildServerFilterParams();
+      try {
+        const rows = await fetchAllServerDataForExport({
+          exportApi,
+          filterParams,
+          requestHeaders: exportRequestHeaders,
+        });
+        return applyDataScopeToRecords(rows);
+      } catch {
+        showInfo(
+          "Server export endpoint issue detected. Exporting currently loaded filtered rows instead.",
+        );
+      }
+    }
+
+    return applyDataScopeToRecords(sortedData);
+  };
+
+  const resolvePdfFont = async ({ doc, columnLabels, exportData }) => {
+    const needsIndicFont =
+      hasIndicCharacters(exportTitle) ||
+      columnLabels.some((label) => hasIndicCharacters(label)) ||
+      exportData.some((row) => row.some((value) => hasIndicCharacters(value)));
+
+    if (!needsIndicFont) {
+      return "helvetica";
+    }
+
+    try {
+      const fontBase64 = await loadDevanagariFontBase64();
+      doc.addFileToVFS(DEVANAGARI_FONT_FILE, fontBase64);
+      doc.addFont(DEVANAGARI_FONT_FILE, DEVANAGARI_FONT_NAME, "normal");
+      doc.addFont(DEVANAGARI_FONT_FILE, DEVANAGARI_FONT_NAME, "bold");
+      doc.setFont(DEVANAGARI_FONT_NAME, "normal");
+
+      const sampleWidth = doc.getStringUnitWidth("Test");
+      if (!Number.isFinite(sampleWidth) || sampleWidth <= 0) {
+        throw new Error("Invalid custom font metrics");
+      }
+
+      return DEVANAGARI_FONT_NAME;
+    } catch {
+      return "helvetica";
+    }
+  };
+
   // Format date time for export
   const formatDateTime = (dateString) => {
     if (!dateString) return "";
@@ -1919,22 +2271,147 @@ const ReusableTable = ({
     return `${day}-${month}-${year} | ${formattedHours}.${minutes}.${seconds} ${ampm}`;
   };
 
+  const exportToPdfUsingCanvas = async ({
+    orientation,
+    columnLabels,
+    exportData,
+    now,
+  }) => {
+    const { default: html2canvas } = await import("html2canvas");
+    const { jsPDF } = await loadPdfExportLibs();
+    const doc = new jsPDF({
+      orientation,
+      unit: "mm",
+      format: "a4",
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const rowsPerPage = orientation === "landscape" ? 32 : 42;
+
+    const container = document.createElement("div");
+    container.style.position = "fixed";
+    container.style.left = "-10000px";
+    container.style.top = "0";
+    container.style.background = "#ffffff";
+    container.style.padding = "8px";
+    container.style.width = orientation === "landscape" ? "1780px" : "1240px";
+    container.style.zIndex = "-1";
+    container.style.fontFamily =
+      '"Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif';
+    document.body.appendChild(container);
+
+    try {
+      for (
+        let start = 0, pageIndex = 0;
+        start < exportData.length;
+        start += rowsPerPage, pageIndex += 1
+      ) {
+        const rowsChunk = exportData.slice(start, start + rowsPerPage);
+        const section = document.createElement("div");
+        section.style.background = "#ffffff";
+        section.style.color = "#000000";
+
+        const title = document.createElement("h2");
+        title.textContent = exportTitle;
+        title.style.margin = "0 0 6px";
+        title.style.textAlign = "center";
+        title.style.fontSize = "26px";
+        title.style.fontWeight = "700";
+        section.appendChild(title);
+
+        const divider = document.createElement("div");
+        divider.style.height = "2px";
+        divider.style.background = "#ffcc00";
+        divider.style.margin = "0 0 8px";
+        section.appendChild(divider);
+
+        const meta = document.createElement("div");
+        meta.style.display = "flex";
+        meta.style.justifyContent = "space-between";
+        meta.style.fontSize = "11px";
+        meta.style.margin = "0 0 8px";
+        meta.innerHTML = `<span>Generated on: ${formatDateTime(now.toISOString())}</span><span>Total Records: ${exportData.length}</span>`;
+        section.appendChild(meta);
+
+        const table = document.createElement("table");
+        table.style.width = "100%";
+        table.style.borderCollapse = "collapse";
+        table.style.tableLayout = "auto";
+
+        const thead = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        columnLabels.forEach((label) => {
+          const th = document.createElement("th");
+          th.textContent = label;
+          th.style.border = "1px solid #cccccc";
+          th.style.padding = "4px 6px";
+          th.style.fontSize = "10px";
+          th.style.textAlign = "left";
+          th.style.background = "#ffcc00";
+          th.style.whiteSpace = "nowrap";
+          headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+        rowsChunk.forEach((row) => {
+          const tr = document.createElement("tr");
+          row.forEach((cellValue) => {
+            const td = document.createElement("td");
+            td.textContent = String(cellValue ?? "");
+            td.style.border = "1px solid #d7d7d7";
+            td.style.padding = "3px 6px";
+            td.style.fontSize = "10px";
+            td.style.wordBreak = "normal";
+            td.style.overflowWrap = "normal";
+            td.style.whiteSpace = "nowrap";
+            td.style.verticalAlign = "top";
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        section.appendChild(table);
+
+        container.innerHTML = "";
+        container.appendChild(section);
+
+        const canvas = await html2canvas(section, {
+          scale: 1.8,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          logging: false,
+        });
+
+        const imgData = canvas.toDataURL("image/jpeg", 0.96);
+        const imgWidth = pageWidth - 10;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+        if (pageIndex > 0) {
+          doc.addPage();
+        }
+
+        if (imgHeight <= pageHeight - 10) {
+          doc.addImage(imgData, "JPEG", 5, 5, imgWidth, imgHeight);
+        } else {
+          doc.addImage(imgData, "JPEG", 5, 5, imgWidth, pageHeight - 10);
+        }
+      }
+    } finally {
+      container.remove();
+    }
+
+    doc.save(`${exportFileName}_${now.toISOString().slice(0, 10)}.pdf`);
+  };
+
   // Export to PDF (supports server-side export)
   const exportToPDF = async () => {
     try {
       const { jsPDF, autoTable } = await loadPdfExportLibs();
 
-      let exportRows = filteredData;
-      if (serverSide && typeof exportApi === "string") {
-        // Build filter params for export
-        const filterParams = buildServerFilterParams();
-        exportRows = await fetchAllServerDataForExport({
-          exportApi,
-          filterParams,
-          requestHeaders: exportRequestHeaders,
-        });
-      }
-      exportRows = applyDataScopeToRecords(exportRows);
+      const exportRows = await getExportRows();
       const visibleColumnKeys = getOrderedColumns()
         .filter((col) => visibleColumns[col.key])
         .map((col) => col.key);
@@ -1944,22 +2421,41 @@ const ReusableTable = ({
       });
       const exportData = exportRows.map((record, index) => {
         return visibleColumnKeys.map((key) => {
-          if (key === "sn") {
-            return (index + 1).toString();
-          }
-          if (columnsWithDateFilter.includes(key)) {
-            return formatDateForDisplay(record[key]);
-          }
-          const value = record[key] || "";
-          return typeof value === "string" ? value : String(value);
+          const columnName = formatColumnName(key);
+          const value = getExportValue(record, key, columnName, index);
+          return value == null ? "" : String(value);
         });
       });
+
+      const needsIndicFont =
+        hasIndicCharacters(exportTitle) ||
+        columnLabels.some((label) => hasIndicCharacters(label)) ||
+        exportData.some((row) =>
+          row.some((value) => hasIndicCharacters(value)),
+        );
+      const now = new Date();
+      const orientation =
+        visibleColumnKeys.length > 6 ? "landscape" : "portrait";
+
       const doc = new jsPDF({
-        orientation: visibleColumnKeys.length > 6 ? "landscape" : "portrait",
+        orientation,
         unit: "mm",
         format: "a4",
       });
-      const now = new Date();
+
+      const pdfFont = await resolvePdfFont({ doc, columnLabels, exportData });
+      const useIndicFont = pdfFont === DEVANAGARI_FONT_NAME;
+      if (needsIndicFont && !useIndicFont) {
+        await exportToPdfUsingCanvas({
+          orientation,
+          columnLabels,
+          exportData,
+          now,
+        });
+        showSuccess("PDF exported successfully!");
+        return;
+      }
+
       const formattedDate = formatDateTime(now.toISOString());
       const pageWidth = doc.internal.pageSize.getWidth();
       doc.setFontSize(18);
@@ -1979,12 +2475,14 @@ const ReusableTable = ({
       doc.text(`Total Records: ${exportRows.length}`, pageWidth - 8, 25, {
         align: "right",
       });
+
       const dynamicFontSize = 8;
       autoTable(doc, {
         head: [columnLabels],
         body: exportData,
         startY: 30,
         styles: {
+          font: "helvetica",
           fontSize: dynamicFontSize,
           cellPadding: 2,
           overflow: "linebreak",
@@ -2012,7 +2510,26 @@ const ReusableTable = ({
         showHead: "everyPage",
         pageBreak: "auto",
         theme: "grid",
+        didParseCell: (data) => {
+          if (!useIndicFont) return;
+
+          const rawText = (data.cell?.text || []).join(" ");
+          if (!hasIndicCharacters(rawText)) {
+            if (data.section === "head") {
+              data.cell.styles.font = "helvetica";
+              data.cell.styles.fontStyle = "bold";
+            } else {
+              data.cell.styles.font = "helvetica";
+              data.cell.styles.fontStyle = "normal";
+            }
+            return;
+          }
+
+          data.cell.styles.font = DEVANAGARI_FONT_NAME;
+          data.cell.styles.fontStyle = "normal";
+        },
       });
+
       doc.save(`${exportFileName}_${now.toISOString().slice(0, 10)}.pdf`);
       showSuccess("PDF exported successfully!");
     } catch (error) {
@@ -2025,16 +2542,7 @@ const ReusableTable = ({
     try {
       const XLSX = await loadXlsxLib();
 
-      let exportRows = filteredData;
-      if (serverSide && typeof exportApi === "string") {
-        const filterParams = buildServerFilterParams();
-        exportRows = await fetchAllServerDataForExport({
-          exportApi,
-          filterParams,
-          requestHeaders: exportRequestHeaders,
-        });
-      }
-      exportRows = applyDataScopeToRecords(exportRows);
+      const exportRows = await getExportRows();
       const visibleColumnKeys = getOrderedColumns()
         .filter((col) => visibleColumns[col.key])
         .map((col) => col.key);
@@ -2042,13 +2550,7 @@ const ReusableTable = ({
         const row = {};
         visibleColumnKeys.forEach((key) => {
           const columnName = formatColumnName(key);
-          if (key === "sn") {
-            row[columnName] = index + 1;
-          } else if (columnsWithDateFilter.includes(key)) {
-            row[columnName] = formatDateForDisplay(record[key]);
-          } else {
-            row[columnName] = record[key] || "";
-          }
+          row[columnName] = getExportValue(record, key, columnName, index);
         });
         return row;
       });
@@ -2056,7 +2558,11 @@ const ReusableTable = ({
       if (!ws["!cols"]) ws["!cols"] = [];
       visibleColumnKeys.forEach((key, index) => {
         const columnConfig = tableColumns.find((col) => col.key === key);
-        const width = columnConfig ? Math.min(columnConfig.width / 7, 50) : 15;
+        const configuredWidth = Number(columnConfig?.width);
+        const width =
+          Number.isFinite(configuredWidth) && configuredWidth > 0
+            ? Math.min(configuredWidth / 7, 50)
+            : 15;
         ws["!cols"][index] = { width };
         const headerCell = XLSX.utils.encode_cell({ r: 0, c: index });
         if (!ws[headerCell]) return;
@@ -2081,34 +2587,22 @@ const ReusableTable = ({
   // Export to JSON (supports server-side export)
   const exportToJSON = async () => {
     try {
-      let exportRows = filteredData;
-      if (serverSide && typeof exportApi === "string") {
-        const filterParams = buildServerFilterParams();
-        exportRows = await fetchAllServerDataForExport({
-          exportApi,
-          filterParams,
-          requestHeaders: exportRequestHeaders,
-        });
-      }
-      exportRows = applyDataScopeToRecords(exportRows);
+      const exportRows = await getExportRows();
       const visibleColumnKeys = getOrderedColumns()
         .filter((col) => visibleColumns[col.key])
         .map((col) => col.key);
       const exportData = exportRows.map((record, index) => {
         const row = {};
         visibleColumnKeys.forEach((key) => {
-          if (key === "sn") {
-            row[key] = index + 1;
-          } else if (columnsWithDateFilter.includes(key)) {
-            row[key] = formatDateForDisplay(record[key]);
-          } else {
-            row[key] = record[key] || "";
-          }
+          const columnName = formatColumnName(key);
+          row[key] = getExportValue(record, key, columnName, index);
         });
         return row;
       });
       const json = JSON.stringify(exportData, null, 2);
-      const blob = new Blob([json], { type: "application/json" });
+      const blob = new Blob([`\uFEFF${json}`], {
+        type: "application/json;charset=utf-8",
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -2158,6 +2652,13 @@ const ReusableTable = ({
     if (searchTerm && searchTerm.trim() !== "") {
       filterParams.search = searchTerm.trim();
     }
+
+    if (sortConfig?.key && sortConfig?.direction !== "normal") {
+      filterParams.sortBy = getServerFilterKey(sortConfig.key);
+      filterParams.sortOrder =
+        sortConfig.direction === "ascending" ? "asc" : "desc";
+    }
+
     return appendDataScopeToFilters(filterParams);
   }
 
@@ -2199,6 +2700,9 @@ const ReusableTable = ({
 
   const pageInfo = paginationInfo();
   const paginationItems = getPaginationItems();
+  const visibleColumnCount = getOrderedColumns().filter(
+    (column) => visibleColumns[column.key],
+  ).length;
 
   return (
     <>
@@ -2679,150 +3183,221 @@ const ReusableTable = ({
                       ? (currentPage - 1) * recordsPerPage + index + 1
                       : (currentPage - 1) * recordsPerPage + index + 1;
 
+                    const rowCanExpand =
+                      expandableRows && typeof canExpandRow === "function"
+                        ? canExpandRow(record)
+                        : false;
+                    const rowExpanded =
+                      rowCanExpand && typeof isRowExpanded === "function"
+                        ? Boolean(isRowExpanded(record))
+                        : false;
+                    const expandedContent =
+                      rowExpanded && typeof renderExpandedRow === "function"
+                        ? renderExpandedRow(record)
+                        : null;
+                    const rowKey = record.id || record._id || index;
+
                     return (
-                      <tr key={record.id || record._id || index}>
-                        {getOrderedColumns().map(
-                          (column) =>
-                            visibleColumns[column.key] && (
-                              <td
-                                key={`${record.id || record._id || index}-${column.key}`}
-                                style={{
-                                  whiteSpace: "nowrap",
-                                  width: column.width,
-                                  minWidth: column.width,
-                                  position: isPinned(column.key)
-                                    ? "sticky"
-                                    : undefined,
-                                  left:
-                                    isPinned(column.key) === "left"
-                                      ? "0"
+                      <React.Fragment key={rowKey}>
+                        <tr>
+                          {getOrderedColumns().map(
+                            (column) =>
+                              visibleColumns[column.key] && (
+                                <td
+                                  key={`${rowKey}-${column.key}`}
+                                  style={{
+                                    whiteSpace: "nowrap",
+                                    width: column.width,
+                                    minWidth: column.width,
+                                    position: isPinned(column.key)
+                                      ? "sticky"
                                       : undefined,
-                                  right:
-                                    isPinned(column.key) === "right"
-                                      ? "0"
-                                      : undefined,
-                                  marginLeft:
-                                    isPinned(column.key) === "left"
-                                      ? "-2px"
-                                      : undefined,
-                                  marginRight:
-                                    isPinned(column.key) === "right"
-                                      ? "-2px"
-                                      : undefined,
-                                  zIndex: isPinned(column.key) ? 2 : 1,
-                                  transform:
-                                    isPinned(column.key) === "left" ||
-                                    isPinned(column.key) === "right"
-                                      ? "translateX(-1px)"
-                                      : undefined,
-                                }}
-                              >
-                                {column.key === "sn" ? (
-                                  column.render ? (
+                                    left:
+                                      isPinned(column.key) === "left"
+                                        ? "0"
+                                        : undefined,
+                                    right:
+                                      isPinned(column.key) === "right"
+                                        ? "0"
+                                        : undefined,
+                                    marginLeft:
+                                      isPinned(column.key) === "left"
+                                        ? "-2px"
+                                        : undefined,
+                                    marginRight:
+                                      isPinned(column.key) === "right"
+                                        ? "-2px"
+                                        : undefined,
+                                    zIndex: isPinned(column.key) ? 2 : 1,
+                                    transform:
+                                      isPinned(column.key) === "left" ||
+                                      isPinned(column.key) === "right"
+                                        ? "translateX(-1px)"
+                                        : undefined,
+                                  }}
+                                >
+                                  {column.key === "sn" ? (
+                                    showExpandToggleInSn && rowCanExpand ? (
+                                      <div className="d-flex align-items-center gap-2">
+                                        <span>{displayIndex}</span>
+                                        <span
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (
+                                              typeof onToggleExpandRow ===
+                                              "function"
+                                            ) {
+                                              onToggleExpandRow(record);
+                                            }
+                                          }}
+                                          title={
+                                            rowExpanded
+                                              ? "Collapse details"
+                                              : "Expand details"
+                                          }
+                                          style={{
+                                            cursor:
+                                              typeof onToggleExpandRow ===
+                                              "function"
+                                                ? "pointer"
+                                                : "default",
+                                            display: "flex",
+                                            alignItems: "center",
+                                          }}
+                                        >
+                                          <i
+                                            className={`fa-solid ${
+                                              rowExpanded
+                                                ? "fa-circle-minus text-danger"
+                                                : "fa-circle-plus text-success"
+                                            }`}
+                                            style={{ fontSize: "14px" }}
+                                          ></i>
+                                        </span>
+                                      </div>
+                                    ) : column.render ? (
+                                      column.render(
+                                        record[column.key],
+                                        record,
+                                        displayIndex,
+                                      )
+                                    ) : (
+                                      displayIndex
+                                    )
+                                  ) : column.key === "action" && showActions ? (
+                                    <div className="d-flex">
+                                      {actions.includes("view") && onView && (
+                                        <button
+                                          className="btn btn-sm btn-outline-info me-1"
+                                          onClick={() =>
+                                            canRead && onView(record)
+                                          }
+                                          title="View"
+                                          disabled={!canRead}
+                                          style={getDisabledActionStyle(
+                                            canRead,
+                                          )}
+                                        >
+                                          <i className="fa-solid fa-eye"></i>
+                                        </button>
+                                      )}
+                                      {actions.includes("edit") && onEdit && (
+                                        <button
+                                          className="btn btn-sm btn-outline-primary me-1"
+                                          onClick={() =>
+                                            canUpdate && onEdit(record)
+                                          }
+                                          title="Edit"
+                                          disabled={!canUpdate}
+                                          style={getDisabledActionStyle(
+                                            canUpdate,
+                                          )}
+                                        >
+                                          <i className="fas fa-edit"></i>
+                                        </button>
+                                      )}
+                                      {actions.includes("delete") &&
+                                        onDelete && (
+                                          <button
+                                            className="btn btn-sm btn-outline-danger me-1"
+                                            onClick={() =>
+                                              canDelete &&
+                                              (skipDeleteConfirmation
+                                                ? onDelete(
+                                                    record._id || record.id,
+                                                  )
+                                                : confirmDelete(record))
+                                            }
+                                            title="Delete"
+                                            disabled={!canDelete}
+                                            style={getDisabledActionStyle(
+                                              canDelete,
+                                            )}
+                                          >
+                                            <i className="fas fa-trash"></i>
+                                          </button>
+                                        )}
+                                      {customActions && customActions(record)}
+                                    </div>
+                                  ) : column.render ? (
                                     column.render(
                                       record[column.key],
                                       record,
                                       displayIndex,
                                     )
-                                  ) : (
-                                    displayIndex
-                                  )
-                                ) : column.key === "action" && showActions ? (
-                                  <div className="d-flex">
-                                    {actions.includes("view") && onView && (
-                                      <button
-                                        className="btn btn-sm btn-outline-info me-1"
-                                        onClick={() =>
-                                          canRead && onView(record)
+                                  ) : column.key === "status" &&
+                                    actions.includes("status") &&
+                                    onStatusToggle ? (
+                                    <div className="form-check form-switch">
+                                      <input
+                                        className="form-check-input"
+                                        type="checkbox"
+                                        checked={
+                                          record.status === "Active" ||
+                                          record.status === "active"
                                         }
-                                        title="View"
-                                        disabled={!canRead}
-                                        style={getDisabledActionStyle(canRead)}
-                                      >
-                                        <i className="fa-solid fa-eye"></i>
-                                      </button>
-                                    )}
-                                    {actions.includes("edit") && onEdit && (
-                                      <button
-                                        className="btn btn-sm btn-outline-primary me-1"
-                                        onClick={() =>
-                                          canUpdate && onEdit(record)
+                                        onChange={() =>
+                                          canUpdate &&
+                                          onStatusToggle(
+                                            record._id || record.id,
+                                          )
                                         }
-                                        title="Edit"
-                                        disabled={!canUpdate}
                                         style={getDisabledActionStyle(
                                           canUpdate,
                                         )}
-                                      >
-                                        <i className="fas fa-edit"></i>
-                                      </button>
-                                    )}
-                                    {actions.includes("delete") && onDelete && (
-                                      <button
-                                        className="btn btn-sm btn-outline-danger me-1"
-                                        onClick={() =>
-                                          canDelete &&
-                                          (skipDeleteConfirmation
-                                            ? onDelete(record._id || record.id)
-                                            : confirmDelete(record))
-                                        }
-                                        title="Delete"
-                                        disabled={!canDelete}
-                                        style={getDisabledActionStyle(
-                                          canDelete,
-                                        )}
-                                      >
-                                        <i className="fas fa-trash"></i>
-                                      </button>
-                                    )}
-                                    {customActions && customActions(record)}
-                                  </div>
-                                ) : column.render ? (
-                                  column.render(
-                                    record[column.key],
-                                    record,
-                                    displayIndex,
-                                  )
-                                ) : column.key === "status" &&
-                                  actions.includes("status") &&
-                                  onStatusToggle ? (
-                                  <div className="form-check form-switch">
-                                    <input
-                                      className="form-check-input"
-                                      type="checkbox"
-                                      checked={
-                                        record.status === "Active" ||
-                                        record.status === "active"
-                                      }
-                                      onChange={() =>
-                                        canUpdate &&
-                                        onStatusToggle(record._id || record.id)
-                                      }
-                                      style={getDisabledActionStyle(canUpdate)}
-                                      disabled={!canUpdate}
-                                    />
-                                    <label className="form-check-label">
+                                        disabled={!canUpdate}
+                                      />
+                                      <label className="form-check-label">
+                                        {record.status}
+                                      </label>
+                                    </div>
+                                  ) : column.key === "status" &&
+                                    !onStatusToggle ? (
+                                    <span
+                                      className={`badge ${getStatusBadgeClass(record.status)}`}
+                                    >
                                       {record.status}
-                                    </label>
-                                  </div>
-                                ) : column.key === "status" &&
-                                  !onStatusToggle ? (
-                                  <span
-                                    className={`badge ${getStatusBadgeClass(record.status)}`}
-                                  >
-                                    {record.status}
-                                  </span>
-                                ) : columnsWithDateFilter.includes(
-                                    column.key,
-                                  ) ? (
-                                  formatDateForDisplay(record[column.key])
-                                ) : (
-                                  record[column.key]
-                                )}
-                              </td>
-                            ),
+                                    </span>
+                                  ) : columnsWithDateFilter.includes(
+                                      column.key,
+                                    ) ? (
+                                    formatDateForDisplay(record[column.key])
+                                  ) : (
+                                    record[column.key]
+                                  )}
+                                </td>
+                              ),
+                          )}
+                        </tr>
+
+                        {rowExpanded && expandedContent && (
+                          <tr className={expandedRowClassName}>
+                            <td colSpan={visibleColumnCount}>
+                              {expandedContent}
+                            </td>
+                          </tr>
                         )}
-                      </tr>
+                      </React.Fragment>
                     );
                   })
                 ) : (

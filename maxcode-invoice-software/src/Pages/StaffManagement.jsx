@@ -278,7 +278,7 @@ const StaffManagement = () => {
         hours = hours ? hours : 12;
         const formattedHours = String(hours).padStart(2, "0");
 
-        return `${day}/${month}/${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
+        return `${day}-${month}-${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
       }
 
       return dateString;
@@ -338,7 +338,7 @@ const StaffManagement = () => {
       createdDateFilter: record.createdDate,
       photoStatus: record.profilePhotoUrl ? "Available" : "Not Available",
       dateOfBirthDisplay: record.dateOfBirth
-        ? new Date(record.dateOfBirth).toLocaleDateString("en-GB")
+        ? formatDateTimeForDisplay(record.dateOfBirth).split(" |")[0]
         : "-",
     }));
   }, [records, serverSide, currentPage, recordsPerPage]);

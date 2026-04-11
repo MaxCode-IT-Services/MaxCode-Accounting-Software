@@ -124,7 +124,7 @@ const BooksOfAccounts = () => {
         const day = String(date.getDate()).padStart(2, "0");
         const month = String(date.getMonth() + 1).padStart(2, "0");
         const year = date.getFullYear();
-        return `${day}/${month}/${year}`;
+        return `${day}-${month}-${year}`;
       }
       return dateString;
     } catch (e) {
@@ -151,7 +151,7 @@ const BooksOfAccounts = () => {
         hours = hours ? hours : 12;
         const formattedHours = String(hours).padStart(2, "0");
 
-        return `${day}/${month}/${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
+        return `${day}-${month}-${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
       }
 
       return dateString;

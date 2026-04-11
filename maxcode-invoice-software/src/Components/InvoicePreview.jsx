@@ -308,7 +308,7 @@ const InvoicePreview = ({
         hours = hours ? hours : 12;
         const formattedHours = String(hours).padStart(2, "0");
 
-        return `${day}/${month}/${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
+        return `${day}-${month}-${year} | ${formattedHours}:${minutes}:${seconds} ${ampm}`;
       }
 
       return dateString;
@@ -320,13 +320,7 @@ const InvoicePreview = ({
   const signatureDateTime =
     invoiceData.createdDateTime ||
     formatDateTimeForDisplay(invoiceData.createdDate) ||
-    `${new Date().toLocaleDateString("en-GB")} ${new Date().toLocaleTimeString(
-      "en-US",
-      {
-        hour: "2-digit",
-        minute: "2-digit",
-      },
-    )}`;
+    formatDateTimeForDisplay(new Date());
 
   // Helper Functions
   const formatCurrency = (val) => {
