@@ -66,9 +66,12 @@ const resolveCreatedByName = (record = {}) => {
 let cachedPdfLibsPromise = null;
 let cachedXlsxLibPromise = null;
 let devanagariFontBase64Promise = null;
+let canvasDevanagariFontLoadPromise = null;
 
 const EXPORT_FALLBACK_PAGE_SIZE = 500;
 const EXPORT_MAX_PAGES = 200;
+const PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY =
+  "pdfExportSinglePageColumnsMode";
 const DEVANAGARI_FONT_NAME = "NotoSansDevanagari";
 const DEVANAGARI_FONT_FILE = "NotoSansDevanagari-Regular.ttf";
 const DEVANAGARI_FONT_URL = "/fonts/NotoSansDevanagari-Regular.ttf";
@@ -154,6 +157,31 @@ const loadDevanagariFontBase64 = async () => {
   }
 
   return devanagariFontBase64Promise;
+};
+
+const ensureCanvasDevanagariFontLoaded = async () => {
+  if (canvasDevanagariFontLoadPromise) {
+    return canvasDevanagariFontLoadPromise;
+  }
+
+  canvasDevanagariFontLoadPromise = (async () => {
+    if (typeof document === "undefined" || !document.fonts) return;
+
+    try {
+      // Use a dedicated font-family name for canvas snapshots.
+      const fontFace = new FontFace(
+        "NotoSansDevanagariPdf",
+        `url(${DEVANAGARI_FONT_URL}) format("truetype")`,
+      );
+      const loadedFont = await fontFace.load();
+      document.fonts.add(loadedFont);
+      await document.fonts.load('12px "NotoSansDevanagariPdf"');
+    } catch {
+      // Keep fallback chain active when custom font cannot load.
+    }
+  })();
+
+  return canvasDevanagariFontLoadPromise;
 };
 
 const hasIndicCharacters = (value) =>
@@ -275,7 +303,6 @@ async function fetchAllServerDataForExport({
     return allRows;
   } catch (err) {
     if (onExportEnd) onExportEnd();
-    showError("Failed to fetch all data for export");
     throw err;
   }
 }
@@ -2217,9 +2244,7 @@ const ReusableTable = ({
         });
         return applyDataScopeToRecords(rows);
       } catch {
-        showInfo(
-          "Server export endpoint issue detected. Exporting currently loaded filtered rows instead.",
-        );
+        // Silent fallback to current loaded rows
       }
     }
 
@@ -2277,6 +2302,8 @@ const ReusableTable = ({
     exportData,
     now,
   }) => {
+    await ensureCanvasDevanagariFontLoaded();
+
     const { default: html2canvas } = await import("html2canvas");
     const { jsPDF } = await loadPdfExportLibs();
     const doc = new jsPDF({
@@ -2288,6 +2315,31 @@ const ReusableTable = ({
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const rowsPerPage = orientation === "landscape" ? 32 : 42;
+    const isPortrait = orientation === "portrait";
+    const columnCount = Math.max(columnLabels.length, 1);
+    const totalRows = Math.max(exportData.length, 1);
+    const columnPressure = Math.min(1.08, Math.max(0.88, 6 / columnCount));
+    const densityPressure = Math.min(
+      1.08,
+      Math.max(0.94, rowsPerPage / totalRows),
+    );
+    const dynamicScale = columnPressure * densityPressure;
+    const bodyFontSize = isPortrait
+      ? 8
+      : Math.min(9.5, Math.max(7.5, 8 * dynamicScale));
+    const headerFontSize = isPortrait
+      ? 9
+      : Math.min(11, Math.max(bodyFontSize + 1, 9));
+    const bodyCellPadding = isPortrait
+      ? "3px 6px"
+      : bodyFontSize >= 9
+        ? "4px 6px"
+        : "3px 6px";
+    const headCellPadding = isPortrait
+      ? "4px 6px"
+      : headerFontSize >= 10
+        ? "5px 6px"
+        : "4px 6px";
 
     const container = document.createElement("div");
     container.style.position = "fixed";
@@ -2298,7 +2350,7 @@ const ReusableTable = ({
     container.style.width = orientation === "landscape" ? "1780px" : "1240px";
     container.style.zIndex = "-1";
     container.style.fontFamily =
-      '"Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif';
+      '"NotoSansDevanagariPdf", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif';
     document.body.appendChild(container);
 
     try {
@@ -2345,8 +2397,10 @@ const ReusableTable = ({
           const th = document.createElement("th");
           th.textContent = label;
           th.style.border = "1px solid #cccccc";
-          th.style.padding = "4px 6px";
-          th.style.fontSize = "10px";
+          th.style.padding = headCellPadding;
+          th.style.fontSize = `${headerFontSize}px`;
+          th.style.fontWeight = "900";
+          th.style.color = "#000000";
           th.style.textAlign = "left";
           th.style.background = "#ffcc00";
           th.style.whiteSpace = "nowrap";
@@ -2356,17 +2410,23 @@ const ReusableTable = ({
         table.appendChild(thead);
 
         const tbody = document.createElement("tbody");
-        rowsChunk.forEach((row) => {
+        rowsChunk.forEach((row, rowIndex) => {
           const tr = document.createElement("tr");
+          const globalRowIndex = start + rowIndex;
+          tr.style.backgroundColor =
+            globalRowIndex % 2 === 0 ? "#ffffff" : "#f5f5f5";
+
           row.forEach((cellValue) => {
             const td = document.createElement("td");
             td.textContent = String(cellValue ?? "");
             td.style.border = "1px solid #d7d7d7";
-            td.style.padding = "3px 6px";
-            td.style.fontSize = "10px";
-            td.style.wordBreak = "normal";
-            td.style.overflowWrap = "normal";
-            td.style.whiteSpace = "nowrap";
+            td.style.padding = bodyCellPadding;
+            td.style.fontSize = `${bodyFontSize}px`;
+            td.style.wordBreak = "break-word";
+            td.style.overflowWrap = "anywhere";
+            td.style.fontWeight = "600";
+            td.style.color = "#000000";
+            td.style.whiteSpace = "normal";
             td.style.verticalAlign = "top";
             tr.appendChild(td);
           });
@@ -2385,7 +2445,7 @@ const ReusableTable = ({
           logging: false,
         });
 
-        const imgData = canvas.toDataURL("image/jpeg", 0.96);
+        const imgData = canvas.toDataURL("image/jpeg", 0.99);
         const imgWidth = pageWidth - 10;
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
@@ -2402,6 +2462,293 @@ const ReusableTable = ({
     } finally {
       container.remove();
     }
+
+    doc.save(`${exportFileName}_${now.toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const exportToPdfSinglePageColumns = async ({
+    orientation,
+    columnLabels,
+    exportRows,
+    exportData,
+    now,
+  }) => {
+    const { jsPDF, autoTable } = await loadPdfExportLibs();
+    const doc = new jsPDF({
+      orientation,
+      unit: "mm",
+      format: "a4",
+    });
+
+    const pdfFont = await resolvePdfFont({ doc, columnLabels, exportData });
+    const useIndicFont = pdfFont === DEVANAGARI_FONT_NAME;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const tableLeftMargin = 10;
+    const tableRightMargin = 10;
+    const availableWidth = pageWidth - tableLeftMargin - tableRightMargin;
+    const measurementRows =
+      exportData.length > 1200 ? exportData.slice(0, 1200) : exportData;
+    const heightMeasurementRows =
+      exportData.length > 700 ? exportData.slice(0, 700) : exportData;
+    const cellPaddingTopBottom = 1.32;
+    const cellPaddingLeftRight = 1.32;
+    const horizontalPadding = cellPaddingLeftRight * 2;
+    const widthSafetyFactor = 0.998;
+
+    const measureColumnsAtFontSize = (fontSize) => {
+      const maxColumnWidthCap =
+        availableWidth *
+        (columnLabels.length <= 4
+          ? 0.42
+          : columnLabels.length <= 7
+            ? 0.32
+            : 0.24);
+
+      return columnLabels.map((label, columnIndex) => {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(fontSize + 0.6);
+        const headerWidth = doc.getTextWidth(String(label || ""));
+
+        const maxBodyWidth = measurementRows.reduce((maxWidth, row) => {
+          const cellValue = String(row?.[columnIndex] ?? "");
+          const cellHasIndic = hasIndicCharacters(cellValue);
+          const fontName = cellHasIndic && useIndicFont ? pdfFont : "helvetica";
+
+          doc.setFont(fontName, "normal");
+          doc.setFontSize(fontSize);
+          return Math.max(maxWidth, doc.getTextWidth(cellValue));
+        }, 0);
+
+        const preferredWidth =
+          Math.max(headerWidth, maxBodyWidth) + horizontalPadding + 0.8;
+
+        return Math.min(preferredWidth, Math.max(16, maxColumnWidthCap));
+      });
+    };
+
+    const estimateTableHeight = (fontSize, widths) => {
+      const lineHeightMm = fontSize * 0.3528 * 1.15;
+      const headFontSize = Math.max(fontSize + 0.4, 1.2);
+      const headLineHeightMm = headFontSize * 0.3528 * 1.2;
+      const safeWidths = widths.map((width) =>
+        Math.max(1, width - horizontalPadding),
+      );
+
+      const headHeight = headLineHeightMm + cellPaddingTopBottom * 2 + 0.8;
+
+      const bodyHeight = heightMeasurementRows.reduce((sum, row) => {
+        let maxLines = 1;
+
+        row.forEach((cellValue, columnIndex) => {
+          const text = String(cellValue ?? "");
+          const columnWidth = safeWidths[columnIndex] || safeWidths[0] || 10;
+          const fontName =
+            hasIndicCharacters(text) && useIndicFont ? pdfFont : "helvetica";
+
+          doc.setFont(fontName, "normal");
+          doc.setFontSize(fontSize);
+
+          const wrapped = doc.splitTextToSize(text, columnWidth);
+          const lineCount = Array.isArray(wrapped)
+            ? Math.max(wrapped.length, 1)
+            : 1;
+          if (lineCount > maxLines) {
+            maxLines = lineCount;
+          }
+        });
+
+        const rowHeight = lineHeightMm * maxLines + cellPaddingTopBottom * 2;
+        return sum + rowHeight;
+      }, 0);
+
+      return headHeight + bodyHeight;
+    };
+
+    const minFontSize = 7;
+    const maxFontSize = 9.5;
+    let computedFontSize = 8;
+    let columnWidths = measureColumnsAtFontSize(computedFontSize);
+    let totalWidth = columnWidths.reduce((sum, width) => sum + width, 0);
+    const maxAllowedWidth = availableWidth * widthSafetyFactor;
+
+    const totalAtMin = measureColumnsAtFontSize(minFontSize).reduce(
+      (sum, width) => sum + width,
+      0,
+    );
+    const totalAtMax = measureColumnsAtFontSize(maxFontSize).reduce(
+      (sum, width) => sum + width,
+      0,
+    );
+
+    if (totalAtMin >= maxAllowedWidth) {
+      computedFontSize = minFontSize;
+    } else if (totalAtMax <= maxAllowedWidth) {
+      computedFontSize = maxFontSize;
+    } else {
+      let low = minFontSize;
+      let high = maxFontSize;
+
+      for (let i = 0; i < 22; i += 1) {
+        const mid = (low + high) / 2;
+        const midTotal = measureColumnsAtFontSize(mid).reduce(
+          (sum, width) => sum + width,
+          0,
+        );
+
+        if (midTotal <= maxAllowedWidth) {
+          low = mid;
+        } else {
+          high = mid;
+        }
+      }
+
+      computedFontSize = low;
+    }
+
+    if (orientation === "portrait") {
+      computedFontSize = 8;
+    }
+
+    columnWidths = measureColumnsAtFontSize(computedFontSize);
+    totalWidth = columnWidths.reduce((sum, width) => sum + width, 0);
+
+    let widthScale = totalWidth > 0 ? maxAllowedWidth / totalWidth : 1;
+
+    const scaledWidthsForHeight = columnWidths.map((width) =>
+      Math.max(0.8, width * widthScale),
+    );
+    const tableTopY = 30;
+    const tableBottomMargin = 5;
+    const maxTableHeight = pageHeight - tableTopY - tableBottomMargin;
+    const estimatedTableHeight = estimateTableHeight(
+      computedFontSize,
+      scaledWidthsForHeight,
+    );
+
+    if (
+      orientation !== "portrait" &&
+      estimatedTableHeight < maxTableHeight * 0.88
+    ) {
+      let low = computedFontSize;
+      let high = maxFontSize;
+
+      for (let i = 0; i < 18; i += 1) {
+        const mid = (low + high) / 2;
+        const midWidths = measureColumnsAtFontSize(mid);
+        const midTotal = midWidths.reduce((sum, width) => sum + width, 0);
+        const midScale = midTotal > 0 ? maxAllowedWidth / midTotal : 1;
+        const midScaledWidths = midWidths.map((width) =>
+          Math.max(0.8, width * midScale),
+        );
+        const midHeight = estimateTableHeight(mid, midScaledWidths);
+
+        if (midHeight <= maxTableHeight) {
+          low = mid;
+        } else {
+          high = mid;
+        }
+      }
+
+      computedFontSize = low;
+      columnWidths = measureColumnsAtFontSize(computedFontSize);
+      totalWidth = columnWidths.reduce((sum, width) => sum + width, 0);
+      widthScale = totalWidth > 0 ? maxAllowedWidth / totalWidth : 1;
+    }
+
+    const columnStyles = columnWidths.reduce((styles, width, columnIndex) => {
+      styles[columnIndex] = {
+        cellWidth: Math.max(0.8, width * widthScale),
+      };
+      return styles;
+    }, {});
+
+    const formattedDate = formatDateTime(now.toISOString());
+    doc.setFontSize(18);
+    doc.setFont("helvetica", "bold");
+    const title = exportTitle;
+    const titleWidth =
+      (doc.getStringUnitWidth(title) * doc.internal.getFontSize()) /
+      doc.internal.scaleFactor;
+    const titleX = (pageWidth - titleWidth) / 2;
+    doc.text(title, titleX, 12);
+    doc.setDrawColor(255, 204, 0);
+    doc.setLineWidth(1);
+    doc.line(8, 17, pageWidth - 8, 17);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Generated on: ${formattedDate}`, 8, 25);
+    doc.text(`Total Records: ${exportRows.length}`, pageWidth - 8, 25, {
+      align: "right",
+    });
+
+    autoTable(doc, {
+      head: [columnLabels],
+      body: exportData,
+      startY: 30,
+      styles: {
+        font: "helvetica",
+        fontSize: computedFontSize,
+        cellPadding: {
+          top: cellPaddingTopBottom,
+          right: cellPaddingLeftRight,
+          bottom: cellPaddingTopBottom,
+          left: cellPaddingLeftRight,
+        },
+        overflow: "linebreak",
+        lineWidth: 0.1,
+        lineColor: [200, 200, 200],
+        textColor: [0, 0, 0],
+        fillColor: [255, 255, 255],
+        valign: "middle",
+      },
+      headStyles: {
+        fillColor: [255, 204, 0],
+        textColor: [0, 0, 0],
+        fontStyle: "bold",
+        fontSize: Math.max(computedFontSize + 0.4, 1.2),
+      },
+      alternateRowStyles: {
+        fillColor: [245, 245, 245],
+      },
+      margin: {
+        top: 30,
+        bottom: 5,
+        left: tableLeftMargin,
+        right: tableRightMargin,
+      },
+      tableWidth: maxAllowedWidth,
+      horizontalPageBreak: false,
+      showHead: "everyPage",
+      pageBreak: "auto",
+      theme: "grid",
+      columnStyles,
+      didParseCell: (data) => {
+        data.cell.styles.overflow = "linebreak";
+
+        if (data.section === "body") {
+          data.cell.styles.fillColor =
+            data.row.index % 2 === 0 ? [255, 255, 255] : [245, 245, 245];
+        }
+
+        if (!useIndicFont) return;
+
+        const rawText = (data.cell?.text || []).join(" ");
+        if (!hasIndicCharacters(rawText)) {
+          if (data.section === "head") {
+            data.cell.styles.font = "helvetica";
+            data.cell.styles.fontStyle = "bold";
+          } else {
+            data.cell.styles.font = "helvetica";
+            data.cell.styles.fontStyle = "normal";
+          }
+          return;
+        }
+
+        data.cell.styles.font = DEVANAGARI_FONT_NAME;
+        data.cell.styles.fontStyle = "normal";
+      },
+    });
 
     doc.save(`${exportFileName}_${now.toISOString().slice(0, 10)}.pdf`);
   };
@@ -2436,6 +2783,33 @@ const ReusableTable = ({
       const now = new Date();
       const orientation =
         visibleColumnKeys.length > 6 ? "landscape" : "portrait";
+      const singlePageColumnsModeEnabled =
+        String(
+          localStorage.getItem(PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY) || "",
+        ).toLowerCase() === "true";
+
+      if (singlePageColumnsModeEnabled) {
+        if (needsIndicFont) {
+          await exportToPdfUsingCanvas({
+            orientation,
+            columnLabels,
+            exportData,
+            now,
+          });
+          showSuccess("PDF exported successfully!");
+          return;
+        }
+
+        await exportToPdfSinglePageColumns({
+          orientation,
+          columnLabels,
+          exportRows,
+          exportData,
+          now,
+        });
+        showSuccess("PDF exported successfully!");
+        return;
+      }
 
       const doc = new jsPDF({
         orientation,

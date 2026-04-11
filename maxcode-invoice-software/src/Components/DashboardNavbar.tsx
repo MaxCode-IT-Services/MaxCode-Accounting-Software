@@ -33,6 +33,9 @@ interface ExtendedFullscreenDocument extends Document {
   msExitFullscreen?: () => Promise<void> | void;
 }
 
+const PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY =
+  "pdfExportSinglePageColumnsMode";
+
 const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   // State management
   const navigate = useNavigate();
@@ -52,6 +55,8 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [singlePagePdfColumnsMode, setSinglePagePdfColumnsMode] =
+    useState(false);
   const [user, setUser] = useState({
     name: "Guest User",
     email: "guest@example.com",
@@ -136,6 +141,14 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       "#EF9B20",
     ];
     setCircleColor(colors[Math.floor(Math.random() * colors.length)]);
+  }, []);
+
+  useEffect(() => {
+    const enabled =
+      String(
+        localStorage.getItem(PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY) || "",
+      ).toLowerCase() === "true";
+    setSinglePagePdfColumnsMode(enabled);
   }, []);
 
   // Load financial years and set default selection
@@ -282,6 +295,17 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     event?.preventDefault();
     setDropdownOpen(false);
     setShowLogoutConfirm(true);
+  };
+
+  const handleToggleSinglePagePdfColumnsMode = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const enabled = event.target.checked;
+    setSinglePagePdfColumnsMode(enabled);
+    localStorage.setItem(
+      PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY,
+      enabled ? "true" : "false",
+    );
   };
 
   // Logout function - Clear localStorage and redirect
@@ -753,7 +777,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                       className="dropdown-menu dropdown-menu-end profile-dropdown show"
                       style={dropdownStyle.profile}
                     >
-                      <div className="dropdown-header noti-title p-3 border-bottom">
+                      <div className="dropdown-header noti-title px-3 pt-3 pb-2 border-bottom">
                         <h6
                           className="text-overflow"
                           style={{
@@ -806,8 +830,39 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                       </div>
 
                       <div className="dropdown-divider m-0"></div>
+
+                      <div className="dropdown-item px-3 py-2 border-bottom">
+                        <div className="d-flex align-items-center justify-content-between gap-2">
+                          <div>
+                            <div
+                              className="fw-semibold"
+                              style={{ fontSize: "13px" }}
+                            >
+                              PDF Fit All Columns In One Page
+                            </div>
+                            <small
+                              className="text-muted"
+                              style={{ fontSize: "11px" }}
+                            >
+                              On: single-page columns mode, Off: current default
+                              mode
+                            </small>
+                          </div>
+                          <div className="form-check form-switch m-0">
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              checked={singlePagePdfColumnsMode}
+                              onChange={handleToggleSinglePagePdfColumnsMode}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="dropdown-divider m-0"></div>
+
                       <a
-                        className="dropdown-item p-3"
+                        className="dropdown-item px-3 pt-2 pb-3"
                         href="#"
                         style={dropdownStyle.dropdownItem}
                         onClick={requestLogout}
