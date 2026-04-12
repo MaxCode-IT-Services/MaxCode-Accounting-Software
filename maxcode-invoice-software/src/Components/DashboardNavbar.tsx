@@ -466,6 +466,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "projectCredentials",
     },
     {
+      to: "/admin/my-software-credential",
+      icon: "fas fa-user-lock",
+      label: "My Software Credential",
+      permissionKey: "mySoftwareCredential",
+    },
+    {
       to: "/admin/file-management",
       icon: "fa-solid fa-folder-open",
       label: "File Management",
@@ -486,7 +492,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     {
       to: "/admin/financial-year-management",
       icon: "fa-regular fa-calendar-days",
-      label: "Financial Year Management",
+      label: "Financial Year",
       permissionKey: "financialYearManagement",
     },
     {

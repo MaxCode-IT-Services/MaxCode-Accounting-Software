@@ -18,14 +18,21 @@ const INITIAL_FORM = {
   projectName: "",
   websiteGithubRepoName: "",
   websiteGithubUrl: "",
+  websiteLink: "",
   appGithubRepoName: "",
   appGithubUrl: "",
+  androidAppLink: "",
+  iosRepoName: "",
+  iosRepoUrl: "",
+  iosAppLink: "",
   serverName: "",
   serverRootUsername: "",
   serverRootPassword: "",
+  serverPortNumber: "",
   databaseName: "",
   databaseRootUsername: "",
   databaseRootPassword: "",
+  databasePortNumber: "",
   appUsername: "",
   appPassword: "",
   customFields: [],
@@ -163,6 +170,43 @@ const CreateCredentials = ({
   const isVisible =
     typeof show === "object" ? Boolean(show?.show) : Boolean(show);
   const isViewMode = Boolean(editingRecord?.isViewMode);
+  const hasPersistedRecord = Boolean(editingRecord?.id || editingRecord?._id);
+
+  const getCustomFieldSignature = (name = "", type = "") =>
+    `${String(type || "")
+      .trim()
+      .toLowerCase()}::${String(name || "")
+      .trim()
+      .toLowerCase()}`;
+
+  const persistedCustomFieldIds = useMemo(() => {
+    const existingFields = Array.isArray(editingRecord?.customFields)
+      ? editingRecord.customFields
+      : [];
+
+    return new Set(
+      existingFields
+        .map((field) => String(field?.id || "").trim())
+        .filter(Boolean),
+    );
+  }, [editingRecord]);
+
+  const persistedCustomFieldSignatures = useMemo(() => {
+    const existingFields = Array.isArray(editingRecord?.customFields)
+      ? editingRecord.customFields
+      : [];
+
+    return new Set(
+      existingFields
+        .map((field) =>
+          getCustomFieldSignature(
+            String(field?.name || ""),
+            String(field?.type || ""),
+          ),
+        )
+        .filter((signature) => signature !== "::"),
+    );
+  }, [editingRecord]);
 
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
@@ -222,8 +266,13 @@ const CreateCredentials = ({
         projectName: editingRecord.projectName || "",
         websiteGithubRepoName: editingRecord.websiteGithubRepoName || "",
         websiteGithubUrl: editingRecord.websiteGithubUrl || "",
+        websiteLink: editingRecord.websiteLink || "",
         appGithubRepoName: editingRecord.appGithubRepoName || "",
         appGithubUrl: editingRecord.appGithubUrl || "",
+        androidAppLink: editingRecord.androidAppLink || "",
+        iosRepoName: editingRecord.iosRepoName || "",
+        iosRepoUrl: editingRecord.iosRepoUrl || "",
+        iosAppLink: editingRecord.iosAppLink || "",
         serverName: editingRecord.serverName || "",
         serverRootUsername:
           editingRecord.serverRootUsername ||
@@ -233,6 +282,7 @@ const CreateCredentials = ({
           editingRecord.serverRootPassword ||
           editingRecord.serverPassword ||
           "",
+        serverPortNumber: editingRecord.serverPortNumber || "",
         databaseName: editingRecord.databaseName || "",
         databaseRootUsername:
           editingRecord.databaseRootUsername || editingRecord.databaseId || "",
@@ -240,6 +290,7 @@ const CreateCredentials = ({
           editingRecord.databaseRootPassword ||
           editingRecord.databasePassword ||
           "",
+        databasePortNumber: editingRecord.databasePortNumber || "",
         appUsername: editingRecord.appUsername || "",
         appPassword: editingRecord.appPassword || "",
         customFields: normalizeCustomFieldsForForm(editingRecord.customFields),
@@ -627,6 +678,35 @@ const CreateCredentials = ({
   const getSecretStateKey = (field, customFieldId = "") =>
     customFieldId ? `custom:${customFieldId}` : field;
 
+  const isPersistedCustomField = (field = {}) => {
+    const fieldId = String(field?.id || "").trim();
+    if (fieldId && persistedCustomFieldIds.has(fieldId)) {
+      return true;
+    }
+
+    const signature = getCustomFieldSignature(field?.name, field?.type);
+    if (signature !== "::" && persistedCustomFieldSignatures.has(signature)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const getHiddenSecretValueForState = (value = "", customFieldMeta = null) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return "";
+
+    if (!hasPersistedRecord) {
+      return String(value || "");
+    }
+
+    if (customFieldMeta && !isPersistedCustomField(customFieldMeta)) {
+      return String(value || "");
+    }
+
+    return SECRET_MASK;
+  };
+
   const fetchDecryptedSecret = async (field, customFieldId = "") => {
     const id = String(editingRecord?.id || editingRecord?._id || "").trim();
     if (!id) {
@@ -702,7 +782,7 @@ const CreateCredentials = ({
       secretAutoHideTimersRef.current[key] = setTimeout(() => {
         setFormData((prev) => ({
           ...prev,
-          [field]: String(prev?.[field] || "").trim() ? SECRET_MASK : "",
+          [field]: getHiddenSecretValueForState(prev?.[field]),
         }));
         setShowPasswords((prev) => ({ ...prev, [field]: false }));
         clearSecretAutoHideTimer(key);
@@ -713,7 +793,7 @@ const CreateCredentials = ({
     clearSecretAutoHideTimer(key);
     setFormData((prev) => ({
       ...prev,
-      [field]: String(prev?.[field] || "").trim() ? SECRET_MASK : "",
+      [field]: getHiddenSecretValueForState(prev?.[field]),
     }));
     setShowPasswords((prev) => ({ ...prev, [field]: false }));
   };
@@ -744,7 +824,7 @@ const CreateCredentials = ({
             String(item.id || "") === String(fieldId)
               ? {
                   ...item,
-                  value: String(item?.value || "").trim() ? SECRET_MASK : "",
+                  value: getHiddenSecretValueForState(item?.value, item),
                 }
               : item,
           ),
@@ -765,7 +845,7 @@ const CreateCredentials = ({
         String(item.id || "") === String(fieldId)
           ? {
               ...item,
-              value: String(item?.value || "").trim() ? SECRET_MASK : "",
+              value: getHiddenSecretValueForState(item?.value, item),
             }
           : item,
       ),
@@ -1073,8 +1153,9 @@ const CreateCredentials = ({
     placeholder,
     required = false,
     forceReadOnly = false,
+    columnClass = "col-md-3",
   ) => (
-    <div className="col-md-4 mb-3">
+    <div className={`${columnClass} mb-3`}>
       <label htmlFor={name} className="form-label">
         {label} {required && <span className="text-danger">*</span>}
       </label>
@@ -1095,7 +1176,7 @@ const CreateCredentials = ({
   );
 
   const renderPasswordInput = (name, label, placeholder) => (
-    <div className="col-md-4 mb-3" key={name}>
+    <div className="col-md-3 mb-3" key={name}>
       <label htmlFor={name} className="form-label">
         {label}
       </label>
@@ -1197,6 +1278,7 @@ const CreateCredentials = ({
                   "Auto-filled client name",
                   true,
                   true,
+                  "col-md-4",
                 )}
 
                 {renderTextInput(
@@ -1205,6 +1287,7 @@ const CreateCredentials = ({
                   "Auto-filled business name",
                   true,
                   true,
+                  "col-md-4",
                 )}
 
                 {renderTextInput(
@@ -1224,15 +1307,53 @@ const CreateCredentials = ({
                   "https://github.com/...",
                 )}
                 {renderTextInput(
+                  "websiteLink",
+                  "Website Link",
+                  "https://example.com",
+                )}
+
+                {renderTextInput(
                   "appGithubRepoName",
-                  "App Github Repo Name",
-                  "Enter app repo name",
+                  "Android Repo Name",
+                  "Enter android repo name",
                 )}
                 {renderTextInput(
                   "appGithubUrl",
-                  "App Github URL",
+                  "Android Repo URL",
                   "https://github.com/...",
                 )}
+                {renderTextInput(
+                  "androidAppLink",
+                  "Android App Link",
+                  "https://play.google.com/...",
+                )}
+                {renderPasswordInput(
+                  "appUsername",
+                  "App User Name",
+                  "Enter app username",
+                )}
+                {renderPasswordInput(
+                  "appPassword",
+                  "App Password",
+                  "Enter app password",
+                )}
+
+                {renderTextInput(
+                  "iosRepoName",
+                  "IOS Repo Name",
+                  "Enter ios repo name",
+                )}
+                {renderTextInput(
+                  "iosRepoUrl",
+                  "IOS Repo URL",
+                  "https://github.com/...",
+                )}
+                {renderTextInput(
+                  "iosAppLink",
+                  "IOS App Link",
+                  "https://apps.apple.com/...",
+                )}
+
                 {renderTextInput(
                   "serverName",
                   "Server Name",
@@ -1263,15 +1384,15 @@ const CreateCredentials = ({
                   "Database Root User Password",
                   "Enter database root user password",
                 )}
-                {renderPasswordInput(
-                  "appUsername",
-                  "App User Name",
-                  "Enter app username",
+                {renderTextInput(
+                  "serverPortNumber",
+                  "Server Port Number",
+                  "Enter server port number",
                 )}
-                {renderPasswordInput(
-                  "appPassword",
-                  "App Password",
-                  "Enter app password",
+                {renderTextInput(
+                  "databasePortNumber",
+                  "Database Port Number",
+                  "Enter database port number",
                 )}
 
                 <div className="col-12 mb-2 mt-2">

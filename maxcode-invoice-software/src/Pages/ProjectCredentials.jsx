@@ -17,18 +17,24 @@ const CARD_FILTERS = {
   withWebsite: (record) =>
     Boolean(
       String(record.websiteGithubRepoName || "").trim() ||
-      String(record.websiteGithubUrl || "").trim(),
+      String(record.websiteGithubUrl || "").trim() ||
+      String(record.websiteLink || "").trim(),
     ),
   withApp: (record) =>
     Boolean(
       String(record.appGithubRepoName || "").trim() ||
-      String(record.appGithubUrl || "").trim(),
+      String(record.appGithubUrl || "").trim() ||
+      String(record.androidAppLink || "").trim() ||
+      String(record.iosRepoName || "").trim() ||
+      String(record.iosRepoUrl || "").trim() ||
+      String(record.iosAppLink || "").trim(),
     ),
   withServer: (record) =>
     Boolean(
       String(record.serverName || "").trim() ||
       String(record.serverRootUsername || record.serverUsername || "").trim() ||
-      String(record.serverRootPassword || record.serverPassword || "").trim(),
+      String(record.serverRootPassword || record.serverPassword || "").trim() ||
+      String(record.serverPortNumber || "").trim(),
     ),
   withDatabase: (record) =>
     Boolean(
@@ -36,7 +42,8 @@ const CARD_FILTERS = {
       String(record.databaseRootUsername || record.databaseId || "").trim() ||
       String(
         record.databaseRootPassword || record.databasePassword || "",
-      ).trim(),
+      ).trim() ||
+      String(record.databasePortNumber || "").trim(),
     ),
 };
 
@@ -192,11 +199,18 @@ const ProjectCredentials = () => {
           record.projectName,
           record.websiteGithubRepoName,
           record.websiteGithubUrl,
+          record.websiteLink,
           record.appGithubRepoName,
           record.appGithubUrl,
+          record.androidAppLink,
+          record.iosRepoName,
+          record.iosRepoUrl,
+          record.iosAppLink,
           record.serverName,
+          record.serverPortNumber,
           record.serverRootUsername || record.serverUsername,
           record.databaseName,
+          record.databasePortNumber,
           record.databaseRootUsername || record.databaseId,
           record.appUsername,
         ]
@@ -461,15 +475,26 @@ const ProjectCredentials = () => {
     { key: "projectName", label: "Project Name", width: 180 },
     { key: "websiteGithubRepoName", label: "Website Repo", width: 180 },
     { key: "websiteGithubUrl", label: "Website URL", width: 220 },
-    { key: "appGithubRepoName", label: "App Repo", width: 180 },
-    { key: "appGithubUrl", label: "App URL", width: 220 },
+    { key: "websiteLink", label: "Website Link", width: 220 },
+    { key: "appGithubRepoName", label: "Android Repo Name", width: 180 },
+    { key: "appGithubUrl", label: "Android Repo URL", width: 220 },
+    { key: "androidAppLink", label: "Android App Link", width: 220 },
+    { key: "iosRepoName", label: "IOS Repo Name", width: 180 },
+    { key: "iosRepoUrl", label: "IOS Repo URL", width: 220 },
+    { key: "iosAppLink", label: "IOS App Link", width: 220 },
     { key: "serverName", label: "Server Name", width: 150 },
+    { key: "serverPortNumber", label: "Server Port Number", width: 150 },
     {
       key: "serverRootUsername",
       label: "Server Root UserName",
       width: 170,
     },
     { key: "databaseName", label: "Database Name", width: 160 },
+    {
+      key: "databasePortNumber",
+      label: "Database Port Number",
+      width: 160,
+    },
     {
       key: "databaseRootUsername",
       label: "Database Root User Name",

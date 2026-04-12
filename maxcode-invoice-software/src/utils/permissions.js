@@ -152,6 +152,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "mySoftwareCredential",
+    label: "My Software Credential",
+    description: "Manage maxcode software credentials",
+    icon: "fas fa-user-lock",
+    route: "/admin/my-software-credential",
+    detailed: true,
+  },
+  {
     key: "fileManagement",
     label: "File Management",
     description: "Upload and manage files",
@@ -169,7 +177,7 @@ export const PERMISSION_MODULES = [
   },
   {
     key: "financialYearManagement",
-    label: "Financial Year Management",
+    label: "Financial Year",
     description: "Manage financial year",
     icon: "fa-regular fa-calendar-days",
     route: "/admin/financial-year-management",

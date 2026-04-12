@@ -54,6 +54,7 @@ export async function handler(event) {
       "financialYearManagementServerSide",
       "projectDetailsServerSide",
       "projectCredentialsServerSide",
+      "maxcodeCredentialsServerSide",
       "projectManagementServerSide",
       "purchaseManagementServerSide",
       "rcmManagementServerSide",

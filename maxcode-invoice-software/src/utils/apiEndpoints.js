@@ -167,6 +167,14 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/project-credentials?id=${id}`,
   },
 
+  MAXCODE_CREDENTIALS: {
+    LIST: "/maxcode-credentials",
+    CREATE: "/maxcode-credentials",
+    GET: (id) => `/maxcode-credentials?id=${id}`,
+    UPDATE: (id) => `/maxcode-credentials?id=${id}`,
+    DELETE: (id) => `/maxcode-credentials?id=${id}`,
+  },
+
   // Staff endpoints
   STAFF: {
     LIST: "/staff",

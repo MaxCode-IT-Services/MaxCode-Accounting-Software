@@ -149,17 +149,50 @@ const applySecretProtection = (nextPayload, existingRecord = null) => {
     ? existingRecord.customFields
     : [];
 
+  const resolvePreviousCustomField = (field, index) => {
+    const fieldId = String(field?.id || "").trim();
+    if (fieldId) {
+      const byId = previousCustomFields.find(
+        (candidate) => String(candidate?.id || "").trim() === fieldId,
+      );
+      if (byId) return byId;
+    }
+
+    const fieldName = String(field?.name || "")
+      .trim()
+      .toLowerCase();
+    const fieldType = String(field?.type || "")
+      .trim()
+      .toLowerCase();
+
+    const byNameAndType = previousCustomFields.find((candidate) => {
+      const candidateName = String(candidate?.name || "")
+        .trim()
+        .toLowerCase();
+      const candidateType = String(candidate?.type || "")
+        .trim()
+        .toLowerCase();
+      return (
+        Boolean(fieldName) &&
+        Boolean(fieldType) &&
+        candidateName === fieldName &&
+        candidateType === fieldType
+      );
+    });
+
+    if (byNameAndType) return byNameAndType;
+
+    return previousCustomFields[index] || null;
+  };
+
   protectedPayload.customFields = Array.isArray(nextPayload?.customFields)
-    ? nextPayload.customFields.map((field) => {
+    ? nextPayload.customFields.map((field, index) => {
         if (!isSecretCustomFieldType(field?.type)) {
           return field;
         }
 
         const incomingValue = String(field?.value || "").trim();
-        const previousField = previousCustomFields.find(
-          (candidate) =>
-            String(candidate?.id || "") === String(field?.id || ""),
-        );
+        const previousField = resolvePreviousCustomField(field, index);
         const existingValue = String(previousField?.value || "").trim();
 
         if (isMaskedSecretValue(incomingValue)) {
@@ -291,6 +324,26 @@ const normalizeCustomFields = (fields = []) => {
       };
     })
     .filter((field) => field.name || field.value || field.options.length > 0);
+};
+
+const collectMaskedSecretFieldNames = (inputFields = [], outputFields = []) => {
+  if (!Array.isArray(inputFields) || !Array.isArray(outputFields)) return [];
+
+  return inputFields
+    .map((field, index) => {
+      const type = String(field?.type || "")
+        .trim()
+        .toLowerCase();
+
+      if (!isSecretCustomFieldType(type)) return "";
+      if (!isMaskedSecretValue(field?.value || "")) return "";
+
+      const resolvedValue = String(outputFields[index]?.value || "").trim();
+      if (resolvedValue) return "";
+
+      return String(field?.name || `Custom Field ${index + 1}`).trim();
+    })
+    .filter(Boolean);
 };
 
 /**
@@ -441,17 +494,23 @@ export async function handler(event) {
             filterQuery.$or = [
               { websiteGithubRepoName: { $exists: true, $ne: "" } },
               { websiteGithubUrl: { $exists: true, $ne: "" } },
+              { websiteLink: { $exists: true, $ne: "" } },
             ];
             break;
           case "withApp":
             filterQuery.$or = [
               { appGithubRepoName: { $exists: true, $ne: "" } },
               { appGithubUrl: { $exists: true, $ne: "" } },
+              { androidAppLink: { $exists: true, $ne: "" } },
+              { iosRepoName: { $exists: true, $ne: "" } },
+              { iosRepoUrl: { $exists: true, $ne: "" } },
+              { iosAppLink: { $exists: true, $ne: "" } },
             ];
             break;
           case "withServer":
             filterQuery.$or = [
               { serverName: { $exists: true, $ne: "" } },
+              { serverPortNumber: { $exists: true, $ne: "" } },
               { serverRootUsername: { $exists: true, $ne: "" } },
               { serverRootPassword: { $exists: true, $ne: "" } },
               { serverUsername: { $exists: true, $ne: "" } },
@@ -461,6 +520,7 @@ export async function handler(event) {
           case "withDatabase":
             filterQuery.$or = [
               { databaseName: { $exists: true, $ne: "" } },
+              { databasePortNumber: { $exists: true, $ne: "" } },
               { databaseRootUsername: { $exists: true, $ne: "" } },
               { databaseRootPassword: { $exists: true, $ne: "" } },
               { databaseId: { $exists: true, $ne: "" } },
@@ -481,12 +541,19 @@ export async function handler(event) {
             { projectName: { $regex: search, $options: "i" } },
             { websiteGithubRepoName: { $regex: search, $options: "i" } },
             { websiteGithubUrl: { $regex: search, $options: "i" } },
+            { websiteLink: { $regex: search, $options: "i" } },
             { appGithubRepoName: { $regex: search, $options: "i" } },
             { appGithubUrl: { $regex: search, $options: "i" } },
+            { androidAppLink: { $regex: search, $options: "i" } },
+            { iosRepoName: { $regex: search, $options: "i" } },
+            { iosRepoUrl: { $regex: search, $options: "i" } },
+            { iosAppLink: { $regex: search, $options: "i" } },
             { serverName: { $regex: search, $options: "i" } },
+            { serverPortNumber: { $regex: search, $options: "i" } },
             { serverRootUsername: { $regex: search, $options: "i" } },
             { serverUsername: { $regex: search, $options: "i" } },
             { databaseName: { $regex: search, $options: "i" } },
+            { databasePortNumber: { $regex: search, $options: "i" } },
             { databaseRootUsername: { $regex: search, $options: "i" } },
             { databaseId: { $regex: search, $options: "i" } },
             { appUsername: { $regex: search, $options: "i" } },
@@ -526,6 +593,7 @@ export async function handler(event) {
         $or: [
           { websiteGithubRepoName: { $exists: true, $ne: "" } },
           { websiteGithubUrl: { $exists: true, $ne: "" } },
+          { websiteLink: { $exists: true, $ne: "" } },
         ],
       });
       const withApp = await collection.countDocuments({
@@ -533,12 +601,17 @@ export async function handler(event) {
         $or: [
           { appGithubRepoName: { $exists: true, $ne: "" } },
           { appGithubUrl: { $exists: true, $ne: "" } },
+          { androidAppLink: { $exists: true, $ne: "" } },
+          { iosRepoName: { $exists: true, $ne: "" } },
+          { iosRepoUrl: { $exists: true, $ne: "" } },
+          { iosAppLink: { $exists: true, $ne: "" } },
         ],
       });
       const withServer = await collection.countDocuments({
         isDeleted: { $ne: true },
         $or: [
           { serverName: { $exists: true, $ne: "" } },
+          { serverPortNumber: { $exists: true, $ne: "" } },
           { serverRootUsername: { $exists: true, $ne: "" } },
           { serverRootPassword: { $exists: true, $ne: "" } },
           { serverUsername: { $exists: true, $ne: "" } },
@@ -549,6 +622,7 @@ export async function handler(event) {
         isDeleted: { $ne: true },
         $or: [
           { databaseName: { $exists: true, $ne: "" } },
+          { databasePortNumber: { $exists: true, $ne: "" } },
           { databaseRootUsername: { $exists: true, $ne: "" } },
           { databaseRootPassword: { $exists: true, $ne: "" } },
           { databaseId: { $exists: true, $ne: "" } },
@@ -590,18 +664,31 @@ export async function handler(event) {
         clientName: String(payload.clientName || "").trim(),
         businessName: String(payload.businessName || "").trim(),
         projectName: String(payload.projectName || "").trim(),
+        websiteGithubRepoName: String(
+          payload.websiteGithubRepoName || "",
+        ).trim(),
+        websiteGithubUrl: String(payload.websiteGithubUrl || "").trim(),
+        websiteLink: String(payload.websiteLink || "").trim(),
+        appGithubRepoName: String(payload.appGithubRepoName || "").trim(),
+        appGithubUrl: String(payload.appGithubUrl || "").trim(),
+        androidAppLink: String(payload.androidAppLink || "").trim(),
+        iosRepoName: String(payload.iosRepoName || "").trim(),
+        iosRepoUrl: String(payload.iosRepoUrl || "").trim(),
+        iosAppLink: String(payload.iosAppLink || "").trim(),
         serverRootUsername: String(
           payload.serverRootUsername || payload.serverUsername || "",
         ).trim(),
         serverRootPassword: String(
           payload.serverRootPassword || payload.serverPassword || "",
         ).trim(),
+        serverPortNumber: String(payload.serverPortNumber || "").trim(),
         databaseRootUsername: String(
           payload.databaseRootUsername || payload.databaseId || "",
         ).trim(),
         databaseRootPassword: String(
           payload.databaseRootPassword || payload.databasePassword || "",
         ).trim(),
+        databasePortNumber: String(payload.databasePortNumber || "").trim(),
         customFields: normalizeCustomFields(payload.customFields),
       };
 
@@ -611,6 +698,20 @@ export async function handler(event) {
       delete normalizedPayload.databasePassword;
 
       const securedPayload = applySecretProtection(normalizedPayload, null);
+      const unresolvedMaskedSecrets = collectMaskedSecretFieldNames(
+        normalizedPayload.customFields,
+        securedPayload.customFields,
+      );
+
+      if (unresolvedMaskedSecrets.length > 0) {
+        return createResponse(
+          400,
+          {
+            error: `Please re-enter values for: ${unresolvedMaskedSecrets.join(", ")}`,
+          },
+          origin,
+        );
+      }
 
       if (!normalizedPayload.clientRefId) {
         return createResponse(
@@ -701,18 +802,31 @@ export async function handler(event) {
         clientName: String(payload.clientName || "").trim(),
         businessName: String(payload.businessName || "").trim(),
         projectName: String(payload.projectName || "").trim(),
+        websiteGithubRepoName: String(
+          payload.websiteGithubRepoName || "",
+        ).trim(),
+        websiteGithubUrl: String(payload.websiteGithubUrl || "").trim(),
+        websiteLink: String(payload.websiteLink || "").trim(),
+        appGithubRepoName: String(payload.appGithubRepoName || "").trim(),
+        appGithubUrl: String(payload.appGithubUrl || "").trim(),
+        androidAppLink: String(payload.androidAppLink || "").trim(),
+        iosRepoName: String(payload.iosRepoName || "").trim(),
+        iosRepoUrl: String(payload.iosRepoUrl || "").trim(),
+        iosAppLink: String(payload.iosAppLink || "").trim(),
         serverRootUsername: String(
           payload.serverRootUsername || payload.serverUsername || "",
         ).trim(),
         serverRootPassword: String(
           payload.serverRootPassword || payload.serverPassword || "",
         ).trim(),
+        serverPortNumber: String(payload.serverPortNumber || "").trim(),
         databaseRootUsername: String(
           payload.databaseRootUsername || payload.databaseId || "",
         ).trim(),
         databaseRootPassword: String(
           payload.databaseRootPassword || payload.databasePassword || "",
         ).trim(),
+        databasePortNumber: String(payload.databasePortNumber || "").trim(),
         customFields: normalizeCustomFields(payload.customFields),
       };
 
@@ -725,6 +839,20 @@ export async function handler(event) {
         normalizedPayload,
         currentRecord,
       );
+      const unresolvedMaskedSecrets = collectMaskedSecretFieldNames(
+        normalizedPayload.customFields,
+        securedPayload.customFields,
+      );
+
+      if (unresolvedMaskedSecrets.length > 0) {
+        return createResponse(
+          400,
+          {
+            error: `Please re-enter values for: ${unresolvedMaskedSecrets.join(", ")}`,
+          },
+          origin,
+        );
+      }
 
       if (!normalizedPayload.clientRefId) {
         return createResponse(

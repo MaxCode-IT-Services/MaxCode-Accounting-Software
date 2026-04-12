@@ -45,6 +45,7 @@ const ProjectDetails = lazy(() => import("../src/Pages/ProjectDetails"));
 const ProjectCredentials = lazy(
   () => import("../src/Pages/ProjectCredentials"),
 );
+const MaxcodeCredential = lazy(() => import("../src/Pages/MaxcodeCredential"));
 const RcmManagement = lazy(() => import("../src/Pages/RcmManagement"));
 const LedgerManagement = lazy(() => import("../src/Pages/LedgerManagement"));
 const BooksOfAccounts = lazy(() => import("../src/Pages/BooksOfAccounts"));
@@ -371,6 +372,17 @@ const dashboardChildRoutes = (
         <PermissionRoute moduleKey="projectCredentials">
           <Suspense fallback={<Loading />}>
             <ProjectCredentials />
+          </Suspense>
+        </PermissionRoute>
+      }
+    />
+
+    <Route
+      path="my-software-credential"
+      element={
+        <PermissionRoute moduleKey="mySoftwareCredential">
+          <Suspense fallback={<Loading />}>
+            <MaxcodeCredential />
           </Suspense>
         </PermissionRoute>
       }

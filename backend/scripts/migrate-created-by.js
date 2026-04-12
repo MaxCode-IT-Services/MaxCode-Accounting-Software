@@ -14,6 +14,7 @@ const TARGET_COLLECTIONS = [
   "company_expenses",
   "projects",
   "projectCredentials",
+  "maxcodeCredentials",
   "personalFunds",
   "staff",
   "financialYears",
