@@ -722,6 +722,15 @@ const CreateCredentials = ({
       query.append("customFieldId", customFieldId);
     }
 
+    query.append("operation", isViewMode ? "view" : "edit");
+
+    const otpAccessToken = String(
+      editingRecord?.otpAccessGrantToken || "",
+    ).trim();
+    if (otpAccessToken) {
+      query.append("otpAccessToken", otpAccessToken);
+    }
+
     const requestUrl = `${API_ENDPOINTS.PROJECT_CREDENTIALS.GET(id)}&${query.toString()}`;
     const stateKey = getSecretStateKey(field, customFieldId);
 

@@ -346,6 +346,60 @@ const collectMaskedSecretFieldNames = (inputFields = [], outputFields = []) => {
     .filter(Boolean);
 };
 
+const resolveActorId = (decoded = {}) =>
+  String(decoded?.userId || decoded?.id || decoded?._id || "").trim();
+
+const validateOtpAccessGrant = async ({
+  db,
+  token,
+  actorId,
+  operation,
+  credentialId,
+}) => {
+  const normalizedToken = String(token || "").trim();
+  if (!normalizedToken) {
+    throw new Error("OTP access token is required");
+  }
+
+  const normalizedOperation = String(operation || "")
+    .trim()
+    .toLowerCase();
+  if (!["view", "edit"].includes(normalizedOperation)) {
+    throw new Error("Invalid operation in OTP access token check");
+  }
+
+  const grantsCollection = db.collection("otpAccessGrants");
+  const grant = await grantsCollection.findOne({
+    token: normalizedToken,
+    isRevoked: { $ne: true },
+    credentialType: "project-credentials",
+    credentialId: String(credentialId || "").trim(),
+    operation: normalizedOperation,
+  });
+
+  if (!grant) {
+    throw new Error("OTP access token is invalid");
+  }
+
+  if (String(grant.requestedById || "") !== String(actorId || "")) {
+    throw new Error("OTP access token does not belong to current user");
+  }
+
+  if (!grant.expiresAt || new Date(grant.expiresAt).getTime() < Date.now()) {
+    throw new Error("OTP access token has expired");
+  }
+
+  await grantsCollection.updateOne(
+    { _id: grant._id },
+    {
+      $set: {
+        updatedAt: new Date(),
+        lastUsedAt: new Date(),
+      },
+    },
+  );
+};
+
 /**
  * Project Credentials API
  * Handles CRUD with pagination, filters, search and card statistics
@@ -359,7 +413,8 @@ export async function handler(event) {
   }
 
   try {
-    verifyRequestToken(event);
+    const decodedToken = verifyRequestToken(event);
+    const actorId = resolveActorId(decodedToken);
 
     const { db } = await connectToDatabase();
     const collection = db.collection("projectCredentials");
@@ -384,6 +439,14 @@ export async function handler(event) {
         const customFieldId = String(
           (event.queryStringParameters || {}).customFieldId || "",
         ).trim();
+        const otpAccessToken = String(
+          (event.queryStringParameters || {}).otpAccessToken || "",
+        ).trim();
+        const operation = String(
+          (event.queryStringParameters || {}).operation || "view",
+        )
+          .trim()
+          .toLowerCase();
 
         if (!normalizedId || !ObjectId.isValid(normalizedId)) {
           return createResponse(400, { error: "Valid ID is required" }, origin);
@@ -391,6 +454,22 @@ export async function handler(event) {
 
         if (!field) {
           return createResponse(400, { error: "field is required" }, origin);
+        }
+
+        try {
+          await validateOtpAccessGrant({
+            db,
+            token: otpAccessToken,
+            actorId,
+            operation,
+            credentialId: normalizedId,
+          });
+        } catch (error) {
+          return createResponse(
+            403,
+            { error: error?.message || "OTP access validation failed" },
+            origin,
+          );
         }
 
         const record = await collection.findOne({

@@ -46,6 +46,9 @@ const ProjectCredentials = lazy(
   () => import("../src/Pages/ProjectCredentials"),
 );
 const MaxcodeCredential = lazy(() => import("../src/Pages/MaxcodeCredential"));
+const OtpRequestManagement = lazy(
+  () => import("../src/Pages/OtpRequestManagement"),
+);
 const RcmManagement = lazy(() => import("../src/Pages/RcmManagement"));
 const LedgerManagement = lazy(() => import("../src/Pages/LedgerManagement"));
 const BooksOfAccounts = lazy(() => import("../src/Pages/BooksOfAccounts"));
@@ -383,6 +386,17 @@ const dashboardChildRoutes = (
         <PermissionRoute moduleKey="mySoftwareCredential">
           <Suspense fallback={<Loading />}>
             <MaxcodeCredential />
+          </Suspense>
+        </PermissionRoute>
+      }
+    />
+
+    <Route
+      path="otp-request-management"
+      element={
+        <PermissionRoute moduleKey="otpRequestManagement">
+          <Suspense fallback={<Loading />}>
+            <OtpRequestManagement />
           </Suspense>
         </PermissionRoute>
       }

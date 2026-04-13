@@ -12,6 +12,12 @@ const ASSETS_COLLECTION = "business_assets";
 const GLOBAL_SETTINGS_SCOPE = "global";
 const SECRET_MASK = "********";
 const CLOUDFLARE_SECRET_FIELDS = ["storeUrl", "publicDomain", "password"];
+const WHATSAPP_SECRET_FIELDS = [
+  "accessToken",
+  "appId",
+  "phoneNumberId",
+  "businessAccountId",
+];
 const BACKUP_SECRET_FIELDS = [
   "clientId",
   "clientSecret",
@@ -60,6 +66,7 @@ const ALLOWED_FIELDS = [
   "interestedServices",
   "backupSettings",
   "cloudflareSettings",
+  "whatsappSettings",
 ];
 
 const isMaskedSecretValue = (value = "") =>
@@ -253,6 +260,41 @@ const sanitizeCloudflareSettings = (
   };
 };
 
+const sanitizeWhatsAppSettings = (
+  value = {},
+  existingWhatsAppSettings = {},
+) => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const normalizeDigits = (input = "") =>
+    String(input || "")
+      .replace(/\D+/g, "")
+      .slice(-15);
+
+  return {
+    accessToken: resolveSecretForStorage(
+      value.accessToken,
+      existingWhatsAppSettings?.accessToken,
+    ),
+    appId: resolveSecretForStorage(
+      value.appId,
+      existingWhatsAppSettings?.appId,
+    ),
+    phoneNumberId: resolveSecretForStorage(
+      value.phoneNumberId,
+      existingWhatsAppSettings?.phoneNumberId,
+    ),
+    businessAccountId: resolveSecretForStorage(
+      value.businessAccountId,
+      existingWhatsAppSettings?.businessAccountId,
+    ),
+    founderCeoPhoneNumber: normalizeDigits(value.founderCeoPhoneNumber || ""),
+    updatedAt: new Date(),
+  };
+};
+
 const getBaseUrl = (event) => {
   const host =
     event.headers["x-forwarded-host"] || event.headers.host || "localhost:8888";
@@ -347,6 +389,14 @@ const sanitizeSettingsPayload = (payload = {}, existingSettings = {}) => {
         if (sanitizedCloudflareSettings) {
           sanitized[field] = sanitizedCloudflareSettings;
         }
+      } else if (field === "whatsappSettings") {
+        const sanitizedWhatsAppSettings = sanitizeWhatsAppSettings(
+          value,
+          existingSettings?.whatsappSettings || {},
+        );
+        if (sanitizedWhatsAppSettings) {
+          sanitized[field] = sanitizedWhatsAppSettings;
+        }
       } else {
         sanitized[field] = value;
       }
@@ -398,6 +448,7 @@ const normalizeLegacySettings = (document = {}) => {
       "r2Settings",
       "cloudStorageSettings",
     ],
+    whatsappSettings: ["whatsappSettings", "whatsappCloudApiSettings"],
   };
 
   for (const [targetField, aliases] of Object.entries(fieldAliases)) {
@@ -541,6 +592,49 @@ const mapSettingsForClient = (document, event) => {
       hasStoreUrl: secretExists(cloudStoreUrl),
       hasPublicDomain: secretExists(cloudPublicDomain),
       hasPassword: secretExists(cloudPassword),
+    };
+  }
+
+  if (
+    !response.whatsappSettings ||
+    typeof response.whatsappSettings !== "object"
+  ) {
+    response.whatsappSettings = {
+      accessToken: "",
+      appId: "",
+      phoneNumberId: "",
+      businessAccountId: "",
+      founderCeoPhoneNumber: "",
+      hasAccessToken: false,
+      hasAppId: false,
+      hasPhoneNumberId: false,
+      hasBusinessAccountId: false,
+    };
+  } else {
+    const whatsappSettings = response.whatsappSettings || {};
+    const accessToken = String(whatsappSettings.accessToken || "").trim();
+    const appId = String(whatsappSettings.appId || "").trim();
+    const phoneNumberId = String(whatsappSettings.phoneNumberId || "").trim();
+    const businessAccountId = String(
+      whatsappSettings.businessAccountId || "",
+    ).trim();
+    const founderCeoPhoneNumber = String(
+      whatsappSettings.founderCeoPhoneNumber || "",
+    )
+      .replace(/\D+/g, "")
+      .slice(-15);
+
+    response.whatsappSettings = {
+      ...whatsappSettings,
+      accessToken: maskSecretValue(accessToken),
+      appId: maskSecretValue(appId),
+      phoneNumberId: maskSecretValue(phoneNumberId),
+      businessAccountId: maskSecretValue(businessAccountId),
+      founderCeoPhoneNumber,
+      hasAccessToken: secretExists(accessToken),
+      hasAppId: secretExists(appId),
+      hasPhoneNumberId: secretExists(phoneNumberId),
+      hasBusinessAccountId: secretExists(businessAccountId),
     };
   }
 
@@ -819,6 +913,7 @@ export async function handler(event) {
         const allowedFieldsByScope = {
           backupSettings: BACKUP_SECRET_FIELDS,
           cloudflareSettings: CLOUDFLARE_SECRET_FIELDS,
+          whatsappSettings: WHATSAPP_SECRET_FIELDS,
         };
 
         const allowedFields = allowedFieldsByScope[scope] || [];

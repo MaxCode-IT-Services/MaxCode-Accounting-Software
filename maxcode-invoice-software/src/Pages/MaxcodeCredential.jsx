@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateMaxcodeCredential from "../Components/CreateMaxcodeCredential";
+import OtpAccessModal from "../Components/OtpAccessModal";
 import ConfirmationModal from "../Components/ConfirmationModal";
 import {
   showInfo,
@@ -79,6 +80,7 @@ const MaxcodeCredential = () => {
 
   const [serverSide, setServerSide] = useState(true);
   const [prefLoading, setPrefLoading] = useState(true);
+  const [businessSettings, setBusinessSettings] = useState({});
   const [records, setRecords] = useState([]);
   const [allClientSideRecords, setAllClientSideRecords] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -88,6 +90,9 @@ const MaxcodeCredential = () => {
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [recordToDelete, setRecordToDelete] = useState(null);
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [pendingAccessContext, setPendingAccessContext] = useState(null);
+  const [otpGrants, setOtpGrants] = useState({});
 
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage, setRecordsPerPage] = useState(10);
@@ -110,7 +115,19 @@ const MaxcodeCredential = () => {
   useEffect(() => {
     document.title = "My Software Credential | MaxCode IT Services";
     fetchPreference();
+    fetchBusinessSettings();
   }, []);
+
+  const fetchBusinessSettings = async () => {
+    try {
+      const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
+      if (response?.data) {
+        setBusinessSettings(response.data);
+      }
+    } catch (error) {
+      // keep default empty state
+    }
+  };
 
   const fetchPreference = async () => {
     try {
@@ -509,15 +526,100 @@ const MaxcodeCredential = () => {
   };
 
   const handleEdit = (record) => {
-    setEditingRecord(record);
-    setShowCreateForm(true);
-    showInfo(`Editing credentials: ${record.projectName}`);
+    // Check if OTP is disabled
+    if (businessSettings?.whatsappSettings?.disableOtpForCredentials === true) {
+      setEditingRecord(record);
+      setShowCreateForm(true);
+      showInfo(`Editing credentials: ${record.projectName}`);
+      return;
+    }
+
+    const recordId = String(record?.id || record?._id || "").trim();
+    const grantKey = `${recordId}:edit`;
+    const existingGrant = otpGrants[grantKey];
+
+    if (
+      existingGrant?.accessToken &&
+      new Date(existingGrant.validUntil).getTime() > Date.now()
+    ) {
+      setEditingRecord({
+        ...record,
+        otpAccessGrantToken: existingGrant.accessToken,
+      });
+      setShowCreateForm(true);
+      showInfo(`Editing credentials: ${record.projectName}`);
+      return;
+    }
+
+    setPendingAccessContext({ record, operation: "edit" });
+    setShowOtpModal(true);
   };
 
   const handleView = (record) => {
-    setEditingRecord({ ...record, isViewMode: true });
-    setShowCreateForm(true);
-    showInfo(`Viewing credentials: ${record.projectName}`);
+    // Check if OTP is disabled
+    if (businessSettings?.whatsappSettings?.disableOtpForCredentials === true) {
+      setEditingRecord({
+        ...record,
+        isViewMode: true,
+      });
+      setShowCreateForm(true);
+      showInfo(`Viewing credentials: ${record.projectName}`);
+      return;
+    }
+
+    const recordId = String(record?.id || record?._id || "").trim();
+    const grantKey = `${recordId}:view`;
+    const existingGrant = otpGrants[grantKey];
+
+    if (
+      existingGrant?.accessToken &&
+      new Date(existingGrant.validUntil).getTime() > Date.now()
+    ) {
+      setEditingRecord({
+        ...record,
+        isViewMode: true,
+        otpAccessGrantToken: existingGrant.accessToken,
+      });
+      setShowCreateForm(true);
+      showInfo(`Viewing credentials: ${record.projectName}`);
+      return;
+    }
+
+    setPendingAccessContext({ record, operation: "view" });
+    setShowOtpModal(true);
+  };
+
+  const handleOtpVerified = ({ accessToken, validUntil }) => {
+    const operation = pendingAccessContext?.operation || "view";
+    const record = pendingAccessContext?.record;
+    const recordId = String(record?.id || record?._id || "").trim();
+    if (!recordId || !accessToken) return;
+
+    const grantKey = `${recordId}:${operation}`;
+    setOtpGrants((prev) => ({
+      ...prev,
+      [grantKey]: {
+        accessToken,
+        validUntil,
+      },
+    }));
+
+    if (operation === "edit") {
+      setEditingRecord({ ...record, otpAccessGrantToken: accessToken });
+      setShowCreateForm(true);
+      showInfo(`Editing credentials: ${record.projectName}`);
+    } else {
+      setEditingRecord({
+        ...record,
+        isViewMode: true,
+        otpAccessGrantToken: accessToken,
+      });
+      setShowCreateForm(true);
+      showInfo(`Viewing credentials: ${record.projectName}`);
+    }
+
+    setPendingAccessContext(null);
+    setShowOtpModal(false);
   };
 
   const handleDelete = (id) => {
@@ -753,6 +855,18 @@ const MaxcodeCredential = () => {
           }}
           onSubmit={handleFormSubmit}
           editingRecord={editingRecord}
+        />
+
+        <OtpAccessModal
+          show={showOtpModal}
+          onClose={() => {
+            setShowOtpModal(false);
+            setPendingAccessContext(null);
+          }}
+          operation={pendingAccessContext?.operation || "view"}
+          credentialType="my-software-credential"
+          targetRecord={pendingAccessContext?.record}
+          onVerified={handleOtpVerified}
         />
 
         <ConfirmationModal

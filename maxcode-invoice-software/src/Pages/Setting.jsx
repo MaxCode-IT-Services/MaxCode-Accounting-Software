@@ -12,6 +12,7 @@ import ProfileTab from "../Components/SettingsTabs/ProfileTab";
 import PinTab from "../Components/SettingsTabs/PinTab";
 import TwoFATab from "../Components/SettingsTabs/TwoFATab";
 import BusinessTab from "../Components/SettingsTabs/BusinessTab";
+import WhatsAppCloudApiTab from "../Components/SettingsTabs/WhatsAppCloudApiTab";
 import CloudflareTab from "../Components/SettingsTabs/CloudflareTab";
 import TermsTab from "../Components/SettingsTabs/TermsTab";
 import HsnTab from "../Components/SettingsTabs/HsnTab";
@@ -185,6 +186,15 @@ const Settings = () => {
       defaultFolder: "",
       folderOptions: "",
     },
+
+    whatsappSettings: {
+      accessToken: "",
+      appId: "",
+      phoneNumberId: "",
+      businessAccountId: "",
+      founderCeoPhoneNumber: "",
+      disableOtpForCredentials: false,
+    },
   });
 
   const DEFAULT_SERVICE_FORM = {
@@ -213,6 +223,7 @@ const Settings = () => {
     "invoiceTermsConditions",
     "selfInvoiceTermsConditions",
     "cloudflareSettings",
+    "whatsappSettings",
   ];
 
   const normalizeRole = (role = "") =>
@@ -307,8 +318,15 @@ const Settings = () => {
     publicDomain: false,
     password: false,
   });
+  const [showWhatsAppSecret, setShowWhatsAppSecret] = useState({
+    accessToken: false,
+    appId: false,
+    phoneNumberId: false,
+    businessAccountId: false,
+  });
   const driveSecretTimersRef = useRef({});
   const cloudflareSecretTimersRef = useRef({});
+  const whatsappSecretTimersRef = useRef({});
 
   const clearSecretTimer = (timersRef, key) => {
     if (!key) return;
@@ -360,6 +378,26 @@ const Settings = () => {
     }, SECRET_AUTO_HIDE_MS);
   };
 
+  const scheduleWhatsAppAutoHide = (field) => {
+    clearSecretTimer(whatsappSecretTimersRef, field);
+    whatsappSecretTimersRef.current[field] = setTimeout(() => {
+      setBusinessSettings((prev) => ({
+        ...prev,
+        whatsappSettings: {
+          ...(prev.whatsappSettings || {}),
+          [field]: String(prev?.whatsappSettings?.[field] || "").trim()
+            ? SECRET_MASK
+            : "",
+        },
+      }));
+      setShowWhatsAppSecret((prev) => ({
+        ...prev,
+        [field]: false,
+      }));
+      clearSecretTimer(whatsappSecretTimersRef, field);
+    }, SECRET_AUTO_HIDE_MS);
+  };
+
   useEffect(() => {
     loadProfileSettings();
     loadBusinessSettings();
@@ -372,6 +410,7 @@ const Settings = () => {
     return () => {
       clearAllSecretTimers(driveSecretTimersRef);
       clearAllSecretTimers(cloudflareSecretTimersRef);
+      clearAllSecretTimers(whatsappSecretTimersRef);
     };
   }, []);
 
@@ -1051,6 +1090,39 @@ const Settings = () => {
       };
     }
 
+    const resolvedWhatsAppSettings =
+      settings.whatsappSettings && typeof settings.whatsappSettings === "object"
+        ? settings.whatsappSettings
+        : null;
+
+    if (resolvedWhatsAppSettings) {
+      normalizedSettings.whatsappSettings = {
+        accessToken: toMaskedSecret(
+          resolvedWhatsAppSettings.accessToken,
+          resolvedWhatsAppSettings.hasAccessToken === true,
+        ),
+        appId: toMaskedSecret(
+          resolvedWhatsAppSettings.appId,
+          resolvedWhatsAppSettings.hasAppId === true,
+        ),
+        phoneNumberId: toMaskedSecret(
+          resolvedWhatsAppSettings.phoneNumberId,
+          resolvedWhatsAppSettings.hasPhoneNumberId === true,
+        ),
+        businessAccountId: toMaskedSecret(
+          resolvedWhatsAppSettings.businessAccountId,
+          resolvedWhatsAppSettings.hasBusinessAccountId === true,
+        ),
+        founderCeoPhoneNumber:
+          resolvedWhatsAppSettings.founderCeoPhoneNumber || "",
+        hasAccessToken: resolvedWhatsAppSettings.hasAccessToken === true,
+        hasAppId: resolvedWhatsAppSettings.hasAppId === true,
+        hasPhoneNumberId: resolvedWhatsAppSettings.hasPhoneNumberId === true,
+        hasBusinessAccountId:
+          resolvedWhatsAppSettings.hasBusinessAccountId === true,
+      };
+    }
+
     setBusinessSettings((prev) => ({
       ...prev,
       ...normalizedSettings,
@@ -1117,6 +1189,18 @@ const Settings = () => {
     }));
   };
 
+  const handleWhatsAppChange = (field, value) => {
+    if (!isSuperAdmin) return;
+
+    setBusinessSettings((prev) => ({
+      ...prev,
+      whatsappSettings: {
+        ...(prev.whatsappSettings || {}),
+        [field]: value,
+      },
+    }));
+  };
+
   const handleDriveSecretInputChange = (field, value) => {
     setDriveConfig((prev) => ({
       ...prev,
@@ -1141,6 +1225,22 @@ const Settings = () => {
 
     if (showCloudflareSecret[field]) {
       scheduleCloudflareAutoHide(field);
+    }
+  };
+
+  const handleWhatsAppSecretInputChange = (field, value) => {
+    if (!isSuperAdmin) return;
+
+    setBusinessSettings((prev) => ({
+      ...prev,
+      whatsappSettings: {
+        ...(prev.whatsappSettings || {}),
+        [field]: value,
+      },
+    }));
+
+    if (showWhatsAppSecret[field]) {
+      scheduleWhatsAppAutoHide(field);
     }
   };
 
@@ -1190,6 +1290,31 @@ const Settings = () => {
       ...prev,
       cloudflareSettings: {
         ...(prev.cloudflareSettings || {}),
+        [field]: revealed,
+      },
+    }));
+
+    return revealed;
+  };
+
+  const revealWhatsAppField = async (field) => {
+    const currentValue = String(
+      businessSettings?.whatsappSettings?.[field] || "",
+    );
+
+    if (currentValue.trim() !== SECRET_MASK) {
+      return currentValue;
+    }
+
+    const revealed = await fetchRevealedBusinessSecret(
+      "whatsappSettings",
+      field,
+    );
+
+    setBusinessSettings((prev) => ({
+      ...prev,
+      whatsappSettings: {
+        ...(prev.whatsappSettings || {}),
         [field]: revealed,
       },
     }));
@@ -1260,6 +1385,40 @@ const Settings = () => {
     }));
   };
 
+  const handleWhatsAppRevealToggle = async (field) => {
+    const willShow = !Boolean(showWhatsAppSecret[field]);
+    if (willShow) {
+      try {
+        await revealWhatsAppField(field);
+      } catch (error) {
+        showError(error?.response?.data?.error || "Unable to reveal value");
+        return;
+      }
+
+      setShowWhatsAppSecret((prev) => ({
+        ...prev,
+        [field]: true,
+      }));
+      scheduleWhatsAppAutoHide(field);
+      return;
+    }
+
+    clearSecretTimer(whatsappSecretTimersRef, field);
+    setBusinessSettings((prev) => ({
+      ...prev,
+      whatsappSettings: {
+        ...(prev.whatsappSettings || {}),
+        [field]: String(prev?.whatsappSettings?.[field] || "").trim()
+          ? SECRET_MASK
+          : "",
+      },
+    }));
+    setShowWhatsAppSecret((prev) => ({
+      ...prev,
+      [field]: false,
+    }));
+  };
+
   const copyDriveFieldValue = async (field) => {
     try {
       const value = await revealDriveField(field);
@@ -1289,6 +1448,24 @@ const Settings = () => {
       await navigator.clipboard.writeText(String(value));
       if (showCloudflareSecret[field]) {
         scheduleCloudflareAutoHide(field);
+      }
+      showSuccess("Copied to clipboard");
+    } catch (error) {
+      showError(error?.response?.data?.error || "Copy failed");
+    }
+  };
+
+  const copyWhatsAppFieldValue = async (field) => {
+    try {
+      const value = await revealWhatsAppField(field);
+      if (!String(value || "").trim()) {
+        showError("Nothing to copy");
+        return;
+      }
+
+      await navigator.clipboard.writeText(String(value));
+      if (showWhatsAppSecret[field]) {
+        scheduleWhatsAppAutoHide(field);
       }
       showSuccess("Copied to clipboard");
     } catch (error) {
@@ -2252,6 +2429,23 @@ const Settings = () => {
           handleBusinessChange={handleBusinessChange}
           handleTestConnection={handleTestConnection}
           isTesting={isTesting}
+        />
+      );
+    }
+
+    if (activeTab === "whatsappCloudApi") {
+      return (
+        <WhatsAppCloudApiTab
+          handleSaveAll={handleSaveAll}
+          isSaving={isSaving}
+          isBusinessLoading={isBusinessLoading}
+          isSuperAdmin={isSuperAdmin}
+          businessSettings={businessSettings}
+          handleWhatsAppChange={handleWhatsAppChange}
+          handleWhatsAppSecretInputChange={handleWhatsAppSecretInputChange}
+          showWhatsAppSecret={showWhatsAppSecret}
+          handleWhatsAppRevealToggle={handleWhatsAppRevealToggle}
+          copyWhatsAppFieldValue={copyWhatsAppFieldValue}
         />
       );
     }

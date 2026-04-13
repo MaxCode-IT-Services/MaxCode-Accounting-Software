@@ -20,6 +20,11 @@ export const SETTINGS_TABS = [
     icon: "fas fa-building",
   },
   {
+    key: "whatsappCloudApi",
+    label: "WhatsApp Cloud API",
+    icon: "fab fa-whatsapp",
+  },
+  {
     key: "cloudflare",
     label: "Cloudflare",
     icon: "fas fa-cloud",

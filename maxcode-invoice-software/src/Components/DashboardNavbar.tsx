@@ -472,6 +472,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "mySoftwareCredential",
     },
     {
+      to: "/admin/otp-request-management",
+      icon: "fa-solid fa-shield-halved",
+      label: "OTP Request Management",
+      permissionKey: "otpRequestManagement",
+    },
+    {
       to: "/admin/file-management",
       icon: "fa-solid fa-folder-open",
       label: "File Management",

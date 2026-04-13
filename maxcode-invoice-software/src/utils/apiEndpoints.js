@@ -175,6 +175,13 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/maxcode-credentials?id=${id}`,
   },
 
+  OTP_ACCESS: {
+    LIST: "/otp-access",
+    SEND: "/otp-access",
+    VERIFY: "/otp-access",
+    RESEND: "/otp-access",
+  },
+
   // Staff endpoints
   STAFF: {
     LIST: "/staff",
