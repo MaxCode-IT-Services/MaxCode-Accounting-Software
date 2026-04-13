@@ -160,14 +160,6 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
-    key: "otpRequestManagement",
-    label: "OTP Request Management",
-    description: "Review OTP access requests and verification logs",
-    icon: "fa-solid fa-shield-halved",
-    route: "/admin/otp-request-management",
-    detailed: true,
-  },
-  {
     key: "fileManagement",
     label: "File Management",
     description: "Upload and manage files",
@@ -197,6 +189,14 @@ export const PERMISSION_MODULES = [
     description: "Manage team users",
     icon: "fa-solid fa-user-shield",
     route: "/admin/team-management",
+    detailed: true,
+  },
+  {
+    key: "otpRequestManagement",
+    label: "OTP Request Management",
+    description: "Review OTP access requests and verification logs",
+    icon: "fa-solid fa-shield-halved",
+    route: "/admin/otp-request-management",
     detailed: true,
   },
   {
