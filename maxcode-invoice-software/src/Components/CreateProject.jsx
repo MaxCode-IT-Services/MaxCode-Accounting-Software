@@ -132,6 +132,7 @@ const CreateProject = ({
   const [developerTransactions, setDeveloperTransactions] = useState([
     emptyDeveloperPayoutRow(1),
   ]);
+  const [noDeveloperPayment, setNoDeveloperPayment] = useState(false);
   const [clientOptions, setClientOptions] = useState([]);
   const [staffOptions, setStaffOptions] = useState([]);
   const [years, setYears] = useState([]);
@@ -197,6 +198,7 @@ const CreateProject = ({
     });
     setPaymentDetails([emptyPaymentRow(1)]);
     setDeveloperTransactions([emptyDeveloperPayoutRow(1)]);
+    setNoDeveloperPayment(false);
     setErrors({});
     setSelectedAgreementFile(null);
   };
@@ -591,6 +593,14 @@ const CreateProject = ({
       setDeveloperTransactions(
         mappedPayouts.length ? mappedPayouts : [emptyDeveloperPayoutRow(1)],
       );
+      setNoDeveloperPayment(
+        !mappedPayouts.some(
+          (transaction) =>
+            transaction.staffName?.trim() &&
+            transaction.payoutDate?.trim() &&
+            transaction.payoutAmount?.toString().trim(),
+        ),
+      );
       setSelectedAgreementFile(null);
       setErrors({});
       return;
@@ -955,6 +965,9 @@ const CreateProject = ({
       (sum, transaction) => sum + toNumber(transaction.payoutAmount),
       0,
     );
+    const effectiveDeveloperPayable = noDeveloperPayment
+      ? 0
+      : totalDeveloperPayable;
 
     return {
       applicableFinancialYear: applicableYear?.financialYear || "-",
@@ -962,13 +975,14 @@ const CreateProject = ({
       totalProjectAmountWithoutTax,
       totalAmountWithTax,
       totalClientPayable,
-      totalDeveloperPayable,
-      remainingAmount: totalClientPayable - totalDeveloperPayable,
+      totalDeveloperPayable: effectiveDeveloperPayable,
+      remainingAmount: totalClientPayable - effectiveDeveloperPayable,
     };
   }, [
     developerTransactions,
     formData.projectDate,
     formData.projectTotalCost,
+    noDeveloperPayment,
     paymentDetails,
     years,
   ]);
@@ -1020,7 +1034,7 @@ const CreateProject = ({
       newErrors.projectDevelopmentTime = "Project Development Time is required";
     if (!formData.projectTotalCost.toString().trim())
       newErrors.projectTotalCost = "Project Total Cost is required";
-    if (!formData.totalDeveloperCost.toString().trim())
+    if (!noDeveloperPayment && !formData.totalDeveloperCost.toString().trim())
       newErrors.totalDeveloperCost = "Total Developer Cost is required";
     if (!formData.clientRefId.toString().trim())
       newErrors.clientRefId = "Select Client is required";
@@ -1051,17 +1065,19 @@ const CreateProject = ({
       showError("Please add at least one complete payment row");
     }
 
-    const hasValidDeveloperTxn = developerTransactions.some(
-      (transaction) =>
-        transaction.staffName?.trim() &&
-        transaction.payoutDate?.trim() &&
-        transaction.payoutAmount?.toString().trim(),
-    );
+    if (!noDeveloperPayment) {
+      const hasValidDeveloperTxn = developerTransactions.some(
+        (transaction) =>
+          transaction.staffName?.trim() &&
+          transaction.payoutDate?.trim() &&
+          transaction.payoutAmount?.toString().trim(),
+      );
 
-    if (!hasValidDeveloperTxn) {
-      newErrors.developerTransactions =
-        "At least one developer payout row with staff name, payout date and amount is required";
-      showError("Please add at least one complete developer transaction row");
+      if (!hasValidDeveloperTxn) {
+        newErrors.developerTransactions =
+          "At least one developer payout row with staff name, payout date and amount is required";
+        showError("Please add at least one complete developer transaction row");
+      }
     }
 
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
@@ -1099,7 +1115,9 @@ const CreateProject = ({
           formData.financialYear ||
           "",
         projectTotalCost: toNumber(formData.projectTotalCost),
-        totalDeveloperCost: toNumber(formData.totalDeveloperCost),
+        totalDeveloperCost: noDeveloperPayment
+          ? 0
+          : toNumber(formData.totalDeveloperCost),
         paymentDetails: paymentDetails.map((payment) => ({
           ...payment,
           amount: toNumber(payment.amount),
@@ -1108,10 +1126,12 @@ const CreateProject = ({
             toNumber(payment.totalAmount) ||
             toNumber(payment.amount) + toNumber(payment.tax),
         })),
-        developerTransactions: developerTransactions.map((transaction) => ({
-          ...transaction,
-          payoutAmount: toNumber(transaction.payoutAmount),
-        })),
+        developerTransactions: noDeveloperPayment
+          ? []
+          : developerTransactions.map((transaction) => ({
+              ...transaction,
+              payoutAmount: toNumber(transaction.payoutAmount),
+            })),
         summary,
         id: editingRecord?.id || Date.now(),
         createdDate: editingRecord?.createdDate || new Date().toISOString(),
@@ -1330,7 +1350,10 @@ const CreateProject = ({
 
                 <div className="col-md-2 mb-3">
                   <label htmlFor="totalDeveloperCost" className="form-label">
-                    Total Developer Cost <span className="text-danger">*</span>
+                    Total Developer Cost{" "}
+                    {!noDeveloperPayment && (
+                      <span className="text-danger">*</span>
+                    )}
                   </label>
                   <input
                     type="text"
@@ -1339,7 +1362,7 @@ const CreateProject = ({
                     name="totalDeveloperCost"
                     value={formData.totalDeveloperCost}
                     onChange={handleInputChange}
-                    readOnly={isViewMode}
+                    readOnly={isViewMode || noDeveloperPayment}
                     placeholder="Enter total developer cost"
                   />
                   {errors.totalDeveloperCost && (
@@ -1852,11 +1875,37 @@ const CreateProject = ({
 
               <div className="row mb-4">
                 <div className="col-12">
-                  <h6 className="border-bottom pb-2 mb-3">
-                    <i className="fas fa-user-tie me-2 text-warning"></i>
-                    Add Transaction (Developer Payout)
-                  </h6>
-                  {errors.developerTransactions && (
+                  <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 border-bottom pb-2 mb-3">
+                    <h6 className="mb-0">
+                      <i className="fas fa-user-tie me-2 text-warning"></i>
+                      Add Transaction (Developer Payout)
+                    </h6>
+                    <div className="form-check form-switch m-0">
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        id="noDeveloperPaymentToggle"
+                        checked={noDeveloperPayment}
+                        onChange={(e) => {
+                          setNoDeveloperPayment(e.target.checked);
+                          setErrors((prev) => {
+                            const nextErrors = { ...prev };
+                            delete nextErrors.developerTransactions;
+                            delete nextErrors.totalDeveloperCost;
+                            return nextErrors;
+                          });
+                        }}
+                        disabled={isViewMode}
+                      />
+                      <label
+                        className="form-check-label ms-2"
+                        htmlFor="noDeveloperPaymentToggle"
+                      >
+                        No Payment
+                      </label>
+                    </div>
+                  </div>
+                  {!noDeveloperPayment && errors.developerTransactions && (
                     <div className="alert alert-danger">
                       {errors.developerTransactions}
                     </div>
@@ -1908,7 +1957,7 @@ const CreateProject = ({
                                     )
                                   }
                                   onInputChange={handleStaffSearchInput}
-                                  isDisabled={isViewMode}
+                                  isDisabled={isViewMode || noDeveloperPayment}
                                   isClearable
                                   isSearchable
                                   placeholder="Select staff"
@@ -1930,7 +1979,7 @@ const CreateProject = ({
                                       e.target.value,
                                     )
                                   }
-                                  readOnly={isViewMode}
+                                  readOnly={isViewMode || noDeveloperPayment}
                                   placeholder="Description"
                                 />
                               </td>
@@ -1946,7 +1995,7 @@ const CreateProject = ({
                                       e.target.value,
                                     )
                                   }
-                                  readOnly={isViewMode}
+                                  readOnly={isViewMode || noDeveloperPayment}
                                 />
                               </td>
                               <td>
@@ -1961,7 +2010,7 @@ const CreateProject = ({
                                       e.target.value,
                                     )
                                   }
-                                  readOnly={isViewMode}
+                                  readOnly={isViewMode || noDeveloperPayment}
                                   placeholder="0.00"
                                 />
                               </td>
@@ -1976,7 +2025,7 @@ const CreateProject = ({
                                       e.target.value,
                                     )
                                   }
-                                  disabled={isViewMode}
+                                  disabled={isViewMode || noDeveloperPayment}
                                 >
                                   {payoutMethodOptions.map((option) => (
                                     <option key={option} value={option}>
@@ -1999,7 +2048,7 @@ const CreateProject = ({
                                       e.target.value,
                                     )
                                   }
-                                  disabled={isViewMode}
+                                  disabled={isViewMode || noDeveloperPayment}
                                 >
                                   <option value="Business Account">
                                     🏦 Business Account
@@ -2010,7 +2059,7 @@ const CreateProject = ({
                                 </select>
                               </td>
                               <td className="text-center align-middle">
-                                {!isViewMode && (
+                                {!isViewMode && !noDeveloperPayment && (
                                   <button
                                     type="button"
                                     className="btn btn-danger btn-sm"
@@ -2050,7 +2099,7 @@ const CreateProject = ({
                         >
                           <div className="card-header d-flex justify-content-between align-items-center bg-light">
                             <strong>Transaction {index + 1}</strong>
-                            {!isViewMode && (
+                            {!isViewMode && !noDeveloperPayment && (
                               <button
                                 type="button"
                                 className="btn btn-danger btn-sm"
@@ -2086,7 +2135,7 @@ const CreateProject = ({
                                     )
                                   }
                                   onInputChange={handleStaffSearchInput}
-                                  isDisabled={isViewMode}
+                                  isDisabled={isViewMode || noDeveloperPayment}
                                   isClearable
                                   isSearchable
                                   placeholder="Select staff"
@@ -2112,7 +2161,7 @@ const CreateProject = ({
                                       e.target.value,
                                     )
                                   }
-                                  readOnly={isViewMode}
+                                  readOnly={isViewMode || noDeveloperPayment}
                                   placeholder="Description"
                                 />
                               </div>
@@ -2132,7 +2181,7 @@ const CreateProject = ({
                                       e.target.value,
                                     )
                                   }
-                                  readOnly={isViewMode}
+                                  readOnly={isViewMode || noDeveloperPayment}
                                 />
                               </div>
                               <div className="col-6 mb-3">
@@ -2150,7 +2199,7 @@ const CreateProject = ({
                                       e.target.value,
                                     )
                                   }
-                                  readOnly={isViewMode}
+                                  readOnly={isViewMode || noDeveloperPayment}
                                   placeholder="0.00"
                                 />
                               </div>
@@ -2169,7 +2218,7 @@ const CreateProject = ({
                                       e.target.value,
                                     )
                                   }
-                                  disabled={isViewMode}
+                                  disabled={isViewMode || noDeveloperPayment}
                                 >
                                   {payoutMethodOptions.map((option) => (
                                     <option key={option} value={option}>
@@ -2195,7 +2244,7 @@ const CreateProject = ({
                                       e.target.value,
                                     )
                                   }
-                                  disabled={isViewMode}
+                                  disabled={isViewMode || noDeveloperPayment}
                                 >
                                   <option value="Business Account">
                                     🏦 Business Account
@@ -2212,7 +2261,7 @@ const CreateProject = ({
                     })}
                   </div>
 
-                  {!isViewMode && (
+                  {!isViewMode && !noDeveloperPayment && (
                     <button
                       type="button"
                       className="btn btn-success btn-sm mt-2"

@@ -812,9 +812,9 @@ const ProjectManagement = () => {
     "sn",
     "projectId",
     "projectDateFormatted",
-    "projectName",
+    "clientName",
     "businessName",
-    "totalAmountWithTax",
+    "totalProjectAmountWithoutTax",
     "action",
   ];
 
