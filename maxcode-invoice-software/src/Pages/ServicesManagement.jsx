@@ -96,7 +96,7 @@ const ServicesManagement = () => {
   const cards = [
     {
       icon: "fas fa-rupee-sign",
-      title: "Total Amount",
+      title: "Services Amount",
       key: "totalAmount",
       color: "info",
       count: statistics.totalAmount,
@@ -451,7 +451,6 @@ const ServicesManagement = () => {
             withNormalizedStatus.summary?.totalServiceAmount || 0,
           totalTransactionAmount:
             withNormalizedStatus.summary?.totalTransactionAmount || 0,
-          grandTotal: withNormalizedStatus.summary?.grandTotal || 0,
           recordStatus:
             withNormalizedStatus.recordStatus ||
             getRecordStatus(withNormalizedStatus),
@@ -596,7 +595,9 @@ const ServicesManagement = () => {
         }).length;
 
         acc.dueSoon += dueSoonCount;
-        acc.totalAmount += parseFloat(record.summary?.grandTotal || 0) || 0;
+        // FIXED: Only count transaction amounts for revenue, NOT service plans (avoids double counting)
+        acc.totalAmount +=
+          parseFloat(record.summary?.totalTransactionAmount || 0) || 0;
 
         return acc;
       },
@@ -868,7 +869,7 @@ const ServicesManagement = () => {
     { key: "nextExpiry", label: "Next Expiry", width: 130 },
     {
       key: "totalServiceAmount",
-      label: "Service Amount",
+      label: "Services Amount",
       width: 130,
       render: (value) => (
         <span className="fw-bold text-primary">
@@ -882,24 +883,10 @@ const ServicesManagement = () => {
     },
     {
       key: "totalTransactionAmount",
-      label: "Txn Amount",
+      label: "Transactions Amount",
       width: 130,
       render: (value) => (
         <span className="fw-bold text-info">
-          ₹{" "}
-          {parseFloat(value || 0).toLocaleString("en-IN", {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}
-        </span>
-      ),
-    },
-    {
-      key: "grandTotal",
-      label: "Grand Total",
-      width: 130,
-      render: (value) => (
-        <span className="fw-bold text-success">
           ₹{" "}
           {parseFloat(value || 0).toLocaleString("en-IN", {
             minimumFractionDigits: 2,
@@ -931,7 +918,7 @@ const ServicesManagement = () => {
     "serviceDateFormatted",
     "clientName",
     "businessName",
-    "grandTotal",
+    "totalTransactionAmount",
     "action",
   ];
 
@@ -1255,7 +1242,7 @@ const ServicesManagement = () => {
                       </span>
                     </div>
                     <div>
-                      <h5 className="mb-2 fw-bold">{card.title}</h5>
+                      <h5 className="mb-1 fw-bold">{card.title}</h5>
                       <h6
                         className="mb-0 text-muted fs-6 fw-bold"
                         style={{ marginBottom: "-10px" }}

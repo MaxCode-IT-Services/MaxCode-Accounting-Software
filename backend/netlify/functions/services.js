@@ -571,7 +571,9 @@ export async function handler(event) {
           acc.allActive += active;
           acc.expired += expired;
           acc.dueSoon += dueSoon;
-          acc.totalAmount += parseFloat(record?.summary?.grandTotal || 0) || 0;
+          // FIXED: Only count transaction amounts for revenue, NOT service plans (avoids double counting)
+          acc.totalAmount +=
+            parseFloat(record?.summary?.totalTransactionAmount || 0) || 0;
 
           return acc;
         },

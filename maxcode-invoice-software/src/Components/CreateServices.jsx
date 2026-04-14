@@ -701,20 +701,29 @@ const CreateServices = ({
   };
 
   const getSummary = () => {
-    const totalServiceAmount = services.reduce(
+    // Plan Value: Sum of all active service subscriptions (INFORMATIONAL ONLY)
+    const planValue = services.reduce(
       (sum, service) => sum + toNumber(service.price),
       0,
     );
 
-    const totalTransactionAmount = transactions.reduce(
+    // Total Received: Actual revenue from transactions (FINANCIAL METRIC)
+    const totalReceived = transactions.reduce(
       (sum, transaction) => sum + toNumber(transaction.price),
       0,
     );
 
+    const expiredServicesCount = services.filter(
+      (service) =>
+        getExpiryDrivenStatus(service.expiryDate, service.status) === "Expired",
+    ).length;
+
     return {
-      totalServiceAmount: totalServiceAmount.toFixed(2),
-      totalTransactionAmount: totalTransactionAmount.toFixed(2),
-      grandTotal: (totalServiceAmount + totalTransactionAmount).toFixed(2),
+      planValue: planValue.toFixed(2), // Service plan values
+      totalServiceAmount: planValue.toFixed(2), // Backward compatibility
+      totalReceived: totalReceived.toFixed(2), // Actual payments received in this period
+      totalTransactionAmount: totalReceived.toFixed(2), // Backward compatibility
+      expiredServicesCount: String(expiredServicesCount),
     };
   };
 
@@ -1876,7 +1885,7 @@ const CreateServices = ({
                     <div className="card-header bg-success rounded-top-3 text-white">
                       <h6 className="mb-0">
                         <i className="fas fa-calculator me-2"></i>
-                        Summary
+                        Financial Summary
                       </h6>
                     </div>
                     <div className="card-body">
@@ -1886,48 +1895,57 @@ const CreateServices = ({
                             Services Amount
                           </label>
                           <div className="input-group">
-                            <span className="input-group-text bg-info text-white">
+                            <span className="input-group-text bg-info text-white px-3">
                               ₹
                             </span>
                             <input
                               type="text"
                               className="form-control modern-input fw-bold"
-                              value={summary.totalServiceAmount}
+                              value={summary.planValue}
                               readOnly
                             />
                           </div>
+                          <small className="text-muted">
+                            Active subscriptions only
+                          </small>
                         </div>
                         <div className="col-md-4 mb-3">
                           <label className="form-label fw-bold">
-                            Transaction Amount
+                            Total Received Amount
                           </label>
                           <div className="input-group">
-                            <span className="input-group-text bg-success text-white">
+                            <span className="input-group-text bg-success text-white px-3">
                               ₹
                             </span>
                             <input
                               type="text"
                               className="form-control modern-input fw-bold"
-                              value={summary.totalTransactionAmount}
+                              value={summary.totalReceived}
                               readOnly
                             />
                           </div>
+                          <small className="text-muted">
+                            Actual received amount
+                          </small>
                         </div>
                         <div className="col-md-4 mb-3">
                           <label className="form-label fw-bold">
-                            Grand Total
+                            Expired Services Count
                           </label>
                           <div className="input-group">
-                            <span className="input-group-text bg-danger text-white">
-                              ₹
+                            <span className="input-group-text bg-warning text-white px-3">
+                              #
                             </span>
                             <input
                               type="text"
-                              className="form-control modern-input fw-bold text-danger"
-                              value={summary.grandTotal}
+                              className="form-control modern-input fw-bold"
+                              value={summary.expiredServicesCount}
                               readOnly
                             />
                           </div>
+                          <small className="text-muted">
+                            Expired service rows
+                          </small>
                         </div>
                       </div>
                     </div>
