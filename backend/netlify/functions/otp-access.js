@@ -399,8 +399,8 @@ const buildTemplateVariables = ({
   return [
     String(clientName || "").trim() || "Client",
     formattedSenderName || "Team Member",
-    "access Your Software Credentials for:",
-    `Purpose: ${String(purpose || "").trim() || "No purpose provided"}`,
+    "Software Credentials",
+    String(purpose || "").trim() || "No purpose provided",
     `Your verification code is: ${otp}`,
     "Share this OTP only if you approve this request and receive a call from the above number.",
     "⚠️ Do not share this OTP with anyone else.",
