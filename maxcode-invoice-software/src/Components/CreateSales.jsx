@@ -11,6 +11,7 @@ import {
   filterActiveSelectableRows,
 } from "../utils/fetchAllEntities";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
+import { normalizePaymentMethod } from "../utils/paymentMethods";
 
 const SALES_ITEM_DESCRIPTION_MAX_LENGTH = 27;
 
@@ -322,7 +323,7 @@ const CreateSales = ({
         placeOfSupply: editingRecord.placeOfSupply || "",
         roundingAmount: editingRecord.roundingAmount || "0",
         paymentStatus: editingRecord.paymentStatus || "Unpaid",
-        paymentMethod: editingRecord.paymentMethod || "",
+        paymentMethod: normalizePaymentMethod(editingRecord.paymentMethod),
         paymentDate: editingRecord.paymentDate || "",
         amountReceived: editingRecord.amountReceived || "",
         tdsPercent: editingRecord.tdsPercent || "0",
@@ -1743,8 +1744,6 @@ const CreateSales = ({
                               🏦 Bank Transfer
                             </option>
                             <option value="Card">💳 Card</option>
-                            <option value="Credit Card">💳 Credit Card</option>
-                            <option value="Debit Card">💳 Debit Card</option>
                             <option value="UPI">📱 UPI</option>
                             <option value="Cheque">📝 Cheque</option>
                             <option value="IMPS">🏦 IMPS</option>

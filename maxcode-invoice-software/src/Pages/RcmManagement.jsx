@@ -362,7 +362,10 @@ const RcmManagement = () => {
           setStatistics(response.data.statistics);
         }
         if (response.data?.filterOptions) {
-          setDynamicFilterOptions(response.data.filterOptions);
+          setDynamicFilterOptions({
+            ...response.data.filterOptions,
+            paymentMethod: ["All", "Cash", "Bank Transfer", "Card", "UPI", "Cheque"],
+          });
         }
       } else {
         // Client-side response format
@@ -810,8 +813,7 @@ const RcmManagement = () => {
         "All",
         "Cash",
         "Bank Transfer",
-        "Credit Card",
-        "Debit Card",
+        "Card",
         "UPI",
         "Cheque",
       ],

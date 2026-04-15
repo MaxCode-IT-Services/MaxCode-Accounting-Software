@@ -7,6 +7,7 @@ import {
   normalizeFinancialYearValue,
   resolveFinancialYearRecord,
 } from "../utils/financialYearUtils";
+import { normalizePaymentMethod } from "../utils/paymentMethods";
 
 const toBase64 = (file) =>
   new Promise((resolve, reject) => {
@@ -181,7 +182,7 @@ const CreateCompanyExpense = ({
         ),
         paymentStatus: editingRecord.paymentStatus || "",
         paymentSource: editingRecord.paymentSource || "Business Account",
-        paymentMethod: editingRecord.paymentMethod || "",
+        paymentMethod: normalizePaymentMethod(editingRecord.paymentMethod),
         paymentDate: editingRecord.paymentDate || "",
         paidAmount: String(
           editingRecord.paidAmount || editingRecord.amountPaid || "",
@@ -695,8 +696,6 @@ const CreateCompanyExpense = ({
                     <option value="UPI">UPI</option>
                     <option value="Cheque">Cheque</option>
                     <option value="Card">Card</option>
-                    <option value="Credit Card">Credit Card</option>
-                    <option value="Debit Card">Debit Card</option>
                     <option value="IMPS">IMPS</option>
                     <option value="RTGS">RTGS</option>
                     <option value="Zoho Payment Gateway">

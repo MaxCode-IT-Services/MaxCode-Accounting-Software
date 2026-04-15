@@ -395,7 +395,10 @@ const SalesManagement = () => {
           setStatistics(response.data.statistics);
         }
         if (response.data?.filterOptions) {
-          setDynamicFilterOptions(response.data.filterOptions);
+          setDynamicFilterOptions({
+            ...response.data.filterOptions,
+            paymentMethod: ["All", "Cash", "Bank Transfer", "Card", "UPI", "Cheque"],
+          });
         }
         if (response.data?.clients) {
           setClients(response.data.clients);
@@ -799,8 +802,7 @@ const SalesManagement = () => {
         "All",
         "Cash",
         "Bank Transfer",
-        "Credit Card",
-        "Debit Card",
+        "Card",
         "UPI",
         "Cheque",
       ],

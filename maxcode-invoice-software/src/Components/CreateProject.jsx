@@ -17,6 +17,7 @@ import {
   resolveFinancialYearRecord,
 } from "../utils/financialYearUtils";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
+import { normalizePaymentMethod } from "../utils/paymentMethods";
 
 const toBase64 = (file) =>
   new Promise((resolve, reject) => {
@@ -567,7 +568,7 @@ const CreateProject = ({
             invoiceNumber: payment.invoiceNumber || "",
             description: payment.description || "",
             paymentDate: payment.paymentDate || "",
-            paymentMethod: payment.paymentMethod || "Cash",
+            paymentMethod: normalizePaymentMethod(payment.paymentMethod) || "Cash",
             amount: String(payment.amount ?? ""),
             tax: String(payment.tax ?? ""),
             totalAmount: String(payment.totalAmount ?? ""),
@@ -582,7 +583,9 @@ const CreateProject = ({
             description: transaction.description || "",
             payoutDate: transaction.payoutDate || "",
             payoutAmount: String(transaction.payoutAmount ?? ""),
-            payoutMethod: transaction.payoutMethod || "Bank Transfer",
+            payoutMethod:
+              normalizePaymentMethod(transaction.payoutMethod) ||
+              "Bank Transfer",
             payoutSource: transaction.payoutSource || "Business Account",
           }))
         : [emptyDeveloperPayoutRow(1)];
@@ -930,7 +933,9 @@ const CreateProject = ({
                 selectedInvoice.paymentDate ||
                 selectedInvoice.invoiceDate ||
                 "",
-              paymentMethod: selectedInvoice.paymentMethod || "Cash",
+              paymentMethod:
+                normalizePaymentMethod(selectedInvoice.paymentMethod) ||
+                "Cash",
               amount: subtotal.toFixed(2),
               tax: taxAmount.toFixed(2),
               totalAmount:

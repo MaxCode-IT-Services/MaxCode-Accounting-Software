@@ -286,7 +286,10 @@ const PurchaseManagement = () => {
           setStatistics(response.data.statistics);
         }
         if (response.data?.filterOptions) {
-          setDynamicFilterOptions(response.data.filterOptions);
+          setDynamicFilterOptions({
+            ...response.data.filterOptions,
+            paymentMethod: ["All", "Cash", "Bank Transfer", "Card", "UPI", "Cheque"],
+          });
         }
         if (response.data?.vendors) {
           setVendors(response.data.vendors);
@@ -803,8 +806,7 @@ const PurchaseManagement = () => {
         "All",
         "Cash",
         "Bank Transfer",
-        "Credit Card",
-        "Debit Card",
+        "Card",
         "UPI",
         "Cheque",
       ],

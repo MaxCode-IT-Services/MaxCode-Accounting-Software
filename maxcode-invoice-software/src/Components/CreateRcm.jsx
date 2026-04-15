@@ -5,6 +5,7 @@ import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
+import { normalizePaymentMethod } from "../utils/paymentMethods";
 
 const SELF_INVOICE_SINGLE_LINE_ADDRESS_MAX_LENGTH = 57;
 const RCM_ITEM_NAME_MAX_LENGTH = 25;
@@ -183,7 +184,7 @@ const CreateRcm = ({
         placeOfSupply: "Rajasthan (08)",
         roundingAmount: editingRecord.roundingAmount || "0",
         paymentStatus: editingRecord.paymentStatus || "Unpaid",
-        paymentMethod: editingRecord.paymentMethod || "",
+        paymentMethod: normalizePaymentMethod(editingRecord.paymentMethod),
         paymentSource: editingRecord.paymentSource || "Business Account",
         paymentDate: editingRecord.paymentDate || "",
         paidAmount: editingRecord.paidAmount || "",
@@ -1606,8 +1607,6 @@ const CreateRcm = ({
                               🏦 Bank Transfer
                             </option>
                             <option value="Card">💳 Card</option>
-                            <option value="Credit Card">💳 Credit Card</option>
-                            <option value="Debit Card">💳 Debit Card</option>
                             <option value="UPI">📱 UPI</option>
                             <option value="Cheque">📝 Cheque</option>
                             <option value="IMPS">🏦 IMPS</option>

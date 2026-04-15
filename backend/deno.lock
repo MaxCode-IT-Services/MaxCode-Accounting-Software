@@ -12,9 +12,11 @@
     "packageJson": {
       "dependencies": [
         "npm:bcryptjs@^2.4.3",
+        "npm:busboy@^1.6.0",
         "npm:dotenv@^16.4.5",
         "npm:googleapis@^171.4.0",
         "npm:jsonwebtoken@^9.0.2",
+        "npm:jszip@^3.10.1",
         "npm:mongodb@^6.3.0",
         "npm:qrcode@^1.5.3",
         "npm:speakeasy@2"
