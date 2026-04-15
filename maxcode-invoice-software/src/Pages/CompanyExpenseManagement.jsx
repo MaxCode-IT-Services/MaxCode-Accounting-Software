@@ -14,6 +14,7 @@ import {
   exportItemWiseExcel,
   exportItemWisePDF,
 } from "../utils/itemWiseExport";
+import { normalizePaymentMethodOptions } from "../utils/paymentMethods";
 
 const CompanyExpenseManagement = () => {
   const moduleKey = "companyExpenseManagement";
@@ -103,6 +104,13 @@ const CompanyExpenseManagement = () => {
     "expenseDateFormatted",
     "paymentDateFormatted",
   ];
+
+  const buildPaymentMethodFilterOptions = (values = []) => {
+    const normalized = normalizePaymentMethodOptions(values).sort((a, b) =>
+      a.localeCompare(b),
+    );
+    return ["All", ...normalized];
+  };
 
   // Cards array
   const cards = [
@@ -316,9 +324,19 @@ const CompanyExpenseManagement = () => {
           setStatistics(response.data.statistics);
         }
         if (response.data?.filterOptions) {
+          const backendPaymentMethods = Array.isArray(
+            response.data.filterOptions.paymentMethod,
+          )
+            ? response.data.filterOptions.paymentMethod.filter(
+                (method) => String(method) !== "All",
+              )
+            : [];
+
           setDynamicFilterOptions({
             ...response.data.filterOptions,
-            paymentMethod: ["All", "Cash", "Bank Transfer", "Card", "UPI", "Cheque"],
+            paymentMethod: buildPaymentMethodFilterOptions(
+              backendPaymentMethods,
+            ),
           });
         }
       } else {
@@ -745,16 +763,13 @@ const CompanyExpenseManagement = () => {
 
   // Filter options - dynamic for entrySource
   const getFilterOptions = () => {
+    const paymentMethodValues = buildPaymentMethodFilterOptions(
+      records.map((record) => record.paymentMethod),
+    );
+
     const options = {
       paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
-      paymentMethod: [
-        "All",
-        "Cash",
-        "Bank Transfer",
-        "Card",
-        "UPI",
-        "Cheque",
-      ],
+      paymentMethod: paymentMethodValues,
     };
 
     // Dynamic entrySource options from records (client-side) or from dynamicFilterOptions (server-side)

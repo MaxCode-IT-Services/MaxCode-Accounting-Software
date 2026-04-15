@@ -568,7 +568,8 @@ const CreateProject = ({
             invoiceNumber: payment.invoiceNumber || "",
             description: payment.description || "",
             paymentDate: payment.paymentDate || "",
-            paymentMethod: normalizePaymentMethod(payment.paymentMethod) || "Cash",
+            paymentMethod:
+              normalizePaymentMethod(payment.paymentMethod) || "Cash",
             amount: String(payment.amount ?? ""),
             tax: String(payment.tax ?? ""),
             totalAmount: String(payment.totalAmount ?? ""),
@@ -934,8 +935,7 @@ const CreateProject = ({
                 selectedInvoice.invoiceDate ||
                 "",
               paymentMethod:
-                normalizePaymentMethod(selectedInvoice.paymentMethod) ||
-                "Cash",
+                normalizePaymentMethod(selectedInvoice.paymentMethod) || "Cash",
               amount: subtotal.toFixed(2),
               tax: taxAmount.toFixed(2),
               totalAmount:

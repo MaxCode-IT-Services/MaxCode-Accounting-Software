@@ -15,6 +15,7 @@ import {
   exportItemWisePDF,
 } from "../utils/itemWiseExport";
 import { fetchAllVendors } from "../utils/fetchAllEntities";
+import { normalizePaymentMethodOptions } from "../utils/paymentMethods";
 
 const PurchaseManagement = () => {
   const moduleKey = "purchaseManagement";
@@ -104,6 +105,13 @@ const PurchaseManagement = () => {
     "invoiceDateFormatted",
     "paymentDateFormatted",
   ];
+
+  const buildPaymentMethodFilterOptions = (values = []) => {
+    const normalized = normalizePaymentMethodOptions(values).sort((a, b) =>
+      a.localeCompare(b),
+    );
+    return ["All", ...normalized];
+  };
 
   // Fetch vendors
   const fetchVendors = async (options = {}) => {
@@ -286,9 +294,19 @@ const PurchaseManagement = () => {
           setStatistics(response.data.statistics);
         }
         if (response.data?.filterOptions) {
+          const backendPaymentMethods = Array.isArray(
+            response.data.filterOptions.paymentMethod,
+          )
+            ? response.data.filterOptions.paymentMethod.filter(
+                (method) => String(method) !== "All",
+              )
+            : [];
+
           setDynamicFilterOptions({
             ...response.data.filterOptions,
-            paymentMethod: ["All", "Cash", "Bank Transfer", "Card", "UPI", "Cheque"],
+            paymentMethod: buildPaymentMethodFilterOptions(
+              backendPaymentMethods,
+            ),
           });
         }
         if (response.data?.vendors) {
@@ -800,16 +818,13 @@ const PurchaseManagement = () => {
 
   // Filter options
   const getFilterOptions = () => {
+    const paymentMethodValues = buildPaymentMethodFilterOptions(
+      records.map((record) => record.paymentMethod),
+    );
+
     const options = {
       paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
-      paymentMethod: [
-        "All",
-        "Cash",
-        "Bank Transfer",
-        "Card",
-        "UPI",
-        "Cheque",
-      ],
+      paymentMethod: paymentMethodValues,
       invoiceType: ["All", "Not ITC", "ITC", "RCM", "RCM + ITC"],
     };
 

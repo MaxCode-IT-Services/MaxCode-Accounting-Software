@@ -15,6 +15,7 @@ import {
   exportItemWiseExcel,
   exportItemWisePDF,
 } from "../utils/itemWiseExport";
+import { normalizePaymentMethodOptions } from "../utils/paymentMethods";
 
 const RcmManagement = () => {
   const moduleKey = "rcmManagement";
@@ -120,6 +121,13 @@ const RcmManagement = () => {
     "paymentDateFormatted",
   ];
 
+  const buildPaymentMethodFilterOptions = (values = []) => {
+    const normalized = normalizePaymentMethodOptions(values).sort((a, b) =>
+      a.localeCompare(b),
+    );
+    return ["All", ...normalized];
+  };
+
   // Cards array
   const cards = [
     {
@@ -188,20 +196,6 @@ const RcmManagement = () => {
 
   // Fetch business settings
   const fetchBusinessSettings = async () => {
-    const cached = localStorage.getItem("business_settings");
-
-    if (cached) {
-      try {
-        const parsedCache = JSON.parse(cached);
-        setBusinessSettings((prev) => ({
-          ...prev,
-          ...parsedCache,
-        }));
-      } catch (error) {
-        console.error("Failed to parse cached business settings:", error);
-      }
-    }
-
     try {
       const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
       const remoteSettings = response?.data?.settings;
@@ -362,9 +356,19 @@ const RcmManagement = () => {
           setStatistics(response.data.statistics);
         }
         if (response.data?.filterOptions) {
+          const backendPaymentMethods = Array.isArray(
+            response.data.filterOptions.paymentMethod,
+          )
+            ? response.data.filterOptions.paymentMethod.filter(
+                (method) => String(method) !== "All",
+              )
+            : [];
+
           setDynamicFilterOptions({
             ...response.data.filterOptions,
-            paymentMethod: ["All", "Cash", "Bank Transfer", "Card", "UPI", "Cheque"],
+            paymentMethod: buildPaymentMethodFilterOptions(
+              backendPaymentMethods,
+            ),
           });
         }
       } else {
@@ -807,16 +811,13 @@ const RcmManagement = () => {
 
   // Filter options - dynamic for GSTIN
   const getFilterOptions = () => {
+    const paymentMethodValues = buildPaymentMethodFilterOptions(
+      records.map((record) => record.paymentMethod),
+    );
+
     const options = {
       paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
-      paymentMethod: [
-        "All",
-        "Cash",
-        "Bank Transfer",
-        "Card",
-        "UPI",
-        "Cheque",
-      ],
+      paymentMethod: paymentMethodValues,
     };
 
     // Dynamic GSTIN options from records (client-side) or from dynamicFilterOptions (server-side)
