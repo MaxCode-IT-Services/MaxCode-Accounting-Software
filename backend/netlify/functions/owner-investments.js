@@ -1,6 +1,7 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
+import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
 
 /**
  * Owner Investments API
@@ -318,7 +319,7 @@ export async function handler(event) {
 
     // POST - Create new owner investment record
     if (event.httpMethod === "POST") {
-      const fundData = JSON.parse(event.body);
+      const fundData = normalizePaymentMethodsInRecord(JSON.parse(event.body));
 
       const validationError =
         await validateFundDateAgainstFinancialYear(fundData);
@@ -355,7 +356,7 @@ export async function handler(event) {
         );
       }
 
-      const fundData = JSON.parse(event.body);
+      const fundData = normalizePaymentMethodsInRecord(JSON.parse(event.body));
       const { _id, id: fundId, ...updateData } = fundData;
 
       const existingRecord = await fundsCollection.findOne({

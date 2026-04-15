@@ -1630,10 +1630,22 @@ const CreatePurchase = ({
                             <option value="Bank Transfer">
                               🏦 Bank Transfer
                             </option>
+                            <option value="Card">💳 Card</option>
                             <option value="Credit Card">💳 Credit Card</option>
                             <option value="Debit Card">💳 Debit Card</option>
                             <option value="UPI">📱 UPI</option>
                             <option value="Cheque">📝 Cheque</option>
+                            <option value="IMPS">🏦 IMPS</option>
+                            <option value="RTGS">🏦 RTGS</option>
+                            <option value="Zoho Payment Gateway">
+                              🌐 Zoho Payment Gateway
+                            </option>
+                            <option value="Cashfree Payment Gateway">
+                              🌐 Cashfree Payment Gateway
+                            </option>
+                            <option value="PayU Payment Gateway">
+                              🌐 PayU Payment Gateway
+                            </option>
                           </select>
                         </div>
 

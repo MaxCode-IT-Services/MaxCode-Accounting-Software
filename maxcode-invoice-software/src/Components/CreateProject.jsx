@@ -1199,6 +1199,11 @@ const CreateProject = ({
     "Bank Transfer",
     "Cheque",
     "Card",
+    "IMPS",
+    "RTGS",
+    "Zoho Payment Gateway",
+    "Cashfree Payment Gateway",
+    "PayU Payment Gateway",
     "Other",
   ];
 
@@ -1207,6 +1212,12 @@ const CreateProject = ({
     "UPI",
     "Bank Transfer",
     "Cheque",
+    "Card",
+    "IMPS",
+    "RTGS",
+    "Zoho Payment Gateway",
+    "Cashfree Payment Gateway",
+    "PayU Payment Gateway",
     "Other",
   ];
 

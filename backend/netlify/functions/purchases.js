@@ -2,6 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
+import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
 
 const PURCHASES_META_CACHE_TTL_MS = 60000;
 let purchasesMetaCache = {
@@ -763,7 +764,9 @@ export async function handler(event) {
 
     // POST - Create new purchase
     if (event.httpMethod === "POST") {
-      const purchaseData = JSON.parse(event.body);
+      const purchaseData = normalizePaymentMethodsInRecord(
+        JSON.parse(event.body),
+      );
 
       if (!purchaseData.invoiceNumber) {
         return createResponse(
@@ -872,7 +875,9 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid purchase ID" }, origin);
       }
 
-      const purchaseData = JSON.parse(event.body);
+      const purchaseData = normalizePaymentMethodsInRecord(
+        JSON.parse(event.body),
+      );
       const purchaseObjectId = new ObjectId(id);
 
       // Check for duplicate invoice number (excluding current record)

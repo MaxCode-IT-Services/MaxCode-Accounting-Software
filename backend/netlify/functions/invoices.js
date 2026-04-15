@@ -1,6 +1,7 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
+import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
 
 const META_CACHE_TTL_MS = 30 * 1000;
 const invoiceMetaCache = {
@@ -539,7 +540,9 @@ export async function handler(event) {
 
     // POST - Create new invoice
     if (event.httpMethod === "POST") {
-      const invoiceData = JSON.parse(event.body || "{}");
+      const invoiceData = normalizePaymentMethodsInRecord(
+        JSON.parse(event.body || "{}"),
+      );
 
       let defaultYear = null;
       if (invoiceData.financialYear) {
@@ -623,7 +626,9 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid invoice ID" }, origin);
       }
 
-      const invoiceData = JSON.parse(event.body);
+      const invoiceData = normalizePaymentMethodsInRecord(
+        JSON.parse(event.body),
+      );
       const invoiceObjectId = new ObjectId(id);
 
       // Check for duplicate invoice number (excluding current record)

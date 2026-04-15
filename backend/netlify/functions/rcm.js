@@ -2,6 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
+import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
 
 const normalizeCloudflareSettings = (settings = {}) => {
   if (!settings || typeof settings !== "object") return null;
@@ -718,7 +719,9 @@ export async function handler(event) {
 
     // POST - Create new RCM record
     if (event.httpMethod === "POST") {
-      const rcmData = JSON.parse(event.body || "{}");
+      const rcmData = normalizePaymentMethodsInRecord(
+        JSON.parse(event.body || "{}"),
+      );
 
       let defaultYear = null;
       if (rcmData.financialYear) {
@@ -853,7 +856,7 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid RCM ID" }, origin);
       }
 
-      const rcmData = JSON.parse(event.body);
+      const rcmData = normalizePaymentMethodsInRecord(JSON.parse(event.body));
       const rcmObjectId = new ObjectId(id);
 
       const existingRcmRecord = await rcmCollection.findOne({

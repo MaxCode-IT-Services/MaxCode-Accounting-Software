@@ -2,6 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
+import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
 
 const normalizeCloudflareSettings = (settings = {}) => {
   if (!settings || typeof settings !== "object") return null;
@@ -760,7 +761,9 @@ export async function handler(event) {
 
     // POST - Create new expense
     if (event.httpMethod === "POST") {
-      const expenseData = JSON.parse(event.body || "{}");
+      const expenseData = normalizePaymentMethodsInRecord(
+        JSON.parse(event.body || "{}"),
+      );
 
       const { financialYear, format } = await resolveExpenseNumberContext(
         expenseData.financialYear,
@@ -909,7 +912,9 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid expense ID" }, origin);
       }
 
-      const expenseData = JSON.parse(event.body);
+      const expenseData = normalizePaymentMethodsInRecord(
+        JSON.parse(event.body),
+      );
       const expenseObjectId = new ObjectId(id);
 
       const existingExpenseRecord = await expensesCollection.findOne({

@@ -2,6 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
+import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
 
 const normalizeCloudflareSettings = (settings = {}) => {
   if (!settings || typeof settings !== "object") return null;
@@ -1411,7 +1412,9 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === "POST") {
-      const projectData = JSON.parse(event.body || "{}");
+      const projectData = normalizePaymentMethodsInRecord(
+        JSON.parse(event.body || "{}"),
+      );
 
       const { financialYear, format } = await resolveProjectNumberContext(
         projectData.financialYear,
@@ -1570,7 +1573,9 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid project ID" }, origin);
       }
 
-      const projectData = JSON.parse(event.body || "{}");
+      const projectData = normalizePaymentMethodsInRecord(
+        JSON.parse(event.body || "{}"),
+      );
       const projectObjectId = new ObjectId(id);
 
       const existingProjectRecord = await projectsCollection.findOne({
