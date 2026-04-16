@@ -3,6 +3,7 @@ import ReusableTable from "../Components/ReusableTable";
 import CreateRcm from "../Components/CreateRcm";
 import SelfInvoicePreview from "../Components/SelfInvoicePreview";
 import ConfirmationModal from "../Components/ConfirmationModal";
+import UploadedFilePreviewBox from "../Components/UploadedFilePreviewBox";
 import {
   showSuccess,
   showError,
@@ -738,18 +739,14 @@ const RcmManagement = () => {
       disableSort: true,
       disableFilter: true,
       render: (_, record) =>
-        record?.rcmFileLink ? (
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-success"
-            onClick={(event) => {
-              event.stopPropagation();
-              window.open(record.rcmFileLink, "_blank", "noopener,noreferrer");
-            }}
-            title="Open uploaded RCM file"
-          >
-            <i class="fa-solid fa-file-contract"></i>
-          </button>
+        record.rcmFileLink ? (
+          <div onClick={(event) => event.stopPropagation()}>
+            <UploadedFilePreviewBox
+              fileUrl={record.rcmFileLink}
+              title="Open uploaded RCM file"
+              iconClassName="fa-solid fa-file-contract"
+            />
+          </div>
         ) : (
           <button
             type="button"

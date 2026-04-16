@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Select from "react-select";
 import ConfirmationModal from "./ConfirmationModal";
+import UploadedFilePreviewBox from "./UploadedFilePreviewBox";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
@@ -1797,16 +1798,13 @@ const CreateRcm = ({
                           )}
 
                           {uploadedRcmViewUrl ? (
-                            <div className="mt-2">
-                              <a
-                                href={uploadedRcmViewUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="btn btn-sm btn-outline-primary"
+                            <div>
+                              <UploadedFilePreviewBox
+                                fileUrl={uploadedRcmViewUrl}
+                                fileType={selectedRcmFile?.type}
                                 title="Open uploaded RCM in new tab"
-                              >
-                                <i class="fa-solid fa-file-contract"></i>
-                              </a>
+                                iconClassName="fa-solid fa-file-contract"
+                              />
                             </div>
                           ) : (
                             isViewMode && (

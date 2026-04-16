@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { showError } from "./ToastNotification";
+import UploadedFilePreviewBox from "./UploadedFilePreviewBox";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import {
@@ -822,16 +823,13 @@ const CreateCompanyExpense = ({
                   )}
 
                   {uploadedExpenseViewUrl ? (
-                    <div className="mt-2">
-                      <a
-                        href={uploadedExpenseViewUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-sm btn-outline-primary"
+                    <div>
+                      <UploadedFilePreviewBox
+                        fileUrl={uploadedExpenseViewUrl}
+                        fileType={selectedExpenseFile?.type}
                         title="Open uploaded expense document in new tab"
-                      >
-                        <i class="fa-solid fa-file-contract"></i>
-                      </a>
+                        iconClassName="fa-solid fa-file-contract"
+                      />
                     </div>
                   ) : (
                     isViewMode && (

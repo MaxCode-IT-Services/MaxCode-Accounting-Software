@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateProject from "../Components/CreateProject";
+import UploadedFilePreviewBox from "../Components/UploadedFilePreviewBox";
 import {
   showSuccess,
   showError,
@@ -742,22 +743,14 @@ const ProjectManagement = () => {
       disableSort: true,
       disableFilter: true,
       render: (_, record) =>
-        record?.projectAgreementFileLink ? (
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-success"
-            onClick={(event) => {
-              event.stopPropagation();
-              window.open(
-                record.projectAgreementFileLink,
-                "_blank",
-                "noopener,noreferrer",
-              );
-            }}
-            title="Open uploaded agreement file"
-          >
-            <i class="fa-solid fa-file-contract"></i>
-          </button>
+        record.projectAgreementFileLink ? (
+          <div onClick={(event) => event.stopPropagation()}>
+            <UploadedFilePreviewBox
+              fileUrl={record.projectAgreementFileLink}
+              title="Open uploaded agreement file"
+              iconClassName="fa-solid fa-file-contract"
+            />
+          </div>
         ) : (
           <button
             type="button"

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Select from "react-select";
 import SelectRightLoader from "./SelectRightLoader";
 import ConfirmationModal from "./ConfirmationModal";
+import UploadedFilePreviewBox from "./UploadedFilePreviewBox";
 import { showError } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
@@ -1761,17 +1762,14 @@ const CreatePurchase = ({
                             />
                           )}
 
-                          <div className="d-flex align-items-center gap-2 mt-2">
+                          <div className="d-flex align-items-center gap-2">
                             {uploadedInvoiceViewUrl ? (
-                              <a
-                                href={uploadedInvoiceViewUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="btn btn-sm btn-outline-primary"
+                              <UploadedFilePreviewBox
+                                fileUrl={uploadedInvoiceViewUrl}
+                                fileType={selectedInvoiceFile?.type}
                                 title="Open uploaded invoice in new tab"
-                              >
-                                <i class="fa-solid fa-file-contract"></i>
-                              </a>
+                                iconClassName="fa-solid fa-file-contract"
+                              />
                             ) : (
                               isViewMode && (
                                 <span className="text-muted small">

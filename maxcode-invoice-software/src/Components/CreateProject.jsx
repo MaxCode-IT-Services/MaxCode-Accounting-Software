@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Select from "react-select";
 import SelectRightLoader from "./SelectRightLoader";
 import ConfirmationModal from "./ConfirmationModal";
+import UploadedFilePreviewBox from "./UploadedFilePreviewBox";
 import { showError } from "./ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiGet } from "../utils/api";
@@ -2444,16 +2445,13 @@ const CreateProject = ({
                           )}
 
                           {uploadedAgreementViewUrl ? (
-                            <div className="mt-2">
-                              <a
-                                href={uploadedAgreementViewUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="btn btn-sm btn-outline-primary"
+                            <div>
+                              <UploadedFilePreviewBox
+                                fileUrl={uploadedAgreementViewUrl}
+                                fileType={selectedAgreementFile?.type}
                                 title="Open uploaded agreement in new tab"
-                              >
-                                <i class="fa-solid fa-file-contract"></i>
-                              </a>
+                                iconClassName="fa-solid fa-file-contract"
+                              />
                             </div>
                           ) : (
                             isViewMode && (

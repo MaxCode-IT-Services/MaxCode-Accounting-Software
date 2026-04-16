@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateQutation from "../Components/CreateQutation";
 import ConfirmationModal from "../Components/ConfirmationModal";
+import UploadedFilePreviewBox from "../Components/UploadedFilePreviewBox";
 import {
   showError,
   showInfo,
@@ -469,22 +470,14 @@ const QutationManagement = () => {
       disableSort: true,
       disableFilter: true,
       render: (_, record) =>
-        record?.qutationFileLink ? (
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-success"
-            onClick={(event) => {
-              event.stopPropagation();
-              window.open(
-                record.qutationFileLink,
-                "_blank",
-                "noopener,noreferrer",
-              );
-            }}
-            title="Open uploaded qutation"
-          >
-            <i class="fa-solid fa-file-contract"></i>
-          </button>
+        record.qutationFileLink ? (
+          <div onClick={(event) => event.stopPropagation()}>
+            <UploadedFilePreviewBox
+              fileUrl={record.qutationFileLink}
+              title="Open uploaded qutation"
+              iconClassName="fa-solid fa-file-contract"
+            />
+          </div>
         ) : (
           <button
             type="button"
@@ -516,22 +509,14 @@ const QutationManagement = () => {
       disableSort: true,
       disableFilter: true,
       render: (_, record) =>
-        record?.qutationFileLink ? (
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-success"
-            onClick={(event) => {
-              event.stopPropagation();
-              window.open(
-                record.qutationFileLink,
-                "_blank",
-                "noopener,noreferrer",
-              );
-            }}
-            title="Open uploaded qutation file"
-          >
-            <i class="fa-solid fa-file-contract"></i>
-          </button>
+        record.qutationFileLink ? (
+          <div onClick={(event) => event.stopPropagation()}>
+            <UploadedFilePreviewBox
+              fileUrl={record.qutationFileLink}
+              title="Open uploaded qutation file"
+              iconClassName="fa-solid fa-file-contract"
+            />
+          </div>
         ) : (
           <button
             type="button"

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import UploadedFilePreviewBox from "./UploadedFilePreviewBox";
 import { showError, showSuccess } from "./ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiGet, apiPost, apiPut } from "../utils/api";
@@ -714,15 +715,12 @@ const CreateQutation = ({
                       onChange={handleQutationFileChange}
                     />
                   ) : uploadedQutationViewUrl ? (
-                    <a
-                      href={uploadedQutationViewUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-sm btn-outline-primary"
+                    <UploadedFilePreviewBox
+                      fileUrl={uploadedQutationViewUrl}
+                      fileType={selectedQutationFile?.type}
                       title="Open uploaded qutation in new tab"
-                    >
-                      <i class="fa-solid fa-file-contract"></i>
-                    </a>
+                      iconClassName="fa-solid fa-file-contract"
+                    />
                   ) : (
                     <span className="text-muted small">
                       No uploaded qutation file
