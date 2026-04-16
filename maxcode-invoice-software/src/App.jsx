@@ -143,8 +143,6 @@ export const Loading = () => {
   );
 };
 
-const isAuthenticated = () => localStorage.getItem("maxcode_auth") === "true";
-
 const getPostLoginRoute = () => {
   return getFirstAllowedRoute();
 };
@@ -495,7 +493,7 @@ const dashboardChildRoutes = (
 const App = () => {
   const [authState, setAuthState] = useState({
     isChecking: true,
-    isAuthenticated: isAuthenticated(),
+    isAuthenticated: false,
   });
 
   useEffect(() => {
@@ -552,10 +550,14 @@ const App = () => {
         <Route
           path="*"
           element={
-            <Navigate
-              to={isAuthenticated() ? getPostLoginRoute() : "/login"}
-              replace
-            />
+            authState.isChecking ? (
+              <Loading />
+            ) : (
+              <Navigate
+                to={authState.isAuthenticated ? getPostLoginRoute() : "/login"}
+                replace
+              />
+            )
           }
         />
 

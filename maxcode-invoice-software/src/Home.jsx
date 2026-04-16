@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { verifyServerSession } from "./utils/api";
 import {
   getDefaultDashboardRoute,
   getFirstAllowedRoute,
@@ -135,11 +136,6 @@ const steps = [
   },
 ];
 
-const checkAuthStatus = () => {
-  const authFlag = localStorage.getItem("maxcode_auth") === "true";
-  return authFlag;
-};
-
 const getHomeAuthRoute = (isLoggedIn) => {
   if (!isLoggedIn) return "/login";
 
@@ -156,7 +152,7 @@ const getHomeAuthRoute = (isLoggedIn) => {
 const Home = () => {
   const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(() => checkAuthStatus());
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeSection, setActiveSection] = useState("features");
   const [overviewData, setOverviewData] = useState(() =>
     generateOverviewData(),
@@ -235,6 +231,22 @@ const Home = () => {
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const checkSession = async () => {
+      const authenticated = await verifyServerSession();
+      if (!mounted) return;
+      setIsLoggedIn(authenticated === true);
+    };
+
+    checkSession();
+
+    return () => {
+      mounted = false;
     };
   }, []);
 
