@@ -188,8 +188,8 @@ const PaymentReceiptPreview = ({
       if (!canvas) return;
 
       const link = document.createElement("a");
-      link.download = `${exportFileBaseName}.jpg`;
-      link.href = canvas.toDataURL("image/jpeg", 1.0);
+      link.download = `${exportFileBaseName}.png`;
+      link.href = canvas.toDataURL("image/png");
       link.click();
       showSuccess("Payment receipt image downloaded successfully!");
     } catch (error) {
