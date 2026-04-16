@@ -66,7 +66,10 @@ const PaymentReceiptPreview = ({
     data.clientAddress || data.address || data.businessAddress || "-";
   const signatureDateTimeText =
     data.signatureDateTime || data.receiptDate || "-";
-  const receiptRefNumber = `${data.invoiceNumber || data.memoNo || data.receiptNo || "-"}`;
+  const rawInvoiceNumber =
+    data.invoiceNumber || data.memoNo || data.receiptNo || "-";
+  const receiptRefNumber = `RCPT/${rawInvoiceNumber}`;
+  const referenceInvoiceNumber = rawInvoiceNumber;
   const companyPhoneDisplay = data.companyPhone || data.phone || "-";
   const companyWebsiteDisplay =
     data.companyWebsite || data.website || "www.maxcode.in";
@@ -566,7 +569,7 @@ const PaymentReceiptPreview = ({
 
         .signature-context {
           margin: 0 0 4px;
-          font-size: 11px;
+          font-size: 10px;
           color: #2f4436;
           font-weight: 700;
           text-align: center;
@@ -812,7 +815,9 @@ const PaymentReceiptPreview = ({
                         <div className="line-label">
                           Reference Invoice Number
                         </div>
-                        <div className="line-value">{receiptRefNumber}</div>
+                        <div className="line-value">
+                          {referenceInvoiceNumber}
+                        </div>
                       </div>
                       <div className="two-col-item">
                         <div className="line-label">
