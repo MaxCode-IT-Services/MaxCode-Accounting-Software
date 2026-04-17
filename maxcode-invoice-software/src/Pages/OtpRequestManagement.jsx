@@ -107,6 +107,43 @@ const OtpRequestManagement = () => {
     };
   };
 
+  const toTitleCase = (value = "") =>
+    String(value || "")
+      .trim()
+      .replace(/[\s_-]+/g, " ")
+      .replace(/\b\w/g, (match) => match.toUpperCase());
+
+  const normalizeStatusOption = (value = "") => {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+
+    if (!normalized) return "";
+    if (normalized === "otp_sent") return "OTP Send Success";
+    if (normalized === "verified") return "Verified";
+    if (normalized === "expired") return "Expired";
+    if (normalized === "blocked_wrong_attempts") return "Blocked";
+    if (normalized === "resend_locked") return "Resend Locked";
+    if (normalized === "send_failed") return "Failed";
+    if (normalized === "pending") return "Pending";
+
+    return toTitleCase(normalized);
+  };
+
+  const normalizeStatusCode = (value = "") =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+
+  const normalizeRequestByOption = (value = "") => {
+    const { name } = splitRequestBy(value);
+    return String(name || "").trim();
+  };
+
+  const normalizeOperationOption = (value = "") => toTitleCase(value);
+
   const normalizeOtpRow = (row = {}) => {
     const parsed = splitRequestBy(row.requestBy);
     return {
@@ -277,18 +314,30 @@ const OtpRequestManagement = () => {
   });
 
   const buildLocalFilterOptions = (source = []) => {
-    const uniq = (key) =>
-      [
-        ...new Set(
-          source.map((row) => String(row?.[key] || "").trim()).filter(Boolean),
-        ),
-      ].sort();
+    const uniq = (key, formatter) => {
+      const normalized = new Map();
+
+      source.forEach((row) => {
+        const rawValue = String(row?.[key] || "").trim();
+        if (!rawValue) return;
+        const displayValue = formatter ? formatter(rawValue) : rawValue;
+        if (!displayValue) return;
+
+        const canonicalKey = displayValue.toLowerCase();
+        if (!normalized.has(canonicalKey)) {
+          normalized.set(canonicalKey, displayValue);
+        }
+      });
+
+      return [...normalized.values()].sort((a, b) => a.localeCompare(b));
+    };
 
     return {
-      status: ["All", ...uniq("status")],
-      operation: ["All", ...uniq("operation")],
+      status: ["All", ...uniq("status", normalizeStatusOption)],
+      operation: ["All", ...uniq("operation", normalizeOperationOption)],
       credentialType: ["All", ...uniq("credentialType")],
-      requestBy: ["All", ...uniq("requestBy")],
+      requestBy: ["All", ...uniq("requestBy", normalizeRequestByOption)],
+      requestByPhone: ["All", ...uniq("requestByPhone")],
       clientName: ["All", ...uniq("clientName")],
       clientBusinessName: ["All", ...uniq("clientBusinessName")],
       projectName: ["All", ...uniq("projectName")],
@@ -351,6 +400,22 @@ const OtpRequestManagement = () => {
           if (start && candidate < start) return false;
           if (end && candidate > end) return false;
           return true;
+        });
+        return;
+      }
+
+      if (key === "status") {
+        const selectedStatusCode = normalizeStatusCode(
+          String(value || "")
+            .replace(/otp\s+send\s+success/i, "otp_sent")
+            .replace(/failed/i, "send_failed")
+            .replace(/blocked/i, "blocked_wrong_attempts")
+            .replace(/resend\s+locked/i, "resend_locked"),
+        );
+
+        processed = processed.filter((row) => {
+          const rowStatusCode = normalizeStatusCode(row?.status || "");
+          return rowStatusCode === selectedStatusCode;
         });
         return;
       }
@@ -674,6 +739,7 @@ const OtpRequestManagement = () => {
           "operation",
           "credentialType",
           "requestBy",
+          "requestByPhone",
           "clientName",
           "clientBusinessName",
           "projectName",

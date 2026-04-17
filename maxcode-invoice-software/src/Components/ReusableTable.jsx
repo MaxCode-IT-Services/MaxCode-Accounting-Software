@@ -853,10 +853,8 @@ const ReusableTable = ({
           ),
         ).sort();
 
-        mergedOptions[key] = [
-          "All",
-          ...Array.from(new Set([...fromServer, ...fromData])),
-        ];
+        const sourceValues = fromServer.length > 0 ? fromServer : fromData;
+        mergedOptions[key] = ["All", ...Array.from(new Set(sourceValues))];
       });
 
       setDynamicFilterOptions((prevOptions) => {

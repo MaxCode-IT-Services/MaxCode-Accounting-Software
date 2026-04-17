@@ -379,6 +379,7 @@ const buildTemplateVariables = ({
   clientName,
   senderName,
   senderPhoneNumber,
+  projectName,
   purpose,
   otp,
 }) => {
@@ -396,10 +397,17 @@ const buildTemplateVariables = ({
       : `${cleanSenderName} - ${cleanSenderPhone}`
     : cleanSenderName;
 
+  const credentialLabel = [
+    String(projectName || "").trim(),
+    "Software Credentials",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return [
     String(clientName || "").trim() || "Client",
     formattedSenderName || "Team Member",
-    "Software Credentials",
+    credentialLabel,
     String(purpose || "").trim() || "No purpose provided",
     `Your verification code is: ${otp}`,
     "Share this OTP only if you approve this request and receive a call from the above number.",
@@ -420,8 +428,68 @@ const formatCredentialTypeLabel = (value = "") => {
     .replace(/\b\w/g, (match) => match.toUpperCase());
 };
 
+const toTitleCaseWords = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/[\s_-]+/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+
+const normalizeStatusCode = (value = "") =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+const normalizeOperationCode = (value = "") =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+const formatOperationLabel = (value = "") => {
+  const normalized = normalizeOperationCode(value);
+  if (!normalized) return "";
+  return toTitleCaseWords(normalized);
+};
+
+const stripPhoneFromDisplayName = (value = "") => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.replace(/\s*-\s*\d{10,15}\s*$/, "").trim() || text;
+};
+
+const extractPhoneFromDisplayName = (value = "") => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  const match = text.match(/-(\s*\d{10,15})\s*$/);
+  return match ? String(match[1] || "").replace(/\D+/g, "") : "";
+};
+
+const buildRequestByExactRegex = (value = "") => {
+  const cleanName = stripPhoneFromDisplayName(value);
+  if (!cleanName) return "";
+
+  return `^${escapeRegExp(cleanName)}(?:\\s*-\\s*\\d{10,15})?$`;
+};
+
+const uniqSortedCaseInsensitive = (values = []) => {
+  const map = new Map();
+
+  values.forEach((item) => {
+    const text = String(item || "").trim();
+    if (!text) return;
+    const key = text.toLowerCase();
+    if (!map.has(key)) {
+      map.set(key, text);
+    }
+  });
+
+  return [...map.values()].sort((a, b) => a.localeCompare(b));
+};
+
 const formatStatusLabel = (value = "") => {
-  const normalized = String(value || "").trim();
+  const normalized = normalizeStatusCode(value);
   if (!normalized) return "Pending";
 
   if (normalized === "otp_sent") return "OTP Send Success";
@@ -432,9 +500,7 @@ const formatStatusLabel = (value = "") => {
   if (normalized === "send_failed") return "Failed";
   if (normalized === "pending") return "Pending";
 
-  return normalized
-    .replace(/[-_]+/g, " ")
-    .replace(/\b\w/g, (match) => match.toUpperCase());
+  return toTitleCaseWords(normalized);
 };
 
 const formatDisplayName = (value = "") => {
@@ -461,6 +527,9 @@ const shapeRequestRow = (row = {}) => ({
   id: String(row._id || ""),
   requestDateTime: toIso(row.requestedAt || row.createdAt),
   requestBy: formatDisplayName(row.requestedByName || ""),
+  requestByPhone:
+    String(row.requestedPhoneNumber || "").replace(/\D+/g, "") ||
+    extractPhoneFromDisplayName(row.requestedByName),
   requestByRole: row.requestedByRole || "",
   requestById: row.requestedById || "",
   clientName:
@@ -476,13 +545,13 @@ const shapeRequestRow = (row = {}) => ({
   projectName: row.projectName || "",
   credentialType: formatCredentialTypeLabel(row.credentialType || ""),
   credentialTypeRaw: row.credentialType || "",
-  operation: row.operation || "",
+  operation: formatOperationLabel(row.operation || ""),
   purpose: row.purpose || "",
   attempt: Number(row.sendCount || 0),
   sentTo: buildSentToLabel(row.recipients),
   otpVerifiedDateTime: toIso(row.verifiedAt),
-  status: row.status || "pending",
-  statusLabel: formatStatusLabel(row.status || "pending"),
+  status: normalizeStatusCode(row.status) || "pending",
+  statusLabel: formatStatusLabel(row.status),
   resendAvailableAt: toIso(row.resendAvailableAt),
   otpExpiresAt: toIso(row.otpExpiresAt),
   verifyWindowUntil: toIso(row.otpVerifyWindowUntil),
@@ -493,11 +562,11 @@ const shapeRequestRow = (row = {}) => ({
 
 const CARD_FILTERS = {
   total: null,
-  otpSent: { status: "otp_sent" },
-  verified: { status: "verified" },
-  expired: { status: "expired" },
-  blocked: { status: "blocked_wrong_attempts" },
-  resendLocked: { status: "resend_locked" },
+  otpSent: { status: { $regex: "^otp_sent$", $options: "i" } },
+  verified: { status: { $regex: "^verified$", $options: "i" } },
+  expired: { status: { $regex: "^expired$", $options: "i" } },
+  blocked: { status: { $regex: "^blocked_wrong_attempts$", $options: "i" } },
+  resendLocked: { status: { $regex: "^resend_locked$", $options: "i" } },
 };
 
 const escapeRegExp = (value = "") =>
@@ -559,14 +628,27 @@ const buildFilterQueryFromParams = (query = {}) => {
 
   const status = String(query.status || "").trim();
   if (status && status !== "All") {
-    andConditions.push({ status: statusAliasMap[status] || status });
+    const resolvedStatusCode = normalizeStatusCode(
+      statusAliasMap[status] || status,
+    );
+    andConditions.push({
+      status: {
+        $regex: `^${escapeRegExp(resolvedStatusCode)}$`,
+        $options: "i",
+      },
+    });
   }
 
   const operation = String(query.operation || "")
     .trim()
     .toLowerCase();
   if (operation && operation !== "all") {
-    andConditions.push({ operation });
+    andConditions.push({
+      operation: {
+        $regex: `^${escapeRegExp(operation)}$`,
+        $options: "i",
+      },
+    });
   }
 
   const credentialType = String(query.credentialType || "")
@@ -582,9 +664,22 @@ const buildFilterQueryFromParams = (query = {}) => {
 
   const requestBy = String(query.requestBy || "").trim();
   if (requestBy && requestBy !== "All") {
+    const requestByRegex = buildRequestByExactRegex(requestBy);
     andConditions.push({
       requestedByName: {
-        $regex: `^${escapeRegExp(requestBy)}$`,
+        $regex: requestByRegex,
+        $options: "i",
+      },
+    });
+  }
+
+  const requestByPhone = String(query.requestByPhone || "")
+    .replace(/\D+/g, "")
+    .trim();
+  if (requestByPhone && requestByPhone !== "All") {
+    andConditions.push({
+      requestedPhoneNumber: {
+        $regex: `^${escapeRegExp(requestByPhone)}$`,
         $options: "i",
       },
     });
@@ -767,6 +862,7 @@ export async function handler(event) {
                 operation: 1,
                 credentialType: 1,
                 requestedByName: 1,
+                requestedPhoneNumber: 1,
                 clientName: 1,
                 clientBusinessName: 1,
                 projectName: 1,
@@ -779,7 +875,7 @@ export async function handler(event) {
       );
 
       const statusCountMap = statisticsAgg.reduce((acc, item) => {
-        const key = String(item?._id || "").trim();
+        const key = normalizeStatusCode(item?._id);
         if (!key) return acc;
         acc[key] = Number(item?.count || 0);
         return acc;
@@ -797,15 +893,17 @@ export async function handler(event) {
       const filterOptions = {
         status: [
           "All",
-          ...uniqSorted(
-            filterRows.map((row) => formatStatusLabel(row?.status)),
+          ...uniqSortedCaseInsensitive(
+            filterRows.map(
+              (row) => row?.statusLabel || formatStatusLabel(row?.status),
+            ),
           ).filter((item) => item !== "All"),
         ],
         operation: [
           "All",
-          ...uniqSorted(filterRows.map((row) => row?.operation)).filter(
-            (item) => item !== "All",
-          ),
+          ...uniqSortedCaseInsensitive(
+            filterRows.map((row) => formatOperationLabel(row?.operation)),
+          ).filter((item) => item !== "All"),
         ],
         credentialType: [
           "All",
@@ -817,9 +915,21 @@ export async function handler(event) {
         ],
         requestBy: [
           "All",
-          ...uniqSorted(filterRows.map((row) => row?.requestedByName)).filter(
-            (item) => item !== "All",
-          ),
+          ...uniqSortedCaseInsensitive(
+            filterRows.map((row) =>
+              stripPhoneFromDisplayName(row?.requestedByName),
+            ),
+          ).filter((item) => item !== "All"),
+        ],
+        requestByPhone: [
+          "All",
+          ...uniqSortedCaseInsensitive(
+            filterRows.map(
+              (row) =>
+                String(row?.requestedPhoneNumber || "").replace(/\D+/g, "") ||
+                extractPhoneFromDisplayName(row?.requestedByName),
+            ),
+          ).filter((item) => item !== "All"),
         ],
         clientName: [
           "All",
@@ -954,6 +1064,7 @@ export async function handler(event) {
           {
             $set: {
               status: "expired",
+              statusLabel: formatStatusLabel("expired"),
               updatedAt: now,
             },
           },
@@ -991,6 +1102,7 @@ export async function handler(event) {
           wrongAttemptCount,
           updatedAt: now,
           status: "otp_sent",
+          statusLabel: formatStatusLabel("otp_sent"),
         };
 
         if (wrongAttemptCount >= MAX_WRONG_ATTEMPTS) {
@@ -998,6 +1110,7 @@ export async function handler(event) {
             now.getTime() + WRONG_ATTEMPT_BLOCK_MS,
           );
           setData.status = "blocked_wrong_attempts";
+          setData.statusLabel = formatStatusLabel("blocked_wrong_attempts");
         }
 
         await otpRequests.updateOne(
@@ -1037,7 +1150,7 @@ export async function handler(event) {
         requestedById: requestDoc.requestedById,
         requestedByName: requestDoc.requestedByName,
         requestedByRole: requestDoc.requestedByRole,
-        operation: requestDoc.operation,
+        operation: formatOperationLabel(requestDoc.operation),
         credentialType: requestDoc.credentialType,
         credentialId: requestDoc.credentialId,
         purpose: requestDoc.purpose,
@@ -1053,6 +1166,7 @@ export async function handler(event) {
         {
           $set: {
             status: "verified",
+            statusLabel: formatStatusLabel("verified"),
             verifiedAt: now,
             wrongAttemptCount: 0,
             blockedUntil: null,
@@ -1075,7 +1189,7 @@ export async function handler(event) {
           success: true,
           message: "OTP verified successfully",
           accessToken: grantToken,
-          operation: requestDoc.operation,
+          operation: formatOperationLabel(requestDoc.operation),
           credentialType: requestDoc.credentialType,
           credentialId: requestDoc.credentialId,
           validUntil: toIso(expiresAt),
@@ -1129,6 +1243,7 @@ export async function handler(event) {
       const operation = String(payload.operation || "")
         .trim()
         .toLowerCase();
+      const operationLabel = formatOperationLabel(operation);
       const credentialType = String(payload.credentialType || "")
         .trim()
         .toLowerCase();
@@ -1175,7 +1290,10 @@ export async function handler(event) {
           requestedById: actor.userId,
           credentialType,
           credentialId,
-          operation,
+          operation: {
+            $regex: `^${escapeRegExp(operation)}$`,
+            $options: "i",
+          },
         },
         { sort: { createdAt: -1, _id: -1 } },
       );
@@ -1223,6 +1341,8 @@ export async function handler(event) {
         profileName: authenticatedUserProfile.name,
         actorName: actor.name,
       });
+      const normalizedSenderName =
+        toTitleCaseWords(resolvedSenderName) || resolvedSenderName;
       const resolvedSenderPhone = String(
         payload.senderPhoneNumber || authenticatedUserProfile.phone || "",
       )
@@ -1232,7 +1352,7 @@ export async function handler(event) {
       const insertDoc = {
         requestedById: actor.userId,
         requestedByName: formatPersonDisplayName(
-          resolvedSenderName,
+          normalizedSenderName,
           resolvedSenderPhone,
         ),
         requestedByRole: normalizeRole(actor.role),
@@ -1240,7 +1360,7 @@ export async function handler(event) {
         requestedAt: now,
         credentialType,
         credentialId,
-        operation,
+        operation: operationLabel,
         purpose,
         recipientMode,
         recipients,
@@ -1252,7 +1372,7 @@ export async function handler(event) {
         ),
         clientName:
           credentialType === "my-software-credential"
-            ? resolvedSenderName || "Client"
+            ? normalizedSenderName || "Client"
             : String(
                 resolvedClient?.clientName || payload.clientName || "",
               ).trim() || "Client",
@@ -1279,6 +1399,7 @@ export async function handler(event) {
         resendAvailableAt: new Date(now.getTime() + RESEND_COOLDOWN_MS),
         resendLockedUntil: null,
         status: "otp_sent",
+        statusLabel: formatStatusLabel("otp_sent"),
         attempts: [
           {
             at: now,
@@ -1299,8 +1420,9 @@ export async function handler(event) {
       const senderPhoneNumber = String(resolvedSenderPhone || "").trim();
       const variables = buildTemplateVariables({
         clientName: resolvedRequest.clientName,
-        senderName: resolvedSenderName,
+        senderName: normalizedSenderName,
         senderPhoneNumber,
+        projectName: resolvedRequest.projectName,
         purpose,
         otp,
       });
@@ -1336,6 +1458,7 @@ export async function handler(event) {
           {
             $set: {
               status: "send_failed",
+              statusLabel: formatStatusLabel("send_failed"),
               updatedAt: new Date(),
             },
             $push: {
@@ -1417,6 +1540,7 @@ export async function handler(event) {
           $set: {
             resendLockedUntil,
             status: "resend_locked",
+            statusLabel: formatStatusLabel("resend_locked"),
             updatedAt: now,
           },
           $push: {
@@ -1456,6 +1580,7 @@ export async function handler(event) {
       clientName: resolvedRequest.clientName,
       senderName: resolvedRequest.requestedByName || actor.name,
       senderPhoneNumber,
+      projectName: resolvedRequest.projectName,
       purpose: resolvedRequest.purpose,
       otp,
     });
@@ -1497,6 +1622,7 @@ export async function handler(event) {
       resendAvailableAt: new Date(now.getTime() + RESEND_COOLDOWN_MS),
       updatedAt: now,
       status: allSent ? "otp_sent" : "send_failed",
+      statusLabel: formatStatusLabel(allSent ? "otp_sent" : "send_failed"),
     };
 
     await otpRequests.updateOne(
