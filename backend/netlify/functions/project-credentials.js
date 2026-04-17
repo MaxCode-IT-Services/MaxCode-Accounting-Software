@@ -374,7 +374,10 @@ const validateOtpAccessGrant = async ({
     isRevoked: { $ne: true },
     credentialType: "project-credentials",
     credentialId: String(credentialId || "").trim(),
-    operation: normalizedOperation,
+    operation: {
+      $regex: `^${normalizedOperation}$`,
+      $options: "i",
+    },
   });
 
   if (!grant) {

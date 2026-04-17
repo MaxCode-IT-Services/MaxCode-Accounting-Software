@@ -1150,7 +1150,7 @@ export async function handler(event) {
         requestedById: requestDoc.requestedById,
         requestedByName: requestDoc.requestedByName,
         requestedByRole: requestDoc.requestedByRole,
-        operation: formatOperationLabel(requestDoc.operation),
+        operation: normalizeOperationCode(requestDoc.operation),
         credentialType: requestDoc.credentialType,
         credentialId: requestDoc.credentialId,
         purpose: requestDoc.purpose,
