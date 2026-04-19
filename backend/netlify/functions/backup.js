@@ -1,4 +1,8 @@
-import { connectToDatabase, createResponse } from "./utils/mongodb.js";
+import {
+  connectToDatabase,
+  createResponse,
+  getCorsHeaders,
+} from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
 import { serialize, deserialize } from "bson";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
@@ -336,7 +340,92 @@ const normalizeBackupCollections = (inputCollections = {}) => {
 const UNDO_BACKUP_COLLECTION = "undo_import_backup";
 const UNDO_BACKUP_EXPIRY_HOURS = 30 * 24; // 30 days
 
-const restoreBackupData = async (db, backupData, userId) => {
+const normalizeRole = (role = "") =>
+  String(role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
+
+const isSuperAdminRole = (role = "") => {
+  const normalized = normalizeRole(role);
+  return normalized === "super-admin" || normalized === "superadmin";
+};
+
+const assertSuperAdminAccess = (decoded = {}) => {
+  if (!isSuperAdminRole(decoded?.role)) {
+    throw new Error("Forbidden");
+  }
+};
+
+const isTransactionUnsupportedError = (error) => {
+  const message = String(error?.message || "").toLowerCase();
+
+  return (
+    message.includes("transaction numbers are only allowed") ||
+    message.includes("replica set") ||
+    message.includes("not supported") ||
+    message.includes("standalone")
+  );
+};
+
+const replaceCollectionsData = async ({
+  db,
+  normalizedCollections,
+  session = null,
+}) => {
+  const collectionNames = Object.keys(normalizedCollections);
+
+  for (const collectionName of collectionNames) {
+    if (collectionName === UNDO_BACKUP_COLLECTION) {
+      // Preserve restore safety snapshots generated during this operation.
+      continue;
+    }
+
+    const collection = db.collection(collectionName);
+    const documents = normalizedCollections[collectionName].filter(
+      (doc) => doc && typeof doc === "object",
+    );
+    const writeOptions = session ? { session } : {};
+
+    await collection.deleteMany({}, writeOptions);
+    if (documents.length > 0) {
+      await collection.insertMany(documents, {
+        ordered: false,
+        ...writeOptions,
+      });
+    }
+  }
+};
+
+const replaceCollectionsDataWithRollback = async ({
+  db,
+  targetCollections,
+  rollbackCollections,
+}) => {
+  try {
+    await replaceCollectionsData({
+      db,
+      normalizedCollections: targetCollections,
+    });
+  } catch (restoreError) {
+    try {
+      await replaceCollectionsData({
+        db,
+        normalizedCollections: rollbackCollections,
+      });
+    } catch (rollbackError) {
+      throw new Error(
+        `Restore failed and rollback also failed. restoreError=${restoreError?.message || "Unknown error"}; rollbackError=${rollbackError?.message || "Unknown error"}`,
+      );
+    }
+
+    throw new Error(
+      `Restore failed but rollback to pre-restore snapshot succeeded: ${restoreError?.message || "Unknown error"}`,
+    );
+  }
+};
+
+const restoreBackupData = async (client, db, backupData, userId) => {
   // 1. Take a snapshot of current data for undo (before restore)
   const currentData = await buildBackupPayload(db);
   const undoBackup = {
@@ -356,21 +445,50 @@ const restoreBackupData = async (db, backupData, userId) => {
   const normalizedCollections = normalizeBackupCollections(
     backupData?.collections || {},
   );
-  const collectionNames = Object.keys(normalizedCollections);
-  for (const collectionName of collectionNames) {
-    const collection = db.collection(collectionName);
-    const documents = normalizedCollections[collectionName].filter(
-      (doc) => doc && typeof doc === "object",
-    );
-    await collection.deleteMany({});
-    if (documents.length > 0) {
-      await collection.insertMany(documents, { ordered: false });
+
+  let usedTransaction = false;
+
+  if (client?.startSession) {
+    const session = client.startSession();
+    try {
+      await session.withTransaction(
+        async () => {
+          await replaceCollectionsData({
+            db,
+            normalizedCollections,
+            session,
+          });
+        },
+        {
+          readConcern: { level: "local" },
+          writeConcern: { w: "majority" },
+        },
+      );
+      usedTransaction = true;
+    } catch (error) {
+      if (!isTransactionUnsupportedError(error)) {
+        throw error;
+      }
+    } finally {
+      await session.endSession();
     }
   }
+
+  if (!usedTransaction) {
+    await replaceCollectionsDataWithRollback({
+      db,
+      targetCollections: normalizedCollections,
+      rollbackCollections: normalizeBackupCollections(
+        currentData?.collections || {},
+      ),
+    });
+  }
+
   return {
     metadata: {
       timestamp: new Date().toISOString(),
       restoredFrom: backupData?.metadata?.timestamp || null,
+      usedTransaction,
     },
     collections: normalizedCollections,
   };
@@ -727,8 +845,7 @@ export async function handler(event) {
         return {
           statusCode: 200,
           headers: {
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Credentials": true,
+            ...getCorsHeaders(origin),
             "Content-Type": "application/octet-stream",
             "Content-Disposition": `attachment; filename="maxcode-backup-${new Date().toISOString().split("T")[0]}.bson"`,
           },
@@ -739,7 +856,6 @@ export async function handler(event) {
     }
 
     if (method === "POST") {
-      const user = validateJwtAccess(event);
       const body = event.body ? JSON.parse(event.body) : {};
       const action = toTrimmedString(body.action).toLowerCase();
 
@@ -747,10 +863,17 @@ export async function handler(event) {
         return createResponse(400, { error: "Action is required" }, origin);
       }
 
-      const { db } = await connectToDatabase();
+      let user = null;
+      if (action !== "run-automated") {
+        user = validateJwtAccess(event);
+      }
+
+      const { client, db } = await connectToDatabase();
 
       // --- Undo Import ---
       if (action === "undo-import") {
+        assertSuperAdminAccess(user);
+
         // Find undo backup for this user (within 12 hours)
         const undoDoc = await db
           .collection(UNDO_BACKUP_COLLECTION)
@@ -773,7 +896,7 @@ export async function handler(event) {
           return createResponse(400, { error: "Undo period expired." }, origin);
         }
         // Restore the undo backup
-        await restoreBackupData(db, undoDoc.data, user.userId);
+        await restoreBackupData(client, db, undoDoc.data, user.userId);
         // Remove the undo backup after use
         // Ensure _id is ObjectId for delete
         const { ObjectId } = await import("mongodb");
@@ -795,6 +918,8 @@ export async function handler(event) {
 
       // --- Check Undo Import Availability ---
       if (action === "check-undo-import") {
+        assertSuperAdminAccess(user);
+
         const undoDoc = await db
           .collection(UNDO_BACKUP_COLLECTION)
           .findOne({ userId: user.userId });
@@ -829,6 +954,8 @@ export async function handler(event) {
       }
 
       if (action === "restore") {
+        assertSuperAdminAccess(user);
+
         // Handle restore for both JSON and BSON formats
         let backupData;
         if (body.backupData && body.backupData._bsontype) {
@@ -877,6 +1004,7 @@ export async function handler(event) {
           },
         };
         const restored = await restoreBackupData(
+          client,
           db,
           restorePayload,
           user.userId,
@@ -1146,6 +1274,18 @@ export async function handler(event) {
 
     return createResponse(405, { error: "Method not allowed" }, origin);
   } catch (error) {
+    const normalizedError = String(error?.message || "").toLowerCase();
+    if (normalizedError === "forbidden") {
+      return createResponse(
+        403,
+        {
+          error: "Forbidden",
+          message: "Only Super Admin can perform this action.",
+        },
+        origin,
+      );
+    }
+
     return createResponse(
       500,
       {
