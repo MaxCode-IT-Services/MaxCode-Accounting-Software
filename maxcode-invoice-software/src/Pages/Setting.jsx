@@ -59,6 +59,10 @@ const Settings = () => {
   const DEFAULT_SELF_INVOICE_TERMS =
     "Issued under Section 31(3)(f) of CGST Act, 2017 under RCM.\nClassified as Import of Services from a non-resident supplier.\nMaxCode IT Services is liable to pay 18% IGST under RCM.\nPlace of Supply: Rajasthan (08) as per GST provisions.\nITC claimable only after RCM tax payment.\nInvoice value converted to INR at transaction date rate.\nLinked to original supplier reference for audit purposes.\nInvoice amount rounded off as per GST rules.\nPayment reflects net amount remitted to foreign vendor.\nThis is a computer-generated document.\nServices used for business purposes only.\nValid document for GST compliance and audit.\nDiscrepancies must match bank/payment records.\nSubject to Dausa, Rajasthan jurisdiction.";
 
+  const DEFAULT_PERFORMA_INVOICE_TERMS = "";
+
+  const DEFAULT_CREDIT_DEBIT_NOTE_TERMS = "";
+
   const [activeTab, setActiveTab] = useState("profile");
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -147,7 +151,8 @@ const Settings = () => {
     branchAddress: "Main Branch, Mumbai",
     invoiceTermsConditions: DEFAULT_INVOICE_TERMS,
     selfInvoiceTermsConditions: DEFAULT_SELF_INVOICE_TERMS,
-
+    performaInvoiceTermsConditions: DEFAULT_PERFORMA_INVOICE_TERMS,
+    creditDebitNoteTermsConditions: DEFAULT_CREDIT_DEBIT_NOTE_TERMS,
     // Service Master
     services: [
       {
@@ -222,6 +227,8 @@ const Settings = () => {
     "branchAddress",
     "invoiceTermsConditions",
     "selfInvoiceTermsConditions",
+    "performaInvoiceTermsConditions",
+    "creditDebitNoteTermsConditions",
     "cloudflareSettings",
     "whatsappSettings",
   ];
@@ -1038,6 +1045,16 @@ const Settings = () => {
         settings.selfInvoiceTerms ||
         settings.selfTermsConditions ||
         DEFAULT_SELF_INVOICE_TERMS,
+      performaInvoiceTermsConditions:
+        settings.performaInvoiceTermsConditions ||
+        settings.performaInvoiceTerms ||
+        settings.performaTermsConditions ||
+        DEFAULT_PERFORMA_INVOICE_TERMS,
+      creditDebitNoteTermsConditions:
+        settings.creditDebitNoteTermsConditions ||
+        settings.creditDebitNoteTerms ||
+        settings.noteTermsConditions ||
+        DEFAULT_CREDIT_DEBIT_NOTE_TERMS,
     };
 
     const resolvedServices = Array.isArray(settings.services)
@@ -1475,6 +1492,13 @@ const Settings = () => {
 
   const handleResetTermsToDefault = () => {
     if (!ensureSuperAdminAccess("reset terms")) return;
+    setBusinessSettings((prev) => ({
+      ...prev,
+      invoiceTermsConditions: DEFAULT_INVOICE_TERMS,
+      selfInvoiceTermsConditions: DEFAULT_SELF_INVOICE_TERMS,
+      performaInvoiceTermsConditions: "",
+      creditDebitNoteTermsConditions: "",
+    }));
 
     setBusinessSettings((prev) => ({
       ...prev,

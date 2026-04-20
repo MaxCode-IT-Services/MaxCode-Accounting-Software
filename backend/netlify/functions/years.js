@@ -233,6 +233,9 @@ export async function handler(event) {
               { financialYear: { $regex: search, $options: "i" } },
               { invoiceFormat: { $regex: search, $options: "i" } },
               { selfInvoiceFormat: { $regex: search, $options: "i" } },
+              { performaInvoiceFormat: { $regex: search, $options: "i" } },
+              { creditNoteFormat: { $regex: search, $options: "i" } },
+              { debitNoteFormat: { $regex: search, $options: "i" } },
               { qutationFormat: { $regex: search, $options: "i" } },
               { serviceFormat: { $regex: search, $options: "i" } },
               { projectFormat: { $regex: search, $options: "i" } },
@@ -375,6 +378,24 @@ export async function handler(event) {
             "Self Invoice Format already exists. Please use a unique format.",
         },
         {
+          field: "performaInvoiceFormat",
+          value: payload.performaInvoiceFormat,
+          message:
+            "Performa Invoice Format already exists. Please use a unique format.",
+        },
+        {
+          field: "creditNoteFormat",
+          value: payload.creditNoteFormat,
+          message:
+            "Credit Note Format already exists. Please use a unique format.",
+        },
+        {
+          field: "debitNoteFormat",
+          value: payload.debitNoteFormat,
+          message:
+            "Debit Note Format already exists. Please use a unique format.",
+        },
+        {
           field: "qutationFormat",
           value: payload.qutationFormat,
           message:
@@ -488,6 +509,24 @@ export async function handler(event) {
           value: payload.selfInvoiceFormat,
           message:
             "Self Invoice Format already exists. Please use a unique format.",
+        },
+        {
+          field: "performaInvoiceFormat",
+          value: payload.performaInvoiceFormat,
+          message:
+            "Performa Invoice Format already exists. Please use a unique format.",
+        },
+        {
+          field: "creditNoteFormat",
+          value: payload.creditNoteFormat,
+          message:
+            "Credit Note Format already exists. Please use a unique format.",
+        },
+        {
+          field: "debitNoteFormat",
+          value: payload.debitNoteFormat,
+          message:
+            "Debit Note Format already exists. Please use a unique format.",
         },
         {
           field: "qutationFormat",

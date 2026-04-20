@@ -72,6 +72,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "creditDebitNotesManagement",
+    label: "Credit/Debit Notes",
+    description: "Manage credit and debit notes",
+    icon: "fas fa-envelope-open-text",
+    route: "/admin/credit-debit-notes-management",
+    detailed: true,
+  },
+  {
     key: "ledgerManagement",
     label: "Ledger Management",
     description: "Manage ledgers",

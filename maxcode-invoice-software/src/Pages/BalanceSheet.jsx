@@ -14,6 +14,7 @@ const BalanceSheet = () => {
     localStorage.getItem("selectedFinancialYear") || "ALL",
   );
   const [salesRecords, setSalesRecords] = useState([]);
+  const [creditDebitNoteRecords, setCreditDebitNoteRecords] = useState([]);
   const [purchaseRecords, setPurchaseRecords] = useState([]);
   const [companyExpenseRecords, setCompanyExpenseRecords] = useState([]);
   const [rcmRecords, setRcmRecords] = useState([]);
@@ -44,6 +45,7 @@ const BalanceSheet = () => {
   const getRecordDate = (record) => {
     return (
       record?.invoiceDate ||
+      record?.noteDate ||
       record?.expenseDate ||
       record?.date ||
       record?.createdDate ||
@@ -223,6 +225,7 @@ const BalanceSheet = () => {
       const [
         yearsResult,
         salesResult,
+        creditDebitResult,
         purchaseResult,
         companyExpenseResult,
         rcmResult,
@@ -236,6 +239,10 @@ const BalanceSheet = () => {
         fetchSafe({
           endpoint: API_ENDPOINTS.INVOICES.LIST,
           fallbackKeys: ["invoices"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.CREDIT_DEBIT_NOTES.LIST,
+          fallbackKeys: ["notes", "data"],
         }),
         fetchSafe({
           endpoint: API_ENDPOINTS.PURCHASES.LIST,
@@ -276,6 +283,9 @@ const BalanceSheet = () => {
       const purchasesData =
         purchaseResult.status === "fulfilled" ? purchaseResult.value : [];
 
+      const creditDebitData =
+        creditDebitResult.status === "fulfilled" ? creditDebitResult.value : [];
+
       const companyExpensesData =
         companyExpenseResult.status === "fulfilled"
           ? companyExpenseResult.value
@@ -296,6 +306,14 @@ const BalanceSheet = () => {
         invoicesData.map((record) => ({
           ...record,
           id: record._id || record.id,
+        })),
+      );
+      setCreditDebitNoteRecords(
+        creditDebitData.map((record) => ({
+          ...record,
+          id: record._id || record.id,
+          invoiceDate:
+            record.noteDate || record.noteDateTime || record.createdAt,
         })),
       );
       setPurchaseRecords(
@@ -334,6 +352,7 @@ const BalanceSheet = () => {
       if (
         yearsResult.status === "rejected" ||
         salesResult.status === "rejected" ||
+        creditDebitResult.status === "rejected" ||
         purchaseResult.status === "rejected" ||
         companyExpenseResult.status === "rejected" ||
         rcmResult.status === "rejected" ||
@@ -347,6 +366,7 @@ const BalanceSheet = () => {
       showError("Failed to fetch balance sheet data");
       setFinancialYears([]);
       setSalesRecords([]);
+      setCreditDebitNoteRecords([]);
       setPurchaseRecords([]);
       setCompanyExpenseRecords([]);
       setRcmRecords([]);
@@ -383,6 +403,13 @@ const BalanceSheet = () => {
 
   const balanceSummary = useMemo(() => {
     const sales = filterByFinancialYear(salesRecords);
+    const creditDebitNotes = filterByFinancialYear(
+      creditDebitNoteRecords,
+    ).filter(
+      (record) =>
+        record?.isDeleted !== true &&
+        String(record?.status || "").toLowerCase() !== "cancelled",
+    );
     const purchases = filterByFinancialYear(purchaseRecords);
     const companyExpenses = filterByFinancialYear(companyExpenseRecords);
     const rcm = filterByFinancialYear(rcmRecords);
@@ -456,6 +483,20 @@ const BalanceSheet = () => {
       } else if (isBankPayment(record.paymentMethod)) {
         totals.bankDebit += paidAmount;
       }
+    });
+
+    creditDebitNotes.forEach((record) => {
+      const taxableAmount = toNumber(record?.amount || record?.subtotal || 0);
+      const taxAmount = toNumber(record?.taxAmount || 0);
+      const totalAmount = toNumber(
+        record?.totalAmount || taxableAmount + taxAmount,
+      );
+      const isCreditNote = String(record?.noteType || "") === "Credit Note";
+      const direction = isCreditNote ? -1 : 1;
+
+      totals.salesCredit += direction * taxableAmount;
+      totals.gstOutputCredit += direction * taxAmount;
+      totals.sundryDebtorsDebit += direction * totalAmount;
     });
 
     purchases.forEach((record) => {
@@ -596,6 +637,11 @@ const BalanceSheet = () => {
       0,
     );
 
+    // Handle negative debtors: shift to "Customer Advance" in liabilities
+    const debtorsAmount = totals.sundryDebtorsDebit;
+    const debtorsReceivable = Math.max(debtorsAmount, 0); // Only positive part
+    const customerAdvance = Math.max(-debtorsAmount, 0); // Convert negative to positive for liability
+
     const assets = {
       cashOpening: openingCash,
       cashClosing: cashClosing,
@@ -603,7 +649,7 @@ const BalanceSheet = () => {
       bankClosing: bankClosing,
       cash: Math.max(cashClosing, 0),
       bank: Math.max(bankClosing, 0),
-      receivables: totals.sundryDebtorsDebit,
+      receivables: debtorsReceivable,
       gstReceivable: Math.max(-gstNet, 0),
       inventory: inventoryValue,
       openingGstInput,
@@ -614,6 +660,7 @@ const BalanceSheet = () => {
       gstPayable: Math.max(gstNet, 0),
       overdraft: cashOverdraft + bankOverdraft,
       ownerFunding: totals.ownerFundingCredit,
+      customerAdvance: customerAdvance,
     };
 
     const totalAssets =
@@ -639,6 +686,7 @@ const BalanceSheet = () => {
     };
   }, [
     salesRecords,
+    creditDebitNoteRecords,
     purchaseRecords,
     companyExpenseRecords,
     rcmRecords,
@@ -664,7 +712,9 @@ const BalanceSheet = () => {
         case "Bank (Closing)":
           return "Bank balance at end of period (negative balance shown in overdraft liability)";
         case "Accounts Receivable (Sundry Debtors)":
-          return "Amount receivable from customers";
+          return "Amount receivable from customers (positive balance only)";
+        case "Advance from Customer (Customer Credit)":
+          return "Prepayment/advance received from customers (customer credit balance)";
         case "GST Receivable":
           return "Excess input GST to be received";
         case "Inventory":
@@ -756,6 +806,14 @@ const BalanceSheet = () => {
         section: "Liabilities",
         account: "Bank/Cash Overdraft",
         amount: balanceSummary.liabilities.overdraft,
+      });
+    }
+
+    if (balanceSummary.liabilities.customerAdvance > 0) {
+      liabilityRows.push({
+        section: "Liabilities",
+        account: "Advance from Customer (Customer Credit)",
+        amount: balanceSummary.liabilities.customerAdvance,
       });
     }
 

@@ -17,6 +17,9 @@ const CreateYear = ({
     taxPercentage: 18,
     invoiceFormat: "",
     selfInvoiceFormat: "",
+    performaInvoiceFormat: "",
+    creditNoteFormat: "",
+    debitNoteFormat: "",
     qutationFormat: "",
     serviceFormat: "",
     projectFormat: "",
@@ -57,6 +60,12 @@ const CreateYear = ({
   const isAutoInvoiceFormat = (value) => /^MC\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoSelfInvoiceFormat = (value) =>
     /^MCR\/\d{2}-\d{2}\/0001$/.test(value);
+  const isAutoPerformaInvoiceFormat = (value) =>
+    /^MC\/PI\/\d{2}-\d{2}\/0001$/.test(value);
+  const isAutoCreditNoteFormat = (value) =>
+    /^MC\/CN\/\d{2}-\d{2}\/0001$/.test(value);
+  const isAutoDebitNoteFormat = (value) =>
+    /^MC\/DN\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoQutationFormat = (value) =>
     /^MC\/QTN\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoServiceFormat = (value) =>
@@ -89,6 +98,9 @@ const CreateYear = ({
         taxPercentage: editingRecord.taxPercentage || 18,
         invoiceFormat: editingRecord.invoiceFormat || "",
         selfInvoiceFormat: editingRecord.selfInvoiceFormat || "",
+        performaInvoiceFormat: editingRecord.performaInvoiceFormat || "",
+        creditNoteFormat: editingRecord.creditNoteFormat || "",
+        debitNoteFormat: editingRecord.debitNoteFormat || "",
         qutationFormat: editingRecord.qutationFormat || "",
         serviceFormat: editingRecord.serviceFormat || "",
         projectFormat: editingRecord.projectFormat || "",
@@ -114,6 +126,9 @@ const CreateYear = ({
         taxPercentage: 18,
         invoiceFormat: "",
         selfInvoiceFormat: "",
+        performaInvoiceFormat: "",
+        creditNoteFormat: "",
+        debitNoteFormat: "",
         qutationFormat: "",
         serviceFormat: "",
         projectFormat: "",
@@ -155,6 +170,9 @@ const CreateYear = ({
 
     const nextInvoiceFormat = `MC/${yearPart}/0001`;
     const nextSelfInvoiceFormat = `MCR/${yearPart}/0001`;
+    const nextPerformaInvoiceFormat = `MC/PI/${yearPart}/0001`;
+    const nextCreditNoteFormat = `MC/CN/${yearPart}/0001`;
+    const nextDebitNoteFormat = `MC/DN/${yearPart}/0001`;
     const nextQutationFormat = `MC/QTN/${yearPart}/0001`;
     const nextServiceFormat = `MC/SRV/${yearPart}/0001`;
     const nextProjectFormat = `MC/PRJ/${yearPart}/0001`;
@@ -165,6 +183,15 @@ const CreateYear = ({
     const shouldUpdateSelfInvoiceFormat =
       !formData.selfInvoiceFormat ||
       isAutoSelfInvoiceFormat(formData.selfInvoiceFormat);
+    const shouldUpdatePerformaInvoiceFormat =
+      !formData.performaInvoiceFormat ||
+      isAutoPerformaInvoiceFormat(formData.performaInvoiceFormat);
+    const shouldUpdateCreditNoteFormat =
+      !formData.creditNoteFormat ||
+      isAutoCreditNoteFormat(formData.creditNoteFormat);
+    const shouldUpdateDebitNoteFormat =
+      !formData.debitNoteFormat ||
+      isAutoDebitNoteFormat(formData.debitNoteFormat);
     const shouldUpdateQutationFormat =
       !formData.qutationFormat || isAutoQutationFormat(formData.qutationFormat);
     const shouldUpdateServiceFormat =
@@ -178,6 +205,9 @@ const CreateYear = ({
     if (
       !shouldUpdateInvoiceFormat &&
       !shouldUpdateSelfInvoiceFormat &&
+      !shouldUpdatePerformaInvoiceFormat &&
+      !shouldUpdateCreditNoteFormat &&
+      !shouldUpdateDebitNoteFormat &&
       !shouldUpdateQutationFormat &&
       !shouldUpdateServiceFormat &&
       !shouldUpdateProjectFormat &&
@@ -193,6 +223,15 @@ const CreateYear = ({
       selfInvoiceFormat: shouldUpdateSelfInvoiceFormat
         ? nextSelfInvoiceFormat
         : prev.selfInvoiceFormat,
+      performaInvoiceFormat: shouldUpdatePerformaInvoiceFormat
+        ? nextPerformaInvoiceFormat
+        : prev.performaInvoiceFormat,
+      creditNoteFormat: shouldUpdateCreditNoteFormat
+        ? nextCreditNoteFormat
+        : prev.creditNoteFormat,
+      debitNoteFormat: shouldUpdateDebitNoteFormat
+        ? nextDebitNoteFormat
+        : prev.debitNoteFormat,
       qutationFormat: shouldUpdateQutationFormat
         ? nextQutationFormat
         : prev.qutationFormat,
@@ -210,6 +249,9 @@ const CreateYear = ({
     formData.financialYear,
     formData.invoiceFormat,
     formData.selfInvoiceFormat,
+    formData.performaInvoiceFormat,
+    formData.creditNoteFormat,
+    formData.debitNoteFormat,
     formData.qutationFormat,
     formData.serviceFormat,
     formData.projectFormat,
@@ -237,6 +279,9 @@ const CreateYear = ({
     taxPercentage: "Tax Percentage",
     invoiceFormat: "Invoice Format",
     selfInvoiceFormat: "Self Invoice Format",
+    performaInvoiceFormat: "Performa Invoice Format",
+    creditNoteFormat: "Credit Note Format",
+    debitNoteFormat: "Debit Note Format",
     qutationFormat: "Qutation Format",
     serviceFormat: "Service Number Format",
     projectFormat: "Project Number Format",
@@ -330,6 +375,9 @@ const CreateYear = ({
       "taxPercentage",
       "invoiceFormat",
       "selfInvoiceFormat",
+      "performaInvoiceFormat",
+      "creditNoteFormat",
+      "debitNoteFormat",
       "qutationFormat",
       "serviceFormat",
       "projectFormat",
@@ -416,6 +464,21 @@ const CreateYear = ({
       newErrors.selfInvoiceFormat =
         "Self invoice format must be at least 3 characters";
     }
+    if (
+      formData.performaInvoiceFormat &&
+      formData.performaInvoiceFormat.length < 3
+    ) {
+      newErrors.performaInvoiceFormat =
+        "Performa invoice format must be at least 3 characters";
+    }
+    if (formData.creditNoteFormat && formData.creditNoteFormat.length < 3) {
+      newErrors.creditNoteFormat =
+        "Credit note format must be at least 3 characters";
+    }
+    if (formData.debitNoteFormat && formData.debitNoteFormat.length < 3) {
+      newErrors.debitNoteFormat =
+        "Debit note format must be at least 3 characters";
+    }
     if (formData.qutationFormat && formData.qutationFormat.length < 3) {
       newErrors.qutationFormat =
         "Qutation format must be at least 3 characters";
@@ -494,6 +557,18 @@ const CreateYear = ({
           } else if (errorMessage.includes("Self Invoice Format")) {
             setErrors((prev) => ({ ...prev, selfInvoiceFormat: errorMessage }));
             scrollToField("selfInvoiceFormat");
+          } else if (errorMessage.includes("Performa Invoice Format")) {
+            setErrors((prev) => ({
+              ...prev,
+              performaInvoiceFormat: errorMessage,
+            }));
+            scrollToField("performaInvoiceFormat");
+          } else if (errorMessage.includes("Credit Note Format")) {
+            setErrors((prev) => ({ ...prev, creditNoteFormat: errorMessage }));
+            scrollToField("creditNoteFormat");
+          } else if (errorMessage.includes("Debit Note Format")) {
+            setErrors((prev) => ({ ...prev, debitNoteFormat: errorMessage }));
+            scrollToField("debitNoteFormat");
           } else if (errorMessage.includes("Qutation Format")) {
             setErrors((prev) => ({ ...prev, qutationFormat: errorMessage }));
             scrollToField("qutationFormat");
@@ -725,6 +800,75 @@ const CreateYear = ({
                   {errors.selfInvoiceFormat && (
                     <div className="invalid-feedback d-block">
                       {errors.selfInvoiceFormat}
+                    </div>
+                  )}
+                </div>
+
+                {/* Performa Invoice Format - Input Field */}
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="performaInvoiceFormat" className="form-label">
+                    <i className="fas fa-file-invoice me-2 text-primary"></i>
+                    Performa Invoice Format <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.performaInvoiceFormat ? "is-invalid" : ""}`}
+                    id="performaInvoiceFormat"
+                    name="performaInvoiceFormat"
+                    value={formData.performaInvoiceFormat}
+                    onChange={handleInputChange}
+                    placeholder="e.g., MC/PI/25-26/0001"
+                    readOnly={isViewMode}
+                  />
+                  {errors.performaInvoiceFormat && (
+                    <div className="invalid-feedback d-block">
+                      {errors.performaInvoiceFormat}
+                    </div>
+                  )}
+                </div>
+
+                {/* Credit Note Format - Input Field */}
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="creditNoteFormat" className="form-label">
+                    <i className="fas fa-file-invoice me-2 text-success"></i>
+                    Credit Note Format <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.creditNoteFormat ? "is-invalid" : ""}`}
+                    id="creditNoteFormat"
+                    name="creditNoteFormat"
+                    value={formData.creditNoteFormat}
+                    onChange={handleInputChange}
+                    placeholder="e.g., MC/CN/25-26/0001"
+                    readOnly={isViewMode}
+                  />
+                  {errors.creditNoteFormat && (
+                    <div className="invalid-feedback d-block">
+                      {errors.creditNoteFormat}
+                    </div>
+                  )}
+                </div>
+
+                {/* Debit Note Format - Input Field */}
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="debitNoteFormat" className="form-label">
+                    <i className="fas fa-file-invoice me-2 text-danger"></i>
+                    Debit Note Format <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.debitNoteFormat ? "is-invalid" : ""}`}
+                    id="debitNoteFormat"
+                    name="debitNoteFormat"
+                    value={formData.debitNoteFormat}
+                    onChange={handleInputChange}
+                    placeholder="e.g., MC/DN/25-26/0001"
+                    readOnly={isViewMode}
+                  />
+                  {errors.debitNoteFormat && (
+                    <div className="invalid-feedback d-block">
+                      {errors.debitNoteFormat}
                     </div>
                   )}
                 </div>

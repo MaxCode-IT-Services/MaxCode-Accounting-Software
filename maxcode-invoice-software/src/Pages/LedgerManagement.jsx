@@ -14,6 +14,7 @@ const LedgerManagement = () => {
     localStorage.getItem("selectedFinancialYear") || "ALL",
   );
   const [salesRecords, setSalesRecords] = useState([]);
+  const [creditDebitNoteRecords, setCreditDebitNoteRecords] = useState([]);
   const [purchaseRecords, setPurchaseRecords] = useState([]);
   const [companyExpenseRecords, setCompanyExpenseRecords] = useState([]);
   const [rcmRecords, setRcmRecords] = useState([]);
@@ -25,6 +26,7 @@ const LedgerManagement = () => {
   const [apiStatus, setApiStatus] = useState({
     years: "idle",
     invoices: "idle",
+    creditDebitNotes: "idle",
     purchases: "idle",
     companyExpenses: "idle",
     rcm: "idle",
@@ -54,6 +56,7 @@ const LedgerManagement = () => {
   const getRecordDate = (record) => {
     return (
       record?.invoiceDate ||
+      record?.noteDate ||
       record?.expenseDate ||
       record?.date ||
       record?.createdDate ||
@@ -234,6 +237,7 @@ const LedgerManagement = () => {
     setApiStatus({
       years: "loading",
       invoices: "loading",
+      creditDebitNotes: "loading",
       purchases: "loading",
       companyExpenses: "loading",
       rcm: "loading",
@@ -260,6 +264,10 @@ const LedgerManagement = () => {
       const salesResult = await fetchSafe({
         endpoint: API_ENDPOINTS.INVOICES.LIST,
         fallbackKeys: ["invoices"],
+      });
+      const creditDebitResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.CREDIT_DEBIT_NOTES.LIST,
+        fallbackKeys: ["notes", "data"],
       });
       const purchaseResult = await fetchSafe({
         endpoint: API_ENDPOINTS.PURCHASES.LIST,
@@ -300,6 +308,9 @@ const LedgerManagement = () => {
       const purchasesData =
         purchaseResult.status === "fulfilled" ? purchaseResult.value : [];
 
+      const creditDebitData =
+        creditDebitResult.status === "fulfilled" ? creditDebitResult.value : [];
+
       const companyExpensesData =
         companyExpenseResult.status === "fulfilled"
           ? companyExpenseResult.value
@@ -323,6 +334,12 @@ const LedgerManagement = () => {
       }
       if (purchaseResult.status === "rejected") {
         console.error("Failed to fetch purchases:", purchaseResult.reason);
+      }
+      if (creditDebitResult.status === "rejected") {
+        console.error(
+          "Failed to fetch credit/debit notes:",
+          creditDebitResult.reason,
+        );
       }
       if (companyExpenseResult.status === "rejected") {
         console.error(
@@ -348,6 +365,13 @@ const LedgerManagement = () => {
         invoicesData.map((invoice) => ({
           ...invoice,
           id: invoice._id || invoice.id,
+        })),
+      );
+      setCreditDebitNoteRecords(
+        creditDebitData.map((note) => ({
+          ...note,
+          id: note._id || note.id,
+          invoiceDate: note.noteDate || note.noteDateTime || note.createdAt,
         })),
       );
       setPurchaseRecords(
@@ -387,6 +411,8 @@ const LedgerManagement = () => {
       setApiStatus({
         years: yearsResult.status === "fulfilled" ? "loaded" : "failed",
         invoices: salesResult.status === "fulfilled" ? "loaded" : "failed",
+        creditDebitNotes:
+          creditDebitResult.status === "fulfilled" ? "loaded" : "failed",
         purchases: purchaseResult.status === "fulfilled" ? "loaded" : "failed",
         companyExpenses:
           companyExpenseResult.status === "fulfilled" ? "loaded" : "failed",
@@ -399,6 +425,7 @@ const LedgerManagement = () => {
       if (
         yearsResult.status === "rejected" ||
         salesResult.status === "rejected" ||
+        creditDebitResult.status === "rejected" ||
         purchaseResult.status === "rejected" ||
         companyExpenseResult.status === "rejected" ||
         rcmResult.status === "rejected" ||
@@ -412,6 +439,7 @@ const LedgerManagement = () => {
       showError("Failed to fetch ledger data");
       setFinancialYears([]);
       setSalesRecords([]);
+      setCreditDebitNoteRecords([]);
       setPurchaseRecords([]);
       setCompanyExpenseRecords([]);
       setRcmRecords([]);
@@ -420,6 +448,7 @@ const LedgerManagement = () => {
       setApiStatus({
         years: "failed",
         invoices: "failed",
+        creditDebitNotes: "failed",
         purchases: "failed",
         companyExpenses: "failed",
         rcm: "failed",
@@ -497,6 +526,22 @@ const LedgerManagement = () => {
           invoicesData.map((invoice) => ({
             ...invoice,
             id: invoice._id || invoice.id,
+          })),
+        );
+      }
+
+      if (apiKey === "creditDebitNotes") {
+        const notesData = await fetchAllPaginatedEntities({
+          endpoint: API_ENDPOINTS.CREDIT_DEBIT_NOTES.LIST,
+          fallbackKeys: ["notes", "data"],
+          forceRefresh: true,
+        });
+
+        setCreditDebitNoteRecords(
+          notesData.map((note) => ({
+            ...note,
+            id: note._id || note.id,
+            invoiceDate: note.noteDate || note.noteDateTime || note.createdAt,
           })),
         );
       }
@@ -661,6 +706,23 @@ const LedgerManagement = () => {
     financialPeriodMode,
   ]);
 
+  const filteredCreditDebitNotes = useMemo(() => {
+    const records = filterByPeriodMode(
+      filterByFinancialYear(creditDebitNoteRecords),
+    );
+
+    return records.filter(
+      (record) =>
+        record?.isDeleted !== true &&
+        String(record?.status || "").toLowerCase() !== "cancelled",
+    );
+  }, [
+    creditDebitNoteRecords,
+    selectedFinancialYear,
+    financialYears,
+    financialPeriodMode,
+  ]);
+
   const filteredPurchases = useMemo(() => {
     return filterByPeriodMode(filterByFinancialYear(purchaseRecords));
   }, [
@@ -803,6 +865,21 @@ const LedgerManagement = () => {
       } else if (isBankPayment(record.paymentMethod)) {
         totals.bankDebit += paidAmount;
       }
+    });
+
+    filteredCreditDebitNotes.forEach((record) => {
+      const taxableAmount = toNumber(record?.amount || record?.subtotal || 0);
+      const taxAmount = toNumber(record?.taxAmount || 0);
+      const totalAmount = toNumber(
+        record?.totalAmount || taxableAmount + taxAmount,
+      );
+      const isCreditNote = String(record?.noteType || "") === "Credit Note";
+      const direction = isCreditNote ? -1 : 1;
+
+      totals.salesCredit += direction * taxableAmount;
+      totals.gstOutputCredit += direction * taxAmount;
+      totals.salesTaxOutput += direction * taxAmount;
+      totals.sundryDebtorsDebit += direction * totalAmount;
     });
 
     filteredCompanyExpenses.forEach((record) => {
@@ -954,6 +1031,7 @@ const LedgerManagement = () => {
     filteredCompanyExpenses,
     filteredRcm,
     filteredSales,
+    filteredCreditDebitNotes,
     projectPayoutEntries,
     filteredPersonalFunds,
   ]);
@@ -987,46 +1065,50 @@ const LedgerManagement = () => {
 
   const buildLedgerDescription = (accountName) => {
     const balanceMeaning =
-      "Balance = Debit - Credit. + (Dr) ka matlab amount aana/receivable, - (Cr) ka matlab amount dena/payable.";
+      "Balance = Debit - Credit. + (Dr) means net receivable/asset side, and - (Cr) means net payable/liability side.";
 
     if (accountName === "Cash Account") {
-      return `Debit: cash receive hua. Credit: cash payment gaya. ${balanceMeaning}`;
+      return `Debit: cash received. Credit: cash paid. ${balanceMeaning}`;
     }
 
     if (accountName === "Bank Account") {
-      return `Debit: bank/UPI me paisa aaya. Credit: bank/UPI se payment gaya. ${balanceMeaning}`;
+      return `Debit: amount received through bank/UPI. Credit: amount paid through bank/UPI. ${balanceMeaning}`;
     }
 
     if (accountName === "Sales Account") {
-      return `Debit: sales return/adjustment hota hai (normally 0). Credit: sales value book hoti hai. ${balanceMeaning}`;
+      return `Debit: sales reduction through credit notes/adjustments. Credit: sales value plus debit note adjustments. ${balanceMeaning}`;
     }
 
     if (accountName === "Purchase Account") {
-      return `Debit: purchase value book hoti hai. Credit: purchase return/adjustment hota hai (normally 0). ${balanceMeaning}`;
+      return `Debit: purchase value recorded. Credit: purchase return/adjustment (normally 0). ${balanceMeaning}`;
     }
 
     if (accountName === "Company Expense Account") {
-      return `Debit: bina GST ya bina invoice wale business expenses book hote hain. Credit: expense reversal/adjustment hota hai (normally 0). ${balanceMeaning}`;
+      return `Debit: non-GST or bill-less business expenses recorded. Credit: expense reversal/adjustment (normally 0). ${balanceMeaning}`;
     }
 
     if (accountName === "Project Cost Account") {
-      return `Debit: project ke developer/third-party payouts book hote hain. Credit: project cost reversal/adjustment hota hai (normally 0). ${balanceMeaning}`;
+      return `Debit: developer/third-party project payouts recorded. Credit: project cost reversal/adjustment (normally 0). ${balanceMeaning}`;
     }
 
     if (accountName === "GST Output Account") {
-      return `Debit: output GST adjustment/reversal ho sakta hai. Credit: bechi hui supply par GST payable banta hai. ${balanceMeaning}`;
+      return `Debit: output GST reduced due to credit notes/reversals. Credit: output GST payable from sales and debit note impact. ${balanceMeaning}`;
     }
 
     if (accountName === "GST Input Account") {
-      return `Debit: input GST (ITC) milta hai. Credit: ITC reversal/adjustment hota hai. ${balanceMeaning}`;
+      return `Debit: input GST (ITC) available. Credit: ITC reversal/adjustment. ${balanceMeaning}`;
     }
 
     if (accountName === "Sundry Debtors Account") {
-      return `Debit: customer se lena baki hai. Credit: debtor ne payment kar diya. ${balanceMeaning}`;
+      return `Debit: customer receivable outstanding (can increase due to debit notes). Credit: reduced by payment or credit note adjustments. ${balanceMeaning}`;
+    }
+
+    if (accountName === "Advance from Customer (Customer Credit)") {
+      return `Credit: prepayment or advance money received from customers (shown when customer has paid more than they owe). Debit: advance adjusted/settled against future invoices. ${balanceMeaning}`;
     }
 
     if (accountName === "Sundry Creditors Account") {
-      return `Debit: creditor ko payment/adjustment kiya. Credit: supplier ko dena baki hai. ${balanceMeaning}`;
+      return `Debit: supplier payment/adjustment made. Credit: amount payable to suppliers. ${balanceMeaning}`;
     }
 
     if (accountName === "GST Payable/(Receivable)") {
@@ -1034,14 +1116,14 @@ const LedgerManagement = () => {
     }
 
     if (accountName === "Owner Funding Account") {
-      return `Credit: owner/personal account se ki gayi business payment. Debit: owner settlement ya reversal. ${balanceMeaning}`;
+      return `Credit: business payments made from owner's personal funds. Debit: owner settlement or reversal. ${balanceMeaning}`;
     }
 
     if (accountName === "Owner Investment Account") {
-      return `Credit: owner capital/investment jo business bank/cash account me transfer hua. Debit: reversal/adjustment (normally 0). ${balanceMeaning}`;
+      return `Credit: owner capital/investment transferred into business bank/cash. Debit: reversal/adjustment (normally 0). ${balanceMeaning}`;
     }
 
-    return `Debit: left side posting. Credit: right side posting. ${balanceMeaning}`;
+    return `Debit: debit-side posting. Credit: credit-side posting. ${balanceMeaning}`;
   };
 
   const ledgerRows = useMemo(() => {
@@ -1062,7 +1144,7 @@ const LedgerManagement = () => {
         accountName: "Sales Account",
         debit: 0,
         credit: ledgerSummary.salesCredit,
-        notes: "Sales taxable value credited",
+        notes: "Sales taxable value credited (net of Credit/Debit Notes)",
       },
       {
         accountName: "Purchase Account",
@@ -1086,7 +1168,7 @@ const LedgerManagement = () => {
         accountName: "GST Output Account",
         debit: 0,
         credit: ledgerSummary.gstOutputCredit,
-        notes: "Sales tax + RCM tax payable to government",
+        notes: "Sales tax + RCM tax payable (adjusted by Credit/Debit Notes)",
       },
       {
         accountName: "GST Input Account",
@@ -1096,9 +1178,17 @@ const LedgerManagement = () => {
       },
       {
         accountName: "Sundry Debtors Account",
-        debit: ledgerSummary.sundryDebtorsDebit,
+        debit: Math.max(ledgerSummary.sundryDebtorsDebit, 0),
         credit: 0,
-        notes: "Sales invoices not yet fully received",
+        notes:
+          "Net receivable after payments and Credit/Debit Note adjustments",
+      },
+      {
+        accountName: "Advance from Customer (Customer Credit)",
+        debit: 0,
+        credit: Math.max(-ledgerSummary.sundryDebtorsDebit, 0),
+        notes:
+          "Customer prepayment/advance received (negative receivable converted to liability)",
       },
       {
         accountName: "Sundry Creditors Account",

@@ -235,7 +235,15 @@ export async function handler(event) {
         if (key === "filter") return;
         if (key === "financialYear" || key === "period") return;
         if (
-          ["page", "limit", "sortBy", "sortOrder", "search", "id"].includes(key)
+          [
+            "page",
+            "limit",
+            "sortBy",
+            "sortOrder",
+            "search",
+            "id",
+            "includeDebug",
+          ].includes(key)
         )
           return;
 

@@ -63,6 +63,21 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/invoices?id=${id}`,
   },
 
+  // Credit/Debit Note endpoints
+  CREDIT_DEBIT_NOTES: {
+    LIST: "/credit-debit-notes",
+    CREATE: "/credit-debit-notes",
+    NEXT_NUMBER: (financialYear, noteType) =>
+      `/credit-debit-notes?action=next-number${
+        financialYear
+          ? `&financialYear=${encodeURIComponent(financialYear)}`
+          : ""
+      }${noteType ? `&noteType=${encodeURIComponent(noteType)}` : ""}`,
+    GET: (id) => `/credit-debit-notes?id=${id}`,
+    UPDATE: (id) => `/credit-debit-notes?id=${id}`,
+    DELETE: (id) => `/credit-debit-notes?id=${id}`,
+  },
+
   // Qutation endpoints
   QUTATIONS: {
     LIST: "/qutations",

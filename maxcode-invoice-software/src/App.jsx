@@ -50,6 +50,9 @@ const OtpRequestManagement = lazy(
   () => import("../src/Pages/OtpRequestManagement"),
 );
 const RcmManagement = lazy(() => import("../src/Pages/RcmManagement"));
+const CreditDebitNotesManagement = lazy(
+  () => import("../src/Pages/CreditDebitNotesManagement"),
+);
 const LedgerManagement = lazy(() => import("../src/Pages/LedgerManagement"));
 const BooksOfAccounts = lazy(() => import("../src/Pages/BooksOfAccounts"));
 const DeveloperPayoutManagement = lazy(
@@ -406,6 +409,17 @@ const dashboardChildRoutes = (
         <PermissionRoute moduleKey="rcmManagement">
           <Suspense fallback={<Loading />}>
             <RcmManagement />
+          </Suspense>
+        </PermissionRoute>
+      }
+    />
+
+    <Route
+      path="credit-debit-notes-management"
+      element={
+        <PermissionRoute moduleKey="creditDebitNotesManagement">
+          <Suspense fallback={<Loading />}>
+            <CreditDebitNotesManagement />
           </Suspense>
         </PermissionRoute>
       }

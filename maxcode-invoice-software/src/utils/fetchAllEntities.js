@@ -79,10 +79,8 @@ export const fetchAllPaginatedEntities = async ({
         mergedParams.set(key, String(value));
       });
 
-      const response = await apiGet(
-        `${endpoint}${separator}${mergedParams.toString()}`,
-      );
-
+      const fullUrl = `${endpoint}${separator}${mergedParams.toString()}`;
+      const response = await apiGet(fullUrl);
       const payload = response?.data;
       const rows = extractRows(payload, fallbackKeys);
       allRows.push(...rows);

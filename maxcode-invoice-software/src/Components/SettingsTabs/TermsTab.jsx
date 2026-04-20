@@ -62,55 +62,119 @@ const TermsTab = ({
 
       <div className="row g-4">
         <div className="col-lg-6">
-          <div className="card border-0 shadow-sm rounded-4 p-4 bg-white h-100">
-            <h5
-              className="fw-bold mb-3 pb-2 border-bottom"
-              style={{ color: "#198754" }}
-            >
-              <i className="fas fa-file-invoice me-2"></i>
-              Invoice Terms
-            </h5>
-            <p className="text-muted small mb-2">
-              Each line will be treated as a separate point.
-            </p>
-            <textarea
-              className="form-control modern-input"
-              rows={14}
-              value={businessSettings.invoiceTermsConditions || ""}
-              onChange={(e) =>
-                handleBusinessChange("invoiceTermsConditions", e.target.value)
-              }
-              placeholder="Invoice terms yahan likhein (one line per term)"
-              disabled={!isSuperAdmin}
-            />
+          <div className="card shadow-sm border-0 h-100">
+            <div className="card-header bg-success rounded-top-3 text-white">
+              <h5 className="mb-0 fw-semibold">
+                <i className="fas fa-file-invoice me-2"></i>Invoice Terms
+              </h5>
+            </div>
+            <div className="card-body d-flex flex-column">
+              <p className="text-muted small mb-2">
+                Each line will be treated as a separate point.
+              </p>
+              <textarea
+                className="form-control modern-input flex-grow-1"
+                rows={14}
+                value={businessSettings.invoiceTermsConditions || ""}
+                onChange={(e) =>
+                  handleBusinessChange("invoiceTermsConditions", e.target.value)
+                }
+                placeholder="Invoice terms yahan likhein (one line per term)"
+                disabled={!isSuperAdmin}
+                style={{ minHeight: "230px" }}
+              />
+            </div>
           </div>
         </div>
 
         <div className="col-lg-6">
-          <div className="card border-0 shadow-sm rounded-4 p-4 bg-white h-100">
-            <h5
-              className="fw-bold mb-3 pb-2 border-bottom"
-              style={{ color: "#198754" }}
-            >
-              <i className="fas fa-file-invoice-dollar me-2"></i>
-              Self Invoice Terms
-            </h5>
-            <p className="text-muted small mb-2">
-              Each line will be treated as a separate point.
-            </p>
-            <textarea
-              className="form-control modern-input"
-              rows={14}
-              value={businessSettings.selfInvoiceTermsConditions || ""}
-              onChange={(e) =>
-                handleBusinessChange(
-                  "selfInvoiceTermsConditions",
-                  e.target.value,
-                )
-              }
-              placeholder="Self invoice terms yahan likhein (one line per term)"
-              disabled={!isSuperAdmin}
-            />
+          <div className="card shadow-sm border-0 h-100">
+            <div className="card-header bg-success rounded-top-3 text-white">
+              <h5 className="mb-0 fw-semibold">
+                <i className="fas fa-file-invoice-dollar me-2"></i>Self Invoice
+                Terms
+              </h5>
+            </div>
+            <div className="card-body d-flex flex-column">
+              <p className="text-muted small mb-2">
+                Each line will be treated as a separate point.
+              </p>
+              <textarea
+                className="form-control modern-input flex-grow-1"
+                rows={14}
+                value={businessSettings.selfInvoiceTermsConditions || ""}
+                onChange={(e) =>
+                  handleBusinessChange(
+                    "selfInvoiceTermsConditions",
+                    e.target.value,
+                  )
+                }
+                placeholder="Self invoice terms yahan likhein (one line per term)"
+                disabled={!isSuperAdmin}
+                style={{ minHeight: "230px" }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="row g-4 mt-2">
+        <div className="col-lg-6">
+          <div className="card shadow-sm border-0 h-100">
+            <div className="card-header bg-success rounded-top-3 text-white">
+              <h5 className="mb-0 fw-semibold">
+                <i className="fas fa-file-pdf me-2"></i>Performa Invoice Terms
+              </h5>
+            </div>
+            <div className="card-body d-flex flex-column">
+              <p className="text-muted small mb-2">
+                Each line will be treated as a separate point.
+              </p>
+              <textarea
+                className="form-control modern-input flex-grow-1"
+                rows={14}
+                value={businessSettings.performaInvoiceTermsConditions || ""}
+                onChange={(e) =>
+                  handleBusinessChange(
+                    "performaInvoiceTermsConditions",
+                    e.target.value,
+                  )
+                }
+                placeholder="Performa invoice terms yahan likhein"
+                disabled={!isSuperAdmin}
+                style={{ minHeight: "230px" }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="col-lg-6">
+          <div className="card shadow-sm border-0 h-100">
+            <div className="card-header bg-success rounded-top-3 text-white">
+              <h5 className="mb-0 fw-semibold">
+                <i className="fas fa-exchange-alt me-2"></i>Credit/Debit Note
+                Terms
+              </h5>
+            </div>
+            <div className="card-body d-flex flex-column">
+              <p className="text-muted small mb-2">
+                Each line will be treated as a separate point.
+              </p>
+              <textarea
+                className="form-control modern-input flex-grow-1"
+                rows={14}
+                value={businessSettings.creditDebitNoteTermsConditions || ""}
+                onChange={(e) =>
+                  handleBusinessChange(
+                    "creditDebitNoteTermsConditions",
+                    e.target.value,
+                  )
+                }
+                placeholder="Credit/Debit note terms yahan likhein"
+                disabled={!isSuperAdmin}
+                style={{ minHeight: "230px" }}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -120,7 +184,7 @@ const TermsTab = ({
         onHide={() => setShowResetTermsConfirm(false)}
         onConfirm={handleResetTermsToDefault}
         title="Reset Terms to Default?"
-        message="Invoice Terms and Self Invoice Terms will both be reset to their default values."
+        message="All terms and conditions (Invoice, Self Invoice, Performa Invoice, and Credit/Debit Note) will be reset to their default values."
         confirmText="Yes, Reset"
         cancelText="Cancel"
         variant="warning"
