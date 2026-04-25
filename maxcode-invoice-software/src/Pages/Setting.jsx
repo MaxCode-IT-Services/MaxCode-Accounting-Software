@@ -150,9 +150,13 @@ const Settings = () => {
     accountName: "MaxCode IT Services",
     branchAddress: "Main Branch, Mumbai",
     invoiceTermsConditions: DEFAULT_INVOICE_TERMS,
+    invoiceTermsVersion: "V1.0.0",
     selfInvoiceTermsConditions: DEFAULT_SELF_INVOICE_TERMS,
+    selfInvoiceTermsVersion: "V1.0.0",
     performaInvoiceTermsConditions: DEFAULT_PERFORMA_INVOICE_TERMS,
+    performaInvoiceTermsVersion: "V1.0.0",
     creditDebitNoteTermsConditions: DEFAULT_CREDIT_DEBIT_NOTE_TERMS,
+    creditDebitNoteTermsVersion: "V1.0.0",
     // Service Master
     services: [
       {
@@ -226,9 +230,13 @@ const Settings = () => {
     "accountName",
     "branchAddress",
     "invoiceTermsConditions",
+    "invoiceTermsVersion",
     "selfInvoiceTermsConditions",
+    "selfInvoiceTermsVersion",
     "performaInvoiceTermsConditions",
+    "performaInvoiceTermsVersion",
     "creditDebitNoteTermsConditions",
+    "creditDebitNoteTermsVersion",
     "cloudflareSettings",
     "whatsappSettings",
   ];
@@ -1040,21 +1048,41 @@ const Settings = () => {
         settings.invoiceTerms ||
         settings.termsConditions ||
         DEFAULT_INVOICE_TERMS,
+      invoiceTermsVersion: /^V\d+\.\d+\.\d+$/i.test(
+        String(settings.invoiceTermsVersion || "").trim(),
+      )
+        ? String(settings.invoiceTermsVersion).trim().toUpperCase()
+        : "V1.0.0",
       selfInvoiceTermsConditions:
         settings.selfInvoiceTermsConditions ||
         settings.selfInvoiceTerms ||
         settings.selfTermsConditions ||
         DEFAULT_SELF_INVOICE_TERMS,
+      selfInvoiceTermsVersion: /^V\d+\.\d+\.\d+$/i.test(
+        String(settings.selfInvoiceTermsVersion || "").trim(),
+      )
+        ? String(settings.selfInvoiceTermsVersion).trim().toUpperCase()
+        : "V1.0.0",
       performaInvoiceTermsConditions:
         settings.performaInvoiceTermsConditions ||
         settings.performaInvoiceTerms ||
         settings.performaTermsConditions ||
         DEFAULT_PERFORMA_INVOICE_TERMS,
+      performaInvoiceTermsVersion: /^V\d+\.\d+\.\d+$/i.test(
+        String(settings.performaInvoiceTermsVersion || "").trim(),
+      )
+        ? String(settings.performaInvoiceTermsVersion).trim().toUpperCase()
+        : "V1.0.0",
       creditDebitNoteTermsConditions:
         settings.creditDebitNoteTermsConditions ||
         settings.creditDebitNoteTerms ||
         settings.noteTermsConditions ||
         DEFAULT_CREDIT_DEBIT_NOTE_TERMS,
+      creditDebitNoteTermsVersion: /^V\d+\.\d+\.\d+$/i.test(
+        String(settings.creditDebitNoteTermsVersion || "").trim(),
+      )
+        ? String(settings.creditDebitNoteTermsVersion).trim().toUpperCase()
+        : "V1.0.0",
     };
 
     const resolvedServices = Array.isArray(settings.services)

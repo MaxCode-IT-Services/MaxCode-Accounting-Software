@@ -6,6 +6,15 @@ import {
   encryptSecretForStorage,
   isEncryptedSecret,
 } from "./utils/secret-crypto.js";
+import {
+  TERMS_SETTINGS_CONFIG,
+  computeNextTermsVersion,
+  getFirstDefinedValue,
+  getTermsForVersion,
+  normalizeSemanticVersion,
+  normalizeTermsArray,
+  upsertTermsVersionDocument,
+} from "./utils/terms-versioning.js";
 
 const SETTINGS_COLLECTION = "business_settings";
 const ASSETS_COLLECTION = "business_assets";
@@ -61,9 +70,13 @@ const ALLOWED_FIELDS = [
   "accountName",
   "branchAddress",
   "invoiceTermsConditions",
+  "invoiceTermsVersion",
   "selfInvoiceTermsConditions",
+  "selfInvoiceTermsVersion",
   "performaInvoiceTermsConditions",
+  "performaInvoiceTermsVersion",
   "creditDebitNoteTermsConditions",
+  "creditDebitNoteTermsVersion",
   "services",
   "interestedServices",
   "backupSettings",
@@ -408,15 +421,6 @@ const sanitizeSettingsPayload = (payload = {}, existingSettings = {}) => {
   return sanitized;
 };
 
-const getFirstDefined = (document, keys = []) => {
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(document, key)) {
-      return document[key];
-    }
-  }
-  return undefined;
-};
-
 const normalizeLegacySettings = (document = {}) => {
   if (!document || typeof document !== "object") return {};
 
@@ -464,7 +468,7 @@ const normalizeLegacySettings = (document = {}) => {
   };
 
   for (const [targetField, aliases] of Object.entries(fieldAliases)) {
-    const value = getFirstDefined(document, aliases);
+    const value = getFirstDefinedValue(document, aliases);
     if (value !== undefined) {
       normalized[targetField] = value;
     }
@@ -530,6 +534,17 @@ const mapSettingsForClient = (document, event) => {
   if (!Array.isArray(response.services)) {
     response.services = [];
   }
+
+  Object.values(TERMS_SETTINGS_CONFIG).forEach((config) => {
+    response[config.versionField] = normalizeSemanticVersion(
+      response[config.versionField],
+    );
+    if (!Array.isArray(response[config.settingsField])) {
+      response[config.settingsField] = normalizeTermsArray(
+        response[config.settingsField],
+      ).join("\n");
+    }
+  });
 
   if (!response.backupSettings || typeof response.backupSettings !== "object") {
     response.backupSettings = {
@@ -905,6 +920,31 @@ export async function handler(event) {
         .toLowerCase();
       const settings = await getSharedSettings(settingsCollection, user.userId);
 
+      if (action === "terms-by-version") {
+        const termsKind = String(query.termsKind || "").trim();
+        const version = String(query.version || "").trim();
+
+        if (!termsKind || !version || !TERMS_SETTINGS_CONFIG[termsKind]) {
+          return createResponse(
+            400,
+            { error: "termsKind and valid version are required" },
+            origin,
+          );
+        }
+
+        const resolved = await getTermsForVersion(db, { termsKind, version });
+
+        if (!resolved) {
+          return createResponse(
+            404,
+            { error: "Terms version not found" },
+            origin,
+          );
+        }
+
+        return createResponse(200, resolved, origin);
+      }
+
       if (action === "reveal-secret") {
         const scope = String(query.scope || "").trim();
         const field = String(query.field || "").trim();
@@ -978,6 +1018,51 @@ export async function handler(event) {
         payload,
         existingSharedSettings || {},
       );
+
+      Object.entries(TERMS_SETTINGS_CONFIG).forEach(([, config]) => {
+        const hasIncomingTerms = Object.prototype.hasOwnProperty.call(
+          sanitizedPayload,
+          config.settingsField,
+        );
+
+        const currentTermsValue = getFirstDefinedValue(
+          existingSharedSettings || {},
+          config.settingsAliases,
+        );
+
+        const incomingTermsValue = hasIncomingTerms
+          ? sanitizedPayload[config.settingsField]
+          : currentTermsValue;
+
+        const nextVersion = computeNextTermsVersion({
+          incomingValue: incomingTermsValue,
+          existingValue: currentTermsValue,
+          incomingVersion: sanitizedPayload[config.versionField],
+          existingVersion: existingSharedSettings?.[config.versionField],
+        });
+
+        sanitizedPayload[config.versionField] = nextVersion;
+      });
+
+      for (const [termsKind, config] of Object.entries(TERMS_SETTINGS_CONFIG)) {
+        const selectedTermsValue = Object.prototype.hasOwnProperty.call(
+          sanitizedPayload,
+          config.settingsField,
+        )
+          ? sanitizedPayload[config.settingsField]
+          : getFirstDefinedValue(
+              existingSharedSettings || {},
+              config.settingsAliases,
+            );
+
+        const versionValue = sanitizedPayload[config.versionField];
+
+        await upsertTermsVersionDocument(db, {
+          termsKind,
+          version: versionValue,
+          terms: selectedTermsValue,
+        });
+      }
 
       // Process base64 images and convert to short URL references
       const assetsCollection = db.collection(ASSETS_COLLECTION);

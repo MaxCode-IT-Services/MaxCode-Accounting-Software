@@ -207,6 +207,9 @@ const CreditDebitNotePreview = ({
 
   useEffect(() => {
     let mounted = true;
+    const noteTermsVersion = String(
+      notePreviewData.creditDebitNoteTermsVersion || "",
+    ).trim();
 
     const applyTerms = (settings) => {
       if (!mounted || !settings || typeof settings !== "object") return;
@@ -222,6 +225,24 @@ const CreditDebitNotePreview = ({
     };
 
     const loadTerms = async () => {
+      if (/^V\d+\.\d+\.\d+$/i.test(noteTermsVersion)) {
+        try {
+          const versionResponse = await apiGet(
+            API_ENDPOINTS.BUSINESS_SETTINGS.TERMS_BY_VERSION(
+              "creditDebitNote",
+              noteTermsVersion,
+            ),
+          );
+          const versionTerms = parseTerms(versionResponse?.data?.terms, []);
+          if (versionTerms.length > 0 && mounted) {
+            setTermsConditions(versionTerms);
+            return;
+          }
+        } catch (error) {
+          // Fallback to current settings terms below.
+        }
+      }
+
       const cached = localStorage.getItem("business_settings");
       if (cached) {
         try {
@@ -249,7 +270,7 @@ const CreditDebitNotePreview = ({
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [notePreviewData.creditDebitNoteTermsVersion]);
 
   const items = notePreviewData.items;
   const toMoney = (value) => Number((Number(value) || 0).toFixed(2));
@@ -1174,14 +1195,32 @@ const CreditDebitNotePreview = ({
                       Terms & Conditions (Full Terms & Conditions are available
                       on our website: https://www.maxcode.in/terms-conditions) :
                     </h6>
-                    <div className="row g-2 pb-2">
+                    <div className="row g-1 pb-2">
                       {(termsConditions || []).slice(0, 14).map((term, i) => (
                         <div
                           key={i}
-                          className="col-6 d-flex gap-2"
+                          className="col-6 d-flex gap-1 align-items-center"
                           style={{ fontSize: "14px", lineHeight: "1.3" }}
                         >
-                          <span className="fw-bold">{i + 1}.</span>
+                          <span
+                            className="fw-bold"
+                            style={{
+                              width: "22px",
+                              height: "22px",
+                              borderRadius: "999px",
+                              border: "1px solid #d9d9d9",
+                              backgroundColor: "#f6f6f6",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                              fontSize: "11px",
+                              lineHeight: 1,
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {i + 1}
+                          </span>
                           <span className="text-muted">{term}</span>
                         </div>
                       ))}

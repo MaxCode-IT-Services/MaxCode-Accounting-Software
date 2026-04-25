@@ -2,6 +2,10 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
+import {
+  applyTermsBindingToDocument,
+  getTermsBindingFromDatabase,
+} from "./utils/terms-versioning.js";
 
 const normalizeCloudflareSettings = (settings = {}) => {
   if (!settings || typeof settings !== "object") return null;
@@ -287,6 +291,17 @@ export async function handler(event) {
     const { db } = await connectToDatabase();
     const qutationsCollection = db.collection("qutations");
     const yearsCollection = db.collection("financialYears");
+    let performaTermsBindingPromise = null;
+
+    const getPerformaTermsBinding = async () => {
+      if (!performaTermsBindingPromise) {
+        performaTermsBindingPromise = getTermsBindingFromDatabase(
+          db,
+          "performaInvoice",
+        );
+      }
+      return performaTermsBindingPromise;
+    };
 
     const escapeRegExp = (value) => {
       return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -442,9 +457,22 @@ export async function handler(event) {
           return createResponse(404, { error: "Qutation not found" }, origin);
         }
 
+        const binding = await getPerformaTermsBinding();
+        const { document: hydratedQutation, patch } =
+          applyTermsBindingToDocument(qutation, binding);
+
+        if (patch) {
+          await qutationsCollection.updateOne(
+            { _id: qutation._id },
+            {
+              $set: patch,
+            },
+          );
+        }
+
         return createResponse(
           200,
-          normalizeOutgoingQutationData(qutation),
+          normalizeOutgoingQutationData(hydratedQutation),
           origin,
         );
       }
@@ -592,7 +620,36 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
-      const normalizedQutations = qutations.map(normalizeOutgoingQutationData);
+      const binding = await getPerformaTermsBinding();
+      const patchedQutations = [];
+      const backfillUpdates = [];
+
+      qutations.forEach((qutation) => {
+        const { document: hydratedQutation, patch } =
+          applyTermsBindingToDocument(qutation, binding);
+        patchedQutations.push(hydratedQutation);
+
+        if (patch) {
+          backfillUpdates.push({
+            updateOne: {
+              filter: { _id: qutation._id },
+              update: {
+                $set: patch,
+              },
+            },
+          });
+        }
+      });
+
+      if (backfillUpdates.length > 0) {
+        await qutationsCollection.bulkWrite(backfillUpdates, {
+          ordered: false,
+        });
+      }
+
+      const normalizedQutations = patchedQutations.map(
+        normalizeOutgoingQutationData,
+      );
 
       const projectTypes = await qutationsCollection.distinct("projectType", {
         isDeleted: { $ne: true },
@@ -672,6 +729,8 @@ export async function handler(event) {
       const qutationData = normalizeIncomingQutationData(
         JSON.parse(event.body || "{}"),
       );
+      delete qutationData.performaInvoiceTermsVersion;
+      delete qutationData.performaInvoiceTermsConditionsSnapshot;
 
       const { financialYear, format } = await resolveQutationNumberContext(
         qutationData.financialYear,
@@ -763,10 +822,13 @@ export async function handler(event) {
 
       delete qutationData.qutationUpload;
 
+      const binding = await getPerformaTermsBinding();
+
       const result = await qutationsCollection.insertOne({
         ...qutationData,
         qutationTotalAmount: Number(qutationData.qutationTotalAmount || 0),
         status: qutationData.status || "Active",
+        performaInvoiceTermsVersion: binding?.version || "V1.0.0",
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
@@ -793,6 +855,8 @@ export async function handler(event) {
       const qutationData = normalizeIncomingQutationData(
         JSON.parse(event.body || "{}"),
       );
+      delete qutationData.performaInvoiceTermsVersion;
+      delete qutationData.performaInvoiceTermsConditionsSnapshot;
 
       const qutationObjectId = new ObjectId(id);
       const existingQutation = await qutationsCollection.findOne({

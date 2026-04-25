@@ -2,6 +2,10 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
+import {
+  applyTermsBindingToDocument,
+  getTermsBindingFromDatabase,
+} from "./utils/terms-versioning.js";
 
 const META_CACHE_TTL_MS = 30 * 1000;
 const invoiceMetaCache = {
@@ -30,6 +34,14 @@ export async function handler(event) {
     const { db } = await connectToDatabase();
     const invoicesCollection = db.collection("invoices");
     const yearsCollection = db.collection("financialYears");
+    let invoiceTermsBindingPromise = null;
+
+    const getInvoiceTermsBinding = async () => {
+      if (!invoiceTermsBindingPromise) {
+        invoiceTermsBindingPromise = getTermsBindingFromDatabase(db, "invoice");
+      }
+      return invoiceTermsBindingPromise;
+    };
 
     const escapeRegExp = (value) => {
       return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -159,7 +171,20 @@ export async function handler(event) {
           return createResponse(404, { error: "Invoice not found" }, origin);
         }
 
-        return createResponse(200, invoice, origin);
+        const binding = await getInvoiceTermsBinding();
+        const { document: hydratedInvoice, patch } =
+          applyTermsBindingToDocument(invoice, binding);
+
+        if (patch) {
+          await invoicesCollection.updateOne(
+            { _id: invoice._id },
+            {
+              $set: patch,
+            },
+          );
+        }
+
+        return createResponse(200, hydratedInvoice, origin);
       }
 
       // Build filter query
@@ -398,6 +423,33 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
+      const binding = await getInvoiceTermsBinding();
+      const patchedInvoices = [];
+      const backfillUpdates = [];
+
+      invoices.forEach((invoice) => {
+        const { document: hydratedInvoice, patch } =
+          applyTermsBindingToDocument(invoice, binding);
+        patchedInvoices.push(hydratedInvoice);
+
+        if (patch) {
+          backfillUpdates.push({
+            updateOne: {
+              filter: { _id: invoice._id },
+              update: {
+                $set: patch,
+              },
+            },
+          });
+        }
+      });
+
+      if (backfillUpdates.length > 0) {
+        await invoicesCollection.bulkWrite(backfillUpdates, {
+          ordered: false,
+        });
+      }
+
       const now = Date.now();
       let cachedMeta =
         invoiceMetaCache.value && invoiceMetaCache.expiresAt > now
@@ -513,7 +565,7 @@ export async function handler(event) {
       return createResponse(
         200,
         {
-          data: invoices,
+          data: patchedInvoices,
           pagination: {
             page: pageNum,
             limit: limitNum,
@@ -551,6 +603,9 @@ export async function handler(event) {
       const invoiceData = normalizePaymentMethodsInRecord(
         JSON.parse(event.body || "{}"),
       );
+
+      delete invoiceData.invoiceTermsVersion;
+      delete invoiceData.invoiceTermsConditionsSnapshot;
 
       let defaultYear = null;
       if (invoiceData.financialYear) {
@@ -602,9 +657,12 @@ export async function handler(event) {
         );
       }
 
+      const binding = await getInvoiceTermsBinding();
+
       const result = await invoicesCollection.insertOne({
         _id: new ObjectId(),
         ...invoiceData,
+        invoiceTermsVersion: binding?.version || "V1.0.0",
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
@@ -637,6 +695,8 @@ export async function handler(event) {
       const invoiceData = normalizePaymentMethodsInRecord(
         JSON.parse(event.body),
       );
+      delete invoiceData.invoiceTermsVersion;
+      delete invoiceData.invoiceTermsConditionsSnapshot;
       const invoiceObjectId = new ObjectId(id);
 
       // Check for duplicate invoice number (excluding current record)

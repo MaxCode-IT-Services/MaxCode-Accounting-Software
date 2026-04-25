@@ -13,7 +13,9 @@
     "migrate:created-by:dry": "node scripts/migrate-created-by.js --dry-run",
     "migrate:created-by": "node scripts/migrate-created-by.js --apply",
     "migrate:team-permissions:dry": "node scripts/normalize-team-member-permissions.js --dry-run",
-    "migrate:team-permissions": "node scripts/normalize-team-member-permissions.js --apply"
+    "migrate:team-permissions": "node scripts/normalize-team-member-permissions.js --apply",
+    "migrate:terms-version:dry": "node scripts/backfill-terms-versions.js --dry-run",
+    "migrate:terms-version": "node scripts/backfill-terms-versions.js --apply"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

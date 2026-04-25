@@ -3,6 +3,10 @@ import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
 import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
+import {
+  applyTermsBindingToDocument,
+  getTermsBindingFromDatabase,
+} from "./utils/terms-versioning.js";
 
 const normalizeCloudflareSettings = (settings = {}) => {
   if (!settings || typeof settings !== "object") return null;
@@ -272,6 +276,17 @@ export async function handler(event) {
     const { db } = await connectToDatabase();
     const rcmCollection = db.collection("rcm");
     const yearsCollection = db.collection("financialYears");
+    let selfInvoiceTermsBindingPromise = null;
+
+    const getSelfInvoiceTermsBinding = async () => {
+      if (!selfInvoiceTermsBindingPromise) {
+        selfInvoiceTermsBindingPromise = getTermsBindingFromDatabase(
+          db,
+          "selfInvoice",
+        );
+      }
+      return selfInvoiceTermsBindingPromise;
+    };
 
     const escapeRegExp = (value) => {
       return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -401,7 +416,22 @@ export async function handler(event) {
           return createResponse(404, { error: "RCM record not found" }, origin);
         }
 
-        return createResponse(200, record, origin);
+        const binding = await getSelfInvoiceTermsBinding();
+        const { document: hydratedRecord, patch } = applyTermsBindingToDocument(
+          record,
+          binding,
+        );
+
+        if (patch) {
+          await rcmCollection.updateOne(
+            { _id: record._id },
+            {
+              $set: patch,
+            },
+          );
+        }
+
+        return createResponse(200, hydratedRecord, origin);
       }
 
       // Build filter query
@@ -619,6 +649,35 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
+      const binding = await getSelfInvoiceTermsBinding();
+      const patchedRcmRecords = [];
+      const backfillUpdates = [];
+
+      rcmRecords.forEach((record) => {
+        const { document: hydratedRecord, patch } = applyTermsBindingToDocument(
+          record,
+          binding,
+        );
+        patchedRcmRecords.push(hydratedRecord);
+
+        if (patch) {
+          backfillUpdates.push({
+            updateOne: {
+              filter: { _id: record._id },
+              update: {
+                $set: patch,
+              },
+            },
+          });
+        }
+      });
+
+      if (backfillUpdates.length > 0) {
+        await rcmCollection.bulkWrite(backfillUpdates, {
+          ordered: false,
+        });
+      }
+
       // Get distinct values for dynamic filter options
 
       // Get distinct GSTIN values for dynamic filter options
@@ -688,7 +747,7 @@ export async function handler(event) {
       return createResponse(
         200,
         {
-          data: rcmRecords,
+          data: patchedRcmRecords,
           pagination: {
             page: pageNum,
             limit: limitNum,
@@ -722,6 +781,8 @@ export async function handler(event) {
       const rcmData = normalizePaymentMethodsInRecord(
         JSON.parse(event.body || "{}"),
       );
+      delete rcmData.selfInvoiceTermsVersion;
+      delete rcmData.selfInvoiceTermsConditionsSnapshot;
 
       let defaultYear = null;
       if (rcmData.financialYear) {
@@ -777,6 +838,8 @@ export async function handler(event) {
       // Set place of supply default
       rcmData.placeOfSupply = rcmData.placeOfSupply || "Rajasthan (08)";
 
+      const binding = await getSelfInvoiceTermsBinding();
+
       if (rcmData?.rcmUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
@@ -830,6 +893,7 @@ export async function handler(event) {
       const result = await rcmCollection.insertOne({
         _id: new ObjectId(),
         ...rcmData,
+        selfInvoiceTermsVersion: binding?.version || "V1.0.0",
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
@@ -857,6 +921,8 @@ export async function handler(event) {
       }
 
       const rcmData = normalizePaymentMethodsInRecord(JSON.parse(event.body));
+      delete rcmData.selfInvoiceTermsVersion;
+      delete rcmData.selfInvoiceTermsConditionsSnapshot;
       const rcmObjectId = new ObjectId(id);
 
       const existingRcmRecord = await rcmCollection.findOne({

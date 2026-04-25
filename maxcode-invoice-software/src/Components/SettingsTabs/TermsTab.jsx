@@ -12,6 +12,13 @@ const TermsTab = ({
   showResetTermsConfirm,
   handleResetTermsToDefault,
 }) => {
+  const getVersionLabel = (value) => {
+    const normalized = String(value || "").trim();
+    return /^V\d+\.\d+\.\d+$/i.test(normalized)
+      ? normalized.toUpperCase()
+      : "V1.0.0";
+  };
+
   return (
     <div className="business-details-container">
       <div className="card modern-card mb-4">
@@ -64,9 +71,14 @@ const TermsTab = ({
         <div className="col-lg-6">
           <div className="card shadow-sm border-0 h-100">
             <div className="card-header bg-success rounded-top-3 text-white">
-              <h5 className="mb-0 fw-semibold">
-                <i className="fas fa-file-invoice me-2"></i>Invoice Terms
-              </h5>
+              <div className="d-flex justify-content-between align-items-center gap-2">
+                <h5 className="mb-0 fw-semibold">
+                  <i className="fas fa-file-invoice me-2"></i>Invoice Terms
+                </h5>
+                <span className="badge rounded-pill bg-light text-success fw-bold px-3 py-2">
+                  {getVersionLabel(businessSettings.invoiceTermsVersion)}
+                </span>
+              </div>
             </div>
             <div className="card-body d-flex flex-column">
               <p className="text-muted small mb-2">
@@ -90,10 +102,15 @@ const TermsTab = ({
         <div className="col-lg-6">
           <div className="card shadow-sm border-0 h-100">
             <div className="card-header bg-success rounded-top-3 text-white">
-              <h5 className="mb-0 fw-semibold">
-                <i className="fas fa-file-invoice-dollar me-2"></i>Self Invoice
-                Terms
-              </h5>
+              <div className="d-flex justify-content-between align-items-center gap-2">
+                <h5 className="mb-0 fw-semibold">
+                  <i className="fas fa-file-invoice-dollar me-2"></i>Self
+                  Invoice Terms
+                </h5>
+                <span className="badge rounded-pill bg-light text-success fw-bold px-3 py-2">
+                  {getVersionLabel(businessSettings.selfInvoiceTermsVersion)}
+                </span>
+              </div>
             </div>
             <div className="card-body d-flex flex-column">
               <p className="text-muted small mb-2">
@@ -122,9 +139,16 @@ const TermsTab = ({
         <div className="col-lg-6">
           <div className="card shadow-sm border-0 h-100">
             <div className="card-header bg-success rounded-top-3 text-white">
-              <h5 className="mb-0 fw-semibold">
-                <i className="fas fa-file-pdf me-2"></i>Performa Invoice Terms
-              </h5>
+              <div className="d-flex justify-content-between align-items-center gap-2">
+                <h5 className="mb-0 fw-semibold">
+                  <i className="fas fa-file-pdf me-2"></i>Performa Invoice Terms
+                </h5>
+                <span className="badge rounded-pill bg-light text-success fw-bold px-3 py-2">
+                  {getVersionLabel(
+                    businessSettings.performaInvoiceTermsVersion,
+                  )}
+                </span>
+              </div>
             </div>
             <div className="card-body d-flex flex-column">
               <p className="text-muted small mb-2">
@@ -151,10 +175,17 @@ const TermsTab = ({
         <div className="col-lg-6">
           <div className="card shadow-sm border-0 h-100">
             <div className="card-header bg-success rounded-top-3 text-white">
-              <h5 className="mb-0 fw-semibold">
-                <i className="fas fa-exchange-alt me-2"></i>Credit/Debit Note
-                Terms
-              </h5>
+              <div className="d-flex justify-content-between align-items-center gap-2">
+                <h5 className="mb-0 fw-semibold">
+                  <i className="fas fa-exchange-alt me-2"></i>Credit/Debit Note
+                  Terms
+                </h5>
+                <span className="badge rounded-pill bg-light text-success fw-bold px-3 py-2">
+                  {getVersionLabel(
+                    businessSettings.creditDebitNoteTermsVersion,
+                  )}
+                </span>
+              </div>
             </div>
             <div className="card-body d-flex flex-column">
               <p className="text-muted small mb-2">

@@ -1,6 +1,10 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
+import {
+  applyTermsBindingToDocument,
+  getTermsBindingFromDatabase,
+} from "./utils/terms-versioning.js";
 
 const NOTES_META_CACHE_TTL_MS = 60000;
 let notesMetaCache = {
@@ -60,6 +64,17 @@ export async function handler(event) {
     const { db } = await connectToDatabase();
     const notesCollection = db.collection("creditDebitNotes");
     const yearsCollection = db.collection("financialYears");
+    let noteTermsBindingPromise = null;
+
+    const getNoteTermsBinding = async () => {
+      if (!noteTermsBindingPromise) {
+        noteTermsBindingPromise = getTermsBindingFromDatabase(
+          db,
+          "creditDebitNote",
+        );
+      }
+      return noteTermsBindingPromise;
+    };
 
     const escapeRegExp = (value) => {
       return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -260,7 +275,22 @@ export async function handler(event) {
           return createResponse(404, { error: "Note not found" }, origin);
         }
 
-        return createResponse(200, note, origin);
+        const binding = await getNoteTermsBinding();
+        const { document: hydratedNote, patch } = applyTermsBindingToDocument(
+          note,
+          binding,
+        );
+
+        if (patch) {
+          await notesCollection.updateOne(
+            { _id: note._id },
+            {
+              $set: patch,
+            },
+          );
+        }
+
+        return createResponse(200, hydratedNote, origin);
       }
 
       const filterQuery = { isDeleted: { $ne: true } };
@@ -388,6 +418,35 @@ export async function handler(event) {
         .limit(limitNum)
         .toArray();
 
+      const binding = await getNoteTermsBinding();
+      const patchedNotes = [];
+      const backfillUpdates = [];
+
+      notes.forEach((note) => {
+        const { document: hydratedNote, patch } = applyTermsBindingToDocument(
+          note,
+          binding,
+        );
+        patchedNotes.push(hydratedNote);
+
+        if (patch) {
+          backfillUpdates.push({
+            updateOne: {
+              filter: { _id: note._id },
+              update: {
+                $set: patch,
+              },
+            },
+          });
+        }
+      });
+
+      if (backfillUpdates.length > 0) {
+        await notesCollection.bulkWrite(backfillUpdates, {
+          ordered: false,
+        });
+      }
+
       let noteTypeValues = [];
       let statusValues = [];
       let totalCredit = 0;
@@ -464,7 +523,7 @@ export async function handler(event) {
       return createResponse(
         200,
         {
-          data: notes,
+          data: patchedNotes,
           pagination: {
             page: pageNum,
             limit: limitNum,
@@ -493,6 +552,8 @@ export async function handler(event) {
 
     if (event.httpMethod === "POST") {
       const noteData = JSON.parse(event.body || "{}");
+      delete noteData.creditDebitNoteTermsVersion;
+      delete noteData.creditDebitNoteTermsConditionsSnapshot;
       const noteNumber = String(noteData.noteNumber || "").trim();
       const noteType = String(noteData.noteType || "").trim();
       const clientName = String(noteData.clientName || "").trim();
@@ -556,6 +617,8 @@ export async function handler(event) {
           ? toNumber(noteData.totalAmount)
           : Number((amount + taxAmount).toFixed(2));
 
+      const binding = await getNoteTermsBinding();
+
       const result = await notesCollection.insertOne({
         ...noteData,
         items: normalizedItems,
@@ -571,6 +634,7 @@ export async function handler(event) {
         totalAmount,
         status: String(noteData.status || "Pending").trim() || "Pending",
         remarks: String(noteData.remarks || "").trim(),
+        creditDebitNoteTermsVersion: binding?.version || "V1.0.0",
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
@@ -593,6 +657,8 @@ export async function handler(event) {
       }
 
       const noteData = JSON.parse(event.body || "{}");
+      delete noteData.creditDebitNoteTermsVersion;
+      delete noteData.creditDebitNoteTermsConditionsSnapshot;
       const noteObjectId = new ObjectId(id);
       const noteNumber = String(noteData.noteNumber || "").trim();
       const noteType = String(noteData.noteType || "").trim();
