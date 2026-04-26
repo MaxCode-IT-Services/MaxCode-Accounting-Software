@@ -32,6 +32,7 @@ const CreateYear = ({
     openingCgstItc: "",
     openingSgstItc: "",
     openingIgstItc: "",
+    paymentReceiptFormat: "",
   });
 
   const [errors, setErrors] = useState({});
@@ -72,9 +73,11 @@ const CreateYear = ({
     /^MC\/SRV\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoProjectFormat = (value) =>
     /^MC\/PRJ\/\d{2}-\d{2}\/0001$/.test(value);
+
   const isAutoCompanyExpenseFormat = (value) =>
     /^MC\/CEXP\/\d{2}-\d{2}\/0001$/.test(value);
-
+  const isAutoPaymentReceiptFormat = (value) =>
+    /^MC\/RCPT\/\d{2}-\d{2}\/0001$/.test(value);
   useEffect(() => {
     if (show) {
       document.body.style.overflow = "hidden";
@@ -105,6 +108,7 @@ const CreateYear = ({
         serviceFormat: editingRecord.serviceFormat || "",
         projectFormat: editingRecord.projectFormat || "",
         companyExpenseFormat: editingRecord.companyExpenseFormat || "",
+        paymentReceiptFormat: editingRecord.paymentReceiptFormat || "",
         description: editingRecord.description || "",
         isDefault: editingRecord.isDefault || false,
         status: editingRecord.status || "Active",
@@ -133,6 +137,7 @@ const CreateYear = ({
         serviceFormat: "",
         projectFormat: "",
         companyExpenseFormat: "",
+        paymentReceiptFormat: "",
         description: "",
         isDefault: false,
         status: "Active",
@@ -176,7 +181,9 @@ const CreateYear = ({
     const nextQutationFormat = `MC/QTN/${yearPart}/0001`;
     const nextServiceFormat = `MC/SRV/${yearPart}/0001`;
     const nextProjectFormat = `MC/PRJ/${yearPart}/0001`;
+
     const nextCompanyExpenseFormat = `MC/CEXP/${yearPart}/0001`;
+    const nextPaymentReceiptFormat = `MC/RCPT/${yearPart}/0001`;
 
     const shouldUpdateInvoiceFormat =
       !formData.invoiceFormat || isAutoInvoiceFormat(formData.invoiceFormat);
@@ -198,10 +205,13 @@ const CreateYear = ({
       !formData.serviceFormat || isAutoServiceFormat(formData.serviceFormat);
     const shouldUpdateProjectFormat =
       !formData.projectFormat || isAutoProjectFormat(formData.projectFormat);
+
     const shouldUpdateCompanyExpenseFormat =
       !formData.companyExpenseFormat ||
       isAutoCompanyExpenseFormat(formData.companyExpenseFormat);
-
+    const shouldUpdatePaymentReceiptFormat =
+      !formData.paymentReceiptFormat ||
+      isAutoPaymentReceiptFormat(formData.paymentReceiptFormat);
     if (
       !shouldUpdateInvoiceFormat &&
       !shouldUpdateSelfInvoiceFormat &&
@@ -211,7 +221,8 @@ const CreateYear = ({
       !shouldUpdateQutationFormat &&
       !shouldUpdateServiceFormat &&
       !shouldUpdateProjectFormat &&
-      !shouldUpdateCompanyExpenseFormat
+      !shouldUpdateCompanyExpenseFormat &&
+      !shouldUpdatePaymentReceiptFormat
     )
       return;
 
@@ -244,6 +255,9 @@ const CreateYear = ({
       companyExpenseFormat: shouldUpdateCompanyExpenseFormat
         ? nextCompanyExpenseFormat
         : prev.companyExpenseFormat,
+      paymentReceiptFormat: shouldUpdatePaymentReceiptFormat
+        ? nextPaymentReceiptFormat
+        : prev.paymentReceiptFormat,
     }));
   }, [
     formData.financialYear,
@@ -286,6 +300,7 @@ const CreateYear = ({
     serviceFormat: "Service Number Format",
     projectFormat: "Project Number Format",
     companyExpenseFormat: "Company Expense Number Format",
+    paymentReceiptFormat: "Payment Receipt Format",
     description: "Description",
     status: "Status",
     openingCash: "Opening Cash Balance",
@@ -382,6 +397,7 @@ const CreateYear = ({
       "serviceFormat",
       "projectFormat",
       "companyExpenseFormat",
+      "paymentReceiptFormat",
     ];
 
     requiredFields.forEach((field) => {
@@ -489,12 +505,20 @@ const CreateYear = ({
     if (formData.projectFormat && formData.projectFormat.length < 3) {
       newErrors.projectFormat = "Project format must be at least 3 characters";
     }
+
     if (
       formData.companyExpenseFormat &&
       formData.companyExpenseFormat.length < 3
     ) {
       newErrors.companyExpenseFormat =
         "Company expense format must be at least 3 characters";
+    }
+    if (
+      formData.paymentReceiptFormat &&
+      formData.paymentReceiptFormat.length < 3
+    ) {
+      newErrors.paymentReceiptFormat =
+        "Payment receipt format must be at least 3 characters";
     }
 
     setErrors(newErrors);
@@ -957,6 +981,29 @@ const CreateYear = ({
                   {errors.companyExpenseFormat && (
                     <div className="invalid-feedback d-block">
                       {errors.companyExpenseFormat}
+                    </div>
+                  )}
+                </div>
+
+                {/* Payment Receipt Format - Input Field */}
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="paymentReceiptFormat" className="form-label">
+                    <i className="fas fa-receipt me-2 text-primary"></i>
+                    Payment Receipt Format <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.paymentReceiptFormat ? "is-invalid" : ""}`}
+                    id="paymentReceiptFormat"
+                    name="paymentReceiptFormat"
+                    value={formData.paymentReceiptFormat}
+                    onChange={handleInputChange}
+                    placeholder="e.g., MC/RCPT/25-26/0001"
+                    readOnly={isViewMode}
+                  />
+                  {errors.paymentReceiptFormat && (
+                    <div className="invalid-feedback d-block">
+                      {errors.paymentReceiptFormat}
                     </div>
                   )}
                 </div>

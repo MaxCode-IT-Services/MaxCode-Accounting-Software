@@ -120,6 +120,11 @@ const CreateSales = ({
   const clientLoadingResetRef = useRef(null);
   const knownClientRowsRef = useRef([]);
 
+  // Advance payment state
+  const [availableAdvances, setAvailableAdvances] = useState([]);
+  const [appliedAdvances, setAppliedAdvances] = useState([]); // [{advanceId, receiptNumber, appliedAmount, maxAmount}]
+  const [isLoadingAdvances, setIsLoadingAdvances] = useState(false);
+
   useEffect(() => {
     if (show) {
       document.body.style.overflow = "hidden";
@@ -345,6 +350,16 @@ const CreateSales = ({
       if (editingRecord.taxData) {
         setTaxData(editingRecord.taxData);
       }
+      // Restore applied advances from editing record so they show in view/edit modes
+      if (Array.isArray(editingRecord.appliedAdvances) && editingRecord.appliedAdvances.length > 0) {
+        const restored = editingRecord.appliedAdvances.map((a) => ({
+          advanceId: a.advanceId,
+          receiptNumber: a.receiptNumber || "",
+          appliedAmount: Number(a.appliedAmount || 0),
+          maxAmount: Number(a.maxAmount || a.appliedAmount || 0),
+        }));
+        setAppliedAdvances(restored);
+      }
     } else {
       resetForm();
     }
@@ -450,6 +465,8 @@ const CreateSales = ({
       totalAmount: "0.00",
     });
     setErrors({});
+    setAvailableAdvances([]);
+    setAppliedAdvances([]);
   };
 
   const toNumber = (value) => {
@@ -630,6 +647,76 @@ const CreateSales = ({
       setErrors((prev) => ({ ...prev, clientRefId: "" }));
     }
   };
+
+  // Fetch available advance payments when client is selected
+  useEffect(() => {
+    if (!formData.clientRefId || !show) {
+      setAvailableAdvances([]);
+      setAppliedAdvances([]);
+      return;
+    }
+    const fetchAdvances = async () => {
+      setIsLoadingAdvances(true);
+      try {
+        const res = await apiGet(
+          API_ENDPOINTS.PAYMENT_RECEIPTS.AVAILABLE_ADVANCES(
+            formData.clientRefId,
+          ),
+        );
+        const advances = res?.data?.advances || [];
+        setAvailableAdvances(advances);
+        // If editing, restore previously applied advances
+        if (editingRecord?.appliedAdvances?.length > 0) {
+          const restored = editingRecord.appliedAdvances.map((a) => ({
+            advanceId: a.advanceId,
+            receiptNumber: a.receiptNumber || "",
+            appliedAmount: Number(a.appliedAmount || 0),
+            maxAmount: Number(a.maxAmount || a.appliedAmount || 0),
+          }));
+          setAppliedAdvances(restored);
+        }
+      } catch (err) {
+        console.error("Failed to fetch advances:", err);
+        setAvailableAdvances([]);
+      } finally {
+        setIsLoadingAdvances(false);
+      }
+    };
+    fetchAdvances();
+  }, [formData.clientRefId, show]);
+
+  const handleToggleAdvance = (advance) => {
+    setAppliedAdvances((prev) => {
+      const existing = prev.find((a) => a.advanceId === advance.id);
+      if (existing) {
+        return prev.filter((a) => a.advanceId !== advance.id);
+      }
+      return [
+        ...prev,
+        {
+          advanceId: advance.id,
+          receiptNumber: advance.receiptNumber,
+          appliedAmount: advance.availableAmount,
+          maxAmount: advance.availableAmount,
+        },
+      ];
+    });
+  };
+
+  const handleAdvanceAmountChange = (advanceId, value) => {
+    setAppliedAdvances((prev) =>
+      prev.map((a) => {
+        if (a.advanceId !== advanceId) return a;
+        const parsed = Math.min(Number(value) || 0, a.maxAmount);
+        return { ...a, appliedAmount: parsed };
+      }),
+    );
+  };
+
+  const totalAdvanceAdjusted = appliedAdvances.reduce(
+    (sum, a) => sum + Number(a.appliedAmount || 0),
+    0,
+  );
 
   const handleServiceSelect = (id, selectedOption) => {
     const updatedItems = items.map((item) => {
@@ -821,6 +908,15 @@ const CreateSales = ({
           taxData: taxData,
           id: editingRecord?.id || Date.now(),
           createdDate: editingRecord?.createdDate || new Date().toISOString(),
+          appliedAdvances: appliedAdvances
+            .filter((a) => a.appliedAmount > 0)
+            .map((a) => ({
+              advanceId: a.advanceId,
+              receiptNumber: a.receiptNumber,
+              appliedAmount: Number(a.appliedAmount),
+              maxAmount: Number(a.maxAmount),
+            })),
+          advanceAdjustedTotal: totalAdvanceAdjusted,
         };
 
         await onSubmit(submitData);
@@ -1865,6 +1961,189 @@ const CreateSales = ({
                   </div>
                 </div>
               </div>
+
+              {/* Advance Payment Adjustment Section */}
+              {!isViewMode &&
+                (availableAdvances.length > 0 || isLoadingAdvances) && (
+                  <div className="row mb-4">
+                    <div className="col-12">
+                      <div className="card shadow-sm border-0 mb-3">
+                        <div className="card-header bg-white border-bottom-0 pb-0 d-flex align-items-center">
+                          <i className="fa-solid fa-hand-holding-dollar me-2 text-success fs-5"></i>
+                          <span className="fw-bold fs-6">
+                            Advance Payment Adjustment
+                          </span>
+                        </div>
+                        <div className="card-body pt-2">
+                          {isLoadingAdvances ? (
+                            <div className="text-muted small">
+                              <span
+                                className="spinner-border spinner-border-sm me-2"
+                                role="status"
+                                aria-hidden="true"
+                              ></span>
+                              Checking advance payments...
+                            </div>
+                          ) : (
+                            <>
+                              <div className="alert alert-info py-2 mb-3">
+                                <i className="fas fa-info-circle me-2"></i>
+                                This client has{" "}
+                                <strong>{availableAdvances.length}</strong>{" "}
+                                advance payment(s). Select advances to adjust
+                                against this invoice.
+                              </div>
+                              <div className="advance-list">
+                                <div className="advance-list-header">
+                                  <div className="col apply-col">Apply</div>
+                                  <div className="col receipt-col">
+                                    Receipt No.
+                                  </div>
+                                  <div className="col date-col">Date</div>
+                                  <div className="col amount-col">
+                                    Advance Amount
+                                  </div>
+                                  <div className="col available-col">
+                                    Available
+                                  </div>
+                                  <div className="col apply-amount-col text-end">
+                                    Apply Amount (₹)
+                                  </div>
+                                </div>
+
+                                <div className="advance-list-body">
+                                  {availableAdvances.map((adv) => {
+                                    const isChecked = appliedAdvances.some(
+                                      (a) => a.advanceId === adv.id,
+                                    );
+                                    const entry = appliedAdvances.find(
+                                      (a) => a.advanceId === adv.id,
+                                    );
+                                    return (
+                                      <div
+                                        key={adv.id}
+                                        className={`advance-item ${isChecked ? "selected" : ""}`}
+                                      >
+                                        <div className="col apply-col text-center">
+                                          <input
+                                            type="checkbox"
+                                            className="form-check-input"
+                                            checked={isChecked}
+                                            onChange={() =>
+                                              handleToggleAdvance(adv)
+                                            }
+                                          />
+                                        </div>
+                                        <div className="col receipt-col">
+                                          <span className="badge bg-success fs-6 px-3 py-2 shadow-sm">
+                                            {adv.receiptNumber}
+                                          </span>
+                                        </div>
+                                        <div className="col date-col small">
+                                          {adv.receiptDate
+                                            ? new Date(
+                                                adv.receiptDate,
+                                              ).toLocaleDateString("en-IN")
+                                            : "-"}
+                                        </div>
+                                        <div className="col amount-col">
+                                          ₹
+                                          {Number(
+                                            adv.amount || 0,
+                                          ).toLocaleString("en-IN")}
+                                        </div>
+                                        <div className="col available-col">
+                                          <span className="text-success fw-semibold">
+                                            ₹
+                                            {Number(
+                                              adv.availableAmount || 0,
+                                            ).toLocaleString("en-IN")}
+                                          </span>
+                                        </div>
+                                        <div className="col apply-amount-col">
+                                          {isChecked ? (
+                                            <input
+                                              type="text"
+                                              inputMode="decimal"
+                                              pattern="^\\d*(\\.\\d{0,2})?$"
+                                              className="form-control form-control-sm modern-input text-end"
+                                              max={entry?.maxAmount}
+                                              value={entry?.appliedAmount ?? ""}
+                                              onChange={(e) => {
+                                                handleNumberInput(e);
+                                                handleAdvanceAmountChange(
+                                                  adv.id,
+                                                  e.target.value,
+                                                );
+                                              }}
+                                              placeholder="Amount"
+                                            />
+                                          ) : (
+                                            <span className="text-muted small">
+                                              —
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {totalAdvanceAdjusted > 0 && (
+                                  <div className="advance-list-footer">
+                                    <div className="footer-row muted">
+                                      <div className="label">
+                                        Invoice Total:
+                                      </div>
+                                      <div className="value">
+                                        ₹
+                                        {Number(
+                                          taxData.totalAmount || 0,
+                                        ).toLocaleString("en-IN")}
+                                      </div>
+                                    </div>
+
+                                    <div className="footer-row">
+                                      <div className="label">
+                                        Total Advance Adjusted:
+                                      </div>
+                                      <div
+                                        className={
+                                          "value " +
+                                          (totalAdvanceAdjusted > 0
+                                            ? "text-danger fw-bold"
+                                            : "fw-bold")
+                                        }
+                                      >
+                                        {totalAdvanceAdjusted > 0
+                                          ? `-₹${totalAdvanceAdjusted.toLocaleString("en-IN")}`
+                                          : `₹${totalAdvanceAdjusted.toLocaleString("en-IN")}`}
+                                      </div>
+                                    </div>
+
+                                    <div className="footer-row highlighted">
+                                      <div className="label">
+                                        Balance Due After Adjustment:
+                                      </div>
+                                      <div className="value">
+                                        ₹
+                                        {Math.max(
+                                          0,
+                                          Number(taxData.totalAmount || 0) -
+                                            totalAdvanceAdjusted,
+                                        ).toLocaleString("en-IN")}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
             </form>
           </div>
 
@@ -1953,6 +2232,93 @@ const CreateSales = ({
         .invalid-feedback.d-block {
           display: block !important;
           margin-top: 5px;
+        }
+
+        /* Modern layout for Advance Payment list */
+        .advance-list {
+          border: 2px solid #e9ecef;
+          border-radius: 8px;
+          overflow: hidden;
+          background: #ffffff;
+          font-weight: 700;
+          color: #000;
+        }
+
+        .advance-list-header,
+        .advance-item {
+          display: grid;
+          grid-template-columns: 60px 1fr 160px 140px 140px 180px;
+          gap: 12px;
+          align-items: center;
+          padding: 12px 16px;
+        }
+
+        .advance-list-header {
+          background: #b6f2a8; /* header same as first row */
+          border-bottom: 2px solid #f1f3f5;
+          font-weight: 700;
+          color: #000;
+        }
+
+        .advance-list-body .advance-item {
+          border: 1px solid #f6f7f8;
+          transition: background .15s ease, box-shadow .15s ease;
+        }
+
+        .advance-list-body .advance-item.selected {
+          background: rgba(13, 253, 109, 0.03);
+        }
+
+        .advance-item .badge {
+          border-radius: 6px;
+        }
+
+        .advance-list-footer {
+          padding: 0px 12px 16px;
+        }
+
+        .advance-list-footer .footer-row {
+          display: grid;
+          grid-template-columns: 60px 1fr 160px 140px 140px 180px;
+          gap: 12px;
+          align-items: center;
+          padding: 8px 16px;
+          border-top: 2px solid #f1f3f5;
+        }
+
+        .advance-list-footer .footer-row .label {
+          grid-column: 1 / 6; /* span first five columns so label lines up with body */
+          align-self: center;
+          color: #000;
+          font-weight: 600;
+        }
+
+        .advance-list-footer .footer-row .value {
+          grid-column: 6 / 7; /* put value into last column to align with Apply Amount */
+          text-align: right;
+          align-self: center;
+          font-weight: 600;
+        }
+
+        .advance-list-footer .footer-row.muted .label,
+        .advance-list-footer .footer-row.muted .value {
+          color: #000;
+        }
+
+        .advance-list-footer .footer-row.highlighted {
+          background: #b6f2a8;
+          font-weight: 700;
+          padding: 10px 16px;
+          border-radius: 6px;
+          margin-top: 8px;
+        }
+
+        /* Right-align apply amount inputs */
+        .advance-item input.modern-input,
+        .advance-item input.text-end {
+          text-align: right;
+          border-radius: 6px;
+          padding: .325rem .5rem;
         }
       `}</style>
     </div>

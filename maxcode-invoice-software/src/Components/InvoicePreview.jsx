@@ -290,6 +290,8 @@ const InvoicePreview = ({
 
   // Calculations are done in SalesManagement; use precomputed values here.
   const items = invoiceData.items;
+
+  // --- ADVANCE ADJUSTMENT LOGIC ---
   const subtotal = Number(invoiceData.subtotal || 0);
   const discountAmount = Number(invoiceData.discountAmount || 0);
   const cgst = Number(invoiceData.cgst || 0);
@@ -303,7 +305,22 @@ const InvoicePreview = ({
   const tdsAmount = Number(invoiceData.tdsAmount || 0);
   const tdsPercent = Number(invoiceData.tdsPercent || 0);
   const amountReceived = Number(invoiceData.amountReceived || 0);
-  const amountReceivedDisplay = amountReceived;
+  // Advance adjustment: sum of all applied advances (array or single value)
+  let advanceAdjustment = 0;
+  if (Array.isArray(invoiceData.advanceAdjustments)) {
+    advanceAdjustment = invoiceData.advanceAdjustments.reduce(
+      (sum, adv) => sum + Number(adv.amount || 0),
+      0,
+    );
+  } else if (invoiceData.advanceAdjustment) {
+    advanceAdjustment = Number(invoiceData.advanceAdjustment) || 0;
+  } else if (invoiceData.advanceAmountApplied) {
+    advanceAdjustment = Number(invoiceData.advanceAmountApplied) || 0;
+  }
+  // Total received = advanceAdjustment + amountReceived
+  const totalReceived = advanceAdjustment + amountReceived;
+  // Total due = totalAmount - totalReceived - tdsAmount
+  const totalDue = Math.max(0, totalAmount - totalReceived - tdsAmount);
   const qrAmount = totalAmount;
   const upiAmount = Number.isFinite(qrAmount) ? qrAmount : 0;
   const upiPayload = `upi://pay?pa=maxcode@aubank&pn=${encodeURIComponent(
@@ -991,7 +1008,7 @@ const InvoicePreview = ({
                       </div>
                     </div>
 
-                    {/* Col 3: Payment Information */}
+                    {/* Col 3: Payment Information (Revamped) */}
                     <div
                       className="p-3 position-relative payment-wrapper"
                       style={{ width: "27%" }}
@@ -1001,31 +1018,51 @@ const InvoicePreview = ({
                       </h6>
                       <div className="fs-6">
                         <div className="d-flex mb-1 fw-bold">
-                          <span style={{ width: "120px" }}>Payment Date</span>
+                          <span style={{ width: "110px" }}>Payment Date</span>
                           <span className="fw-bold">
-                            : {invoiceData.paymentDate}
+                            : {invoiceData.paymentDate || "-"}
                           </span>
                         </div>
-                        <div className="d-flex mb-1 fw-bold">
-                          <span style={{ width: "120px" }}>Payment Method</span>
+                        <div
+                          className="d-flex mb-1 fw-bold"
+                          style={{
+                            color: advanceAdjustment > 0 ? "#b30000" : "#000",
+                          }}
+                        >
+                          <span style={{ width: "110px" }}>
+                            Advance Adj. (-)
+                          </span>
                           <span className="fw-bold">
-                            : {invoiceData.paymentMethod}
+                            : ₹{formatCurrency(advanceAdjustment)}
                           </span>
                         </div>
-                        <div className="d-flex mb-1 fw-bold">
-                          <span style={{ width: "120px" }}>
-                            Amount Received
+                        <div
+                          className="d-flex mb-1 fw-bold"
+                          style={{ color: tdsAmount > 0 ? "#b30000" : "#000" }}
+                        >
+                          <span style={{ width: "110px" }}>
+                            TDS Ded. ({tdsPercent}%)
                           </span>
                           <span className="fw-bold">
-                            : ₹{formatCurrency(amountReceivedDisplay)}
+                            : ₹{formatCurrency(tdsAmount)}
                           </span>
                         </div>
-                        <div className="d-flex mb-1 text-danger fw-bold ">
-                          <span style={{ width: "120px" }}>
-                            TDS ({tdsPercent}%)
-                          </span>
+                        <div
+                          className="d-flex mb-1 fw-bold"
+                          style={{ color: "#000" }}
+                        >
+                          <span style={{ width: "110px" }}>Total Received</span>
                           <span className="fw-bold">
-                            : - ₹{formatCurrency(tdsAmount)}
+                            : ₹{formatCurrency(totalReceived)}
+                          </span>
+                        </div>
+                        <div
+                          className="d-flex mb-1 fw-bold"
+                          style={{ color: totalDue > 0 ? "#b30000" : "#000" }}
+                        >
+                          <span style={{ width: "110px" }}>Total Due</span>
+                          <span className="fw-bold">
+                            : ₹{formatCurrency(totalDue)}
                           </span>
                         </div>
                       </div>
@@ -1046,7 +1083,7 @@ const InvoicePreview = ({
                       )}
                       {invoiceData.status === "PARTIAL" && (
                         <div className="payment-seal payment-seal--partial">
-                          PARTIALLY
+                          PARTIAL PAYMENT
                           <br />
                           PAID
                         </div>

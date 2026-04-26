@@ -208,6 +208,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "paymentReceiptManagement",
+    label: "Payment Receipts",
+    description: "Manage payment receipts and advance payments",
+    icon: "fa-solid fa-receipt",
+    route: "/admin/payment-receipt-management",
+    detailed: true,
+  },
+  {
     key: "setting",
     label: "Setting",
     description: "System settings",

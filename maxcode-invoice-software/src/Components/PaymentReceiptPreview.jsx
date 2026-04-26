@@ -64,12 +64,10 @@ const PaymentReceiptPreview = ({
   const displayReceivedBy = data.receivedBy || data.companyName || "-";
   const displayClientAddress =
     data.clientAddress || data.address || data.businessAddress || "-";
-  const signatureDateTimeText =
-    data.signatureDateTime || data.receiptDate || "-";
-  const rawInvoiceNumber =
-    data.invoiceNumber || data.memoNo || data.receiptNo || "-";
-  const receiptRefNumber = `RCPT/${rawInvoiceNumber}`;
-  const referenceInvoiceNumber = rawInvoiceNumber;
+  const signatureDateTimeText = data.signatureDateTime || "-";
+  const receiptRefNumber = data.receiptNo || "-";
+  const referenceInvoiceNumber =
+    data.appliedInvoiceNumber || data.appliedToInvoice || data.referenceInvoiceNumber || data.invoiceNumber || "-";
   const companyPhoneDisplay = data.companyPhone || data.phone || "-";
   const companyWebsiteDisplay =
     data.companyWebsite || data.website || "www.maxcode.in";
@@ -853,8 +851,9 @@ const PaymentReceiptPreview = ({
                       <div className="amount-label">Amount</div>
                       <div className="amount-box">Rs {amountText}</div>
                       <div className="amount-note">
-                        {data.note ||
-                          "This receipt confirms that the above payment has been successfully received. This is a computer-generated receipt for accounting purposes."}
+                        This receipt confirms that the above payment has been
+                        successfully received. This is a computer-generated
+                        receipt for accounting purposes.
                       </div>
                     </div>
 

@@ -400,6 +400,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "rcmManagement",
     },
     {
+      to: "/admin/payment-receipt-management",
+      icon: "fa-solid fa-receipt",
+      label: "Payment Receipts",
+      permissionKey: "paymentReceiptManagement",
+    },
+    {
       to: "/admin/credit-debit-notes-management",
       icon: "fas fa-envelope-open-text",
       label: "Credit/Debit Notes",

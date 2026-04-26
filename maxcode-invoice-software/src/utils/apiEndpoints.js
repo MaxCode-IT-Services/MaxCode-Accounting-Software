@@ -248,6 +248,18 @@ const API_ENDPOINTS = {
     UPDATE: (id) => `/owner-investments?id=${id}`,
     DELETE: (id) => `/owner-investments?id=${id}`,
   },
+
+  // Payment Receipts endpoints
+  PAYMENT_RECEIPTS: {
+    LIST: "/payment-receipts",
+    CREATE: "/payment-receipts",
+    NEXT_NUMBER: "/payment-receipts?action=next-number",
+    AVAILABLE_ADVANCES: (clientRefId) =>
+      `/payment-receipts?action=available-advances&clientRefId=${encodeURIComponent(clientRefId || "")}`,
+    GET: (id) => `/payment-receipts?id=${id}`,
+    UPDATE: (id) => `/payment-receipts?id=${id}`,
+    DELETE: (id) => `/payment-receipts?id=${id}`,
+  },
 };
 
 export default API_ENDPOINTS;

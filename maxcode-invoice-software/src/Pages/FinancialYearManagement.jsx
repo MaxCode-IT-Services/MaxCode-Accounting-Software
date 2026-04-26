@@ -505,6 +505,11 @@ const FinancialYearManagement = () => {
       label: "Company Expense Format",
       width: 240,
     },
+    {
+      key: "paymentReceiptFormat",
+      label: "Payment Receipt Format",
+      width: 240,
+    },
     { key: "description", label: "Description", width: 200 },
     {
       key: "isDefaultDisplay",

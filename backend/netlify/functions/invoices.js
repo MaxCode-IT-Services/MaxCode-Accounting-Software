@@ -659,14 +659,56 @@ export async function handler(event) {
 
       const binding = await getInvoiceTermsBinding();
 
+      // Extract and remove appliedAdvances from invoiceData before insert
+      const appliedAdvances = Array.isArray(invoiceData.appliedAdvances)
+        ? invoiceData.appliedAdvances
+        : [];
+      delete invoiceData.appliedAdvances;
+
+      // Compute total advance adjusted
+      const advanceAdjustedTotal = appliedAdvances.reduce(
+        (sum, a) => sum + Number(a.appliedAmount || 0),
+        0,
+      );
+
+      const newInvoiceId = new ObjectId();
+
       const result = await invoicesCollection.insertOne({
-        _id: new ObjectId(),
+        _id: newInvoiceId,
         ...invoiceData,
+        appliedAdvances,
+        advanceAdjustedTotal,
         invoiceTermsVersion: binding?.version || "V1.0.0",
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
       });
+
+      // Update advance payment receipts with linked invoice info
+      if (appliedAdvances.length > 0) {
+        const paymentReceiptsCol = db.collection("payment_receipts");
+        for (const adv of appliedAdvances) {
+          if (!adv.advanceId || !ObjectId.isValid(adv.advanceId)) continue;
+          const advDoc = await paymentReceiptsCol.findOne({
+            _id: new ObjectId(adv.advanceId),
+            isDeleted: { $ne: true },
+          });
+          if (!advDoc) continue;
+          const newAdjusted =
+            Number(advDoc.adjustedAmount || 0) + Number(adv.appliedAmount || 0);
+          await paymentReceiptsCol.updateOne(
+            { _id: new ObjectId(adv.advanceId) },
+            {
+              $set: {
+                adjustedAmount: newAdjusted,
+                linkedInvoiceId: String(newInvoiceId),
+                linkedInvoiceNumber: invoiceData.invoiceNumber || "",
+                updatedAt: new Date(),
+              },
+            },
+          );
+        }
+      }
 
       invoiceMetaCache.value = null;
       invoiceMetaCache.expiresAt = 0;
@@ -713,6 +755,79 @@ export async function handler(event) {
             origin,
           );
         }
+      }
+
+      // Extract and handle appliedAdvances for update
+      const updatedAppliedAdvances = Array.isArray(invoiceData.appliedAdvances)
+        ? invoiceData.appliedAdvances
+        : null;
+      if (updatedAppliedAdvances !== null) {
+        delete invoiceData.appliedAdvances;
+      }
+
+      // If appliedAdvances changed, recalculate and sync advance records
+      if (updatedAppliedAdvances !== null) {
+        const paymentReceiptsCol = db.collection("payment_receipts");
+        // Fetch current invoice to diff advances
+        const currentInvoice = await invoicesCollection.findOne({
+          _id: invoiceObjectId,
+          isDeleted: { $ne: true },
+        });
+        const prevAdvances = Array.isArray(currentInvoice?.appliedAdvances)
+          ? currentInvoice.appliedAdvances
+          : [];
+
+        // Reverse previous adjustments for this invoice
+        for (const adv of prevAdvances) {
+          if (!adv.advanceId || !ObjectId.isValid(adv.advanceId)) continue;
+          const advDoc = await paymentReceiptsCol.findOne({
+            _id: new ObjectId(adv.advanceId),
+          });
+          if (!advDoc) continue;
+          const reversedAdjusted = Math.max(
+            0,
+            Number(advDoc.adjustedAmount || 0) - Number(adv.appliedAmount || 0),
+          );
+          await paymentReceiptsCol.updateOne(
+            { _id: new ObjectId(adv.advanceId) },
+            {
+              $set: { adjustedAmount: reversedAdjusted, updatedAt: new Date() },
+            },
+          );
+        }
+
+        // Apply new adjustments
+        for (const adv of updatedAppliedAdvances) {
+          if (!adv.advanceId || !ObjectId.isValid(adv.advanceId)) continue;
+          const advDoc = await paymentReceiptsCol.findOne({
+            _id: new ObjectId(adv.advanceId),
+            isDeleted: { $ne: true },
+          });
+          if (!advDoc) continue;
+          const newAdjusted =
+            Number(advDoc.adjustedAmount || 0) + Number(adv.appliedAmount || 0);
+          await paymentReceiptsCol.updateOne(
+            { _id: new ObjectId(adv.advanceId) },
+            {
+              $set: {
+                adjustedAmount: newAdjusted,
+                linkedInvoiceId: id,
+                linkedInvoiceNumber:
+                  invoiceData.invoiceNumber ||
+                  currentInvoice?.invoiceNumber ||
+                  "",
+                updatedAt: new Date(),
+              },
+            },
+          );
+        }
+
+        const advanceAdjustedTotal = updatedAppliedAdvances.reduce(
+          (sum, a) => sum + Number(a.appliedAmount || 0),
+          0,
+        );
+        invoiceData.appliedAdvances = updatedAppliedAdvances;
+        invoiceData.advanceAdjustedTotal = advanceAdjustedTotal;
       }
 
       const result = await invoicesCollection.updateOne(

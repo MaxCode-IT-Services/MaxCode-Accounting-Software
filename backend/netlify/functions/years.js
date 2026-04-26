@@ -145,6 +145,7 @@ export async function handler(event) {
             "serviceFormat",
             "projectFormat",
             "companyExpenseFormat",
+            "paymentReceiptFormat",
           ].includes(key)
         ) {
           filterQuery[key] = String(value).trim();
@@ -240,6 +241,7 @@ export async function handler(event) {
               { serviceFormat: { $regex: search, $options: "i" } },
               { projectFormat: { $regex: search, $options: "i" } },
               { companyExpenseFormat: { $regex: search, $options: "i" } },
+              { paymentReceiptFormat: { $regex: search, $options: "i" } },
               { description: { $regex: search, $options: "i" } },
             ],
           },
@@ -418,6 +420,12 @@ export async function handler(event) {
             "Company Expense Format already exists. Please use a unique format.",
         },
         {
+          field: "paymentReceiptFormat",
+          value: payload.paymentReceiptFormat,
+          message:
+            "Payment Receipt Format already exists. Please use a unique format.",
+        },
+        {
           field: "startDate",
           value: payload.startDate,
           message: "Start Date already exists. Please use a unique start date.",
@@ -549,6 +557,12 @@ export async function handler(event) {
           value: payload.companyExpenseFormat,
           message:
             "Company Expense Format already exists. Please use a unique format.",
+        },
+        {
+          field: "paymentReceiptFormat",
+          value: payload.paymentReceiptFormat,
+          message:
+            "Payment Receipt Format already exists. Please use a unique format.",
         },
         {
           field: "startDate",
