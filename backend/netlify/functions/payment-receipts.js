@@ -76,6 +76,14 @@ const derivePaymentStatus = (totalAmount, receivedAmount) => {
   return "Partial";
 };
 
+const deriveDebitNotePaymentStatus = (totalAmount, receivedAmount) => {
+  const total = toNumber(totalAmount);
+  const received = toNumber(receivedAmount);
+  if (received <= 0) return "Unpaid";
+  if (total > 0 && received >= total) return "Paid";
+  return "Partial";
+};
+
 const getLatestAdvanceMeta = (appliedAdvances = []) => {
   const candidates = (appliedAdvances || [])
     .filter((adv) => toNumber(adv.appliedAmount) > 0)
@@ -482,6 +490,55 @@ export async function handler(event) {
         );
       }
 
+      if (action === "available-debit-notes") {
+        if (!clientRefId) {
+          return createResponse(
+            400,
+            { error: "clientRefId is required" },
+            origin,
+          );
+        }
+
+        const notes = await db
+          .collection("creditDebitNotes")
+          .find({
+            isDeleted: { $ne: true },
+            noteType: "Debit Note",
+            $or: [{ clientId: clientRefId }, { clientRefId }],
+            status: { $ne: "Cancelled" },
+          })
+          .sort({ noteDate: 1, createdAt: 1 })
+          .toArray();
+
+        const records = notes
+          .map((note) => {
+            const totalAmount = toNumber(note.totalAmount || note.amount);
+            const receivedAmount = toNumber(note.receivedAmount || 0);
+            const dueAmount = Math.max(0, totalAmount - receivedAmount);
+            return {
+              id: String(note._id),
+              noteId: String(note._id),
+              noteNumber: note.noteNumber || "",
+              noteDate: note.noteDate || "",
+              totalAmount,
+              receivedAmount,
+              dueAmount,
+              paymentStatus:
+                note.paymentStatus ||
+                deriveDebitNotePaymentStatus(totalAmount, receivedAmount),
+              paymentDate: note.paymentDate || "",
+              paymentMethod: note.paymentMethod || "",
+            };
+          })
+          .filter((note) => note.dueAmount > 0);
+
+        return createResponse(
+          200,
+          { records, total: records.length },
+          origin,
+        );
+      }
+
       // ── single record ────────────────────────────────────────────────────
       if (id) {
         if (!ObjectId.isValid(id)) {
@@ -616,6 +673,7 @@ export async function handler(event) {
           { paymentMethod: searchRegex },
           { note: searchRegex },
           { purpose: searchRegex },
+          { debitNoteNumber: searchRegex },
         ];
       }
 
@@ -740,10 +798,13 @@ export async function handler(event) {
         purpose,
         note,
         paymentType = "regular", // "regular" | "advance"
+        againstType = "invoice",
         invoiceId,
         invoiceNumber,
         invoiceIds,
         invoiceNumbers,
+        debitNoteId,
+        debitNoteNumber,
         financialYear: suppliedFY,
       } = body;
 
@@ -828,11 +889,22 @@ export async function handler(event) {
         ...(invoiceId || invoiceNumber ? [{ invoiceId, invoiceNumber }] : []),
       ];
 
+      const normalizedAgainstType =
+        String(againstType || "").toLowerCase() === "debit_note"
+          ? "debit_note"
+          : "invoice";
+
       let regularDocAmount = numAmount;
       let regularInvoiceAllocations = [];
       let overflowAdvanceAmount = 0;
+      let selectedDebitNote = null;
+      let debitNoteAppliedAmount = 0;
 
-      if (normalizedPaymentType === "regular" && invoiceRefs.length > 0) {
+      if (
+        normalizedPaymentType === "regular" &&
+        normalizedAgainstType === "invoice" &&
+        invoiceRefs.length > 0
+      ) {
         const allocationInvoices = await resolveInvoicesForAllocation(db, {
           clientRefId,
           invoiceRefs,
@@ -859,6 +931,52 @@ export async function handler(event) {
         }
       }
 
+      if (normalizedPaymentType === "regular" && normalizedAgainstType === "debit_note") {
+        if (!debitNoteId && !debitNoteNumber) {
+          return createResponse(
+            400,
+            { error: "Debit note selection is required for debit note receipts." },
+            origin,
+          );
+        }
+
+        const debitNotesCol = db.collection("creditDebitNotes");
+        const debitNoteQuery = {
+          isDeleted: { $ne: true },
+          noteType: "Debit Note",
+          $or: [{ clientId: clientRefId }, { clientRefId }],
+        };
+        if (debitNoteId && ObjectId.isValid(debitNoteId)) {
+          debitNoteQuery._id = new ObjectId(debitNoteId);
+        } else if (debitNoteNumber) {
+          debitNoteQuery.noteNumber = debitNoteNumber;
+        } else {
+          return createResponse(400, { error: "Invalid debit note reference" }, origin);
+        }
+
+        selectedDebitNote = await debitNotesCol.findOne(debitNoteQuery);
+        if (!selectedDebitNote) {
+          return createResponse(404, { error: "Debit note not found for this client" }, origin);
+        }
+
+        const debitNoteTotal = toNumber(
+          selectedDebitNote.totalAmount || selectedDebitNote.amount,
+        );
+        const debitNoteReceived = toNumber(selectedDebitNote.receivedAmount || 0);
+        const debitNoteDue = Math.max(0, debitNoteTotal - debitNoteReceived);
+        if (debitNoteDue <= 0) {
+          return createResponse(
+            400,
+            { error: "Selected debit note is already fully paid." },
+            origin,
+          );
+        }
+
+        debitNoteAppliedAmount = Math.min(numAmount, debitNoteDue);
+        regularDocAmount = debitNoteAppliedAmount;
+        overflowAdvanceAmount = Math.max(0, numAmount - debitNoteAppliedAmount);
+      }
+
       const regularDoc = {
         receiptNumber,
         receiptDate,
@@ -879,7 +997,9 @@ export async function handler(event) {
           purpose ||
           (normalizedPaymentType === "advance"
             ? "Advance Payment"
-            : "Sales Invoice"),
+            : normalizedAgainstType === "debit_note"
+              ? "Debit Note Payment"
+              : "Sales Invoice"),
         note: note || "",
         paymentType: normalizedPaymentType,
         invoiceId:
@@ -907,6 +1027,17 @@ export async function handler(event) {
                 ? [invoiceNumber]
                 : [],
         invoiceAllocations: regularInvoiceAllocations,
+        againstType: normalizedAgainstType,
+        debitNoteId:
+          normalizedAgainstType === "debit_note" && selectedDebitNote
+            ? String(selectedDebitNote._id)
+            : debitNoteId || "",
+        debitNoteNumber:
+          normalizedAgainstType === "debit_note" && selectedDebitNote
+            ? selectedDebitNote.noteNumber || ""
+            : debitNoteNumber || "",
+        debitNoteAllocatedAmount:
+          normalizedAgainstType === "debit_note" ? debitNoteAppliedAmount : 0,
         financialYear,
         isDeleted: false,
         createdAt: now,
@@ -962,6 +1093,39 @@ export async function handler(event) {
           id: String(advanceInsertResult.insertedId),
           _id: advanceInsertResult.insertedId,
         });
+      }
+
+      if (
+        normalizedPaymentType === "regular" &&
+        normalizedAgainstType === "debit_note" &&
+        selectedDebitNote
+      ) {
+        const debitNotesCol = db.collection("creditDebitNotes");
+        const debitNoteTotal = toNumber(
+          selectedDebitNote.totalAmount || selectedDebitNote.amount,
+        );
+        const previousReceived = toNumber(selectedDebitNote.receivedAmount || 0);
+        const nextReceived = Math.min(
+          debitNoteTotal,
+          previousReceived + debitNoteAppliedAmount,
+        );
+        const nextPaymentStatus = deriveDebitNotePaymentStatus(
+          debitNoteTotal,
+          nextReceived,
+        );
+
+        await debitNotesCol.updateOne(
+          { _id: selectedDebitNote._id },
+          {
+            $set: {
+              paymentStatus: nextPaymentStatus,
+              paymentDate: receiptDate ? new Date(receiptDate) : now,
+              receivedAmount: nextReceived,
+              paymentMethod: normalizedRecord.paymentMethod || paymentMethod,
+              updatedAt: now,
+            },
+          },
+        );
       }
 
       receiptMetaCache.expiresAt = 0;
@@ -1039,9 +1203,17 @@ export async function handler(event) {
         }),
         ...(body.purpose !== undefined && { purpose: body.purpose }),
         ...(body.note !== undefined && { note: body.note }),
+        ...(body.againstType !== undefined && { againstType: body.againstType }),
         ...(body.invoiceId !== undefined && { invoiceId: body.invoiceId }),
         ...(body.invoiceNumber !== undefined && {
           invoiceNumber: body.invoiceNumber,
+        }),
+        ...(body.debitNoteId !== undefined && { debitNoteId: body.debitNoteId }),
+        ...(body.debitNoteNumber !== undefined && {
+          debitNoteNumber: body.debitNoteNumber,
+        }),
+        ...(body.debitNoteAllocatedAmount !== undefined && {
+          debitNoteAllocatedAmount: toNumber(body.debitNoteAllocatedAmount),
         }),
         ...(body.invoiceIds !== undefined && { invoiceIds: body.invoiceIds }),
         ...(body.invoiceNumbers !== undefined && {

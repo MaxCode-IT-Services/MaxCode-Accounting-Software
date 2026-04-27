@@ -46,6 +46,21 @@ const NOTE_TYPE_STATUSES = {
   "Debit Note": ["Draft", "Pending", "Approved", "Applied", "Cancelled"],
 };
 
+const REFUND_STATUS_OPTIONS = ["Full Refund", "Partial Refund", "Pending"];
+const PAYMENT_STATUS_OPTIONS = ["Paid", "Unpaid", "Partial"];
+const PAYMENT_METHOD_OPTIONS = [
+  "Cash",
+  "Bank Transfer",
+  "Card",
+  "UPI",
+  "Cheque",
+  "IMPS",
+  "RTGS",
+  "Zoho Payment Gateway",
+  "Cashfree Payment Gateway",
+  "PayU Payment Gateway",
+];
+
 const INITIAL_FORM_STATE = {
   invoiceId: "",
   invoiceNumber: "",
@@ -67,6 +82,15 @@ const INITIAL_FORM_STATE = {
   totalAmount: "",
   status: "",
   remarks: "",
+  refundStatus: "",
+  refundDate: "",
+  refundAmount: "",
+  refundMethod: "",
+  referenceNumber: "",
+  paymentStatus: "",
+  paymentDate: "",
+  receivedAmount: "",
+  paymentMethod: "",
 };
 
 const INDIAN_STATES = [
@@ -161,6 +185,13 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const sanitizeAmountText = (value) => {
+  const onlyAllowedChars = String(value || "").replace(/[^0-9.]/g, "");
+  const parts = onlyAllowedChars.split(".");
+  if (parts.length <= 1) return onlyAllowedChars;
+  return `${parts[0]}.${parts.slice(1).join("")}`;
+};
+
 const createAmountFallbackItem = (amount, itemName = "Adjustment") => ({
   ...DEFAULT_NOTE_ITEM,
   itemName,
@@ -181,6 +212,9 @@ const CreateCreditDebitNote = ({
   const [items, setItems] = useState([DEFAULT_NOTE_ITEM]);
   const [serviceOptions, setServiceOptions] = useState([]);
   const [errors, setErrors] = useState({});
+  const [availableAdvances, setAvailableAdvances] = useState([]);
+  const [appliedAdvances, setAppliedAdvances] = useState([]);
+  const [isLoadingAdvances, setIsLoadingAdvances] = useState(false);
   const [financialYearDates, setFinancialYearDates] = useState({
     startDate: null,
     endDate: null,
@@ -251,6 +285,25 @@ const CreateCreditDebitNote = ({
         totalAmount: String(totalAmount || ""),
         status: editingRecord.status || "",
         remarks: editingRecord.remarks || "",
+        refundStatus: editingRecord.refundStatus || "",
+        refundDate: editingRecord.refundDate
+          ? String(editingRecord.refundDate).slice(0, 10)
+          : "",
+        refundAmount:
+          editingRecord.refundAmount !== undefined
+            ? String(editingRecord.refundAmount)
+            : "",
+        refundMethod: editingRecord.refundMethod || "",
+        referenceNumber: editingRecord.referenceNumber || "",
+        paymentStatus: editingRecord.paymentStatus || "",
+        paymentDate: editingRecord.paymentDate
+          ? String(editingRecord.paymentDate).slice(0, 10)
+          : "",
+        receivedAmount:
+          editingRecord.receivedAmount !== undefined
+            ? String(editingRecord.receivedAmount)
+            : "",
+        paymentMethod: editingRecord.paymentMethod || "",
       });
       setItems(
         Array.isArray(editingRecord.items) && editingRecord.items.length > 0
@@ -272,15 +325,88 @@ const CreateCreditDebitNote = ({
             })
           : [createAmountFallbackItem(amount)],
       );
+      setAppliedAdvances(
+        Array.isArray(editingRecord.appliedAdvances)
+          ? editingRecord.appliedAdvances.map((a) => ({
+              advanceId: a.advanceId || a.id || "",
+              receiptNumber: a.receiptNumber || "",
+              appliedAmount: toNumber(a.appliedAmount),
+              maxAmount: toNumber(a.maxAmount || a.appliedAmount),
+              paymentMethod: a.paymentMethod || "",
+              receiptDate: a.receiptDate || "",
+            }))
+          : [],
+      );
     } else {
       setFormData({
         ...INITIAL_FORM_STATE,
         noteDate: getTodayDateString(),
       });
       setItems([DEFAULT_NOTE_ITEM]);
+      setAppliedAdvances([]);
+      setAvailableAdvances([]);
       setErrors({});
     }
   }, [editingRecord, show]);
+
+  useEffect(() => {
+    if (!show || formData.noteType !== "Debit Note" || !formData.clientId) {
+      setAvailableAdvances([]);
+      return;
+    }
+
+    const fetchAdvances = async () => {
+      setIsLoadingAdvances(true);
+      try {
+        const res = await apiGet(
+          API_ENDPOINTS.PAYMENT_RECEIPTS.AVAILABLE_ADVANCES(formData.clientId),
+        );
+        const advances = Array.isArray(res?.data?.advances) ? res.data.advances : [];
+        setAvailableAdvances(advances);
+      } catch {
+        setAvailableAdvances([]);
+      } finally {
+        setIsLoadingAdvances(false);
+      }
+    };
+
+    fetchAdvances();
+  }, [show, formData.noteType, formData.clientId]);
+
+  useEffect(() => {
+    if (formData.noteType !== "Debit Note") return;
+    const totalAmount = toNumber(formData.totalAmount);
+    const advanceTotal = appliedAdvances.reduce(
+      (sum, adv) => sum + toNumber(adv.appliedAmount),
+      0,
+    );
+    const cappedReceived = Math.min(totalAmount, advanceTotal);
+    const paymentStatus =
+      cappedReceived <= 0 ? "Unpaid" : cappedReceived >= totalAmount ? "Paid" : "Partial";
+    const latestAdvance = [...appliedAdvances]
+      .filter((adv) => toNumber(adv.appliedAmount) > 0)
+      .sort(
+        (a, b) =>
+          new Date(a.receiptDate || 0).getTime() - new Date(b.receiptDate || 0).getTime(),
+      )
+      .pop();
+
+    setFormData((prev) => ({
+      ...prev,
+      receivedAmount: String(cappedReceived > 0 ? cappedReceived : ""),
+      paymentStatus: prev.paymentStatus || paymentStatus,
+      paymentDate:
+        cappedReceived > 0 && !prev.paymentDate
+          ? latestAdvance?.receiptDate
+            ? String(latestAdvance.receiptDate).slice(0, 10)
+            : prev.noteDate
+          : prev.paymentDate,
+      paymentMethod:
+        cappedReceived > 0 && !prev.paymentMethod
+          ? latestAdvance?.paymentMethod || prev.paymentMethod
+          : prev.paymentMethod,
+    }));
+  }, [appliedAdvances, formData.noteType, formData.totalAmount, formData.noteDate]);
 
   useEffect(() => {
     if (!show || editingRecord || !formData.noteType) return;
@@ -565,6 +691,14 @@ const CreateCreditDebitNote = ({
       return;
     }
 
+    if (name === "refundAmount" || name === "receivedAmount") {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: sanitizeAmountText(value),
+      }));
+      return;
+    }
+
     if (name === "noGSTIN") {
       setFormData((prev) => ({
         ...prev,
@@ -627,6 +761,14 @@ const CreateCreditDebitNote = ({
     if (!formData.reasonAdjustmentType.trim())
       nextErrors.reasonAdjustmentType = "Reason / adjustment type is required";
     if (!formData.status.trim()) nextErrors.status = "Status is required";
+    if (formData.noteType === "Credit Note") {
+      if (!formData.refundStatus.trim())
+        nextErrors.refundStatus = "Refund status is required";
+    }
+    if (formData.noteType === "Debit Note") {
+      if (!formData.paymentStatus.trim())
+        nextErrors.paymentStatus = "Payment status is required";
+    }
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -690,6 +832,21 @@ const CreateCreditDebitNote = ({
       taxRate: amounts.taxRate,
       taxAmount: amounts.taxAmount,
       totalAmount: amounts.totalAmount,
+      refundAmount: toNumber(formData.refundAmount),
+      receivedAmount: toNumber(formData.receivedAmount),
+      appliedAdvances:
+        formData.noteType === "Debit Note"
+          ? appliedAdvances
+              .filter((adv) => toNumber(adv.appliedAmount) > 0)
+              .map((adv) => ({
+                advanceId: adv.advanceId,
+                receiptNumber: adv.receiptNumber,
+                appliedAmount: toNumber(adv.appliedAmount),
+                maxAmount: toNumber(adv.maxAmount),
+                paymentMethod: adv.paymentMethod || "",
+                receiptDate: adv.receiptDate || "",
+              }))
+          : [],
       noteDate: formData.noteDate,
       id: editingRecord?.id || editingRecord?._id || null,
     });
@@ -1315,6 +1472,128 @@ const CreateCreditDebitNote = ({
                   )}
                 </div>
 
+                {formData.noteType === "Debit Note" && formData.invoiceId && (
+                  <div className="col-12 mb-3">
+                    <div className="card shadow-sm border-0">
+                      <div className="card-header bg-info text-white">
+                        <h6 className="mb-0">
+                          <i className="fas fa-wallet me-2"></i>
+                          Advance Amount Adjustment
+                        </h6>
+                      </div>
+                      <div className="card-body">
+                        {isLoadingAdvances ? (
+                          <div className="text-muted small">Loading advances...</div>
+                        ) : availableAdvances.length === 0 ? (
+                          <div className="text-muted small">
+                            No available advance amount for this client.
+                          </div>
+                        ) : (
+                          <div className="table-responsive">
+                            <table className="table table-sm table-bordered align-middle mb-0">
+                              <thead>
+                                <tr>
+                                  <th>Apply</th>
+                                  <th>Receipt No.</th>
+                                  <th>Date</th>
+                                  <th>Available</th>
+                                  <th>Apply Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {availableAdvances.map((adv) => {
+                                  const key = String(adv.id || "");
+                                  const entry = appliedAdvances.find(
+                                    (item) => String(item.advanceId) === key,
+                                  );
+                                  const checked = Boolean(entry);
+                                  return (
+                                    <tr key={key}>
+                                      <td className="text-center">
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          disabled={isViewMode}
+                                          onChange={(event) => {
+                                            if (event.target.checked) {
+                                              setAppliedAdvances((prev) => [
+                                                ...prev,
+                                                {
+                                                  advanceId: key,
+                                                  receiptNumber: adv.receiptNumber || "",
+                                                  appliedAmount: toNumber(
+                                                    adv.availableAmount,
+                                                  ),
+                                                  maxAmount: toNumber(
+                                                    adv.availableAmount,
+                                                  ),
+                                                  paymentMethod:
+                                                    adv.paymentMethod || "",
+                                                  receiptDate: adv.receiptDate || "",
+                                                },
+                                              ]);
+                                            } else {
+                                              setAppliedAdvances((prev) =>
+                                                prev.filter(
+                                                  (item) =>
+                                                    String(item.advanceId) !== key,
+                                                ),
+                                              );
+                                            }
+                                          }}
+                                        />
+                                      </td>
+                                      <td>{adv.receiptNumber || "-"}</td>
+                                      <td>
+                                        {adv.receiptDate
+                                          ? String(adv.receiptDate).slice(0, 10)
+                                          : "-"}
+                                      </td>
+                                      <td>
+                                        ₹
+                                        {toNumber(
+                                          adv.availableAmount,
+                                        ).toLocaleString("en-IN")}
+                                      </td>
+                                      <td style={{ width: "180px" }}>
+                                        <input
+                                          type="number"
+                                          className="form-control form-control-sm"
+                                          disabled={!checked || isViewMode}
+                                          min="0"
+                                          max={toNumber(adv.availableAmount)}
+                                          step="0.01"
+                                          value={entry?.appliedAmount || ""}
+                                          onChange={(event) => {
+                                            const raw = toNumber(
+                                              event.target.value,
+                                            );
+                                            const next = Math.min(
+                                              toNumber(adv.availableAmount),
+                                              Math.max(0, raw),
+                                            );
+                                            setAppliedAdvances((prev) =>
+                                              prev.map((item) =>
+                                                String(item.advanceId) === key
+                                                  ? { ...item, appliedAmount: next }
+                                                  : item,
+                                              ),
+                                            );
+                                          }}
+                                        />
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="col-md-6 mb-3">
                   <div
                     className="card shadow-sm border-0 h-90"
@@ -1335,7 +1614,7 @@ const CreateCreditDebitNote = ({
                         onChange={handleInputChange}
                         readOnly={isViewMode}
                         placeholder="Optional remarks"
-                        style={{ minHeight: "195px" }}
+                        style={{ minHeight: "285px" }}
                       />
                     </div>
                   </div>
@@ -1354,7 +1633,7 @@ const CreateCreditDebitNote = ({
                     </div>
                     <div className="card-body">
                       <div className="row">
-                        <div className="col-6 mb-3">
+                        <div className="col-md-4 mb-3">
                           <label
                             htmlFor="amount"
                             className="form-label fw-bold"
@@ -1362,7 +1641,7 @@ const CreateCreditDebitNote = ({
                             Subtotal Amount
                           </label>
                           <div className="input-group">
-                            <span className="input-group-text bg-info text-white">
+                            <span className="input-group-text uniform-group-icon bg-info text-white">
                               ₹
                             </span>
                             <input
@@ -1376,7 +1655,7 @@ const CreateCreditDebitNote = ({
                           </div>
                         </div>
 
-                        <div className="col-6 mb-3">
+                        <div className="col-md-4 mb-3">
                           <label
                             htmlFor="taxRate"
                             className="form-label fw-bold"
@@ -1384,7 +1663,7 @@ const CreateCreditDebitNote = ({
                             Tax Percentage
                           </label>
                           <div className="input-group">
-                            <span className="input-group-text bg-warning text-white">
+                            <span className="input-group-text uniform-group-icon bg-warning text-white">
                               %
                             </span>
                             <input
@@ -1402,7 +1681,7 @@ const CreateCreditDebitNote = ({
                           </div>
                         </div>
 
-                        <div className="col-6 mb-3">
+                        <div className="col-md-4 mb-3">
                           <label
                             htmlFor="taxAmount"
                             className="form-label fw-bold"
@@ -1410,7 +1689,7 @@ const CreateCreditDebitNote = ({
                             Tax Amount
                           </label>
                           <div className="input-group">
-                            <span className="input-group-text bg-success text-white">
+                            <span className="input-group-text uniform-group-icon bg-success text-white">
                               ₹
                             </span>
                             <input
@@ -1424,7 +1703,7 @@ const CreateCreditDebitNote = ({
                           </div>
                         </div>
 
-                        <div className="col-6 mb-3">
+                        <div className="col-md-4 mb-3">
                           <label
                             htmlFor="totalAmount"
                             className="form-label fw-bold"
@@ -1432,7 +1711,7 @@ const CreateCreditDebitNote = ({
                             Total Amount
                           </label>
                           <div className="input-group">
-                            <span className="input-group-text bg-danger text-white">
+                            <span className="input-group-text uniform-group-icon bg-danger text-white">
                               ₹
                             </span>
                             <input
@@ -1445,6 +1724,242 @@ const CreateCreditDebitNote = ({
                             />
                           </div>
                         </div>
+
+                        {formData.noteType === "Credit Note" && (
+                          <>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label fw-bold">
+                                Refund Status
+                              </label>
+                              <div className="input-group">
+                                <span className="input-group-text uniform-group-icon bg-primary text-white">
+                                  <i className="fas fa-circle-check"></i>
+                                </span>
+                                <select
+                                  className={`form-select modern-input ${errors.refundStatus ? "is-invalid" : ""}`}
+                                  name="refundStatus"
+                                  value={formData.refundStatus}
+                                  onChange={handleInputChange}
+                                  disabled={isViewMode}
+                                >
+                                  <option value="">Select Refund Status</option>
+                                  {REFUND_STATUS_OPTIONS.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option === "Full Refund"
+                                        ? "✓ Full Refund"
+                                        : option === "Partial Refund"
+                                          ? "⧗ Partial Refund"
+                                          : "✗ Pending"}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label fw-bold">
+                                Refund Date
+                              </label>
+                              <input
+                                type="date"
+                                className="form-control modern-input"
+                                name="refundDate"
+                                value={formData.refundDate}
+                                onChange={handleInputChange}
+                                readOnly={isViewMode}
+                                disabled={isViewMode}
+                              />
+                            </div>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label fw-bold">
+                                Refund Amount
+                              </label>
+                              <div className="input-group">
+                                <span className="input-group-text uniform-group-icon bg-success text-white">
+                                  ₹
+                                </span>
+                                <input
+                                  type="text"
+                                  className="form-control modern-input"
+                                  name="refundAmount"
+                                  value={formData.refundAmount}
+                                  onChange={handleInputChange}
+                                  readOnly={isViewMode}
+                                  inputMode="decimal"
+                                  placeholder="0.00"
+                                />
+                              </div>
+                            </div>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label fw-bold">
+                                Refund Method
+                              </label>
+                              <div className="input-group">
+                                <span className="input-group-text uniform-group-icon bg-warning text-white">
+                                  <i className="fas fa-money-check-dollar"></i>
+                                </span>
+                                <select
+                                  className="form-select modern-input"
+                                  name="refundMethod"
+                                  value={formData.refundMethod}
+                                  onChange={handleInputChange}
+                                  disabled={isViewMode}
+                                >
+                                  <option value="">Select Refund Method</option>
+                                  {PAYMENT_METHOD_OPTIONS.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option === "Cash"
+                                        ? "💵 Cash"
+                                        : option === "Bank Transfer"
+                                          ? "🏦 Bank Transfer"
+                                          : option === "Card"
+                                            ? "💳 Card"
+                                            : option === "UPI"
+                                              ? "📱 UPI"
+                                              : option === "Cheque"
+                                                ? "📝 Cheque"
+                                                : option === "IMPS"
+                                                  ? "🏦 IMPS"
+                                                  : option === "RTGS"
+                                                    ? "🏦 RTGS"
+                                                    : option ===
+                                                          "Zoho Payment Gateway"
+                                                      ? "🌐 Zoho Payment Gateway"
+                                                      : option ===
+                                                            "Cashfree Payment Gateway"
+                                                        ? "🌐 Cashfree Payment Gateway"
+                                                        : "🌐 PayU Payment Gateway"}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label fw-bold">
+                                Reference Number
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                name="referenceNumber"
+                                value={formData.referenceNumber}
+                                onChange={handleInputChange}
+                                readOnly={isViewMode}
+                                placeholder="Transaction reference"
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {formData.noteType === "Debit Note" && (
+                          <>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label fw-bold">
+                                Payment Status
+                              </label>
+                              <div className="input-group">
+                                <span className="input-group-text uniform-group-icon bg-primary text-white">
+                                  <i className="fas fa-circle-check"></i>
+                                </span>
+                                <select
+                                  className={`form-select modern-input ${errors.paymentStatus ? "is-invalid" : ""}`}
+                                  name="paymentStatus"
+                                  value={formData.paymentStatus}
+                                  onChange={handleInputChange}
+                                  disabled={isViewMode}
+                                >
+                                  <option value="">Select Payment Status</option>
+                                  {PAYMENT_STATUS_OPTIONS.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option === "Paid"
+                                        ? "✓ Paid"
+                                        : option === "Unpaid"
+                                          ? "✗ Unpaid"
+                                          : "⧗ Partial"}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label fw-bold">
+                                Payment Date
+                              </label>
+                              <input
+                                type="date"
+                                className="form-control modern-input"
+                                name="paymentDate"
+                                value={formData.paymentDate}
+                                onChange={handleInputChange}
+                                readOnly={isViewMode}
+                                disabled={isViewMode}
+                              />
+                            </div>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label fw-bold">
+                                Recived Amount
+                              </label>
+                              <div className="input-group">
+                                <span className="input-group-text uniform-group-icon bg-success text-white">
+                                  ₹
+                                </span>
+                                <input
+                                  type="text"
+                                  className="form-control modern-input"
+                                  name="receivedAmount"
+                                  value={formData.receivedAmount}
+                                  onChange={handleInputChange}
+                                  readOnly={isViewMode}
+                                  inputMode="decimal"
+                                  placeholder="0.00"
+                                />
+                              </div>
+                            </div>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label fw-bold">
+                                Payment Method
+                              </label>
+                              <div className="input-group">
+                                <span className="input-group-text uniform-group-icon bg-warning text-white">
+                                  <i className="fas fa-money-check-dollar"></i>
+                                </span>
+                                <select
+                                  className="form-select modern-input"
+                                  name="paymentMethod"
+                                  value={formData.paymentMethod}
+                                  onChange={handleInputChange}
+                                  disabled={isViewMode}
+                                >
+                                  <option value="">Select Payment Method</option>
+                                  {PAYMENT_METHOD_OPTIONS.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option === "Cash"
+                                        ? "💵 Cash"
+                                        : option === "Bank Transfer"
+                                          ? "🏦 Bank Transfer"
+                                          : option === "Card"
+                                            ? "💳 Card"
+                                            : option === "UPI"
+                                              ? "📱 UPI"
+                                              : option === "Cheque"
+                                                ? "📝 Cheque"
+                                                : option === "IMPS"
+                                                  ? "🏦 IMPS"
+                                                  : option === "RTGS"
+                                                    ? "🏦 RTGS"
+                                                    : option ===
+                                                          "Zoho Payment Gateway"
+                                                      ? "🌐 Zoho Payment Gateway"
+                                                      : option ===
+                                                            "Cashfree Payment Gateway"
+                                                        ? "🌐 Cashfree Payment Gateway"
+                                                        : "🌐 PayU Payment Gateway"}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1484,6 +1999,14 @@ const CreateCreditDebitNote = ({
           height: 15px;
           margin-right: 8px;
           border-radius: 2px;
+        }
+
+        .uniform-group-icon {
+          width: 44px;
+          min-width: 44px;
+          justify-content: center;
+          padding-left: 0;
+          padding-right: 0;
         }
       `}</style>
     </div>

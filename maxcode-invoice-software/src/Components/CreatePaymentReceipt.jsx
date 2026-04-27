@@ -30,10 +30,13 @@ const emptyForm = {
   purpose: "",
   note: "",
   paymentType: "regular",
+  againstType: "invoice",
   invoiceId: "",
   invoiceNumber: "",
   invoiceIds: [],
   invoiceNumbers: [],
+  debitNoteId: "",
+  debitNoteNumber: "",
   financialYear: "",
 };
 
@@ -87,6 +90,8 @@ const CreatePaymentReceipt = ({
   const [isGeneratingNumber, setIsGeneratingNumber] = useState(false);
   const [invoiceOptions, setInvoiceOptions] = useState([]);
   const [isInvoiceLoading, setIsInvoiceLoading] = useState(false);
+  const [debitNoteOptions, setDebitNoteOptions] = useState([]);
+  const [isDebitNoteLoading, setIsDebitNoteLoading] = useState(false);
 
   const toNumber = (value) => {
     const parsed = Number.parseFloat(value);
@@ -132,6 +137,7 @@ const CreatePaymentReceipt = ({
         email: editingRecord.email || "",
         address: editingRecord.address || "",
         paymentType: editingRecord.paymentType || defaultPaymentType,
+        againstType: editingRecord.againstType || "invoice",
         invoiceId: editingRecord.invoiceId || "",
         invoiceNumber: editingRecord.invoiceNumber || "",
         invoiceIds:
@@ -158,6 +164,8 @@ const CreatePaymentReceipt = ({
               : editingRecord.invoiceNumber
                 ? [editingRecord.invoiceNumber]
                 : [],
+        debitNoteId: editingRecord.debitNoteId || "",
+        debitNoteNumber: editingRecord.debitNoteNumber || "",
         financialYear: editingRecord.financialYear || "",
       }));
     } else {
@@ -303,6 +311,50 @@ const CreatePaymentReceipt = ({
     formData.invoiceIds,
     formData.invoiceNumber,
     formData.invoiceNumbers,
+    editingRecord,
+  ]);
+
+  useEffect(() => {
+    if (
+      !formData.clientRefId ||
+      formData.paymentType !== "regular" ||
+      formData.againstType !== "debit_note"
+    ) {
+      setDebitNoteOptions([]);
+      return;
+    }
+
+    const fetchDebitNotes = async () => {
+      setIsDebitNoteLoading(true);
+      try {
+        const url = `${API_ENDPOINTS.PAYMENT_RECEIPTS.LIST}?action=available-debit-notes&clientRefId=${encodeURIComponent(formData.clientRefId)}`;
+        const res = await apiGet(url);
+        const all =
+          res?.data?.records ||
+          res?.data?.data ||
+          (Array.isArray(res?.data) ? res.data : []);
+        const options = all.map((note) => ({
+          value: note.id || note.noteId,
+          noteNumber: note.noteNumber || "",
+          dueAmount: toNumber(note.dueAmount || 0),
+          totalAmount: toNumber(note.totalAmount || 0),
+          receivedAmount: toNumber(note.receivedAmount || 0),
+          label: `${note.noteNumber} — Due ₹${toNumber(note.dueAmount || 0).toLocaleString("en-IN")} / Total ₹${toNumber(note.totalAmount || 0).toLocaleString("en-IN")}`,
+        }));
+        setDebitNoteOptions(options);
+      } catch (err) {
+        console.error("Failed to fetch debit notes:", err);
+        setDebitNoteOptions([]);
+      } finally {
+        setIsDebitNoteLoading(false);
+      }
+    };
+
+    fetchDebitNotes();
+  }, [
+    formData.clientRefId,
+    formData.paymentType,
+    formData.againstType,
     editingRecord,
   ]);
 
@@ -454,6 +506,8 @@ const CreatePaymentReceipt = ({
         invoiceNumber: "",
         invoiceIds: [],
         invoiceNumbers: [],
+        debitNoteId: "",
+        debitNoteNumber: "",
         amount: prev.paymentType === "regular" ? "" : prev.amount,
       }));
       return;
@@ -471,6 +525,8 @@ const CreatePaymentReceipt = ({
       invoiceNumber: "",
       invoiceIds: [],
       invoiceNumbers: [],
+      debitNoteId: "",
+      debitNoteNumber: "",
       amount: prev.paymentType === "regular" ? "" : prev.amount,
     }));
     if (errors.clientName) setErrors((prev) => ({ ...prev, clientName: "" }));
@@ -486,12 +542,30 @@ const CreatePaymentReceipt = ({
     setFormData((prev) => ({
       ...prev,
       paymentType: type,
+      againstType: "invoice",
       invoiceId: "",
       invoiceNumber: "",
       invoiceIds: [],
       invoiceNumbers: [],
+      debitNoteId: "",
+      debitNoteNumber: "",
       amount: "",
       purpose: type === "advance" ? "Advance Payment" : "",
+    }));
+  };
+
+  const handleAgainstTypeChange = (type) => {
+    setFormData((prev) => ({
+      ...prev,
+      againstType: type,
+      invoiceId: "",
+      invoiceNumber: "",
+      invoiceIds: [],
+      invoiceNumbers: [],
+      debitNoteId: "",
+      debitNoteNumber: "",
+      amount: "",
+      purpose: "",
     }));
   };
 
@@ -527,6 +601,32 @@ const CreatePaymentReceipt = ({
     }));
   };
 
+  const handleDebitNoteSelectionChange = (selectedOption) => {
+    if (!selectedOption) {
+      setFormData((prev) => ({
+        ...prev,
+        debitNoteId: "",
+        debitNoteNumber: "",
+        amount: "",
+        purpose: "",
+      }));
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      debitNoteId: selectedOption.value,
+      debitNoteNumber: selectedOption.noteNumber || "",
+      amount:
+        toNumber(selectedOption.dueAmount || 0) > 0
+          ? String(toNumber(selectedOption.dueAmount || 0))
+          : "",
+      purpose: selectedOption.noteNumber
+        ? `Against Debit Note ${selectedOption.noteNumber}`
+        : "Against Debit Note",
+    }));
+  };
+
   const validate = () => {
     const errs = {};
     if (!formData.clientName && !formData.clientRefId)
@@ -547,6 +647,13 @@ const CreatePaymentReceipt = ({
     const amt = Number(formData.amount);
     if (!formData.amount || isNaN(amt) || amt <= 0)
       errs.amount = "Amount must be a positive number";
+    if (
+      formData.paymentType === "regular" &&
+      formData.againstType === "debit_note" &&
+      !formData.debitNoteId
+    ) {
+      errs.amount = errs.amount || "Please select a debit note";
+    }
     if (!formData.paymentMethod)
       errs.paymentMethod = "Payment method is required";
     return errs;
@@ -610,6 +717,9 @@ const CreatePaymentReceipt = ({
         invoiceNumbers: normalizedInvoiceNumbers,
         invoiceId: normalizedInvoiceIds[0] || "",
         invoiceNumber: normalizedInvoiceNumbers[0] || "",
+        againstType: formData.againstType || "invoice",
+        debitNoteId: formData.debitNoteId || "",
+        debitNoteNumber: formData.debitNoteNumber || "",
       };
 
       let res;
@@ -724,6 +834,9 @@ const CreatePaymentReceipt = ({
       : [];
   const selectedInvoiceOptions = invoiceOptions.filter((option) =>
     selectedInvoiceIds.map((id) => String(id)).includes(String(option.value)),
+  );
+  const selectedDebitNoteOption = debitNoteOptions.find(
+    (option) => String(option.value) === String(formData.debitNoteId || ""),
   );
 
   if (!show) return null;
@@ -994,8 +1107,35 @@ const CreatePaymentReceipt = ({
                       </>
                     )}
 
-                    {/* Invoice link — only for regular payments */}
+                    {/* Against Type + link — only for regular payments */}
                     {formData.paymentType === "regular" && (
+                      <div className="col-md-6">
+                        <label className="form-label">
+                          <i className="fas fa-link me-2 text-primary"></i>
+                          Against Type
+                        </label>
+                        <div className="d-flex gap-2">
+                          <button
+                            type="button"
+                            className={`btn flex-fill ${formData.againstType !== "debit_note" ? "btn-success" : "btn-outline-secondary"}`}
+                            onClick={() => handleAgainstTypeChange("invoice")}
+                            disabled={readOnly}
+                          >
+                            Invoice
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn flex-fill ${formData.againstType === "debit_note" ? "btn-warning" : "btn-outline-secondary"}`}
+                            onClick={() => handleAgainstTypeChange("debit_note")}
+                            disabled={readOnly}
+                          >
+                            Debit Note
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {formData.paymentType === "regular" &&
+                      formData.againstType !== "debit_note" && (
                       <div className="col-md-6">
                         <label className="form-label">
                           <i className="fas fa-file-invoice-dollar me-2 text-primary"></i>
@@ -1042,6 +1182,39 @@ const CreatePaymentReceipt = ({
                         )}
                       </div>
                     )}
+                    {formData.paymentType === "regular" &&
+                      formData.againstType === "debit_note" && (
+                        <div className="col-md-6">
+                          <label className="form-label">
+                            <i className="fas fa-file-invoice-dollar me-2 text-primary"></i>
+                            Debit Note Number{" "}
+                            <span className="text-danger">*</span>
+                          </label>
+                          <Select
+                            options={debitNoteOptions}
+                            value={selectedDebitNoteOption || null}
+                            onChange={handleDebitNoteSelectionChange}
+                            isMulti={false}
+                            isLoading={isDebitNoteLoading}
+                            isClearable={false}
+                            placeholder={
+                              formData.clientRefId
+                                ? "Select due debit note"
+                                : "Select a client first"
+                            }
+                            isDisabled={!formData.clientRefId || readOnly}
+                            styles={calmSelectStyles}
+                            components={invoiceSelectComponents}
+                            noOptionsMessage={() =>
+                              isDebitNoteLoading
+                                ? "Loading..."
+                                : formData.clientRefId
+                                  ? "No due debit notes found for this client"
+                                  : "Select a client first"
+                            }
+                          />
+                        </div>
+                      )}
 
                     {/* Amount */}
                     <div className="col-md-6">

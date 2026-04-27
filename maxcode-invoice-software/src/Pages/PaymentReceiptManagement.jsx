@@ -515,6 +515,15 @@ const PaymentReceiptManagement = () => {
       resizable: true,
     },
     {
+      key: "debitNoteNumber",
+      label: "Debit Note No.",
+      sortable: true,
+      filterable: true,
+      width: 140,
+      resizable: true,
+      render: (value) => (value ? value : "-"),
+    },
+    {
       key: "appliedInvoiceNumber",
       label: "Applied Invoice",
       sortable: true,

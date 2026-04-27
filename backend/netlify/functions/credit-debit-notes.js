@@ -51,6 +51,35 @@ const sumItemsAmount = (items = []) =>
     items.reduce((sum, item) => sum + toNumber(item?.amount), 0).toFixed(2),
   );
 
+const getDebitNotePaymentStatus = (totalAmount, receivedAmount) => {
+  const total = toNumber(totalAmount);
+  const received = toNumber(receivedAmount);
+  if (received <= 0) return "Unpaid";
+  if (total > 0 && received >= total) return "Paid";
+  return "Partial";
+};
+
+const normalizeAppliedAdvances = (appliedAdvances) => {
+  if (!Array.isArray(appliedAdvances)) return [];
+  return appliedAdvances
+    .map((advance) => {
+      const advanceId = String(
+        advance?.advanceId || advance?.id || advance?._id || "",
+      ).trim();
+      const appliedAmount = toNumber(advance?.appliedAmount);
+      if (!advanceId || appliedAmount <= 0) return null;
+      return {
+        advanceId,
+        receiptNumber: String(advance?.receiptNumber || "").trim(),
+        appliedAmount,
+        maxAmount: toNumber(advance?.maxAmount || appliedAmount),
+        paymentMethod: String(advance?.paymentMethod || "").trim(),
+        receiptDate: advance?.receiptDate ? new Date(advance.receiptDate) : null,
+      };
+    })
+    .filter(Boolean);
+};
+
 export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
@@ -179,6 +208,57 @@ export async function handler(event) {
         sortOrder = "desc",
         filter,
       } = event.queryStringParameters || {};
+
+      if (action === "available-debit-notes") {
+        const clientRefId = String(
+          event.queryStringParameters?.clientRefId || "",
+        ).trim();
+        if (!clientRefId) {
+          return createResponse(
+            400,
+            { error: "clientRefId is required" },
+            origin,
+          );
+        }
+
+        const debitNotes = await notesCollection
+          .find({
+            isDeleted: { $ne: true },
+            noteType: "Debit Note",
+            $or: [{ clientId: clientRefId }, { clientRefId }],
+            status: { $ne: "Cancelled" },
+          })
+          .sort({ noteDate: 1, createdAt: 1 })
+          .toArray();
+
+        const records = debitNotes
+          .map((note) => {
+            const totalAmount = toNumber(note.totalAmount || note.amount);
+            const receivedAmount = toNumber(note.receivedAmount || 0);
+            const dueAmount = Math.max(0, totalAmount - receivedAmount);
+            return {
+              id: String(note._id),
+              noteId: String(note._id),
+              noteNumber: note.noteNumber || "",
+              noteDate: note.noteDate || "",
+              totalAmount,
+              receivedAmount,
+              dueAmount,
+              paymentStatus:
+                note.paymentStatus ||
+                getDebitNotePaymentStatus(totalAmount, receivedAmount),
+              paymentDate: note.paymentDate || "",
+              paymentMethod: note.paymentMethod || "",
+            };
+          })
+          .filter((note) => note.dueAmount > 0);
+
+        return createResponse(
+          200,
+          { records, total: records.length },
+          origin,
+        );
+      }
 
       if (action === "next-number") {
         const requestedFinancialYear = String(
@@ -559,6 +639,9 @@ export async function handler(event) {
       const clientName = String(noteData.clientName || "").trim();
       const noteDate = noteData.noteDate ? new Date(noteData.noteDate) : null;
       const normalizedItems = sanitizeNoteItems(noteData.items);
+      const normalizedAppliedAdvances = normalizeAppliedAdvances(
+        noteData.appliedAdvances,
+      );
 
       if (
         !noteNumber ||
@@ -634,11 +717,52 @@ export async function handler(event) {
         totalAmount,
         status: String(noteData.status || "Pending").trim() || "Pending",
         remarks: String(noteData.remarks || "").trim(),
+        // Credit note fields
+        refundStatus: String(noteData.refundStatus || "").trim(),
+        refundDate: noteData.refundDate ? new Date(noteData.refundDate) : null,
+        refundAmount: toNumber(noteData.refundAmount),
+        refundMethod: String(noteData.refundMethod || "").trim(),
+        referenceNumber: String(noteData.referenceNumber || "").trim(),
+        // Debit note fields
+        paymentStatus:
+          String(noteData.paymentStatus || "").trim() ||
+          getDebitNotePaymentStatus(totalAmount, toNumber(noteData.receivedAmount)),
+        paymentDate: noteData.paymentDate ? new Date(noteData.paymentDate) : null,
+        receivedAmount: toNumber(noteData.receivedAmount),
+        paymentMethod: String(noteData.paymentMethod || "").trim(),
+        appliedAdvances: normalizedAppliedAdvances,
         creditDebitNoteTermsVersion: binding?.version || "V1.0.0",
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
       });
+
+      if (noteType === "Debit Note" && normalizedAppliedAdvances.length > 0) {
+        const receiptsCollection = db.collection("payment_receipts");
+        for (const advance of normalizedAppliedAdvances) {
+          if (!ObjectId.isValid(advance.advanceId)) continue;
+          const receipt = await receiptsCollection.findOne({
+            _id: new ObjectId(advance.advanceId),
+            isDeleted: { $ne: true },
+            paymentType: "advance",
+          });
+          if (!receipt) continue;
+
+          const nextAdjusted = Math.min(
+            toNumber(receipt.amount || 0),
+            toNumber(receipt.adjustedAmount || 0) + toNumber(advance.appliedAmount),
+          );
+          await receiptsCollection.updateOne(
+            { _id: receipt._id },
+            {
+              $set: {
+                adjustedAmount: nextAdjusted,
+                updatedAt: new Date(),
+              },
+            },
+          );
+        }
+      }
 
       return createResponse(
         201,
@@ -665,6 +789,9 @@ export async function handler(event) {
       const clientName = String(noteData.clientName || "").trim();
       const noteDate = noteData.noteDate ? new Date(noteData.noteDate) : null;
       const normalizedItems = sanitizeNoteItems(noteData.items);
+      const normalizedAppliedAdvances = normalizeAppliedAdvances(
+        noteData.appliedAdvances,
+      );
 
       if (
         !noteNumber ||
@@ -710,6 +837,14 @@ export async function handler(event) {
         );
       }
 
+      const currentNote = await notesCollection.findOne({
+        _id: noteObjectId,
+        isDeleted: { $ne: true },
+      });
+      const previousAppliedAdvances = normalizeAppliedAdvances(
+        currentNote?.appliedAdvances,
+      );
+
       const itemsAmount = sumItemsAmount(normalizedItems);
       const amount = itemsAmount > 0 ? itemsAmount : toNumber(noteData.amount);
       const taxRate = toNumber(noteData.taxRate);
@@ -742,6 +877,27 @@ export async function handler(event) {
             totalAmount,
             status: String(noteData.status || "Pending").trim() || "Pending",
             remarks: String(noteData.remarks || "").trim(),
+            // Credit note fields
+            refundStatus: String(noteData.refundStatus || "").trim(),
+            refundDate: noteData.refundDate
+              ? new Date(noteData.refundDate)
+              : null,
+            refundAmount: toNumber(noteData.refundAmount),
+            refundMethod: String(noteData.refundMethod || "").trim(),
+            referenceNumber: String(noteData.referenceNumber || "").trim(),
+            // Debit note fields
+            paymentStatus:
+              String(noteData.paymentStatus || "").trim() ||
+              getDebitNotePaymentStatus(
+                totalAmount,
+                toNumber(noteData.receivedAmount),
+              ),
+            paymentDate: noteData.paymentDate
+              ? new Date(noteData.paymentDate)
+              : null,
+            receivedAmount: toNumber(noteData.receivedAmount),
+            paymentMethod: String(noteData.paymentMethod || "").trim(),
+            appliedAdvances: normalizedAppliedAdvances,
             updatedAt: new Date(),
           },
         },
@@ -749,6 +905,67 @@ export async function handler(event) {
 
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "Note not found" }, origin);
+      }
+
+      if (
+        String(currentNote?.noteType || "") === "Debit Note" ||
+        noteType === "Debit Note"
+      ) {
+        const receiptsCollection = db.collection("payment_receipts");
+        for (const advance of previousAppliedAdvances) {
+          if (!ObjectId.isValid(advance.advanceId)) continue;
+          const receipt = await receiptsCollection.findOne({
+            _id: new ObjectId(advance.advanceId),
+            isDeleted: { $ne: true },
+            paymentType: "advance",
+          });
+          if (!receipt) continue;
+          const reversedAdjusted = Math.max(
+            0,
+            toNumber(receipt.adjustedAmount || 0) - toNumber(advance.appliedAmount),
+          );
+          await receiptsCollection.updateOne(
+            { _id: receipt._id },
+            {
+              $set: {
+                adjustedAmount: reversedAdjusted,
+                updatedAt: new Date(),
+              },
+            },
+          );
+        }
+
+        const shouldApplyNewAdvances = noteType === "Debit Note";
+        if (!shouldApplyNewAdvances) {
+          return createResponse(
+            200,
+            { message: "Note updated successfully" },
+            origin,
+          );
+        }
+
+        for (const advance of normalizedAppliedAdvances) {
+          if (!ObjectId.isValid(advance.advanceId)) continue;
+          const receipt = await receiptsCollection.findOne({
+            _id: new ObjectId(advance.advanceId),
+            isDeleted: { $ne: true },
+            paymentType: "advance",
+          });
+          if (!receipt) continue;
+          const nextAdjusted = Math.min(
+            toNumber(receipt.amount || 0),
+            toNumber(receipt.adjustedAmount || 0) + toNumber(advance.appliedAmount),
+          );
+          await receiptsCollection.updateOne(
+            { _id: receipt._id },
+            {
+              $set: {
+                adjustedAmount: nextAdjusted,
+                updatedAt: new Date(),
+              },
+            },
+          );
+        }
       }
 
       return createResponse(
