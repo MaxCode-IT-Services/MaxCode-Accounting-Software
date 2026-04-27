@@ -67,7 +67,11 @@ const PaymentReceiptPreview = ({
   const signatureDateTimeText = data.signatureDateTime || "-";
   const receiptRefNumber = data.receiptNo || "-";
   const referenceInvoiceNumber =
-    data.appliedInvoiceNumber || data.appliedToInvoice || data.referenceInvoiceNumber || data.invoiceNumber || "-";
+    data.appliedInvoiceNumber ||
+    data.appliedToInvoice ||
+    data.referenceInvoiceNumber ||
+    data.invoiceNumber ||
+    "-";
   const companyPhoneDisplay = data.companyPhone || data.phone || "-";
   const companyWebsiteDisplay =
     data.companyWebsite || data.website || "www.maxcode.in";

@@ -124,6 +124,9 @@ const CreateSales = ({
   const [availableAdvances, setAvailableAdvances] = useState([]);
   const [appliedAdvances, setAppliedAdvances] = useState([]); // [{advanceId, receiptNumber, appliedAmount, maxAmount}]
   const [isLoadingAdvances, setIsLoadingAdvances] = useState(false);
+  const baseRegularReceivedRef = useRef(0);
+  const lockedRegularPaymentDateRef = useRef("");
+  const lockedRegularPaymentMethodRef = useRef("");
 
   useEffect(() => {
     if (show) {
@@ -314,6 +317,30 @@ const CreateSales = ({
 
   useEffect(() => {
     if (editingRecord) {
+      const existingAppliedAdvances = Array.isArray(
+        editingRecord.appliedAdvances,
+      )
+        ? editingRecord.appliedAdvances
+        : [];
+
+      const originalAdvanceAdjusted = existingAppliedAdvances.reduce(
+        (sum, adv) => sum + Number(adv.appliedAmount || 0),
+        0,
+      );
+      const originalReceivedAmount = toNumber(editingRecord.amountReceived);
+      const baseRegularReceived = Math.max(
+        0,
+        originalReceivedAmount - originalAdvanceAdjusted,
+      );
+
+      baseRegularReceivedRef.current = baseRegularReceived;
+      lockedRegularPaymentDateRef.current =
+        baseRegularReceived > 0 ? editingRecord.paymentDate || "" : "";
+      lockedRegularPaymentMethodRef.current =
+        baseRegularReceived > 0
+          ? normalizePaymentMethod(editingRecord.paymentMethod || "")
+          : "";
+
       setFormData({
         invoiceNumber: editingRecord.invoiceNumber || "",
         invoiceDate: editingRecord.invoiceDate || "",
@@ -351,19 +378,75 @@ const CreateSales = ({
         setTaxData(editingRecord.taxData);
       }
       // Restore applied advances from editing record so they show in view/edit modes
-      if (Array.isArray(editingRecord.appliedAdvances) && editingRecord.appliedAdvances.length > 0) {
+      if (
+        Array.isArray(editingRecord.appliedAdvances) &&
+        editingRecord.appliedAdvances.length > 0
+      ) {
         const restored = editingRecord.appliedAdvances.map((a) => ({
-          advanceId: a.advanceId,
+          advanceId: normalizeAdvanceId(a.advanceId || a.id || a._id),
           receiptNumber: a.receiptNumber || "",
+          receiptDate: a.receiptDate || a.receipt_date || a.date || null,
+          paymentMethod: normalizePaymentMethod(a.paymentMethod || ""),
           appliedAmount: Number(a.appliedAmount || 0),
           maxAmount: Number(a.maxAmount || a.appliedAmount || 0),
         }));
         setAppliedAdvances(restored);
       }
     } else {
+      baseRegularReceivedRef.current = 0;
+      lockedRegularPaymentDateRef.current = "";
+      lockedRegularPaymentMethodRef.current = "";
       resetForm();
     }
   }, [editingRecord, show]);
+
+  useEffect(() => {
+    if (!show || !editingRecord) return;
+
+    const totalAmount = toNumber(taxData.totalAmount);
+    const totalAdvanceAmount = (appliedAdvances || []).reduce(
+      (sum, adv) => sum + Number(adv.appliedAmount || 0),
+      0,
+    );
+    const baseRegularReceived = toNumber(baseRegularReceivedRef.current);
+    const nextReceivedAmount = Math.max(
+      0,
+      baseRegularReceived + totalAdvanceAmount,
+    );
+    const nextStatus = derivePaymentStatus(totalAmount, nextReceivedAmount);
+    const latestAdvanceMeta = getLatestAppliedAdvanceMeta(appliedAdvances);
+
+    const hasRegularComponent = baseRegularReceived > 0;
+    const nextPaymentDate = hasRegularComponent
+      ? lockedRegularPaymentDateRef.current
+      : latestAdvanceMeta.receiptDate || "";
+    const nextPaymentMethod = hasRegularComponent
+      ? lockedRegularPaymentMethodRef.current
+      : latestAdvanceMeta.paymentMethod || "";
+
+    setFormData((prev) => {
+      const nextReceivedAsText =
+        nextReceivedAmount > 0 ? String(nextReceivedAmount) : "";
+
+      if (
+        prev.amountReceived === nextReceivedAsText &&
+        prev.paymentStatus === nextStatus &&
+        (prev.paymentDate || "") === (nextPaymentDate || "") &&
+        normalizePaymentMethod(prev.paymentMethod || "") ===
+          normalizePaymentMethod(nextPaymentMethod || "")
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        amountReceived: nextReceivedAsText,
+        paymentStatus: nextStatus,
+        paymentDate: nextPaymentDate,
+        paymentMethod: nextPaymentMethod,
+      };
+    });
+  }, [show, editingRecord, taxData.totalAmount, appliedAdvances]);
 
   useEffect(() => {
     if (!show || editingRecord || !defaultFinancialYear) return;
@@ -474,8 +557,97 @@ const CreateSales = ({
     return Number.isNaN(num) ? 0 : num;
   };
 
+  const normalizeAdvanceId = (value) => String(value || "");
+
+  const derivePaymentStatus = (invoiceTotal, receivedAmount) => {
+    const total = toNumber(invoiceTotal);
+    const received = toNumber(receivedAmount);
+
+    if (received <= 0) return "Unpaid";
+    if (total > 0 && received >= total) return "Paid";
+    return "Partial";
+  };
+
+  const computeDueAmount = (invoiceTotal, receivedAmount) => {
+    return Math.max(0, toNumber(invoiceTotal) - toNumber(receivedAmount));
+  };
+
   const escapeRegExp = (value) => {
     return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  };
+
+  const parseDateFlexible = (value) => {
+    if (!value) return null;
+
+    const raw = String(value).trim();
+    if (!raw) return null;
+
+    const direct = new Date(raw);
+    if (!Number.isNaN(direct.getTime())) return direct;
+
+    // Supports DD-MM-YYYY
+    const dashMatch = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (dashMatch) {
+      const parsed = new Date(
+        Number(dashMatch[3]),
+        Number(dashMatch[2]) - 1,
+        Number(dashMatch[1]),
+      );
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    // Supports DD/MM/YYYY
+    const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashMatch) {
+      const parsed = new Date(
+        Number(slashMatch[3]),
+        Number(slashMatch[2]) - 1,
+        Number(slashMatch[1]),
+      );
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+
+    return null;
+  };
+
+  const formatDateHyphen = (dateString) => {
+    if (!dateString) return "";
+    try {
+      const d = new Date(dateString);
+      if (isNaN(d.getTime())) return dateString;
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = d.getFullYear();
+      return `${day}-${month}-${year}`;
+    } catch (e) {
+      return dateString;
+    }
+  };
+
+  const getLatestAppliedAdvanceMeta = (advances = []) => {
+    const candidates = advances
+      .filter((adv) => toNumber(adv.appliedAmount) > 0)
+      .map((adv) => ({
+        receiptDate: adv.receiptDate || "",
+        paymentMethod: normalizePaymentMethod(adv.paymentMethod || ""),
+      }));
+
+    if (candidates.length === 0) {
+      return { receiptDate: "", paymentMethod: "" };
+    }
+
+    const withDate = candidates.filter((c) => c.receiptDate);
+    if (withDate.length === 0) {
+      return candidates[candidates.length - 1];
+    }
+
+    withDate.sort((a, b) => {
+      const aTime = new Date(a.receiptDate).getTime() || 0;
+      const bTime = new Date(b.receiptDate).getTime() || 0;
+      return aTime - bTime;
+    });
+
+    return withDate[withDate.length - 1];
   };
 
   const getNextInvoiceNumberFromLocal = (format, invoices) => {
@@ -664,17 +836,97 @@ const CreateSales = ({
           ),
         );
         const advances = res?.data?.advances || [];
-        setAvailableAdvances(advances);
-        // If editing, restore previously applied advances
+        // Merge server advances with any previously applied advances (editing case)
+        let mergedAdvances = Array.isArray(advances) ? [...advances] : [];
         if (editingRecord?.appliedAdvances?.length > 0) {
           const restored = editingRecord.appliedAdvances.map((a) => ({
-            advanceId: a.advanceId,
+            advanceId: normalizeAdvanceId(a.advanceId || a.id || a._id),
             receiptNumber: a.receiptNumber || "",
+            receiptDate: a.receiptDate || a.receipt_date || a.date || null,
+            paymentMethod: normalizePaymentMethod(a.paymentMethod || ""),
             appliedAmount: Number(a.appliedAmount || 0),
             maxAmount: Number(a.maxAmount || a.appliedAmount || 0),
           }));
-          setAppliedAdvances(restored);
+          const missingMetaAdvances = restored.filter(
+            (r) => !r.receiptDate || !r.paymentMethod,
+          );
+
+          if (missingMetaAdvances.length > 0) {
+            const hydrated = await Promise.all(
+              restored.map(async (r) => {
+                if (r.receiptDate && r.paymentMethod) {
+                  return r;
+                }
+
+                try {
+                  const response = await apiGet(
+                    API_ENDPOINTS.PAYMENT_RECEIPTS.GET(r.advanceId),
+                  );
+                  const receipt = response?.data || {};
+                  return {
+                    ...r,
+                    receiptNumber:
+                      r.receiptNumber || receipt.receiptNumber || "",
+                    receiptDate: r.receiptDate || receipt.receiptDate || null,
+                    paymentMethod:
+                      r.paymentMethod ||
+                      normalizePaymentMethod(receipt.paymentMethod || ""),
+                  };
+                } catch {
+                  return r;
+                }
+              }),
+            );
+            setAppliedAdvances(hydrated);
+          } else {
+            setAppliedAdvances(restored);
+          }
+
+          // Ensure restored advances appear in available list so unchecking doesn't remove them
+          for (const r of missingMetaAdvances.length > 0
+            ? await Promise.all(
+                restored.map(async (row) => {
+                  if (row.receiptDate && row.paymentMethod) return row;
+                  try {
+                    const response = await apiGet(
+                      API_ENDPOINTS.PAYMENT_RECEIPTS.GET(row.advanceId),
+                    );
+                    const receipt = response?.data || {};
+                    return {
+                      ...row,
+                      receiptNumber:
+                        row.receiptNumber || receipt.receiptNumber || "",
+                      receiptDate:
+                        row.receiptDate || receipt.receiptDate || null,
+                      paymentMethod:
+                        row.paymentMethod ||
+                        normalizePaymentMethod(receipt.paymentMethod || ""),
+                    };
+                  } catch {
+                    return row;
+                  }
+                }),
+              )
+            : restored) {
+            const exists = mergedAdvances.some(
+              (m) =>
+                normalizeAdvanceId(m.id || m._id) ===
+                normalizeAdvanceId(r.advanceId),
+            );
+            if (!exists) {
+              mergedAdvances.push({
+                id: r.advanceId,
+                receiptNumber: r.receiptNumber,
+                receiptDate: r.receiptDate,
+                paymentMethod: normalizePaymentMethod(r.paymentMethod || ""),
+                amount: r.maxAmount || r.appliedAmount || 0,
+                availableAmount: r.maxAmount || r.appliedAmount || 0,
+              });
+            }
+          }
         }
+
+        setAvailableAdvances(mergedAdvances);
       } catch (err) {
         console.error("Failed to fetch advances:", err);
         setAvailableAdvances([]);
@@ -685,38 +937,163 @@ const CreateSales = ({
     fetchAdvances();
   }, [formData.clientRefId, show]);
 
-  const handleToggleAdvance = (advance) => {
-    setAppliedAdvances((prev) => {
-      const existing = prev.find((a) => a.advanceId === advance.id);
-      if (existing) {
-        return prev.filter((a) => a.advanceId !== advance.id);
+  const getAdvanceAdjustmentCapacity = () => {
+    const invoiceTotal = toNumber(taxData.totalAmount);
+    const regularReceivedAmount = toNumber(baseRegularReceivedRef.current);
+    return Math.max(0, invoiceTotal - regularReceivedAmount);
+  };
+
+  const getRemainingAdvanceCapacity = (excludeAdvanceId = "") => {
+    const normalizedExcludeId = normalizeAdvanceId(excludeAdvanceId);
+    const selectedAdvanceTotal = (appliedAdvances || []).reduce((sum, adv) => {
+      if (
+        normalizedExcludeId &&
+        normalizeAdvanceId(adv.advanceId) === normalizedExcludeId
+      ) {
+        return sum;
       }
+      return sum + toNumber(adv.appliedAmount);
+    }, 0);
+    return Math.max(0, getAdvanceAdjustmentCapacity() - selectedAdvanceTotal);
+  };
+
+  const handleToggleAdvance = (advance) => {
+    const normalizedId = normalizeAdvanceId(
+      advance.id || advance._id || advance.advanceId,
+    );
+
+    setAppliedAdvances((prev) => {
+      const existing = prev.find(
+        (a) => normalizeAdvanceId(a.advanceId) === normalizedId,
+      );
+      if (existing) {
+        return prev.filter(
+          (a) => normalizeAdvanceId(a.advanceId) !== normalizedId,
+        );
+      }
+      const remainingInvoiceCapacity = Math.max(
+        0,
+        getAdvanceAdjustmentCapacity() -
+          prev.reduce((sum, a) => sum + toNumber(a.appliedAmount), 0),
+      );
+      if (remainingInvoiceCapacity <= 0) {
+        showError("Invoice already paid. You can’t apply more advance.");
+        return prev;
+      }
+
+      const availableAmount = toNumber(advance.availableAmount);
       return [
         ...prev,
         {
-          advanceId: advance.id,
+          advanceId: normalizedId,
           receiptNumber: advance.receiptNumber,
-          appliedAmount: advance.availableAmount,
-          maxAmount: advance.availableAmount,
+          receiptDate: advance.receiptDate || "",
+          paymentMethod: normalizePaymentMethod(advance.paymentMethod || ""),
+          appliedAmount: Math.min(availableAmount, remainingInvoiceCapacity),
+          maxAmount: availableAmount,
         },
       ];
     });
   };
 
   const handleAdvanceAmountChange = (advanceId, value) => {
+    const normalizedId = normalizeAdvanceId(advanceId);
+    const enteredAmount = Number(value) || 0;
+    const remainingForThisAdvance = getRemainingAdvanceCapacity(normalizedId);
+
     setAppliedAdvances((prev) =>
       prev.map((a) => {
-        if (a.advanceId !== advanceId) return a;
-        const parsed = Math.min(Number(value) || 0, a.maxAmount);
+        if (normalizeAdvanceId(a.advanceId) !== normalizedId) return a;
+        const maxAllowed = Math.max(
+          0,
+          Math.min(toNumber(a.maxAmount), remainingForThisAdvance),
+        );
+        const parsed = Math.min(enteredAmount, maxAllowed);
         return { ...a, appliedAmount: parsed };
       }),
     );
+
+    if (enteredAmount > remainingForThisAdvance) {
+      showError(
+        `Is invoice me sirf ₹${remainingForThisAdvance.toLocaleString(
+          "en-IN",
+        )} advance aur apply ho sakta hai.`,
+      );
+    }
   };
 
   const totalAdvanceAdjusted = appliedAdvances.reduce(
     (sum, a) => sum + Number(a.appliedAmount || 0),
     0,
   );
+
+  const isViewMode = editingRecord?.isViewMode;
+
+  // View mode: show only applied advances. Create/Edit mode: merge available + applied.
+  const displayAdvances = (() => {
+    const map = new Map();
+    const sourceRows = isViewMode ? [] : availableAdvances || [];
+
+    sourceRows.forEach((a) => {
+      map.set(normalizeAdvanceId(a.id || a._id), {
+        ...a,
+        id: normalizeAdvanceId(a.id || a._id),
+        paymentMethod: normalizePaymentMethod(a.paymentMethod || ""),
+      });
+    });
+
+    (appliedAdvances || []).forEach((ap) => {
+      const advanceId = normalizeAdvanceId(ap.advanceId);
+      if (map.has(advanceId)) {
+        const existing = map.get(advanceId);
+        map.set(advanceId, {
+          ...existing,
+          // preserve available fields but mark applied amounts
+          appliedAmount: ap.appliedAmount,
+          maxAmount: ap.maxAmount || existing.availableAmount || 0,
+          receiptDate: ap.receiptDate || existing.receiptDate || null,
+          paymentMethod:
+            normalizePaymentMethod(ap.paymentMethod || "") ||
+            normalizePaymentMethod(existing.paymentMethod || ""),
+        });
+      } else {
+        map.set(advanceId, {
+          id: advanceId,
+          receiptNumber: ap.receiptNumber || "",
+          receiptDate: ap.receiptDate || null,
+          paymentMethod: normalizePaymentMethod(ap.paymentMethod || ""),
+          amount: ap.maxAmount || ap.appliedAmount || 0,
+          availableAmount: ap.maxAmount || ap.appliedAmount || 0,
+          appliedAmount: ap.appliedAmount,
+          maxAmount: ap.maxAmount || ap.appliedAmount || 0,
+        });
+      }
+    });
+
+    const extractReceiptSequence = (receiptNumber) => {
+      const matched = String(receiptNumber || "").match(/(\d+)(?!.*\d)/);
+      return matched ? Number(matched[1]) : 0;
+    };
+
+    return Array.from(map.values()).sort((a, b) => {
+      const aDate = parseDateFlexible(a.receiptDate)?.getTime() || 0;
+      const bDate = parseDateFlexible(b.receiptDate)?.getTime() || 0;
+
+      if (aDate !== bDate) {
+        return aDate - bDate;
+      }
+
+      const aSeq = extractReceiptSequence(a.receiptNumber);
+      const bSeq = extractReceiptSequence(b.receiptNumber);
+      if (aSeq !== bSeq) {
+        return aSeq - bSeq;
+      }
+
+      return String(a.receiptNumber || "").localeCompare(
+        String(b.receiptNumber || ""),
+      );
+    });
+  })();
 
   const handleServiceSelect = (id, selectedOption) => {
     const updatedItems = items.map((item) => {
@@ -900,10 +1277,35 @@ const CreateSales = ({
     e.stopPropagation();
 
     if (validateForm()) {
+      const advanceCapacity = getAdvanceAdjustmentCapacity();
+      const totalAppliedAdvance = (appliedAdvances || []).reduce(
+        (sum, a) => sum + toNumber(a.appliedAmount),
+        0,
+      );
+      if (totalAppliedAdvance > advanceCapacity) {
+        showError(
+          `Advance adjust amount invoice limit se zyada hai. Max allowed: ₹${advanceCapacity.toLocaleString(
+            "en-IN",
+          )}.`,
+        );
+        return;
+      }
+
+      const overAppliedReceipt = (appliedAdvances || []).find(
+        (a) => toNumber(a.appliedAmount) > toNumber(a.maxAmount),
+      );
+      if (overAppliedReceipt) {
+        showError(
+          `Receipt ${overAppliedReceipt.receiptNumber || ""} ka apply amount available advance se zyada hai.`,
+        );
+        return;
+      }
+
       setSubmitting(true);
       try {
         const submitData = {
           ...formData,
+          dueAmount: dueAmount.toFixed(2),
           items: items,
           taxData: taxData,
           id: editingRecord?.id || Date.now(),
@@ -913,6 +1315,8 @@ const CreateSales = ({
             .map((a) => ({
               advanceId: a.advanceId,
               receiptNumber: a.receiptNumber,
+              receiptDate: a.receiptDate || null,
+              paymentMethod: normalizePaymentMethod(a.paymentMethod || ""),
               appliedAmount: Number(a.appliedAmount),
               maxAmount: Number(a.maxAmount),
             })),
@@ -936,7 +1340,6 @@ const CreateSales = ({
       : `Edit Sales - ${editingRecord.invoiceNumber}`
     : "Add New Sales";
 
-  const isViewMode = editingRecord?.isViewMode;
   const isRajasthan = formData.placeOfSupply
     .toLowerCase()
     .includes("rajasthan");
@@ -966,6 +1369,11 @@ const CreateSales = ({
   const itemServiceSelectStyles = getUnifiedSelectStyles({
     compact: true,
   });
+
+  const dueAmount = computeDueAmount(
+    taxData.totalAmount,
+    formData.amountReceived,
+  );
 
   return (
     <div
@@ -1905,6 +2313,28 @@ const CreateSales = ({
                           </div>
                         </div>
 
+                        {/* Due Amount */}
+                        <div className="col-md-4 mb-3">
+                          <label className="form-label fw-bold">
+                            <i className="fas fa-balance-scale me-2 text-secondary"></i>
+                            Due Amount
+                          </label>
+                          <div className="input-group">
+                            <span className="input-group-text bg-secondary text-white">
+                              ₹
+                            </span>
+                            <input
+                              type="text"
+                              className="form-control modern-input fw-bold"
+                              value={dueAmount.toLocaleString("en-IN", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                              readOnly
+                            />
+                          </div>
+                        </div>
+
                         {/* TDS Percent */}
                         <div className="col-md-4 mb-3">
                           <label
@@ -1963,187 +2393,193 @@ const CreateSales = ({
               </div>
 
               {/* Advance Payment Adjustment Section */}
-              {!isViewMode &&
-                (availableAdvances.length > 0 || isLoadingAdvances) && (
-                  <div className="row mb-4">
-                    <div className="col-12">
-                      <div className="card shadow-sm border-0 mb-3">
-                        <div className="card-header bg-white border-bottom-0 pb-0 d-flex align-items-center">
-                          <i className="fa-solid fa-hand-holding-dollar me-2 text-success fs-5"></i>
-                          <span className="fw-bold fs-6">
-                            Advance Payment Adjustment
-                          </span>
-                        </div>
-                        <div className="card-body pt-2">
-                          {isLoadingAdvances ? (
-                            <div className="text-muted small">
-                              <span
-                                className="spinner-border spinner-border-sm me-2"
-                                role="status"
-                                aria-hidden="true"
-                              ></span>
-                              Checking advance payments...
+              {(displayAdvances.length > 0 || isLoadingAdvances) && (
+                <div className="row mb-4">
+                  <div className="col-12">
+                    <div className="card shadow-sm border-0 mb-3">
+                      <div className="card-header bg-white border-bottom-0 pb-0 d-flex align-items-center">
+                        <i className="fa-solid fa-hand-holding-dollar me-2 text-success fs-5"></i>
+                        <span className="fw-bold fs-6">
+                          Advance Payment Adjustment
+                        </span>
+                      </div>
+                      <div className="card-body pt-2">
+                        {isLoadingAdvances ? (
+                          <div className="text-muted small">
+                            <span
+                              className="spinner-border spinner-border-sm me-2"
+                              role="status"
+                              aria-hidden="true"
+                            ></span>
+                            Checking advance payments...
+                          </div>
+                        ) : (
+                          <>
+                            <div className="alert alert-info py-2 mb-3">
+                              <i className="fas fa-info-circle me-2"></i>
+                              This client has{" "}
+                              <strong>{displayAdvances.length}</strong> advance
+                              payment(s). Select advances to adjust against this
+                              invoice.
                             </div>
-                          ) : (
-                            <>
-                              <div className="alert alert-info py-2 mb-3">
-                                <i className="fas fa-info-circle me-2"></i>
-                                This client has{" "}
-                                <strong>{availableAdvances.length}</strong>{" "}
-                                advance payment(s). Select advances to adjust
-                                against this invoice.
+                            <div className="advance-list">
+                              <div className="advance-list-header">
+                                <div className="col apply-col">Apply</div>
+                                <div className="col receipt-col">
+                                  Receipt No.
+                                </div>
+                                <div className="col date-col">Date</div>
+                                <div className="col amount-col">
+                                  Advance Amount
+                                </div>
+                                <div className="col available-col">
+                                  Available
+                                </div>
+                                <div className="col apply-amount-col text-end">
+                                  Apply Amount (₹)
+                                </div>
                               </div>
-                              <div className="advance-list">
-                                <div className="advance-list-header">
-                                  <div className="col apply-col">Apply</div>
-                                  <div className="col receipt-col">
-                                    Receipt No.
-                                  </div>
-                                  <div className="col date-col">Date</div>
-                                  <div className="col amount-col">
-                                    Advance Amount
-                                  </div>
-                                  <div className="col available-col">
-                                    Available
-                                  </div>
-                                  <div className="col apply-amount-col text-end">
-                                    Apply Amount (₹)
-                                  </div>
-                                </div>
 
-                                <div className="advance-list-body">
-                                  {availableAdvances.map((adv) => {
-                                    const isChecked = appliedAdvances.some(
-                                      (a) => a.advanceId === adv.id,
-                                    );
-                                    const entry = appliedAdvances.find(
-                                      (a) => a.advanceId === adv.id,
-                                    );
-                                    return (
-                                      <div
-                                        key={adv.id}
-                                        className={`advance-item ${isChecked ? "selected" : ""}`}
-                                      >
-                                        <div className="col apply-col text-center">
-                                          <input
-                                            type="checkbox"
-                                            className="form-check-input"
-                                            checked={isChecked}
-                                            onChange={() =>
-                                              handleToggleAdvance(adv)
-                                            }
-                                          />
-                                        </div>
-                                        <div className="col receipt-col">
-                                          <span className="badge bg-success fs-6 px-3 py-2 shadow-sm">
-                                            {adv.receiptNumber}
-                                          </span>
-                                        </div>
-                                        <div className="col date-col small">
-                                          {adv.receiptDate
-                                            ? new Date(
-                                                adv.receiptDate,
-                                              ).toLocaleDateString("en-IN")
-                                            : "-"}
-                                        </div>
-                                        <div className="col amount-col">
-                                          ₹
-                                          {Number(
-                                            adv.amount || 0,
-                                          ).toLocaleString("en-IN")}
-                                        </div>
-                                        <div className="col available-col">
-                                          <span className="text-success fw-semibold">
-                                            ₹
-                                            {Number(
-                                              adv.availableAmount || 0,
-                                            ).toLocaleString("en-IN")}
-                                          </span>
-                                        </div>
-                                        <div className="col apply-amount-col">
-                                          {isChecked ? (
-                                            <input
-                                              type="text"
-                                              inputMode="decimal"
-                                              pattern="^\\d*(\\.\\d{0,2})?$"
-                                              className="form-control form-control-sm modern-input text-end"
-                                              max={entry?.maxAmount}
-                                              value={entry?.appliedAmount ?? ""}
-                                              onChange={(e) => {
-                                                handleNumberInput(e);
-                                                handleAdvanceAmountChange(
-                                                  adv.id,
-                                                  e.target.value,
-                                                );
-                                              }}
-                                              placeholder="Amount"
-                                            />
-                                          ) : (
-                                            <span className="text-muted small">
-                                              —
-                                            </span>
-                                          )}
-                                        </div>
+                              <div className="advance-list-body">
+                                {displayAdvances.map((adv) => {
+                                  const normalizedId = normalizeAdvanceId(
+                                    adv.id || adv._id,
+                                  );
+                                  const isChecked = appliedAdvances.some(
+                                    (a) =>
+                                      normalizeAdvanceId(a.advanceId) ===
+                                      normalizedId,
+                                  );
+                                  const entry = appliedAdvances.find(
+                                    (a) =>
+                                      normalizeAdvanceId(a.advanceId) ===
+                                      normalizedId,
+                                  );
+                                  return (
+                                    <div
+                                      key={normalizedId}
+                                      className={`advance-item ${isChecked ? "selected" : ""}`}
+                                    >
+                                      <div className="col apply-col text-center">
+                                        <input
+                                          type="checkbox"
+                                          className="form-check-input"
+                                          checked={isChecked}
+                                          onChange={() =>
+                                            handleToggleAdvance(adv)
+                                          }
+                                          disabled={isViewMode}
+                                        />
                                       </div>
-                                    );
-                                  })}
-                                </div>
-
-                                {totalAdvanceAdjusted > 0 && (
-                                  <div className="advance-list-footer">
-                                    <div className="footer-row muted">
-                                      <div className="label">
-                                        Invoice Total:
+                                      <div className="col receipt-col">
+                                        <span className="badge bg-success fs-6 px-3 py-2 shadow-sm">
+                                          {adv.receiptNumber}
+                                        </span>
                                       </div>
-                                      <div className="value">
+                                      <div className="col date-col small">
+                                        {adv.receiptDate
+                                          ? formatDateHyphen(adv.receiptDate)
+                                          : "-"}
+                                      </div>
+                                      <div className="col amount-col">
                                         ₹
                                         {Number(
-                                          taxData.totalAmount || 0,
+                                          adv.amount ||
+                                            adv.availableAmount ||
+                                            0,
                                         ).toLocaleString("en-IN")}
                                       </div>
+                                      <div className="col available-col">
+                                        <span className="text-success fw-semibold">
+                                          ₹
+                                          {Number(
+                                            adv.availableAmount || 0,
+                                          ).toLocaleString("en-IN")}
+                                        </span>
+                                      </div>
+                                      <div className="col apply-amount-col">
+                                        {isChecked ? (
+                                          <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            pattern="^\\d*(\\.\\d{0,2})?$"
+                                            className="form-control form-control-sm modern-input text-end"
+                                            max={entry?.maxAmount}
+                                            value={entry?.appliedAmount ?? ""}
+                                            onChange={(e) => {
+                                              handleNumberInput(e);
+                                              handleAdvanceAmountChange(
+                                                adv.id,
+                                                e.target.value,
+                                              );
+                                            }}
+                                            placeholder="Amount"
+                                            disabled={isViewMode}
+                                          />
+                                        ) : (
+                                          <span className="text-muted small">
+                                            —
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
+                                  );
+                                })}
+                              </div>
 
-                                    <div className="footer-row">
-                                      <div className="label">
-                                        Total Advance Adjusted:
-                                      </div>
-                                      <div
-                                        className={
-                                          "value " +
-                                          (totalAdvanceAdjusted > 0
-                                            ? "text-danger fw-bold"
-                                            : "fw-bold")
-                                        }
-                                      >
-                                        {totalAdvanceAdjusted > 0
-                                          ? `-₹${totalAdvanceAdjusted.toLocaleString("en-IN")}`
-                                          : `₹${totalAdvanceAdjusted.toLocaleString("en-IN")}`}
-                                      </div>
-                                    </div>
-
-                                    <div className="footer-row highlighted">
-                                      <div className="label">
-                                        Balance Due After Adjustment:
-                                      </div>
-                                      <div className="value">
-                                        ₹
-                                        {Math.max(
-                                          0,
-                                          Number(taxData.totalAmount || 0) -
-                                            totalAdvanceAdjusted,
-                                        ).toLocaleString("en-IN")}
-                                      </div>
+                              {totalAdvanceAdjusted > 0 && (
+                                <div className="advance-list-footer">
+                                  <div className="footer-row muted">
+                                    <div className="label">Invoice Total:</div>
+                                    <div className="value">
+                                      ₹
+                                      {Number(
+                                        taxData.totalAmount || 0,
+                                      ).toLocaleString("en-IN")}
                                     </div>
                                   </div>
-                                )}
-                              </div>
-                            </>
-                          )}
-                        </div>
+
+                                  <div className="footer-row">
+                                    <div className="label">
+                                      Total Advance Adjusted:
+                                    </div>
+                                    <div
+                                      className={
+                                        "value " +
+                                        (totalAdvanceAdjusted > 0
+                                          ? "text-danger fw-bold"
+                                          : "fw-bold")
+                                      }
+                                    >
+                                      {totalAdvanceAdjusted > 0
+                                        ? `-₹${totalAdvanceAdjusted.toLocaleString("en-IN")}`
+                                        : `₹${totalAdvanceAdjusted.toLocaleString("en-IN")}`}
+                                    </div>
+                                  </div>
+
+                                  <div className="footer-row highlighted">
+                                    <div className="label">
+                                      Balance Due After Adjustment:
+                                    </div>
+                                    <div className="value">
+                                      ₹
+                                      {Math.max(
+                                        0,
+                                        Number(taxData.totalAmount || 0) -
+                                          totalAdvanceAdjusted,
+                                      ).toLocaleString("en-IN")}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
             </form>
           </div>
 

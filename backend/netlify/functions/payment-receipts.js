@@ -62,6 +62,321 @@ const getNextReceiptNumber = async (collection, prefixOrFormat = "RCPT") => {
   return `${prefix}/${String(maxNum + 1).padStart(4, "0")}`;
 };
 
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const derivePaymentStatus = (totalAmount, receivedAmount) => {
+  const total = toNumber(totalAmount);
+  const received = toNumber(receivedAmount);
+
+  if (received <= 0) return "Unpaid";
+  if (total > 0 && received >= total) return "Paid";
+  return "Partial";
+};
+
+const getLatestAdvanceMeta = (appliedAdvances = []) => {
+  const candidates = (appliedAdvances || [])
+    .filter((adv) => toNumber(adv.appliedAmount) > 0)
+    .map((adv) => ({
+      receiptDate: adv.receiptDate || adv.receipt_date || adv.date || "",
+      paymentMethod: adv.paymentMethod || "",
+    }));
+
+  if (candidates.length === 0) {
+    return { receiptDate: "", paymentMethod: "" };
+  }
+
+  const withDate = candidates.filter((c) => c.receiptDate);
+  if (withDate.length === 0) {
+    return candidates[candidates.length - 1];
+  }
+
+  withDate.sort((a, b) => {
+    const aTime = parseDateValue(a.receiptDate)?.getTime() || 0;
+    const bTime = parseDateValue(b.receiptDate)?.getTime() || 0;
+    return aTime - bTime;
+  });
+
+  return withDate[withDate.length - 1];
+};
+
+const getReceiptEventTime = (receipt) => {
+  const created = parseDateValue(receipt?.createdAt)?.getTime() || 0;
+  const updated = parseDateValue(receipt?.updatedAt)?.getTime() || 0;
+  const receiptDate = parseDateValue(receipt?.receiptDate)?.getTime() || 0;
+  let objectIdTime = 0;
+
+  if (receipt?._id instanceof ObjectId) {
+    objectIdTime = receipt._id.getTimestamp().getTime();
+  }
+
+  return Math.max(created, updated, receiptDate, objectIdTime);
+};
+
+const normalizeInvoiceRef = (ref = {}) => {
+  const invoiceId = String(ref.invoiceId || ref.id || "").trim();
+  const invoiceNumber = String(ref.invoiceNumber || ref.number || "").trim();
+  if (!invoiceId && !invoiceNumber) return null;
+  return { invoiceId, invoiceNumber };
+};
+
+const collectInvoiceRefsFromReceipt = (receipt = {}) => {
+  const refsMap = new Map();
+
+  const addRef = (ref) => {
+    const normalized = normalizeInvoiceRef(ref);
+    if (!normalized) return;
+    const key = `${normalized.invoiceId}::${normalized.invoiceNumber}`;
+    refsMap.set(key, normalized);
+  };
+
+  addRef({
+    invoiceId: receipt.invoiceId,
+    invoiceNumber: receipt.invoiceNumber,
+  });
+
+  if (Array.isArray(receipt.invoiceIds)) {
+    receipt.invoiceIds.forEach((id) => addRef({ invoiceId: id }));
+  }
+
+  if (Array.isArray(receipt.invoiceNumbers)) {
+    receipt.invoiceNumbers.forEach((number) =>
+      addRef({ invoiceNumber: number }),
+    );
+  }
+
+  if (Array.isArray(receipt.invoiceAllocations)) {
+    receipt.invoiceAllocations.forEach((allocation) => addRef(allocation));
+  }
+
+  return Array.from(refsMap.values());
+};
+
+const allocationAmountForInvoice = (
+  receipt = {},
+  resolvedInvoiceId,
+  resolvedInvoiceNumber,
+) => {
+  const allocations = Array.isArray(receipt.invoiceAllocations)
+    ? receipt.invoiceAllocations
+    : [];
+
+  if (allocations.length === 0) {
+    return toNumber(receipt.amount);
+  }
+
+  return allocations.reduce((sum, allocation) => {
+    const allocationId = String(allocation?.invoiceId || "");
+    const allocationNumber = String(allocation?.invoiceNumber || "");
+    const matches =
+      (allocationId && allocationId === resolvedInvoiceId) ||
+      (allocationNumber && allocationNumber === resolvedInvoiceNumber);
+
+    if (!matches) return sum;
+    return (
+      sum + toNumber(allocation?.allocatedAmount || allocation?.amount || 0)
+    );
+  }, 0);
+};
+
+const computeInvoiceDue = (invoice = {}) => {
+  const totalAmount = toNumber(
+    invoice?.taxData?.totalAmount || invoice?.totalAmount,
+  );
+  const receivedAmount = toNumber(invoice?.amountReceived || 0);
+  return {
+    totalAmount,
+    receivedAmount,
+    dueAmount: Math.max(0, totalAmount - receivedAmount),
+  };
+};
+
+const resolveInvoicesForAllocation = async (
+  db,
+  { clientRefId, invoiceRefs = [] },
+) => {
+  const invoicesCol = db.collection("invoices");
+  const normalizedRefs = (invoiceRefs || [])
+    .map((ref) => normalizeInvoiceRef(ref))
+    .filter(Boolean);
+
+  if (normalizedRefs.length === 0) return [];
+
+  const objectIdRefs = normalizedRefs
+    .map((ref) => ref.invoiceId)
+    .filter((id) => ObjectId.isValid(id))
+    .map((id) => new ObjectId(id));
+
+  const numericIdRefs = normalizedRefs
+    .map((ref) => ref.invoiceId)
+    .filter((id) => id && !ObjectId.isValid(id));
+
+  const invoiceNumberRefs = normalizedRefs
+    .map((ref) => ref.invoiceNumber)
+    .filter(Boolean);
+
+  const query = {
+    isDeleted: { $ne: true },
+    ...(clientRefId ? { clientRefId } : {}),
+    $or: [
+      ...(objectIdRefs.length ? [{ _id: { $in: objectIdRefs } }] : []),
+      ...(numericIdRefs.length ? [{ id: { $in: numericIdRefs } }] : []),
+      ...(invoiceNumberRefs.length
+        ? [{ invoiceNumber: { $in: invoiceNumberRefs } }]
+        : []),
+    ],
+  };
+
+  if (!query.$or.length) return [];
+
+  const invoices = await invoicesCol.find(query).toArray();
+
+  const indexed = invoices
+    .map((invoice) => ({
+      ...invoice,
+      __invoiceId: String(invoice?._id || invoice?.id || ""),
+      __invoiceNumber: String(invoice?.invoiceNumber || ""),
+      __due: computeInvoiceDue(invoice).dueAmount,
+      __invoiceDateTime:
+        parseDateValue(
+          invoice?.invoiceDate || invoice?.createdAt || invoice?.createdDate,
+        )?.getTime() || 0,
+    }))
+    .filter((invoice) => invoice.__invoiceId || invoice.__invoiceNumber)
+    .sort((a, b) => {
+      if (a.__invoiceDateTime !== b.__invoiceDateTime) {
+        return a.__invoiceDateTime - b.__invoiceDateTime;
+      }
+      return String(a.__invoiceNumber).localeCompare(String(b.__invoiceNumber));
+    });
+
+  return indexed;
+};
+
+const buildInvoiceAllocations = (invoices = [], totalReceiptAmount = 0) => {
+  let remaining = toNumber(totalReceiptAmount);
+  const allocations = [];
+
+  for (const invoice of invoices) {
+    if (remaining <= 0) break;
+    const dueAmount = toNumber(invoice.__due);
+    if (dueAmount <= 0) continue;
+
+    const allocatedAmount = Math.min(remaining, dueAmount);
+    if (allocatedAmount <= 0) continue;
+
+    allocations.push({
+      invoiceId: invoice.__invoiceId,
+      invoiceNumber: invoice.__invoiceNumber,
+      allocatedAmount,
+      previousDueAmount: dueAmount,
+      dueAfterAllocation: Math.max(0, dueAmount - allocatedAmount),
+    });
+
+    remaining -= allocatedAmount;
+  }
+
+  return {
+    allocations,
+    allocatedTotal: allocations.reduce(
+      (sum, allocation) => sum + toNumber(allocation.allocatedAmount),
+      0,
+    ),
+    remainingAmount: Math.max(0, remaining),
+  };
+};
+
+const recalculateInvoicePaymentSummary = async (
+  db,
+  { invoiceId, invoiceNumber },
+) => {
+  if (!invoiceId && !invoiceNumber) return;
+
+  const invoicesCol = db.collection("invoices");
+
+  const invoiceFilter = { isDeleted: { $ne: true } };
+  if (invoiceId && ObjectId.isValid(invoiceId)) {
+    invoiceFilter._id = new ObjectId(invoiceId);
+  } else if (invoiceNumber) {
+    invoiceFilter.invoiceNumber = invoiceNumber;
+  } else {
+    return;
+  }
+
+  const invoice = await invoicesCol.findOne(invoiceFilter);
+  if (!invoice) return;
+
+  const resolvedInvoiceId = String(invoice._id);
+  const resolvedInvoiceNumber = String(invoice.invoiceNumber || "");
+  const receiptFilter = {
+    isDeleted: { $ne: true },
+    paymentType: { $ne: "advance" },
+    $or: [
+      { invoiceId: resolvedInvoiceId },
+      { invoiceId: resolvedInvoiceNumber },
+      { invoiceNumber: resolvedInvoiceNumber },
+      { invoiceIds: resolvedInvoiceId },
+      { invoiceNumbers: resolvedInvoiceNumber },
+      { "invoiceAllocations.invoiceId": resolvedInvoiceId },
+      { "invoiceAllocations.invoiceNumber": resolvedInvoiceNumber },
+    ],
+  };
+
+  const regularReceipts = await db
+    .collection("payment_receipts")
+    .find(receiptFilter)
+    .toArray();
+
+  const regularReceivedAmount = regularReceipts.reduce((sum, receipt) => {
+    return (
+      sum +
+      allocationAmountForInvoice(
+        receipt,
+        resolvedInvoiceId,
+        resolvedInvoiceNumber,
+      )
+    );
+  }, 0);
+  const latestRegularReceipt =
+    regularReceipts.length > 0
+      ? regularReceipts.reduce((latest, current) => {
+          const latestTime = getReceiptEventTime(latest);
+          const currentTime = getReceiptEventTime(current);
+          return currentTime >= latestTime ? current : latest;
+        })
+      : null;
+
+  const advanceAdjustedTotal = toNumber(invoice.advanceAdjustedTotal);
+  const amountReceived = regularReceivedAmount + advanceAdjustedTotal;
+  const totalAmount = toNumber(invoice?.taxData?.totalAmount);
+  const dueAmount = Math.max(0, totalAmount - amountReceived);
+  const paymentStatus = derivePaymentStatus(totalAmount, amountReceived);
+
+  const latestAdvanceMeta = getLatestAdvanceMeta(invoice.appliedAdvances);
+  const paymentDate =
+    latestRegularReceipt?.receiptDate || latestAdvanceMeta.receiptDate || "";
+  const paymentMethod =
+    latestRegularReceipt?.paymentMethod ||
+    latestAdvanceMeta.paymentMethod ||
+    "";
+
+  await invoicesCol.updateOne(
+    { _id: invoice._id },
+    {
+      $set: {
+        amountReceived: amountReceived > 0 ? String(amountReceived) : "",
+        paymentStatus,
+        paymentDate,
+        paymentMethod,
+        dueAmount: dueAmount.toFixed(2),
+        updatedAt: new Date(),
+      },
+    },
+  );
+};
+
 /**
  * Payment Receipts API
  * Handles CRUD for both regular and advance payment receipts.
@@ -381,6 +696,8 @@ export async function handler(event) {
               : Number(r.adjustedAmount || 0) > 0
                 ? "Partially Applied"
                 : "Unapplied",
+        appliedInvoiceNumber: r.linkedInvoiceNumber || "",
+        appliedDateTime: r.updatedAt || "",
       }));
 
       return createResponse(
@@ -425,6 +742,8 @@ export async function handler(event) {
         paymentType = "regular", // "regular" | "advance"
         invoiceId,
         invoiceNumber,
+        invoiceIds,
+        invoiceNumbers,
         financialYear: suppliedFY,
       } = body;
 
@@ -477,7 +796,17 @@ export async function handler(event) {
         suppliedReceiptNumber ||
         (await getNextReceiptNumber(col, receiptNumberPrefix));
 
-      const auditFields = getAuditFieldsFromEvent(event, user);
+      // Patch: Always prefer user name for CreatedByName
+      let auditFields = getAuditFieldsFromEvent(event, user);
+      // If createdByName is an email, but user.name or user.displayName exists, prefer that
+      if (auditFields && auditFields.createdByName && user) {
+        const isEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(
+          auditFields.createdByName,
+        );
+        if (isEmail && (user.name || user.displayName)) {
+          auditFields.createdByName = user.name || user.displayName;
+        }
+      }
       const now = new Date();
 
       // Normalize payment methods
@@ -485,7 +814,52 @@ export async function handler(event) {
         paymentMethod,
       });
 
-      const newDoc = {
+      const normalizedPaymentType = ["advance", "regular"].includes(paymentType)
+        ? paymentType
+        : "regular";
+
+      const invoiceRefs = [
+        ...(Array.isArray(invoiceIds)
+          ? invoiceIds.map((id) => ({ invoiceId: id }))
+          : []),
+        ...(Array.isArray(invoiceNumbers)
+          ? invoiceNumbers.map((number) => ({ invoiceNumber: number }))
+          : []),
+        ...(invoiceId || invoiceNumber ? [{ invoiceId, invoiceNumber }] : []),
+      ];
+
+      let regularDocAmount = numAmount;
+      let regularInvoiceAllocations = [];
+      let overflowAdvanceAmount = 0;
+
+      if (normalizedPaymentType === "regular" && invoiceRefs.length > 0) {
+        const allocationInvoices = await resolveInvoicesForAllocation(db, {
+          clientRefId,
+          invoiceRefs,
+        });
+
+        const allocationResult = buildInvoiceAllocations(
+          allocationInvoices,
+          numAmount,
+        );
+
+        regularInvoiceAllocations = allocationResult.allocations;
+        regularDocAmount = allocationResult.allocatedTotal;
+        overflowAdvanceAmount = allocationResult.remainingAmount;
+
+        if (regularDocAmount <= 0) {
+          return createResponse(
+            400,
+            {
+              error:
+                "Selected invoice(s) already paid or no due amount available for allocation.",
+            },
+            origin,
+          );
+        }
+      }
+
+      const regularDoc = {
         receiptNumber,
         receiptDate,
         clientRefId: clientRefId || "",
@@ -495,20 +869,44 @@ export async function handler(event) {
         phoneNumber: phoneNumber || "",
         email: email || "",
         address: address || "",
-        amount: numAmount,
+        amount: regularDocAmount,
+        enteredAmount: numAmount,
         adjustedAmount: 0, // tracks how much of advance has been applied to invoices
         paymentMethod: normalizedRecord.paymentMethod || paymentMethod,
         bankName: bankName || "",
         chequeNumber: chequeNumber || "",
         purpose:
           purpose ||
-          (paymentType === "advance" ? "Advance Payment" : "Sales Invoice"),
+          (normalizedPaymentType === "advance"
+            ? "Advance Payment"
+            : "Sales Invoice"),
         note: note || "",
-        paymentType: ["advance", "regular"].includes(paymentType)
-          ? paymentType
-          : "regular",
-        invoiceId: invoiceId || null,
-        invoiceNumber: invoiceNumber || null,
+        paymentType: normalizedPaymentType,
+        invoiceId:
+          regularInvoiceAllocations.length > 0
+            ? regularInvoiceAllocations[0].invoiceId
+            : invoiceId || null,
+        invoiceNumber:
+          regularInvoiceAllocations.length > 0
+            ? regularInvoiceAllocations[0].invoiceNumber
+            : invoiceNumber || null,
+        invoiceIds:
+          regularInvoiceAllocations.length > 0
+            ? regularInvoiceAllocations.map((item) => item.invoiceId)
+            : Array.isArray(invoiceIds)
+              ? invoiceIds
+              : invoiceId
+                ? [invoiceId]
+                : [],
+        invoiceNumbers:
+          regularInvoiceAllocations.length > 0
+            ? regularInvoiceAllocations.map((item) => item.invoiceNumber)
+            : Array.isArray(invoiceNumbers)
+              ? invoiceNumbers
+              : invoiceNumber
+                ? [invoiceNumber]
+                : [],
+        invoiceAllocations: regularInvoiceAllocations,
         financialYear,
         isDeleted: false,
         createdAt: now,
@@ -516,12 +914,70 @@ export async function handler(event) {
         ...auditFields,
       };
 
-      const result = await col.insertOne(newDoc);
+      const insertResult = await col.insertOne(regularDoc);
+      const createdDocs = [
+        {
+          ...regularDoc,
+          id: String(insertResult.insertedId),
+          _id: insertResult.insertedId,
+        },
+      ];
+
+      if (normalizedPaymentType === "regular" && overflowAdvanceAmount > 0) {
+        const nextAdvanceReceiptNumber = await getNextReceiptNumber(
+          col,
+          receiptNumberPrefix,
+        );
+
+        const advanceDoc = {
+          receiptNumber: nextAdvanceReceiptNumber,
+          receiptDate,
+          clientRefId: clientRefId || "",
+          clientId: clientId || "",
+          clientName: clientName || "",
+          businessName: businessName || "",
+          phoneNumber: phoneNumber || "",
+          email: email || "",
+          address: address || "",
+          amount: overflowAdvanceAmount,
+          adjustedAmount: 0,
+          paymentMethod: normalizedRecord.paymentMethod || paymentMethod,
+          bankName: bankName || "",
+          chequeNumber: chequeNumber || "",
+          purpose: `Auto advance from regular receipt ${receiptNumber}`,
+          note: note || "Auto generated from overflow amount",
+          paymentType: "advance",
+          linkedRegularReceiptId: String(insertResult.insertedId),
+          linkedRegularReceiptNumber: receiptNumber,
+          financialYear,
+          isDeleted: false,
+          createdAt: now,
+          updatedAt: now,
+          ...auditFields,
+        };
+
+        const advanceInsertResult = await col.insertOne(advanceDoc);
+        createdDocs.push({
+          ...advanceDoc,
+          id: String(advanceInsertResult.insertedId),
+          _id: advanceInsertResult.insertedId,
+        });
+      }
+
       receiptMetaCache.expiresAt = 0;
+
+      const refsToRecalc = collectInvoiceRefsFromReceipt(regularDoc);
+      for (const ref of refsToRecalc) {
+        await recalculateInvoicePaymentSummary(db, ref);
+      }
 
       return createResponse(
         201,
-        { ...newDoc, id: String(result.insertedId), _id: result.insertedId },
+        {
+          ...createdDocs[0],
+          createdRecords: createdDocs,
+          autoAdvanceCreated: createdDocs.length > 1,
+        },
         origin,
       );
     }
@@ -587,6 +1043,13 @@ export async function handler(event) {
         ...(body.invoiceNumber !== undefined && {
           invoiceNumber: body.invoiceNumber,
         }),
+        ...(body.invoiceIds !== undefined && { invoiceIds: body.invoiceIds }),
+        ...(body.invoiceNumbers !== undefined && {
+          invoiceNumbers: body.invoiceNumbers,
+        }),
+        ...(body.invoiceAllocations !== undefined && {
+          invoiceAllocations: body.invoiceAllocations,
+        }),
         updatedAt: new Date(),
         ...auditFields,
       };
@@ -595,6 +1058,20 @@ export async function handler(event) {
       receiptMetaCache.expiresAt = 0;
 
       const updated = await col.findOne({ _id: new ObjectId(id) });
+
+      const refsToRecalc = [
+        ...(existing.paymentType !== "advance"
+          ? collectInvoiceRefsFromReceipt(existing)
+          : []),
+        ...(updated?.paymentType !== "advance"
+          ? collectInvoiceRefsFromReceipt(updated)
+          : []),
+      ];
+
+      for (const ref of refsToRecalc) {
+        await recalculateInvoicePaymentSummary(db, ref);
+      }
+
       return createResponse(
         200,
         { ...updated, id: String(updated._id) },
@@ -645,6 +1122,13 @@ export async function handler(event) {
         },
       );
       receiptMetaCache.expiresAt = 0;
+
+      if (existing.paymentType !== "advance") {
+        const refsToRecalc = collectInvoiceRefsFromReceipt(existing);
+        for (const ref of refsToRecalc) {
+          await recalculateInvoicePaymentSummary(db, ref);
+        }
+      }
 
       return createResponse(
         200,

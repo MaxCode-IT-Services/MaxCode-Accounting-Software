@@ -199,7 +199,6 @@ const InvoicePreview = ({
       document.body.style.overflow = "auto";
     }
 
-    // Cleanup function
     return () => {
       document.body.style.overflow = "auto";
     };
@@ -291,7 +290,7 @@ const InvoicePreview = ({
   // Calculations are done in SalesManagement; use precomputed values here.
   const items = invoiceData.items;
 
-  // --- ADVANCE ADJUSTMENT LOGIC ---
+  // --- ADVANCE ADJUSTMENT LOGIC (Simplified - No table) ---
   const subtotal = Number(invoiceData.subtotal || 0);
   const discountAmount = Number(invoiceData.discountAmount || 0);
   const cgst = Number(invoiceData.cgst || 0);
@@ -305,20 +304,12 @@ const InvoicePreview = ({
   const tdsAmount = Number(invoiceData.tdsAmount || 0);
   const tdsPercent = Number(invoiceData.tdsPercent || 0);
   const amountReceived = Number(invoiceData.amountReceived || 0);
-  // Advance adjustment: sum of all applied advances (array or single value)
-  let advanceAdjustment = 0;
-  if (Array.isArray(invoiceData.advanceAdjustments)) {
-    advanceAdjustment = invoiceData.advanceAdjustments.reduce(
-      (sum, adv) => sum + Number(adv.amount || 0),
-      0,
-    );
-  } else if (invoiceData.advanceAdjustment) {
-    advanceAdjustment = Number(invoiceData.advanceAdjustment) || 0;
-  } else if (invoiceData.advanceAmountApplied) {
-    advanceAdjustment = Number(invoiceData.advanceAmountApplied) || 0;
-  }
+
+  // Directly use advanceAdjustedTotal from database
+  const advanceAdjustment = Number(invoiceData.advanceAdjustedTotal || 0);
+
   // Total received = advanceAdjustment + amountReceived
-  const totalReceived = advanceAdjustment + amountReceived;
+  const totalReceived = amountReceived;
   // Total due = totalAmount - totalReceived - tdsAmount
   const totalDue = Math.max(0, totalAmount - totalReceived - tdsAmount);
   const qrAmount = totalAmount;
@@ -326,6 +317,9 @@ const InvoicePreview = ({
   const upiPayload = `upi://pay?pa=maxcode@aubank&pn=${encodeURIComponent(
     contactDetails.companyName || "",
   )}&am=${upiAmount.toFixed(2)}&cu=INR`;
+
+  // --- Payment Date Logic (Simplified) ---
+  let paymentDateToShow = invoiceData.paymentDate || "";
 
   const formatDateTimeForDisplay = (dateString) => {
     if (!dateString) return "";
@@ -520,11 +514,9 @@ const InvoicePreview = ({
         return;
       }
 
-      // Dynamically import html2canvas and jspdf
       const html2canvas = (await import("html2canvas")).default;
       const jsPDF = (await import("jspdf")).default;
 
-      // Use high scale for clarity, ensuring strictly 210x297 ratio
       const canvas = await html2canvas(element, {
         scale: 4,
         useCORS: true,
@@ -543,7 +535,6 @@ const InvoicePreview = ({
         compress: true,
       });
 
-      // A4 dimensions in mm
       const pdfWidth = 210;
       const pdfHeight = 297;
 
@@ -570,7 +561,6 @@ const InvoicePreview = ({
         return;
       }
 
-      // Dynamically import html2canvas
       const html2canvas = (await import("html2canvas")).default;
 
       const canvas = await html2canvas(element, {
@@ -682,7 +672,6 @@ const InvoicePreview = ({
             line-height: 1.4;
           }
 
-          /* Default cell border */
           .invoice-table th,
           .invoice-table td {
             border-top: 3px solid #000 !important;
@@ -690,30 +679,25 @@ const InvoicePreview = ({
             padding: 6px 4px;
           }
 
-          /* Last column right border */
           .invoice-table th:last-child,
           .invoice-table td:last-child {
             border-right: 3px solid #000 !important;
           }
 
-          /* Last row bottom border */
           .invoice-table tr:last-child td {
             border-bottom: 3px solid #000 !important;
           }
 
-          /* Header background */
           .invoice-table thead th {
             background-color: #f3e5c8 !important;
             font-weight: bold;
           }
 
-          /* First column ka left border remove */
           .invoice-table th:first-child,
           .invoice-table td:first-child {
             border-left: none !important;
           }
 
-          /* Last column ka right border remove */
           .invoice-table th:last-child,
           .invoice-table td:last-child {
             border-right: none !important;
@@ -726,7 +710,6 @@ const InvoicePreview = ({
             pointer-events: none;
           }
 
-          /* Border classes */
           .border-3 {
             border-width: 3px !important;
             border-style: solid !important;
@@ -762,68 +745,65 @@ const InvoicePreview = ({
             background: transparent !important;
           }
 
+          .payment-wrapper {
+            position: relative;
+            z-index: 1;
+          }
+          .payment-wrapper > *:not(.payment-seal) {
+            position: relative;
+            z-index: 2;
+          }
+          .payment-seal {
+            position: absolute;
+            top: 70px;
+            right: 50px;
+            transform: rotate(-25deg);
+            border: 4px solid #1aa34a;
+            color: #1aa34a;
+            font-weight: 800;
+            font-size: 25px;
+            padding: 5px 8px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            background: rgba(0, 128, 0, 0.05);
+            opacity: 1;
+            z-index: 0; 
+            pointer-events: none;
+            box-shadow: 0 0 10px rgba(0, 128, 0, 0.3);
+            border-radius: 8px;
+          }
 
-/* PAYMENT RECEIVED SEAL */
-.payment-wrapper {
-  position: relative;
-  z-index: 1;
-}
-.payment-wrapper > *:not(.payment-seal) {
-  position: relative;
-  z-index: 2;
-}
-.payment-seal {
-  position: absolute;
-  top: 70px;
-  right: 50px;
-  transform: rotate(-25deg);
-  border: 4px solid #1aa34a;
-  color: #1aa34a;
-  font-weight: 800;
-  font-size: 25px;
-  padding: 5px 8px;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  background: rgba(0, 128, 0, 0.05);
-  opacity: 1;
-  z-index: 0; 
-  pointer-events: none;
-  box-shadow: 0 0 10px rgba(0, 128, 0, 0.3);
-  border-radius: 8px;
-}
+          .payment-seal--pending {
+            border-color: #ff0000;
+            color: #ff0000;
+            background: rgba(179, 0, 0, 0.05);
+            box-shadow: 0 0 10px rgba(179, 0, 0, 0.3);
+          }
 
-.payment-seal--pending {
-  border-color: #ff0000;
-  color: #ff0000;
-  background: rgba(179, 0, 0, 0.05);
-  box-shadow: 0 0 10px rgba(179, 0, 0, 0.3);
-}
+          .payment-seal--partial {
+            border-color: #f55900;
+            color: #f55900;
+            background: rgba(240, 173, 78, 0.1);
+            box-shadow: 0 0 10px rgba(240, 137, 78, 0.35);
+            text-align: center;
+          }
 
-.payment-seal--partial {
-  border-color: #f0ad4e;
-  color: #f0ad4e;
-  background: rgba(240, 173, 78, 0.1);
-  box-shadow: 0 0 10px rgba(240, 173, 78, 0.35);
-  text-align: center;
-}
+          .payment-seal::before {
+            content: "";
+            position: absolute;
+            inset: -6px;
+            border: 2px dashed #1aa34a;
+            border-radius: 10px;
+            opacity: 0.6;
+          }
 
-/* Stamp Effect Rough Border */
-.payment-seal::before {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  border: 2px dashed #1aa34a;
-  border-radius: 10px;
-  opacity: 0.6;
-}
+          .payment-seal--pending::before {
+            border-color: #ff0000;
+          }
 
-.payment-seal--pending::before {
-  border-color: #ff0000;
-}
-
-.payment-seal--partial::before {
-  border-color: #f0ad4e;
-}
+          .payment-seal--partial::before {
+            border-color: #f0ad4e;
+          }
 
           @media print {
             .no-print { display: none !important; }
@@ -845,17 +825,14 @@ const InvoicePreview = ({
         >
           <div className="modal-content">
             <div className="modal-header d-flex flex-column flex-md-row align-items-start align-items-md-center">
-              {/* Title */}
               <h5 className="modal-title text-start text-nowrap mb-2 mb-md-0">
                 Invoice Preview - {invoiceData.invoiceNumber}
               </h5>
 
-              {/* Button Section */}
               <div
                 className="d-flex w-100 justify-content-between align-items-center
                   w-md-auto justify-content-md-end ms-md-auto"
               >
-                {/* PDF + Image */}
                 <div className="d-flex gap-2">
                   <button
                     onClick={exportPDF}
@@ -874,7 +851,6 @@ const InvoicePreview = ({
                   </button>
                 </div>
 
-                {/* Close Button */}
                 <button
                   type="button"
                   className="btn-close ms-2"
@@ -884,9 +860,7 @@ const InvoicePreview = ({
             </div>
 
             <div className="modal-body p-0" style={{ background: "#f1f1f1" }}>
-              {/* Invoice Content */}
               <div id={id || "invoice-preview"} className="a4-page">
-                {/* Border Container */}
                 <div
                   style={{
                     border: "3px solid #000",
@@ -1008,7 +982,7 @@ const InvoicePreview = ({
                       </div>
                     </div>
 
-                    {/* Col 3: Payment Information (Revamped) */}
+                    {/* Col 3: Payment Information - Only values, no table */}
                     <div
                       className="p-3 position-relative payment-wrapper"
                       style={{ width: "27%" }}
@@ -1020,15 +994,10 @@ const InvoicePreview = ({
                         <div className="d-flex mb-1 fw-bold">
                           <span style={{ width: "110px" }}>Payment Date</span>
                           <span className="fw-bold">
-                            : {invoiceData.paymentDate || "-"}
+                            : {paymentDateToShow || "-"}
                           </span>
                         </div>
-                        <div
-                          className="d-flex mb-1 fw-bold"
-                          style={{
-                            color: advanceAdjustment > 0 ? "#b30000" : "#000",
-                          }}
-                        >
+                        <div className="d-flex mb-1 fw-bold">
                           <span style={{ width: "110px" }}>
                             Advance Adj. (-)
                           </span>
@@ -1036,10 +1005,7 @@ const InvoicePreview = ({
                             : ₹{formatCurrency(advanceAdjustment)}
                           </span>
                         </div>
-                        <div
-                          className="d-flex mb-1 fw-bold"
-                          style={{ color: tdsAmount > 0 ? "#b30000" : "#000" }}
-                        >
+                        <div className="d-flex mb-1 fw-bold">
                           <span style={{ width: "110px" }}>
                             TDS Ded. ({tdsPercent}%)
                           </span>
@@ -1083,7 +1049,7 @@ const InvoicePreview = ({
                       )}
                       {invoiceData.status === "PARTIAL" && (
                         <div className="payment-seal payment-seal--partial">
-                          PARTIAL PAYMENT
+                          PARTIAL
                           <br />
                           PAID
                         </div>
@@ -1158,7 +1124,6 @@ const InvoicePreview = ({
                         business needs.
                       </p>
                       <div className="row g-0">
-                        {/* Bank Details */}
                         <div
                           className="col-9"
                           style={{
@@ -1334,7 +1299,6 @@ const InvoicePreview = ({
                       className="row align-items-end"
                       style={{ marginTop: "75px" }}
                     >
-                      {/* Customer Signature */}
                       <div className="col-6">
                         <div
                           className="pt-2"
@@ -1352,7 +1316,6 @@ const InvoicePreview = ({
                         </div>
                       </div>
 
-                      {/* Founder Signature */}
                       <div className="col-6">
                         <div
                           style={{
@@ -1374,7 +1337,6 @@ const InvoicePreview = ({
                               marginBottom: "10px",
                             }}
                           />
-                          {/* Date/Time text - appears above signature */}
                           <p
                             className="fw-bold text-center mb-1"
                             style={{ fontSize: "10px" }}
@@ -1383,7 +1345,6 @@ const InvoicePreview = ({
                             {invoiceData.invoiceNumber} Date & Time :{" "}
                             {signatureDateTime}
                           </p>
-                          {/* Signature Line */}
                           <div
                             className="pt-2"
                             style={{ borderTop: "3px solid #000" }}
@@ -1414,7 +1375,6 @@ const InvoicePreview = ({
                     >
                       <div className="container">
                         <div className="row d-flex align-items-center justify-content-between g-2 flex-nowrap">
-                          {/* PHONE */}
                           <div className="col-auto">
                             <div className="d-flex align-items-center">
                               <div
@@ -1436,7 +1396,6 @@ const InvoicePreview = ({
                               </div>
                             </div>
                           </div>
-                          {/* WEBSITE */}
                           <div className="col-auto">
                             <div className="d-flex align-items-center">
                               <div
@@ -1459,7 +1418,6 @@ const InvoicePreview = ({
                               </div>
                             </div>
                           </div>
-                          {/* EMAIL */}
                           <div className="col-auto">
                             <div className="d-flex align-items-center">
                               <div
@@ -1481,8 +1439,6 @@ const InvoicePreview = ({
                               </div>
                             </div>
                           </div>
-
-                          {/* OFFICE ADDRESS */}
                           <div className="col-auto">
                             <div className="d-flex align-items-center">
                               <div
@@ -1515,7 +1471,6 @@ const InvoicePreview = ({
         </div>
       </div>
 
-      {/* Bootstrap Icons CSS */}
       {!isPrintMode && (
         <link
           rel="stylesheet"

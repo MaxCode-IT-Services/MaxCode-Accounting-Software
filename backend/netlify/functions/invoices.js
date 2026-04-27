@@ -80,6 +80,155 @@ export async function handler(event) {
       return `${prefix}${String(nextNumber).padStart(width, "0")}`;
     };
 
+    const parseDateValue = (value) => {
+      if (!value) return null;
+      if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+      const raw = String(value || "").trim();
+      if (!raw) return null;
+      const direct = new Date(raw);
+      if (!Number.isNaN(direct.getTime())) return direct;
+      const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) {
+        const parsed = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+      }
+      return null;
+    };
+
+    const toNumber = (value) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const derivePaymentStatus = (totalAmount, receivedAmount) => {
+      const total = toNumber(totalAmount);
+      const received = toNumber(receivedAmount);
+
+      if (received <= 0) return "Unpaid";
+      if (total > 0 && received >= total) return "Paid";
+      return "Partial";
+    };
+
+    const getLatestAdvanceMeta = (appliedAdvances = []) => {
+      const candidates = (appliedAdvances || [])
+        .filter((adv) => toNumber(adv.appliedAmount) > 0)
+        .map((adv) => ({
+          receiptDate: adv.receiptDate || adv.receipt_date || adv.date || "",
+          paymentMethod: adv.paymentMethod || "",
+        }));
+
+      if (candidates.length === 0) {
+        return { receiptDate: "", paymentMethod: "" };
+      }
+
+      const withDate = candidates.filter((c) => c.receiptDate);
+      if (withDate.length === 0) {
+        return candidates[candidates.length - 1];
+      }
+
+      withDate.sort((a, b) => {
+        const aTime = parseDateValue(a.receiptDate)?.getTime() || 0;
+        const bTime = parseDateValue(b.receiptDate)?.getTime() || 0;
+        return aTime - bTime;
+      });
+
+      return withDate[withDate.length - 1];
+    };
+
+    const getReceiptEventTime = (receipt) => {
+      const created = parseDateValue(receipt?.createdAt)?.getTime() || 0;
+      const updated = parseDateValue(receipt?.updatedAt)?.getTime() || 0;
+      const receiptDate = parseDateValue(receipt?.receiptDate)?.getTime() || 0;
+      let objectIdTime = 0;
+
+      if (receipt?._id instanceof ObjectId) {
+        objectIdTime = receipt._id.getTimestamp().getTime();
+      }
+
+      return Math.max(created, updated, receiptDate, objectIdTime);
+    };
+
+    const computeInvoicePaymentSnapshot = async ({
+      invoiceId,
+      invoiceNumber,
+      totalAmount,
+      appliedAdvances,
+      fallbackPaymentDate,
+      fallbackPaymentMethod,
+    }) => {
+      const resolvedInvoiceId = String(invoiceId || "");
+      const resolvedInvoiceNumber = String(invoiceNumber || "");
+      const paymentReceiptsCol = db.collection("payment_receipts");
+
+      const receiptFilter = {
+        isDeleted: { $ne: true },
+        paymentType: { $ne: "advance" },
+        $or: [
+          ...(resolvedInvoiceId
+            ? [
+                { invoiceId: resolvedInvoiceId },
+                { invoiceNumber: resolvedInvoiceId },
+              ]
+            : []),
+          ...(resolvedInvoiceNumber
+            ? [
+                { invoiceId: resolvedInvoiceNumber },
+                { invoiceNumber: resolvedInvoiceNumber },
+              ]
+            : []),
+        ],
+      };
+
+      const regularReceipts = receiptFilter.$or.length
+        ? await paymentReceiptsCol.find(receiptFilter).toArray()
+        : [];
+
+      const regularReceivedAmount = regularReceipts.reduce(
+        (sum, receipt) => sum + toNumber(receipt.amount),
+        0,
+      );
+
+      const latestRegularReceipt =
+        regularReceipts.length > 0
+          ? regularReceipts.reduce((latest, current) => {
+              const latestTime = getReceiptEventTime(latest);
+              const currentTime = getReceiptEventTime(current);
+              return currentTime >= latestTime ? current : latest;
+            })
+          : null;
+
+      const normalizedAppliedAdvances = Array.isArray(appliedAdvances)
+        ? appliedAdvances
+        : [];
+      const advanceAdjustedTotal = normalizedAppliedAdvances.reduce(
+        (sum, advance) => sum + toNumber(advance.appliedAmount),
+        0,
+      );
+      const amountReceived = regularReceivedAmount + advanceAdjustedTotal;
+      const dueAmount = Math.max(0, toNumber(totalAmount) - amountReceived);
+      const paymentStatus = derivePaymentStatus(totalAmount, amountReceived);
+      const latestAdvanceMeta = getLatestAdvanceMeta(normalizedAppliedAdvances);
+      const paymentDate =
+        latestRegularReceipt?.receiptDate ||
+        latestAdvanceMeta.receiptDate ||
+        fallbackPaymentDate ||
+        "";
+      const paymentMethod =
+        latestRegularReceipt?.paymentMethod ||
+        latestAdvanceMeta.paymentMethod ||
+        fallbackPaymentMethod ||
+        "";
+
+      return {
+        amountReceived: amountReceived > 0 ? String(amountReceived) : "",
+        paymentStatus,
+        paymentDate,
+        paymentMethod,
+        dueAmount: dueAmount.toFixed(2),
+        advanceAdjustedTotal,
+      };
+    };
+
     // GET - Fetch all invoices or specific invoice by ID with pagination support
     if (event.httpMethod === "GET") {
       const {
@@ -171,20 +320,133 @@ export async function handler(event) {
           return createResponse(404, { error: "Invoice not found" }, origin);
         }
 
+        const paymentReceiptsCol = db.collection("payment_receipts");
+        const currentAppliedAdvances = Array.isArray(invoice.appliedAdvances)
+          ? invoice.appliedAdvances
+          : [];
+
+        const hydratedAppliedAdvances = await Promise.all(
+          currentAppliedAdvances.map(async (advance) => {
+            const hasDate = Boolean(
+              advance?.receiptDate || advance?.receipt_date || advance?.date,
+            );
+            const hasMethod = Boolean(advance?.paymentMethod);
+            if (hasDate && hasMethod) return advance;
+
+            const advanceId = String(advance?.advanceId || "");
+            if (!ObjectId.isValid(advanceId)) return advance;
+
+            const receiptDoc = await paymentReceiptsCol.findOne(
+              {
+                _id: new ObjectId(advanceId),
+                isDeleted: { $ne: true },
+              },
+              {
+                projection: {
+                  receiptDate: 1,
+                  paymentMethod: 1,
+                  receiptNumber: 1,
+                },
+              },
+            );
+
+            if (!receiptDoc) return advance;
+
+            return {
+              ...advance,
+              receiptDate:
+                advance?.receiptDate ||
+                advance?.receipt_date ||
+                advance?.date ||
+                receiptDoc.receiptDate ||
+                null,
+              paymentMethod:
+                advance?.paymentMethod || receiptDoc.paymentMethod || "",
+              receiptNumber:
+                advance?.receiptNumber || receiptDoc.receiptNumber || "",
+            };
+          }),
+        );
+
+        const paymentSnapshot = await computeInvoicePaymentSnapshot({
+          invoiceId: String(invoice._id),
+          invoiceNumber: invoice.invoiceNumber,
+          totalAmount: invoice?.taxData?.totalAmount,
+          appliedAdvances: hydratedAppliedAdvances,
+          fallbackPaymentDate: invoice.paymentDate,
+          fallbackPaymentMethod: invoice.paymentMethod,
+        });
+
         const binding = await getInvoiceTermsBinding();
         const { document: hydratedInvoice, patch } =
           applyTermsBindingToDocument(invoice, binding);
 
-        if (patch) {
+        const needsAdvanceMetaPatch =
+          JSON.stringify(hydratedAppliedAdvances) !==
+          JSON.stringify(currentAppliedAdvances);
+        const needsPaymentPatch =
+          String(hydratedInvoice.amountReceived || "") !==
+            String(paymentSnapshot.amountReceived || "") ||
+          String(hydratedInvoice.paymentStatus || "") !==
+            String(paymentSnapshot.paymentStatus || "") ||
+          String(hydratedInvoice.paymentDate || "") !==
+            String(paymentSnapshot.paymentDate || "") ||
+          String(hydratedInvoice.paymentMethod || "") !==
+            String(paymentSnapshot.paymentMethod || "") ||
+          String(hydratedInvoice.dueAmount || "") !==
+            String(paymentSnapshot.dueAmount || "") ||
+          Number(hydratedInvoice.advanceAdjustedTotal || 0) !==
+            Number(paymentSnapshot.advanceAdjustedTotal || 0);
+
+        const updatePayload = {
+          ...(patch || {}),
+          ...(needsAdvanceMetaPatch
+            ? { appliedAdvances: hydratedAppliedAdvances }
+            : {}),
+          ...(needsPaymentPatch
+            ? {
+                amountReceived: paymentSnapshot.amountReceived,
+                paymentStatus: paymentSnapshot.paymentStatus,
+                paymentDate: paymentSnapshot.paymentDate,
+                paymentMethod: paymentSnapshot.paymentMethod,
+                dueAmount: paymentSnapshot.dueAmount,
+                advanceAdjustedTotal: paymentSnapshot.advanceAdjustedTotal,
+              }
+            : {}),
+        };
+
+        const hasUpdate = Object.keys(updatePayload).length > 0;
+
+        if (hasUpdate) {
           await invoicesCollection.updateOne(
             { _id: invoice._id },
             {
-              $set: patch,
+              $set: {
+                ...updatePayload,
+                updatedAt: new Date(),
+              },
             },
           );
         }
 
-        return createResponse(200, hydratedInvoice, origin);
+        const responseInvoice = {
+          ...hydratedInvoice,
+          ...(needsAdvanceMetaPatch
+            ? { appliedAdvances: hydratedAppliedAdvances }
+            : {}),
+          ...(needsPaymentPatch
+            ? {
+                amountReceived: paymentSnapshot.amountReceived,
+                paymentStatus: paymentSnapshot.paymentStatus,
+                paymentDate: paymentSnapshot.paymentDate,
+                paymentMethod: paymentSnapshot.paymentMethod,
+                dueAmount: paymentSnapshot.dueAmount,
+                advanceAdjustedTotal: paymentSnapshot.advanceAdjustedTotal,
+              }
+            : {}),
+        };
+
+        return createResponse(200, responseInvoice, origin);
       }
 
       // Build filter query
@@ -659,9 +921,17 @@ export async function handler(event) {
 
       const binding = await getInvoiceTermsBinding();
 
-      // Extract and remove appliedAdvances from invoiceData before insert
+      // Patch: Always save appliedAdvances with correct linkage for Invoice Preview and autofill
       const appliedAdvances = Array.isArray(invoiceData.appliedAdvances)
-        ? invoiceData.appliedAdvances
+        ? invoiceData.appliedAdvances.map((a) => ({
+            ...a,
+            advanceId: String(a.advanceId || ""),
+            receiptNumber: a.receiptNumber,
+            receiptDate: a.receiptDate || a.receipt_date || a.date || null,
+            paymentMethod: a.paymentMethod || "",
+            appliedAmount: Number(a.appliedAmount || 0),
+            maxAmount: Number(a.maxAmount || a.appliedAmount || 0),
+          }))
         : [];
       delete invoiceData.appliedAdvances;
 
@@ -673,11 +943,26 @@ export async function handler(event) {
 
       const newInvoiceId = new ObjectId();
 
+      const paymentSnapshot = await computeInvoicePaymentSnapshot({
+        invoiceId: String(newInvoiceId),
+        invoiceNumber: invoiceData.invoiceNumber,
+        totalAmount: invoiceData?.taxData?.totalAmount,
+        appliedAdvances,
+        fallbackPaymentDate: invoiceData.paymentDate,
+        fallbackPaymentMethod: invoiceData.paymentMethod,
+      });
+
       const result = await invoicesCollection.insertOne({
         _id: newInvoiceId,
         ...invoiceData,
         appliedAdvances,
-        advanceAdjustedTotal,
+        advanceAdjustedTotal:
+          paymentSnapshot.advanceAdjustedTotal ?? advanceAdjustedTotal,
+        amountReceived: paymentSnapshot.amountReceived,
+        paymentStatus: paymentSnapshot.paymentStatus,
+        paymentDate: paymentSnapshot.paymentDate,
+        paymentMethod: paymentSnapshot.paymentMethod,
+        dueAmount: paymentSnapshot.dueAmount,
         invoiceTermsVersion: binding?.version || "V1.0.0",
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -740,6 +1025,14 @@ export async function handler(event) {
       delete invoiceData.invoiceTermsVersion;
       delete invoiceData.invoiceTermsConditionsSnapshot;
       const invoiceObjectId = new ObjectId(id);
+      const currentInvoice = await invoicesCollection.findOne({
+        _id: invoiceObjectId,
+        isDeleted: { $ne: true },
+      });
+
+      if (!currentInvoice) {
+        return createResponse(404, { error: "Invoice not found" }, origin);
+      }
 
       // Check for duplicate invoice number (excluding current record)
       if (invoiceData.invoiceNumber) {
@@ -759,7 +1052,15 @@ export async function handler(event) {
 
       // Extract and handle appliedAdvances for update
       const updatedAppliedAdvances = Array.isArray(invoiceData.appliedAdvances)
-        ? invoiceData.appliedAdvances
+        ? invoiceData.appliedAdvances.map((a) => ({
+            ...a,
+            advanceId: String(a.advanceId || ""),
+            receiptNumber: a.receiptNumber || "",
+            receiptDate: a.receiptDate || a.receipt_date || a.date || null,
+            paymentMethod: a.paymentMethod || "",
+            appliedAmount: Number(a.appliedAmount || 0),
+            maxAmount: Number(a.maxAmount || a.appliedAmount || 0),
+          }))
         : null;
       if (updatedAppliedAdvances !== null) {
         delete invoiceData.appliedAdvances;
@@ -768,11 +1069,6 @@ export async function handler(event) {
       // If appliedAdvances changed, recalculate and sync advance records
       if (updatedAppliedAdvances !== null) {
         const paymentReceiptsCol = db.collection("payment_receipts");
-        // Fetch current invoice to diff advances
-        const currentInvoice = await invoicesCollection.findOne({
-          _id: invoiceObjectId,
-          isDeleted: { $ne: true },
-        });
         const prevAdvances = Array.isArray(currentInvoice?.appliedAdvances)
           ? currentInvoice.appliedAdvances
           : [];
@@ -828,6 +1124,38 @@ export async function handler(event) {
         );
         invoiceData.appliedAdvances = updatedAppliedAdvances;
         invoiceData.advanceAdjustedTotal = advanceAdjustedTotal;
+      }
+
+      const resolvedInvoiceNumber =
+        invoiceData.invoiceNumber || currentInvoice.invoiceNumber || "";
+      const effectiveAppliedAdvances =
+        updatedAppliedAdvances !== null
+          ? updatedAppliedAdvances
+          : Array.isArray(currentInvoice.appliedAdvances)
+            ? currentInvoice.appliedAdvances
+            : [];
+      const totalAmountForSnapshot =
+        invoiceData?.taxData?.totalAmount ??
+        currentInvoice?.taxData?.totalAmount;
+
+      const paymentSnapshot = await computeInvoicePaymentSnapshot({
+        invoiceId: id,
+        invoiceNumber: resolvedInvoiceNumber,
+        totalAmount: totalAmountForSnapshot,
+        appliedAdvances: effectiveAppliedAdvances,
+        fallbackPaymentDate:
+          invoiceData.paymentDate || currentInvoice.paymentDate,
+        fallbackPaymentMethod:
+          invoiceData.paymentMethod || currentInvoice.paymentMethod,
+      });
+
+      invoiceData.amountReceived = paymentSnapshot.amountReceived;
+      invoiceData.paymentStatus = paymentSnapshot.paymentStatus;
+      invoiceData.paymentDate = paymentSnapshot.paymentDate;
+      invoiceData.paymentMethod = paymentSnapshot.paymentMethod;
+      invoiceData.dueAmount = paymentSnapshot.dueAmount;
+      if (updatedAppliedAdvances === null) {
+        invoiceData.advanceAdjustedTotal = paymentSnapshot.advanceAdjustedTotal;
       }
 
       const result = await invoicesCollection.updateOne(

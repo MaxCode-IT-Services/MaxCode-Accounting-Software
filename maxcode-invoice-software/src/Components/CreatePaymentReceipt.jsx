@@ -32,6 +32,8 @@ const emptyForm = {
   paymentType: "regular",
   invoiceId: "",
   invoiceNumber: "",
+  invoiceIds: [],
+  invoiceNumbers: [],
   financialYear: "",
 };
 
@@ -86,6 +88,19 @@ const CreatePaymentReceipt = ({
   const [invoiceOptions, setInvoiceOptions] = useState([]);
   const [isInvoiceLoading, setIsInvoiceLoading] = useState(false);
 
+  const toNumber = (value) => {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const getInvoiceDueAmount = (invoice) => {
+    const totalAmount = toNumber(
+      invoice?.taxData?.totalAmount || invoice?.totalAmount || 0,
+    );
+    const amountReceived = toNumber(invoice?.amountReceived || 0);
+    return Math.max(0, totalAmount - amountReceived);
+  };
+
   const clientSearchDebounceRef = useRef(null);
   const clientAbortControllerRef = useRef(null);
   const knownClientRowsRef = useRef([]);
@@ -119,6 +134,30 @@ const CreatePaymentReceipt = ({
         paymentType: editingRecord.paymentType || defaultPaymentType,
         invoiceId: editingRecord.invoiceId || "",
         invoiceNumber: editingRecord.invoiceNumber || "",
+        invoiceIds:
+          Array.isArray(editingRecord.invoiceIds) &&
+          editingRecord.invoiceIds.length > 0
+            ? editingRecord.invoiceIds
+            : Array.isArray(editingRecord.invoiceAllocations) &&
+                editingRecord.invoiceAllocations.length > 0
+              ? editingRecord.invoiceAllocations
+                  .map((allocation) => allocation?.invoiceId)
+                  .filter(Boolean)
+              : editingRecord.invoiceId
+                ? [editingRecord.invoiceId]
+                : [],
+        invoiceNumbers:
+          Array.isArray(editingRecord.invoiceNumbers) &&
+          editingRecord.invoiceNumbers.length > 0
+            ? editingRecord.invoiceNumbers
+            : Array.isArray(editingRecord.invoiceAllocations) &&
+                editingRecord.invoiceAllocations.length > 0
+              ? editingRecord.invoiceAllocations
+                  .map((allocation) => allocation?.invoiceNumber)
+                  .filter(Boolean)
+              : editingRecord.invoiceNumber
+                ? [editingRecord.invoiceNumber]
+                : [],
         financialYear: editingRecord.financialYear || "",
       }));
     } else {
@@ -192,12 +231,64 @@ const CreatePaymentReceipt = ({
               inv.clientRefId === formData.clientRefId ||
               inv.clientId === formData.clientId,
           )
+          .filter((inv) => {
+            const dueAmount = getInvoiceDueAmount(inv);
+            return dueAmount > 0;
+          })
           .map((inv) => ({
             value: inv._id || inv.id,
-            label: `${inv.invoiceNumber} — ₹${Number(inv.taxData?.totalAmount || 0).toLocaleString("en-IN")} (${inv.paymentStatus || "Unpaid"})`,
+            dueAmount: getInvoiceDueAmount(inv),
+            totalAmount: toNumber(
+              inv.taxData?.totalAmount || inv.totalAmount || 0,
+            ),
+            currentReceivedAmount: toNumber(inv.amountReceived || 0),
+            label: `${inv.invoiceNumber} — Due ₹${getInvoiceDueAmount(inv).toLocaleString("en-IN")} / Total ₹${toNumber(inv.taxData?.totalAmount || inv.totalAmount || 0).toLocaleString("en-IN")}`,
             invoiceNumber: inv.invoiceNumber,
           }));
-        setInvoiceOptions(clientInvoices);
+
+        if (editingRecord && formData.paymentType === "regular") {
+          const selectedIds = Array.isArray(formData.invoiceIds)
+            ? formData.invoiceIds
+            : formData.invoiceId
+              ? [formData.invoiceId]
+              : [];
+          const selectedNumbers = Array.isArray(formData.invoiceNumbers)
+            ? formData.invoiceNumbers
+            : formData.invoiceNumber
+              ? [formData.invoiceNumber]
+              : [];
+
+          const existingKeys = new Set(
+            clientInvoices.map(
+              (option) =>
+                `${String(option.value)}::${String(option.invoiceNumber || "")}`,
+            ),
+          );
+
+          const fallbackOptions = selectedIds.map((id, index) => {
+            const invoiceNumber = selectedNumbers[index] || "";
+            const key = `${String(id)}::${String(invoiceNumber)}`;
+            if (existingKeys.has(key)) return null;
+
+            return {
+              value: id,
+              dueAmount: 0,
+              totalAmount: 0,
+              currentReceivedAmount: 0,
+              label: invoiceNumber
+                ? `${invoiceNumber} — Due ₹0 / Total ₹0`
+                : `Invoice ${id}`,
+              invoiceNumber,
+            };
+          });
+
+          setInvoiceOptions([
+            ...clientInvoices,
+            ...fallbackOptions.filter(Boolean),
+          ]);
+        } else {
+          setInvoiceOptions(clientInvoices);
+        }
       } catch (err) {
         console.error("Failed to fetch invoices:", err);
       } finally {
@@ -205,7 +296,58 @@ const CreatePaymentReceipt = ({
       }
     };
     fetchInvoices();
-  }, [formData.clientRefId, formData.paymentType]);
+  }, [
+    formData.clientRefId,
+    formData.paymentType,
+    formData.invoiceId,
+    formData.invoiceIds,
+    formData.invoiceNumber,
+    formData.invoiceNumbers,
+    editingRecord,
+  ]);
+
+  useEffect(() => {
+    if (formData.paymentType !== "regular") return;
+
+    const selectedIds = Array.isArray(formData.invoiceIds)
+      ? formData.invoiceIds
+      : formData.invoiceId
+        ? [formData.invoiceId]
+        : [];
+
+    if (selectedIds.length === 0) return;
+
+    const optionIdSet = new Set(
+      invoiceOptions.map((option) => String(option.value)),
+    );
+    const validSelectedIds = selectedIds.filter((id) =>
+      optionIdSet.has(String(id)),
+    );
+
+    if (validSelectedIds.length !== selectedIds.length) {
+      const selectedOptions = invoiceOptions.filter((option) =>
+        validSelectedIds.includes(String(option.value)),
+      );
+      const dueTotal = selectedOptions.reduce(
+        (sum, option) => sum + toNumber(option.dueAmount || 0),
+        0,
+      );
+
+      setFormData((prev) => ({
+        ...prev,
+        invoiceIds: validSelectedIds,
+        invoiceNumbers: selectedOptions.map((option) => option.invoiceNumber),
+        invoiceId: validSelectedIds[0] || "",
+        invoiceNumber: selectedOptions[0]?.invoiceNumber || "",
+        amount: dueTotal > 0 ? String(dueTotal) : "",
+      }));
+    }
+  }, [
+    invoiceOptions,
+    formData.paymentType,
+    formData.invoiceIds,
+    formData.invoiceId,
+  ]);
 
   // Auto-fill financial year and receipt number from defaultFinancialYear on mount
   useEffect(() => {
@@ -308,6 +450,11 @@ const CreatePaymentReceipt = ({
         phoneNumber: "",
         email: "",
         address: "",
+        invoiceId: "",
+        invoiceNumber: "",
+        invoiceIds: [],
+        invoiceNumbers: [],
+        amount: prev.paymentType === "regular" ? "" : prev.amount,
       }));
       return;
     }
@@ -320,6 +467,11 @@ const CreatePaymentReceipt = ({
       phoneNumber: option.phoneNumber || "",
       email: option.email || "",
       address: option.address || "",
+      invoiceId: "",
+      invoiceNumber: "",
+      invoiceIds: [],
+      invoiceNumbers: [],
+      amount: prev.paymentType === "regular" ? "" : prev.amount,
     }));
     if (errors.clientName) setErrors((prev) => ({ ...prev, clientName: "" }));
   };
@@ -336,7 +488,42 @@ const CreatePaymentReceipt = ({
       paymentType: type,
       invoiceId: "",
       invoiceNumber: "",
+      invoiceIds: [],
+      invoiceNumbers: [],
+      amount: "",
       purpose: type === "advance" ? "Advance Payment" : "",
+    }));
+  };
+
+  const handleInvoiceSelectionChange = (selectedOptions) => {
+    const normalizedSelection = Array.isArray(selectedOptions)
+      ? selectedOptions
+      : selectedOptions
+        ? [selectedOptions]
+        : [];
+
+    const invoiceIds = normalizedSelection.map((option) => option.value);
+    const invoiceNumbers = normalizedSelection.map(
+      (option) => option.invoiceNumber,
+    );
+    const dueTotal = normalizedSelection.reduce(
+      (sum, option) => sum + toNumber(option.dueAmount || 0),
+      0,
+    );
+
+    setFormData((prev) => ({
+      ...prev,
+      invoiceIds,
+      invoiceNumbers,
+      invoiceId: invoiceIds[0] || "",
+      invoiceNumber: invoiceNumbers[0] || "",
+      amount: dueTotal > 0 ? String(dueTotal) : "",
+      purpose:
+        invoiceNumbers.length > 0
+          ? `Against Invoice ${invoiceNumbers.join(", ")}`
+          : prev.paymentType === "advance"
+            ? "Advance Payment"
+            : "",
     }));
   };
 
@@ -404,9 +591,25 @@ const CreatePaymentReceipt = ({
     }
 
     try {
+      const normalizedInvoiceIds = Array.isArray(formData.invoiceIds)
+        ? formData.invoiceIds
+        : formData.invoiceId
+          ? [formData.invoiceId]
+          : [];
+
+      const normalizedInvoiceNumbers = Array.isArray(formData.invoiceNumbers)
+        ? formData.invoiceNumbers
+        : formData.invoiceNumber
+          ? [formData.invoiceNumber]
+          : [];
+
       const payload = {
         ...formData,
         amount: Number(formData.amount),
+        invoiceIds: normalizedInvoiceIds,
+        invoiceNumbers: normalizedInvoiceNumbers,
+        invoiceId: normalizedInvoiceIds[0] || "",
+        invoiceNumber: normalizedInvoiceNumbers[0] || "",
       };
 
       let res;
@@ -420,11 +623,33 @@ const CreatePaymentReceipt = ({
         showSuccess("Payment receipt updated successfully!");
       } else {
         res = await apiPost(API_ENDPOINTS.PAYMENT_RECEIPTS.CREATE, payload);
-        showSuccess(
-          formData.paymentType === "advance"
-            ? "Advance payment receipt created successfully!"
-            : "Payment receipt created successfully!",
-        );
+        const createdRecords = Array.isArray(res?.data?.createdRecords)
+          ? res.data.createdRecords
+          : [res?.data].filter(Boolean);
+
+        const regularRecord =
+          createdRecords.find(
+            (record) => String(record?.paymentType || "") !== "advance",
+          ) || null;
+        const autoAdvanceRecord =
+          createdRecords.find(
+            (record) => String(record?.paymentType || "") === "advance",
+          ) || null;
+
+        if (formData.paymentType === "advance") {
+          showSuccess("Advance payment receipt created successfully!");
+        } else if (regularRecord && autoAdvanceRecord) {
+          const allocatedInvoiceCount = Array.isArray(
+            regularRecord.invoiceAllocations,
+          )
+            ? regularRecord.invoiceAllocations.length
+            : 0;
+          showSuccess(
+            `Regular receipt ₹${toNumber(regularRecord.amount).toLocaleString("en-IN")} saved for ${allocatedInvoiceCount || 1} invoice(s), and extra ₹${toNumber(autoAdvanceRecord.amount).toLocaleString("en-IN")} auto-moved to advance (${autoAdvanceRecord.receiptNumber || "New Advance Receipt"}).`,
+          );
+        } else {
+          showSuccess("Payment receipt created successfully!");
+        }
       }
 
       if (onSubmit) onSubmit(res?.data);
@@ -441,6 +666,33 @@ const CreatePaymentReceipt = ({
   };
 
   const selectStyles = getUnifiedSelectStyles();
+  const calmSelectStyles = {
+    ...selectStyles,
+    control: (base, state) => ({
+      ...selectStyles.control(base, state),
+      border: "2px solid #e9ecef",
+      borderColor: "#e9ecef",
+      boxShadow: "none",
+      "&:hover": {
+        borderColor: "#e9ecef",
+      },
+    }),
+    valueContainer: (base, state) => ({
+      ...selectStyles.valueContainer(base, state),
+      overflowX: "hidden",
+    }),
+  };
+
+  const clientSelectComponents = {
+    LoadingIndicator: () => <SelectRightLoader />,
+    IndicatorSeparator: null,
+    ClearIndicator: null,
+  };
+
+  const invoiceSelectComponents = {
+    IndicatorSeparator: null,
+    ClearIndicator: null,
+  };
 
   // Patch: Always show a selected option for Select, even if not in clientOptions
   const selectedClientOption =
@@ -464,6 +716,15 @@ const CreatePaymentReceipt = ({
           address: formData.address,
         }
       : null;
+
+  const selectedInvoiceIds = Array.isArray(formData.invoiceIds)
+    ? formData.invoiceIds
+    : formData.invoiceId
+      ? [formData.invoiceId]
+      : [];
+  const selectedInvoiceOptions = invoiceOptions.filter((option) =>
+    selectedInvoiceIds.map((id) => String(id)).includes(String(option.value)),
+  );
 
   if (!show) return null;
 
@@ -600,8 +861,8 @@ const CreatePaymentReceipt = ({
                           onInputChange={handleClientSearchInput}
                           isLoading={isClientLoading}
                           placeholder="Search client by name, business or phone..."
-                          isClearable={!readOnly}
-                          styles={selectStyles}
+                          isClearable={false}
+                          styles={calmSelectStyles}
                           getOptionLabel={(o) =>
                             `${o.clientName || ""}${o.businessName ? ` (${o.businessName})` : ""}`
                           }
@@ -613,9 +874,7 @@ const CreatePaymentReceipt = ({
                               ? "Searching..."
                               : "No clients found"
                           }
-                          components={{
-                            LoadingIndicator: () => <SelectRightLoader />,
-                          }}
+                          components={clientSelectComponents}
                           isDisabled={readOnly}
                         />
                       </div>
@@ -735,6 +994,55 @@ const CreatePaymentReceipt = ({
                       </>
                     )}
 
+                    {/* Invoice link — only for regular payments */}
+                    {formData.paymentType === "regular" && (
+                      <div className="col-md-6">
+                        <label className="form-label">
+                          <i className="fas fa-file-invoice-dollar me-2 text-primary"></i>
+                          Against Invoice{" "}
+                          <span className="text-muted small">
+                            (Optional, Multi Select)
+                          </span>
+                        </label>
+                        <Select
+                          options={invoiceOptions}
+                          value={selectedInvoiceOptions}
+                          onChange={handleInvoiceSelectionChange}
+                          isMulti={true}
+                          closeMenuOnSelect={false}
+                          isLoading={isInvoiceLoading}
+                          isClearable={false}
+                          placeholder={
+                            formData.clientRefId
+                              ? "Select due invoice(s)"
+                              : "Select a client first"
+                          }
+                          isDisabled={!formData.clientRefId || readOnly}
+                          styles={calmSelectStyles}
+                          components={invoiceSelectComponents}
+                          noOptionsMessage={() =>
+                            isInvoiceLoading
+                              ? "Loading..."
+                              : formData.clientRefId
+                                ? "No due invoices found for this client"
+                                : "Select a client first"
+                          }
+                        />
+                        {selectedInvoiceOptions.length > 0 && (
+                          <div className="form-text mt-1">
+                            Total selected due amount: ₹
+                            {selectedInvoiceOptions
+                              .reduce(
+                                (sum, option) =>
+                                  sum + toNumber(option.dueAmount || 0),
+                                0,
+                              )
+                              .toLocaleString("en-IN")}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Amount */}
                     <div className="col-md-6">
                       <label className="form-label">
@@ -842,53 +1150,6 @@ const CreatePaymentReceipt = ({
                           placeholder="Cheque number"
                           readOnly={readOnly}
                           disabled={readOnly}
-                        />
-                      </div>
-                    )}
-
-                    {/* Invoice link — only for regular payments */}
-                    {formData.paymentType === "regular" && (
-                      <div className="col-md-6">
-                        <label className="form-label">
-                          <i className="fas fa-file-invoice-dollar me-2 text-primary"></i>
-                          Against Invoice{" "}
-                          <span className="text-muted small">(Optional)</span>
-                        </label>
-                        <Select
-                          options={invoiceOptions}
-                          value={
-                            formData.invoiceId
-                              ? invoiceOptions.find(
-                                  (o) => o.value === formData.invoiceId,
-                                ) || null
-                              : null
-                          }
-                          onChange={(option) => {
-                            setFormData((prev) => ({
-                              ...prev,
-                              invoiceId: option?.value || "",
-                              invoiceNumber: option?.invoiceNumber || "",
-                              purpose: option
-                                ? `Against Invoice ${option.invoiceNumber}`
-                                : prev.purpose,
-                            }));
-                          }}
-                          isLoading={isInvoiceLoading}
-                          isClearable={!readOnly}
-                          placeholder={
-                            formData.clientRefId
-                              ? "Select invoice (optional)"
-                              : "Select a client first"
-                          }
-                          isDisabled={!formData.clientRefId || readOnly}
-                          styles={selectStyles}
-                          noOptionsMessage={() =>
-                            isInvoiceLoading
-                              ? "Loading..."
-                              : formData.clientRefId
-                                ? "No invoices found for this client"
-                                : "Select a client first"
-                          }
                         />
                       </div>
                     )}

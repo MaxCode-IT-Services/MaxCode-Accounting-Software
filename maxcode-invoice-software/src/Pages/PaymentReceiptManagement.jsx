@@ -67,8 +67,8 @@ const PaymentReceiptManagement = () => {
   const [recordsPerPage, setRecordsPerPage] = useState(10);
   const [filters, setFilters] = useState({});
   const [searchTerm, setSearchTerm] = useState("");
-  const [sortField, setSortField] = useState(null);
-  const [sortDirection, setSortDirection] = useState("normal");
+  const [sortField, setSortField] = useState("receiptNumber");
+  const [sortDirection, setSortDirection] = useState("descending");
 
   const debounceTimeoutRef = useRef(null);
   const debounceColumnTimeoutRef = useRef(null);
@@ -278,7 +278,8 @@ const PaymentReceiptManagement = () => {
             ? `₹${Number(r.availableAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`
             : "—",
         // Expose applied invoice number if backend provides it (or fallback to invoiceNumber)
-        appliedInvoiceNumber: r.appliedInvoiceNumber || r.appliedToInvoice || r.invoiceNumber || "",
+        appliedInvoiceNumber:
+          r.appliedInvoiceNumber || r.appliedToInvoice || r.invoiceNumber || "",
         paymentTypeBadge: r.paymentType === "advance" ? "Advance" : "Regular",
       }));
 
@@ -444,7 +445,7 @@ const PaymentReceiptManagement = () => {
       render: (value) =>
         value ? (
           <span
-            className={`badge bg-${value === "Advance" ? "success" : "primary"}`}
+            className={`badge bg-${value === "Advance" ? "success" : "danger"}`}
           >
             {value}
           </span>
@@ -483,9 +484,13 @@ const PaymentReceiptManagement = () => {
         let color = "secondary";
         if (value === "Fully Applied") color = "success";
         else if (value === "Partially Applied") color = "warning";
-        else if (value === "Unapplied") color = "info";
+        else if (value === "Unapplied") color = "warning";
         return value ? (
-          <span className={`badge bg-${color}`}>{value}</span>
+          <span
+            className={`badge bg-${color} ${value === "Unapplied" ? "text-dark" : ""}`}
+          >
+            {value}
+          </span>
         ) : (
           "-"
         );
@@ -610,7 +615,8 @@ const PaymentReceiptManagement = () => {
     // Use createdAt for signature date & time
     const signatureDateTime = formatDateTime(record.createdAt);
     // Prefer applied invoice reference if backend provides it
-    let referenceInvoiceNumber = record.appliedInvoiceNumber || record.invoiceNumber || "";
+    let referenceInvoiceNumber =
+      record.appliedInvoiceNumber || record.invoiceNumber || "";
     if (record.paymentType === "advance" && !referenceInvoiceNumber) {
       referenceInvoiceNumber = "Advance Payment (Invoice Pending)";
     }
@@ -677,8 +683,8 @@ const PaymentReceiptManagement = () => {
               setCurrentPage(1);
               setFilters({});
               setSearchTerm("");
-              setSortField(null);
-              setSortDirection("normal");
+              setSortField("receiptNumber");
+              setSortDirection("descending");
               setActiveCardFilter("total");
               setFinancialPeriodMode("yearly");
             }}
@@ -844,8 +850,8 @@ const PaymentReceiptManagement = () => {
         onRefresh={() => {
           setFilters({});
           setSearchTerm("");
-          setSortField(null);
-          setSortDirection("normal");
+          setSortField("receiptNumber");
+          setSortDirection("descending");
           setCurrentPage(1);
           setActiveCardFilter("total");
           setFinancialPeriodMode("yearly");

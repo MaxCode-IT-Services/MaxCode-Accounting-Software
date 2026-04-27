@@ -423,6 +423,72 @@ const SalesManagement = () => {
       const mappedData = salesData.map((sale) => {
         const createdDate = sale.createdDate || sale.createdAt;
 
+        const advanceAdjReceiptNumbers = (() => {
+          if (
+            Array.isArray(sale.appliedAdvances) &&
+            sale.appliedAdvances.length
+          ) {
+            return sale.appliedAdvances
+              .map(
+                (a) =>
+                  a?.receiptNumber ||
+                  a?.receiptNo ||
+                  a?.receipt ||
+                  a?.receipt_number ||
+                  "",
+              )
+              .filter(Boolean)
+              .join(", ");
+          }
+          if (
+            Array.isArray(sale.appliedReceipts) &&
+            sale.appliedReceipts.length
+          ) {
+            return sale.appliedReceipts.join(", ");
+          }
+          if (
+            typeof sale.appliedReceiptNumbers === "string" &&
+            sale.appliedReceiptNumbers.trim()
+          ) {
+            return sale.appliedReceiptNumbers;
+          }
+          return "";
+        })();
+
+        const { regularReceiptTotal, regularReceiptNumbers } = (() => {
+          const candidates =
+            sale.paymentReceipts ||
+            sale.receipts ||
+            sale.payment_receipts ||
+            sale.receiptsList ||
+            sale.paymentReceiptsList ||
+            sale.linkedReceipts ||
+            [];
+
+          if (!Array.isArray(candidates) || candidates.length === 0) {
+            return { regularReceiptTotal: 0, regularReceiptNumbers: "" };
+          }
+
+          const regulars = candidates.filter((r) => {
+            if (!r) return false;
+            if (typeof r.paymentType === "string")
+              return r.paymentType !== "advance";
+            if (r.isAdvance === true) return false;
+            return true;
+          });
+
+          const total = regulars.reduce(
+            (s, r) => s + Number(r.amount || r.receivedAmount || 0),
+            0,
+          );
+          const nums = regulars
+            .map((r) => r.receiptNumber || r.receiptNo || r.receipt || "")
+            .filter(Boolean)
+            .join(", ");
+
+          return { regularReceiptTotal: total, regularReceiptNumbers: nums };
+        })();
+
         return {
           ...sale,
           id: sale._id || sale.id,
@@ -433,6 +499,10 @@ const SalesManagement = () => {
             : "-",
           createdDateTime: formatDateTimeForDisplay(createdDate),
           totalAmount: sale.taxData?.totalAmount || 0,
+          advanceAdjustedTotal: sale.advanceAdjustedTotal || 0,
+          advanceAdjReceiptNumbers,
+          regularReceiptTotal,
+          regularReceiptNumbers,
           roundingAmount: sale.roundingAmount || 0,
           itemCount: sale.items?.length || 0,
           clientName: getClientName(sale),
@@ -749,6 +819,46 @@ const SalesManagement = () => {
       ),
     },
     {
+      key: "advanceAdjustedTotal",
+      label: "Advance Adj.",
+      width: 130,
+      render: (value) => (
+        <span className="fw-bold text-danger">
+          ₹{" "}
+          {parseFloat(value || 0).toLocaleString("en-IN", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </span>
+      ),
+    },
+    {
+      key: "advanceAdjReceiptNumbers",
+      label: "Advance Adj. Recipt No.",
+      width: 200,
+      render: (value) => <span>{value && value !== "" ? value : "-"}</span>,
+    },
+    {
+      key: "regularReceiptTotal",
+      label: "Regular Recipt Amount",
+      width: 150,
+      render: (value) => (
+        <span className="fw-bold text-success">
+          ₹{" "}
+          {parseFloat(value || 0).toLocaleString("en-IN", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </span>
+      ),
+    },
+    {
+      key: "regularReceiptNumbers",
+      label: "Regular Recipt No.",
+      width: 220,
+      render: (value) => <span>{value && value !== "" ? value : "-"}</span>,
+    },
+    {
       key: "roundingAmount",
       label: "Rounding Amount",
       width: 130,
@@ -989,17 +1099,43 @@ const SalesManagement = () => {
   };
 
   // Handle edit
-  const handleEdit = (record) => {
-    setEditingRecord(record);
-    setShowCreateSalesForm(true);
-    showInfo(`Editing sales: ${record.invoiceNumber}`);
+  const handleEdit = async (record) => {
+    try {
+      const invoiceId = record._id || record.id;
+      if (!invoiceId) {
+        setEditingRecord(record);
+      } else {
+        const response = await apiGet(API_ENDPOINTS.INVOICES.GET(invoiceId));
+        setEditingRecord(response?.data || record);
+      }
+      setShowCreateSalesForm(true);
+      showInfo(`Editing sales: ${record.invoiceNumber}`);
+    } catch (error) {
+      console.error("Failed to fetch invoice details for edit:", error);
+      setEditingRecord(record);
+      setShowCreateSalesForm(true);
+      showInfo(`Editing sales: ${record.invoiceNumber}`);
+    }
   };
 
   // Handle view
-  const handleView = (record) => {
-    setEditingRecord({ ...record, isViewMode: true });
-    setShowCreateSalesForm(true);
-    showInfo(`Viewing sales: ${record.invoiceNumber}`);
+  const handleView = async (record) => {
+    try {
+      const invoiceId = record._id || record.id;
+      if (!invoiceId) {
+        setEditingRecord({ ...record, isViewMode: true });
+      } else {
+        const response = await apiGet(API_ENDPOINTS.INVOICES.GET(invoiceId));
+        setEditingRecord({ ...(response?.data || record), isViewMode: true });
+      }
+      setShowCreateSalesForm(true);
+      showInfo(`Viewing sales: ${record.invoiceNumber}`);
+    } catch (error) {
+      console.error("Failed to fetch invoice details for view:", error);
+      setEditingRecord({ ...record, isViewMode: true });
+      setShowCreateSalesForm(true);
+      showInfo(`Viewing sales: ${record.invoiceNumber}`);
+    }
   };
 
   // Handle delete
@@ -1281,6 +1417,100 @@ const SalesManagement = () => {
     };
   };
 
+  // Build invoice data for preview
+  const buildInvoiceData = (record) => {
+    if (!record) return null;
+
+    const toNumber = (value) => {
+      const num = parseFloat(value);
+      return Number.isNaN(num) ? 0 : num;
+    };
+
+    const subtotal = toNumber(record.taxData?.subtotal || 0);
+    const discountPercent = toNumber(record.discountPercent || 0);
+    const discountAmount =
+      toNumber(record.discountAmount || 0) ||
+      (discountPercent > 0 ? (subtotal * discountPercent) / 100 : 0);
+    const taxableAmount =
+      toNumber(record.taxData?.taxableAmount || 0) || subtotal - discountAmount;
+    const taxPercent = toNumber(record.taxData?.taxPercentage || 0);
+    const cgst = toNumber(record.taxData?.cgst || 0);
+    const sgst = toNumber(record.taxData?.sgst || 0);
+    const igst = toNumber(record.taxData?.igst || 0);
+    const roundingAmount = toNumber(record.roundingAmount || 0);
+    const totalAmountFromRecord = toNumber(record.taxData?.totalAmount || 0);
+    const computedTotalAmount =
+      taxableAmount + cgst + sgst + igst + roundingAmount;
+    const totalAmount = totalAmountFromRecord || computedTotalAmount;
+    const tdsPercent = toNumber(record.tdsPercent || 0);
+    const tdsAmount =
+      toNumber(record.tdsAmount || 0) ||
+      (tdsPercent > 0 ? (totalAmount * tdsPercent) / 100 : 0);
+    const isRajasthan = (record.placeOfSupply || "")
+      .toLowerCase()
+      .includes("rajasthan");
+    const cgstPercent = isRajasthan ? taxPercent / 2 : 0;
+    const sgstPercent = isRajasthan ? taxPercent / 2 : 0;
+    const igstPercent = !isRajasthan ? taxPercent : 0;
+
+    return {
+      companyName: businessSettings.companyName || "",
+      companyAddress: businessSettings.companyAddress || "",
+      companyGstin: businessSettings.gstin || "",
+      accountName: businessSettings.accountName || "",
+      bankName: businessSettings.bankName || "",
+      accountNumber: businessSettings.accountNumber || "",
+      ifscCode: businessSettings.ifscCode || "",
+      branchAddress: businessSettings.branchAddress || "",
+      invoiceNumber: record.invoiceNumber || "",
+      invoiceDate: formatDateForDisplay(record.invoiceDate),
+      createdDateTime:
+        record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
+      orderNumber: record.clientId || record.clientRefId || "",
+      clientId: record.clientId || record.clientRefId || "",
+      placeOfSupply: record.placeOfSupply || "",
+      clientName: record.clientName || "",
+      businessName: record.businessName || record.clientBusinessName || "",
+      clientBusinessName:
+        record.clientBusinessName || record.businessName || "",
+      clientAddress: record.address || "",
+      clientPhone: record.phoneNumber || "",
+      clientEmail: record.email || "",
+      clientGstin: record.gstin || "",
+      paymentDate: record.paymentDate
+        ? formatDateForDisplay(record.paymentDate)
+        : "",
+      paymentMethod: record.paymentMethod || "",
+      discountPercent,
+      discountAmount,
+      taxableAmount,
+      taxPercent,
+      cgst,
+      sgst,
+      igst,
+      cgstPercent,
+      sgstPercent,
+      igstPercent,
+      subtotal,
+      totalAmount,
+      roundingAmount,
+      amountReceived: toNumber(record.amountReceived || 0),
+      advanceAdjustedTotal: toNumber(record.advanceAdjustedTotal || 0),
+      hasTds: tdsPercent > 0,
+      tdsPercent,
+      tdsAmount,
+      status: getStatusLabel(record.paymentStatus),
+      items: (record.items || []).map((item) => ({
+        serviceName: item.itemName || "",
+        description: item.itemDescription || "",
+        hsnCode: item.hsnCode || "",
+        qty: toNumber(item.qty || 0),
+        price: toNumber(item.price || 0),
+        amount: toNumber(item.amount || (item.qty || 0) * (item.price || 0)),
+      })),
+    };
+  };
+
   // Export multiple invoices as PDF
   const exportInvoicesPdf = async () => {
     const dataToExport = serverSide ? records : filteredClientSideData;
@@ -1408,99 +1638,6 @@ const SalesManagement = () => {
     if (status === "Paid") return "PAID";
     if (status === "Partial") return "PARTIAL";
     return "UNPAID";
-  };
-
-  // Build invoice data for preview
-  const buildInvoiceData = (record) => {
-    if (!record) return null;
-
-    const toNumber = (value) => {
-      const num = parseFloat(value);
-      return Number.isNaN(num) ? 0 : num;
-    };
-
-    const subtotal = toNumber(record.taxData?.subtotal || 0);
-    const discountPercent = toNumber(record.discountPercent || 0);
-    const discountAmount =
-      toNumber(record.discountAmount || 0) ||
-      (discountPercent > 0 ? (subtotal * discountPercent) / 100 : 0);
-    const taxableAmount =
-      toNumber(record.taxData?.taxableAmount || 0) || subtotal - discountAmount;
-    const taxPercent = toNumber(record.taxData?.taxPercentage || 0);
-    const cgst = toNumber(record.taxData?.cgst || 0);
-    const sgst = toNumber(record.taxData?.sgst || 0);
-    const igst = toNumber(record.taxData?.igst || 0);
-    const roundingAmount = toNumber(record.roundingAmount || 0);
-    const totalAmountFromRecord = toNumber(record.taxData?.totalAmount || 0);
-    const computedTotalAmount =
-      taxableAmount + cgst + sgst + igst + roundingAmount;
-    const totalAmount = totalAmountFromRecord || computedTotalAmount;
-    const tdsPercent = toNumber(record.tdsPercent || 0);
-    const tdsAmount =
-      toNumber(record.tdsAmount || 0) ||
-      (tdsPercent > 0 ? (totalAmount * tdsPercent) / 100 : 0);
-    const isRajasthan = (record.placeOfSupply || "")
-      .toLowerCase()
-      .includes("rajasthan");
-    const cgstPercent = isRajasthan ? taxPercent / 2 : 0;
-    const sgstPercent = isRajasthan ? taxPercent / 2 : 0;
-    const igstPercent = !isRajasthan ? taxPercent : 0;
-
-    return {
-      companyName: businessSettings.companyName || "",
-      companyAddress: businessSettings.companyAddress || "",
-      companyGstin: businessSettings.gstin || "",
-      accountName: businessSettings.accountName || "",
-      bankName: businessSettings.bankName || "",
-      accountNumber: businessSettings.accountNumber || "",
-      ifscCode: businessSettings.ifscCode || "",
-      branchAddress: businessSettings.branchAddress || "",
-      invoiceNumber: record.invoiceNumber || "",
-      invoiceDate: formatDateForDisplay(record.invoiceDate),
-      createdDateTime:
-        record.createdDateTime || formatDateTimeForDisplay(record.createdDate),
-      orderNumber: record.clientId || record.clientRefId || "",
-      clientId: record.clientId || record.clientRefId || "",
-      placeOfSupply: record.placeOfSupply || "",
-      clientName: record.clientName || "",
-      businessName: record.businessName || record.clientBusinessName || "",
-      clientBusinessName:
-        record.clientBusinessName || record.businessName || "",
-      clientAddress: record.address || "",
-      clientPhone: record.phoneNumber || "",
-      clientEmail: record.email || "",
-      clientGstin: record.gstin || "",
-      paymentDate: record.paymentDate
-        ? formatDateForDisplay(record.paymentDate)
-        : "",
-      paymentMethod: record.paymentMethod || "",
-      discountPercent,
-      discountAmount,
-      taxableAmount,
-      taxPercent,
-      cgst,
-      sgst,
-      igst,
-      cgstPercent,
-      sgstPercent,
-      igstPercent,
-      subtotal,
-      totalAmount,
-      roundingAmount,
-      amountReceived: toNumber(record.amountReceived || 0),
-      hasTds: tdsPercent > 0,
-      tdsPercent,
-      tdsAmount,
-      status: getStatusLabel(record.paymentStatus),
-      items: (record.items || []).map((item) => ({
-        serviceName: item.itemName || "",
-        description: item.itemDescription || "",
-        hsnCode: item.hsnCode || "",
-        qty: toNumber(item.qty || 0),
-        price: toNumber(item.price || 0),
-        amount: toNumber(item.amount || (item.qty || 0) * (item.price || 0)),
-      })),
-    };
   };
 
   // Server-side handlers
