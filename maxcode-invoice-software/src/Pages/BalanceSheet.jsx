@@ -20,6 +20,7 @@ const BalanceSheet = () => {
   const [rcmRecords, setRcmRecords] = useState([]);
   const [projectRecords, setProjectRecords] = useState([]);
   const [personalFundRecords, setPersonalFundRecords] = useState([]);
+  const [paymentReceiptRecords, setPaymentReceiptRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeCardFilter, setActiveCardFilter] = useState("all");
 
@@ -37,8 +38,36 @@ const BalanceSheet = () => {
 
   const getDateOnly = (value) => {
     if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
+    const parseDate = (rawValue) => {
+      const direct = new Date(rawValue);
+      if (!Number.isNaN(direct.getTime())) return direct;
+
+      const raw = String(rawValue || "").trim();
+      const dashMatch = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+      if (dashMatch) {
+        const parsed = new Date(
+          Number(dashMatch[3]),
+          Number(dashMatch[2]) - 1,
+          Number(dashMatch[1]),
+        );
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+      }
+
+      const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (slashMatch) {
+        const parsed = new Date(
+          Number(slashMatch[3]),
+          Number(slashMatch[2]) - 1,
+          Number(slashMatch[1]),
+        );
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+      }
+
+      return null;
+    };
+
+    const date = parseDate(value);
+    if (!date) return null;
     return new Date(date.getFullYear(), date.getMonth(), date.getDate());
   };
 
@@ -231,6 +260,7 @@ const BalanceSheet = () => {
         rcmResult,
         projectsResult,
         personalFundsResult,
+        paymentReceiptsResult,
       ] = await Promise.all([
         fetchSafe({
           endpoint: API_ENDPOINTS.YEARS.LIST,
@@ -263,6 +293,11 @@ const BalanceSheet = () => {
         fetchSafe({
           endpoint: API_ENDPOINTS.OWNER_INVESTMENTS.LIST,
           fallbackKeys: ["data", "personalFunds"],
+        }),
+        fetchSafe({
+          endpoint: API_ENDPOINTS.PAYMENT_RECEIPTS.LIST,
+          fallbackKeys: ["records", "receipts", "data"],
+          fetchAll: true,
         }),
       ]);
 
@@ -299,6 +334,10 @@ const BalanceSheet = () => {
       const personalFundsData =
         personalFundsResult.status === "fulfilled"
           ? personalFundsResult.value
+          : [];
+      const paymentReceiptsData =
+        paymentReceiptsResult.status === "fulfilled"
+          ? paymentReceiptsResult.value
           : [];
 
       setFinancialYears(normalizedYears);
@@ -348,6 +387,13 @@ const BalanceSheet = () => {
           id: record._id || record.id,
         })),
       );
+      setPaymentReceiptRecords(
+        paymentReceiptsData.map((record) => ({
+          ...record,
+          id: record._id || record.id,
+          invoiceDate: record.receiptDate || record.invoiceDate,
+        })),
+      );
 
       if (
         yearsResult.status === "rejected" ||
@@ -357,7 +403,8 @@ const BalanceSheet = () => {
         companyExpenseResult.status === "rejected" ||
         rcmResult.status === "rejected" ||
         projectsResult.status === "rejected" ||
-        personalFundsResult.status === "rejected"
+        personalFundsResult.status === "rejected" ||
+        paymentReceiptsResult.status === "rejected"
       ) {
         showInfo("Some balance sheet data could not be loaded.");
       }
@@ -372,6 +419,7 @@ const BalanceSheet = () => {
       setRcmRecords([]);
       setProjectRecords([]);
       setPersonalFundRecords([]);
+      setPaymentReceiptRecords([]);
     } finally {
       setLoading(false);
     }
@@ -419,6 +467,7 @@ const BalanceSheet = () => {
         invoiceDate: r.fundDate || r.invoiceDate,
       })),
     );
+    const paymentReceipts = filterByFinancialYear(paymentReceiptRecords);
     const selectedRange = getSelectedYearRange();
 
     const projectPayoutEntries = projectRecords.flatMap((project) => {
@@ -460,12 +509,16 @@ const BalanceSheet = () => {
       bankDebit: 0,
       bankCredit: 0,
       salesCredit: 0,
+      salesReturnDebit: 0,
+      creditNotePayableCredit: 0,
       purchaseDebit: 0,
       gstOutputCredit: 0,
+      gstOutputDebit: 0,
       gstInputDebit: 0,
       sundryDebtorsDebit: 0,
       sundryCreditorsCredit: 0,
       ownerFundingCredit: 0,
+      customerOverpaymentCredit: 0,
     };
 
     sales.forEach((record) => {
@@ -492,11 +545,15 @@ const BalanceSheet = () => {
         record?.totalAmount || taxableAmount + taxAmount,
       );
       const isCreditNote = String(record?.noteType || "") === "Credit Note";
-      const direction = isCreditNote ? -1 : 1;
-
-      totals.salesCredit += direction * taxableAmount;
-      totals.gstOutputCredit += direction * taxAmount;
-      totals.sundryDebtorsDebit += direction * totalAmount;
+      if (isCreditNote) {
+        totals.salesReturnDebit += taxableAmount;
+        totals.gstOutputDebit += taxAmount;
+        totals.creditNotePayableCredit += totalAmount;
+      } else {
+        totals.salesCredit += taxableAmount;
+        totals.gstOutputCredit += taxAmount;
+        totals.sundryDebtorsDebit += totalAmount;
+      }
     });
 
     purchases.forEach((record) => {
@@ -595,6 +652,24 @@ const BalanceSheet = () => {
       }
     });
 
+    const unappliedAdvanceReceipts = paymentReceipts.reduce((sum, receipt) => {
+      const isAdvance =
+        String(receipt.paymentType || "")
+          .trim()
+          .toLowerCase() === "advance";
+      if (!isAdvance) return sum;
+      const unappliedAmount = Math.max(
+        toNumber(receipt.amount || 0) - toNumber(receipt.adjustedAmount || 0),
+        0,
+      );
+      return sum + unappliedAmount;
+    }, 0);
+
+    if (totals.sundryDebtorsDebit < 0) {
+      totals.customerOverpaymentCredit = Math.abs(totals.sundryDebtorsDebit);
+      totals.sundryDebtorsDebit = 0;
+    }
+
     const selectedYear = getSelectedYearRecord();
     const openingCash = getOpeningBalance(selectedYear, [
       "openingCash",
@@ -637,11 +712,6 @@ const BalanceSheet = () => {
       0,
     );
 
-    // Handle negative debtors: shift to "Customer Advance" in liabilities
-    const debtorsAmount = totals.sundryDebtorsDebit;
-    const debtorsReceivable = Math.max(debtorsAmount, 0); // Only positive part
-    const customerAdvance = Math.max(-debtorsAmount, 0); // Convert negative to positive for liability
-
     const assets = {
       cashOpening: openingCash,
       cashClosing: cashClosing,
@@ -649,7 +719,7 @@ const BalanceSheet = () => {
       bankClosing: bankClosing,
       cash: Math.max(cashClosing, 0),
       bank: Math.max(bankClosing, 0),
-      receivables: debtorsReceivable,
+      receivables: totals.sundryDebtorsDebit,
       gstReceivable: Math.max(-gstNet, 0),
       inventory: inventoryValue,
       openingGstInput,
@@ -660,7 +730,9 @@ const BalanceSheet = () => {
       gstPayable: Math.max(gstNet, 0),
       overdraft: cashOverdraft + bankOverdraft,
       ownerFunding: totals.ownerFundingCredit,
-      customerAdvance: customerAdvance,
+      customerAdvance: unappliedAdvanceReceipts,
+      creditNotePayable: totals.creditNotePayableCredit,
+      customerOverpayment: totals.customerOverpaymentCredit,
     };
 
     const totalAssets =
@@ -673,7 +745,10 @@ const BalanceSheet = () => {
       liabilities.payables +
       liabilities.gstPayable +
       liabilities.overdraft +
-      liabilities.ownerFunding;
+      liabilities.ownerFunding +
+      liabilities.creditNotePayable +
+      liabilities.customerOverpayment +
+      liabilities.customerAdvance;
     const equity = totalAssets - totalLiabilities - openingCapital;
 
     return {
@@ -692,6 +767,7 @@ const BalanceSheet = () => {
     rcmRecords,
     projectRecords,
     personalFundRecords,
+    paymentReceiptRecords,
     selectedFinancialYear,
     financialYears,
   ]);
@@ -699,6 +775,12 @@ const BalanceSheet = () => {
   const rows = useMemo(() => {
     const getDescription = (account, section, isTotal) => {
       if (isTotal) {
+        if (section === "Assets") {
+          return "Total value of all assets";
+        }
+        if (section === "Liabilities & Equity") {
+          return "Total of liabilities and owner’s equity";
+        }
         return `Total of ${section}`;
       }
 
@@ -706,23 +788,27 @@ const BalanceSheet = () => {
         case "Cash (Opening)":
           return "Cash balance at start of financial year";
         case "Cash (Closing)":
-          return "Cash balance at end of period (negative balance shown in overdraft liability)";
+          return "Cash balance at the end of the financial period";
         case "Bank (Opening)":
           return "Bank balance at start of financial year";
         case "Bank (Closing)":
-          return "Bank balance at end of period (negative balance shown in overdraft liability)";
+          return "Bank balance at the end of the financial period";
         case "Accounts Receivable (Sundry Debtors)":
           return "Amount receivable from customers (positive balance only)";
-        case "Advance from Customer (Customer Credit)":
-          return "Prepayment/advance received from customers (customer credit balance)";
+        case "Customer Advance Payment (Customer Credit)":
+          return "Advance payments received from customers (unadjusted)";
+        case "Credit Note / Customer Refund Payable":
+          return "Separate liability from issued credit notes payable/adjustable to customer";
+        case "Customer Credit Balance (Overpayment)":
+          return "Customer overpayment liability excluding advance receipts and credit notes";
         case "GST Receivable":
-          return "Excess input GST to be received";
+          return "Input GST available for claim or refund";
         case "Inventory":
           return "Closing stock value";
         case "Accounts Payable (Sundry Creditors)":
-          return "Amount payable to suppliers";
+          return "Amount payable to suppliers for unpaid purchases";
         case "GST Payable":
-          return "Net GST liability payable";
+          return "Net GST liability payable to the government";
         case "Bank/Cash Overdraft":
           return "Negative cash/bank closing balance shown as liability";
         case "Owner Funding (Personal Payments)":
@@ -732,7 +818,7 @@ const BalanceSheet = () => {
         case "Capital (Opening)":
           return "Owner capital brought at year start";
         case "Owner's Equity (Calculated)":
-          return "Equity derived from assets minus liabilities";
+          return "Owner’s net investment after assets minus liabilities";
         case "Total Liabilities & Equity":
           return "Liabilities plus equity total";
         default:
@@ -812,8 +898,24 @@ const BalanceSheet = () => {
     if (balanceSummary.liabilities.customerAdvance > 0) {
       liabilityRows.push({
         section: "Liabilities",
-        account: "Advance from Customer (Customer Credit)",
+        account: "Customer Advance Payment (Customer Credit)",
         amount: balanceSummary.liabilities.customerAdvance,
+      });
+    }
+
+    if (balanceSummary.liabilities.creditNotePayable > 0) {
+      liabilityRows.push({
+        section: "Liabilities",
+        account: "Credit Note / Customer Refund Payable",
+        amount: balanceSummary.liabilities.creditNotePayable,
+      });
+    }
+
+    if (balanceSummary.liabilities.customerOverpayment > 0) {
+      liabilityRows.push({
+        section: "Liabilities",
+        account: "Customer Credit Balance (Overpayment)",
+        amount: balanceSummary.liabilities.customerOverpayment,
       });
     }
 

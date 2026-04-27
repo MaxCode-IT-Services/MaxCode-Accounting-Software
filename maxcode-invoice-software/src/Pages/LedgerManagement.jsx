@@ -20,6 +20,7 @@ const LedgerManagement = () => {
   const [rcmRecords, setRcmRecords] = useState([]);
   const [projectRecords, setProjectRecords] = useState([]);
   const [personalFundRecords, setPersonalFundRecords] = useState([]);
+  const [paymentReceiptRecords, setPaymentReceiptRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [financialPeriodMode, setFinancialPeriodMode] = useState("yearly");
@@ -32,6 +33,7 @@ const LedgerManagement = () => {
     rcm: "idle",
     projects: "idle",
     personalFunds: "idle",
+    paymentReceipts: "idle",
   });
 
   const toNumber = (value) => {
@@ -48,8 +50,36 @@ const LedgerManagement = () => {
 
   const getDateOnly = (value) => {
     if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
+    const parseDate = (rawValue) => {
+      const direct = new Date(rawValue);
+      if (!Number.isNaN(direct.getTime())) return direct;
+
+      const raw = String(rawValue || "").trim();
+      const dashMatch = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+      if (dashMatch) {
+        const parsed = new Date(
+          Number(dashMatch[3]),
+          Number(dashMatch[2]) - 1,
+          Number(dashMatch[1]),
+        );
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+      }
+
+      const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (slashMatch) {
+        const parsed = new Date(
+          Number(slashMatch[3]),
+          Number(slashMatch[2]) - 1,
+          Number(slashMatch[1]),
+        );
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+      }
+
+      return null;
+    };
+
+    const date = parseDate(value);
+    if (!date) return null;
     return new Date(date.getFullYear(), date.getMonth(), date.getDate());
   };
 
@@ -243,6 +273,7 @@ const LedgerManagement = () => {
       rcm: "loading",
       projects: "loading",
       personalFunds: "loading",
+      paymentReceipts: "loading",
     });
     try {
       const fetchSafe = async (config) => {
@@ -290,6 +321,11 @@ const LedgerManagement = () => {
         endpoint: API_ENDPOINTS.OWNER_INVESTMENTS.LIST,
         fallbackKeys: ["data", "personalFunds"],
       });
+      const paymentReceiptsResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.PAYMENT_RECEIPTS.LIST,
+        fallbackKeys: ["records", "receipts", "data"],
+        fetchAll: true,
+      });
 
       const yearsData =
         yearsResult.status === "fulfilled" ? yearsResult.value : [];
@@ -325,6 +361,10 @@ const LedgerManagement = () => {
         personalFundsResult.status === "fulfilled"
           ? personalFundsResult.value
           : [];
+      const paymentReceiptsData =
+        paymentReceiptsResult.status === "fulfilled"
+          ? paymentReceiptsResult.value
+          : [];
 
       if (yearsResult.status === "rejected") {
         console.error("Failed to fetch financial years:", yearsResult.reason);
@@ -357,6 +397,12 @@ const LedgerManagement = () => {
         console.error(
           "Failed to fetch personal funds:",
           personalFundsResult.reason,
+        );
+      }
+      if (paymentReceiptsResult.status === "rejected") {
+        console.error(
+          "Failed to fetch payment receipts:",
+          paymentReceiptsResult.reason,
         );
       }
 
@@ -407,6 +453,13 @@ const LedgerManagement = () => {
           invoiceDate: record.fundDate,
         })),
       );
+      setPaymentReceiptRecords(
+        paymentReceiptsData.map((record) => ({
+          ...record,
+          id: record._id || record.id,
+          invoiceDate: record.receiptDate || record.invoiceDate,
+        })),
+      );
 
       setApiStatus({
         years: yearsResult.status === "fulfilled" ? "loaded" : "failed",
@@ -420,6 +473,8 @@ const LedgerManagement = () => {
         projects: projectsResult.status === "fulfilled" ? "loaded" : "failed",
         personalFunds:
           personalFundsResult.status === "fulfilled" ? "loaded" : "failed",
+        paymentReceipts:
+          paymentReceiptsResult.status === "fulfilled" ? "loaded" : "failed",
       });
 
       if (
@@ -430,7 +485,8 @@ const LedgerManagement = () => {
         companyExpenseResult.status === "rejected" ||
         rcmResult.status === "rejected" ||
         projectsResult.status === "rejected" ||
-        personalFundsResult.status === "rejected"
+        personalFundsResult.status === "rejected" ||
+        paymentReceiptsResult.status === "rejected"
       ) {
         showInfo("Some ledger data could not be loaded. Please refresh again.");
       }
@@ -445,6 +501,7 @@ const LedgerManagement = () => {
       setRcmRecords([]);
       setProjectRecords([]);
       setPersonalFundRecords([]);
+      setPaymentReceiptRecords([]);
       setApiStatus({
         years: "failed",
         invoices: "failed",
@@ -454,6 +511,7 @@ const LedgerManagement = () => {
         rcm: "failed",
         projects: "failed",
         personalFunds: "failed",
+        paymentReceipts: "failed",
       });
     } finally {
       setLoading(false);
@@ -622,6 +680,22 @@ const LedgerManagement = () => {
         );
       }
 
+      if (apiKey === "paymentReceipts") {
+        const receiptsData = await fetchAllPaginatedEntities({
+          endpoint: API_ENDPOINTS.PAYMENT_RECEIPTS.LIST,
+          fallbackKeys: ["records", "receipts", "data"],
+          fetchAll: true,
+          forceRefresh: true,
+        });
+        setPaymentReceiptRecords(
+          receiptsData.map((record) => ({
+            ...record,
+            id: record._id || record.id,
+            invoiceDate: record.receiptDate || record.invoiceDate,
+          })),
+        );
+      }
+
       setApiStatus((prev) => ({
         ...prev,
         [apiKey]: "loaded",
@@ -754,6 +828,15 @@ const LedgerManagement = () => {
     financialPeriodMode,
   ]);
 
+  const filteredPaymentReceipts = useMemo(() => {
+    return filterByPeriodMode(filterByFinancialYear(paymentReceiptRecords));
+  }, [
+    paymentReceiptRecords,
+    selectedFinancialYear,
+    financialYears,
+    financialPeriodMode,
+  ]);
+
   const projectPayoutEntries = useMemo(() => {
     const selectedRange = getSelectedYearRange();
     const today = getDateOnly(new Date());
@@ -820,14 +903,19 @@ const LedgerManagement = () => {
       bankDebit: 0,
       bankCredit: 0,
       salesCredit: 0,
+      salesReturnDebit: 0,
       purchaseDebit: 0,
       companyExpenseDebit: 0,
+      creditNotePayableCredit: 0,
       gstOutputCredit: 0,
+      gstOutputDebit: 0,
       gstInputDebit: 0,
       sundryDebtorsDebit: 0,
       sundryCreditorsCredit: 0,
+      customerOverpaymentCredit: 0,
       ownerFundingCredit: 0,
       personalFundCredit: 0,
+      customerAdvanceLiabilityCredit: 0,
       salesTaxOutput: 0,
       purchaseItcInput: 0,
       rcmTaxOutput: 0,
@@ -874,12 +962,18 @@ const LedgerManagement = () => {
         record?.totalAmount || taxableAmount + taxAmount,
       );
       const isCreditNote = String(record?.noteType || "") === "Credit Note";
-      const direction = isCreditNote ? -1 : 1;
-
-      totals.salesCredit += direction * taxableAmount;
-      totals.gstOutputCredit += direction * taxAmount;
-      totals.salesTaxOutput += direction * taxAmount;
-      totals.sundryDebtorsDebit += direction * totalAmount;
+      if (isCreditNote) {
+        // Credit note is a separate liability. It does not increase/decrease advance.
+        totals.salesReturnDebit += taxableAmount;
+        totals.gstOutputDebit += taxAmount;
+        totals.creditNotePayableCredit += totalAmount;
+      } else {
+        // Debit note increases customer receivable and revenue.
+        totals.salesCredit += taxableAmount;
+        totals.gstOutputCredit += taxAmount;
+        totals.salesTaxOutput += taxAmount;
+        totals.sundryDebtorsDebit += totalAmount;
+      }
     });
 
     filteredCompanyExpenses.forEach((record) => {
@@ -1007,12 +1101,33 @@ const LedgerManagement = () => {
       }
     });
 
+    filteredPaymentReceipts.forEach((receipt) => {
+      const isAdvance =
+        String(receipt.paymentType || "")
+          .trim()
+          .toLowerCase() === "advance";
+      if (!isAdvance) return;
+      const unappliedAmount = Math.max(
+        toNumber(receipt.amount || 0) - toNumber(receipt.adjustedAmount || 0),
+        0,
+      );
+      if (unappliedAmount <= 0) return;
+      totals.customerAdvanceLiabilityCredit += unappliedAmount;
+    });
+
+    if (totals.sundryDebtorsDebit < 0) {
+      totals.customerOverpaymentCredit = Math.abs(totals.sundryDebtorsDebit);
+      totals.sundryDebtorsDebit = 0;
+    }
+
     totals.totalDebit =
       totals.cashDebit +
       totals.bankDebit +
       totals.purchaseDebit +
       totals.companyExpenseDebit +
       totals.projectPayoutDebit +
+      totals.salesReturnDebit +
+      totals.gstOutputDebit +
       totals.gstInputDebit +
       totals.sundryDebtorsDebit;
 
@@ -1021,9 +1136,12 @@ const LedgerManagement = () => {
       totals.bankCredit +
       totals.salesCredit +
       totals.gstOutputCredit +
+      totals.creditNotePayableCredit +
       totals.sundryCreditorsCredit +
+      totals.customerOverpaymentCredit +
       totals.ownerFundingCredit +
-      totals.personalFundCredit;
+      totals.personalFundCredit +
+      totals.customerAdvanceLiabilityCredit;
 
     return totals;
   }, [
@@ -1034,6 +1152,7 @@ const LedgerManagement = () => {
     filteredCreditDebitNotes,
     projectPayoutEntries,
     filteredPersonalFunds,
+    filteredPaymentReceipts,
   ]);
 
   const getBalanceMeta = (debit, credit) => {
@@ -1076,7 +1195,11 @@ const LedgerManagement = () => {
     }
 
     if (accountName === "Sales Account") {
-      return `Debit: sales reduction through credit notes/adjustments. Credit: sales value plus debit note adjustments. ${balanceMeaning}`;
+      return `Debit: sales reversal/adjustment (normally 0 here). Credit: sales value and debit note impact. ${balanceMeaning}`;
+    }
+
+    if (accountName === "Sales Return / Adjustment Account") {
+      return `Debit: credit notes treated as sales return/adjustment. Credit: reversal (normally 0). ${balanceMeaning}`;
     }
 
     if (accountName === "Purchase Account") {
@@ -1104,7 +1227,15 @@ const LedgerManagement = () => {
     }
 
     if (accountName === "Advance from Customer (Customer Credit)") {
-      return `Credit: prepayment or advance money received from customers (shown when customer has paid more than they owe). Debit: advance adjusted/settled against future invoices. ${balanceMeaning}`;
+      return `Credit: only advance money received from customers and still unapplied. Debit: when advance is adjusted to invoice. ${balanceMeaning}`;
+    }
+
+    if (accountName === "Credit Note / Customer Refund Payable") {
+      return `Credit: issued credit notes payable/adjustable to customer. Debit: settlement/adjustment of credit note. ${balanceMeaning}`;
+    }
+
+    if (accountName === "Customer Credit Balance (Overpayment)") {
+      return `Credit: customer overpayment liability excluding advance receipts and credit notes. Debit: later settlement against invoices/refunds. ${balanceMeaning}`;
     }
 
     if (accountName === "Sundry Creditors Account") {
@@ -1144,7 +1275,13 @@ const LedgerManagement = () => {
         accountName: "Sales Account",
         debit: 0,
         credit: ledgerSummary.salesCredit,
-        notes: "Sales taxable value credited (net of Credit/Debit Notes)",
+        notes: "Sales taxable value credited (Debit Notes increase sales)",
+      },
+      {
+        accountName: "Sales Return / Adjustment Account",
+        debit: ledgerSummary.salesReturnDebit,
+        credit: 0,
+        notes: "Credit Notes posted as sales return/adjustment debit",
       },
       {
         accountName: "Purchase Account",
@@ -1166,9 +1303,10 @@ const LedgerManagement = () => {
       },
       {
         accountName: "GST Output Account",
-        debit: 0,
+        debit: ledgerSummary.gstOutputDebit,
         credit: ledgerSummary.gstOutputCredit,
-        notes: "Sales tax + RCM tax payable (adjusted by Credit/Debit Notes)",
+        notes:
+          "Credit: sales/debit-note/RCM output GST; Debit: credit-note GST reversal",
       },
       {
         accountName: "GST Input Account",
@@ -1186,9 +1324,22 @@ const LedgerManagement = () => {
       {
         accountName: "Advance from Customer (Customer Credit)",
         debit: 0,
-        credit: Math.max(-ledgerSummary.sundryDebtorsDebit, 0),
+        credit: ledgerSummary.customerAdvanceLiabilityCredit,
+        notes: "Only unapplied advance receipts (liability)",
+      },
+      {
+        accountName: "Credit Note / Customer Refund Payable",
+        debit: 0,
+        credit: ledgerSummary.creditNotePayableCredit,
         notes:
-          "Customer prepayment/advance received (negative receivable converted to liability)",
+          "Separate liability for issued credit notes refundable/adjustable against future invoices",
+      },
+      {
+        accountName: "Customer Credit Balance (Overpayment)",
+        debit: 0,
+        credit: ledgerSummary.customerOverpaymentCredit,
+        notes:
+          "Customer overpayment liability kept separate from advance and credit notes",
       },
       {
         accountName: "Sundry Creditors Account",
@@ -1321,10 +1472,12 @@ const LedgerManagement = () => {
       return ledgerRows.filter((row) =>
         [
           "Sales Account",
+          "Credit Note / Customer Refund Payable",
           "GST Output Account",
           "Sundry Creditors Account",
+          "Customer Credit Balance (Overpayment)",
           "Owner Funding Account",
-          "Personal Fund Account",
+          "Owner Investment Account",
           "GST Payable/(Receivable)",
         ].includes(row.accountName),
       );
@@ -1402,9 +1555,6 @@ const LedgerManagement = () => {
         {/* LEFT SIDE - Heading */}
         <div>
           <h4 className="fs-18 fw-semibold m-0">Ledger Management</h4>
-          <small className="text-muted">
-            Sales, Purchase, RCM and Project payout based ledger summary
-          </small>
         </div>
 
         {/* RIGHT SIDE - Badges + Button */}
@@ -1484,6 +1634,20 @@ const LedgerManagement = () => {
             }
           >
             {renderStatusContent("Projects", apiStatus.projects)}
+          </span>
+
+          <span
+            className={`badge ${getStatusBadgeClass(apiStatus.paymentReceipts)} d-inline-flex align-items-center`}
+            style={{
+              cursor:
+                apiStatus.paymentReceipts === "failed" ? "pointer" : "default",
+            }}
+            onClick={() =>
+              apiStatus.paymentReceipts === "failed" &&
+              retrySingleApi("paymentReceipts")
+            }
+          >
+            {renderStatusContent("Receipts", apiStatus.paymentReceipts)}
           </span>
         </div>
       </div>
