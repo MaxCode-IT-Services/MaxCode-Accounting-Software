@@ -467,10 +467,16 @@ export async function handler(event) {
         }
         const clientMatch = [
           ...(normalizedClientRefId
-            ? [{ clientRefId: normalizedClientRefId }, { clientId: normalizedClientRefId }]
+            ? [
+                { clientRefId: normalizedClientRefId },
+                { clientId: normalizedClientRefId },
+              ]
             : []),
           ...(normalizedClientId
-            ? [{ clientRefId: normalizedClientId }, { clientId: normalizedClientId }]
+            ? [
+                { clientRefId: normalizedClientId },
+                { clientId: normalizedClientId },
+              ]
             : []),
         ];
         const advances = await col
@@ -544,11 +550,7 @@ export async function handler(event) {
           })
           .filter((note) => note.dueAmount > 0);
 
-        return createResponse(
-          200,
-          { records, total: records.length },
-          origin,
-        );
+        return createResponse(200, { records, total: records.length }, origin);
       }
 
       // ── single record ────────────────────────────────────────────────────
@@ -768,6 +770,7 @@ export async function handler(event) {
                 : "Unapplied",
         appliedInvoiceNumber: r.linkedInvoiceNumber || "",
         appliedDateTime: r.updatedAt || "",
+        invoiceAllocations: r.invoiceAllocations || [],
       }));
 
       return createResponse(
@@ -847,6 +850,22 @@ export async function handler(event) {
         );
       }
 
+      // Validate againstType for regular payments
+      const normalizedPaymentTypeForValidation = [
+        "advance",
+        "regular",
+      ].includes(paymentType)
+        ? paymentType
+        : "regular";
+
+      if (normalizedPaymentTypeForValidation === "regular" && !againstType) {
+        return createResponse(
+          400,
+          { error: "Against Type is required for regular payment receipts" },
+          origin,
+        );
+      }
+
       // Get financial year
       const financialYear = suppliedFY || getFinancialYearLabel(receiptDate);
 
@@ -881,15 +900,34 @@ export async function handler(event) {
         ? paymentType
         : "regular";
 
-      const invoiceRefs = [
-        ...(Array.isArray(invoiceIds)
-          ? invoiceIds.map((id) => ({ invoiceId: id }))
-          : []),
-        ...(Array.isArray(invoiceNumbers)
-          ? invoiceNumbers.map((number) => ({ invoiceNumber: number }))
-          : []),
-        ...(invoiceId || invoiceNumber ? [{ invoiceId, invoiceNumber }] : []),
-      ];
+      const invoiceRefs = [];
+
+      // Match invoiceIds and invoiceNumbers as pairs (they should be at same indices)
+      const maxLen = Math.max(
+        Array.isArray(invoiceIds) ? invoiceIds.length : 0,
+        Array.isArray(invoiceNumbers) ? invoiceNumbers.length : 0,
+      );
+
+      for (let i = 0; i < maxLen; i++) {
+        const id = Array.isArray(invoiceIds) ? invoiceIds[i] : undefined;
+        const number = Array.isArray(invoiceNumbers)
+          ? invoiceNumbers[i]
+          : undefined;
+        if (id || number) {
+          invoiceRefs.push({ invoiceId: id, invoiceNumber: number });
+        }
+      }
+
+      // Also include the single invoiceId/invoiceNumber if they exist and not already included
+      if (
+        (invoiceId || invoiceNumber) &&
+        !invoiceRefs.some(
+          (ref) =>
+            ref.invoiceId === invoiceId || ref.invoiceNumber === invoiceNumber,
+        )
+      ) {
+        invoiceRefs.push({ invoiceId, invoiceNumber });
+      }
 
       const normalizedAgainstType =
         String(againstType || "").toLowerCase() === "debit_note"
@@ -933,11 +971,17 @@ export async function handler(event) {
         }
       }
 
-      if (normalizedPaymentType === "regular" && normalizedAgainstType === "debit_note") {
+      if (
+        normalizedPaymentType === "regular" &&
+        normalizedAgainstType === "debit_note"
+      ) {
         if (!debitNoteId && !debitNoteNumber) {
           return createResponse(
             400,
-            { error: "Debit note selection is required for debit note receipts." },
+            {
+              error:
+                "Debit note selection is required for debit note receipts.",
+            },
             origin,
           );
         }
@@ -953,18 +997,28 @@ export async function handler(event) {
         } else if (debitNoteNumber) {
           debitNoteQuery.noteNumber = debitNoteNumber;
         } else {
-          return createResponse(400, { error: "Invalid debit note reference" }, origin);
+          return createResponse(
+            400,
+            { error: "Invalid debit note reference" },
+            origin,
+          );
         }
 
         selectedDebitNote = await debitNotesCol.findOne(debitNoteQuery);
         if (!selectedDebitNote) {
-          return createResponse(404, { error: "Debit note not found for this client" }, origin);
+          return createResponse(
+            404,
+            { error: "Debit note not found for this client" },
+            origin,
+          );
         }
 
         const debitNoteTotal = toNumber(
           selectedDebitNote.totalAmount || selectedDebitNote.amount,
         );
-        const debitNoteReceived = toNumber(selectedDebitNote.receivedAmount || 0);
+        const debitNoteReceived = toNumber(
+          selectedDebitNote.receivedAmount || 0,
+        );
         const debitNoteDue = Math.max(0, debitNoteTotal - debitNoteReceived);
         if (debitNoteDue <= 0) {
           return createResponse(
@@ -1106,7 +1160,9 @@ export async function handler(event) {
         const debitNoteTotal = toNumber(
           selectedDebitNote.totalAmount || selectedDebitNote.amount,
         );
-        const previousReceived = toNumber(selectedDebitNote.receivedAmount || 0);
+        const previousReceived = toNumber(
+          selectedDebitNote.receivedAmount || 0,
+        );
         const nextReceived = Math.min(
           debitNoteTotal,
           previousReceived + debitNoteAppliedAmount,
@@ -1178,6 +1234,64 @@ export async function handler(event) {
         paymentMethod: body.paymentMethod || existing.paymentMethod,
       });
 
+      // Rebuild invoiceAllocations from invoiceIds/invoiceNumbers if provided
+      let invoiceAllocationsToUpdate = undefined;
+      if (body.invoiceIds !== undefined || body.invoiceNumbers !== undefined) {
+        const invoiceIds = body.invoiceIds || existing.invoiceIds || [];
+        const invoiceNumbers =
+          body.invoiceNumbers || existing.invoiceNumbers || [];
+        const normalizedAgainstType =
+          body.againstType || existing.againstType || "invoice";
+
+        if (
+          normalizedAgainstType === "invoice" &&
+          Array.isArray(invoiceIds) &&
+          invoiceIds.length > 0
+        ) {
+          // Build invoice refs from provided IDs and numbers
+          const invoiceRefs = [];
+          const maxLen = Math.max(
+            Array.isArray(invoiceIds) ? invoiceIds.length : 0,
+            Array.isArray(invoiceNumbers) ? invoiceNumbers.length : 0,
+          );
+
+          for (let i = 0; i < maxLen; i++) {
+            const id_item = Array.isArray(invoiceIds)
+              ? invoiceIds[i]
+              : undefined;
+            const number = Array.isArray(invoiceNumbers)
+              ? invoiceNumbers[i]
+              : undefined;
+            if (id_item || number) {
+              invoiceRefs.push({ invoiceId: id_item, invoiceNumber: number });
+            }
+          }
+
+          // Resolve invoices and rebuild allocations
+          if (invoiceRefs.length > 0) {
+            try {
+              const allocationInvoices = await resolveInvoicesForAllocation(
+                db,
+                {
+                  clientRefId: body.clientRefId || existing.clientRefId,
+                  invoiceRefs,
+                },
+              );
+
+              const allocationResult = buildInvoiceAllocations(
+                allocationInvoices,
+                numAmount,
+              );
+
+              invoiceAllocationsToUpdate = allocationResult.allocations;
+            } catch (err) {
+              console.error("Failed to rebuild invoiceAllocations:", err);
+              // Continue without rebuilding allocations; use provided ones if any
+            }
+          }
+        }
+      }
+
       const updateFields = {
         ...(body.receiptDate !== undefined && {
           receiptDate: body.receiptDate,
@@ -1205,12 +1319,16 @@ export async function handler(event) {
         }),
         ...(body.purpose !== undefined && { purpose: body.purpose }),
         ...(body.note !== undefined && { note: body.note }),
-        ...(body.againstType !== undefined && { againstType: body.againstType }),
+        ...(body.againstType !== undefined && {
+          againstType: body.againstType,
+        }),
         ...(body.invoiceId !== undefined && { invoiceId: body.invoiceId }),
         ...(body.invoiceNumber !== undefined && {
           invoiceNumber: body.invoiceNumber,
         }),
-        ...(body.debitNoteId !== undefined && { debitNoteId: body.debitNoteId }),
+        ...(body.debitNoteId !== undefined && {
+          debitNoteId: body.debitNoteId,
+        }),
         ...(body.debitNoteNumber !== undefined && {
           debitNoteNumber: body.debitNoteNumber,
         }),
@@ -1221,9 +1339,13 @@ export async function handler(event) {
         ...(body.invoiceNumbers !== undefined && {
           invoiceNumbers: body.invoiceNumbers,
         }),
-        ...(body.invoiceAllocations !== undefined && {
-          invoiceAllocations: body.invoiceAllocations,
+        ...(invoiceAllocationsToUpdate !== undefined && {
+          invoiceAllocations: invoiceAllocationsToUpdate,
         }),
+        ...(body.invoiceAllocations !== undefined &&
+          invoiceAllocationsToUpdate === undefined && {
+            invoiceAllocations: body.invoiceAllocations,
+          }),
         updatedAt: new Date(),
         ...auditFields,
       };

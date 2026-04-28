@@ -267,21 +267,48 @@ const PaymentReceiptManagement = () => {
         total = data.length;
       }
 
-      const mapped = data.map((r, idx) => ({
-        ...r,
-        id: r._id || r.id,
-        sn: (currentPage - 1) * recordsPerPage + idx + 1,
-        receiptDateFormatted: r.receiptDate || "",
-        amountFormatted: `₹${Number(r.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
-        availableAmountFormatted:
-          r.paymentType === "advance"
-            ? `₹${Number(r.availableAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`
-            : "—",
-        // Expose applied invoice number if backend provides it (or fallback to invoiceNumber)
-        appliedInvoiceNumber:
-          r.appliedInvoiceNumber || r.appliedToInvoice || r.invoiceNumber || "",
-        paymentTypeBadge: r.paymentType === "advance" ? "Advance" : "Regular",
-      }));
+      const mapped = data.map((r, idx) => {
+        // Build comma-separated invoice numbers for Invoice No. and Applied Invoice columns
+        let invoiceNumber = "";
+        let appliedInvoiceNumber = "";
+        if (
+          Array.isArray(r.invoiceAllocations) &&
+          r.invoiceAllocations.length > 0
+        ) {
+          // Use all allocated invoice numbers
+          const allocatedNumbers = r.invoiceAllocations
+            .map((alloc) => alloc.invoiceNumber)
+            .filter(Boolean);
+          invoiceNumber = allocatedNumbers.join(", ");
+          appliedInvoiceNumber = invoiceNumber;
+        } else if (
+          Array.isArray(r.invoiceNumbers) &&
+          r.invoiceNumbers.length > 0
+        ) {
+          const validNumbers = r.invoiceNumbers.filter(Boolean);
+          invoiceNumber = validNumbers.join(", ");
+          appliedInvoiceNumber = invoiceNumber;
+        } else {
+          invoiceNumber = r.invoiceNumber || "";
+          appliedInvoiceNumber =
+            r.appliedInvoiceNumber || r.appliedToInvoice || invoiceNumber || "";
+        }
+
+        return {
+          ...r,
+          id: r._id || r.id,
+          sn: (currentPage - 1) * recordsPerPage + idx + 1,
+          receiptDateFormatted: r.receiptDate || "",
+          amountFormatted: `₹${Number(r.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+          availableAmountFormatted:
+            r.paymentType === "advance"
+              ? `₹${Number(r.availableAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`
+              : "—",
+          invoiceNumber,
+          appliedInvoiceNumber,
+          paymentTypeBadge: r.paymentType === "advance" ? "Advance" : "Regular",
+        };
+      });
 
       setRecords(mapped);
       setTotalRecords(total);
@@ -513,6 +540,7 @@ const PaymentReceiptManagement = () => {
       filterable: true,
       width: 120,
       resizable: true,
+      render: (value) => (value && value.length > 0 ? value : "-"),
     },
     {
       key: "debitNoteNumber",
@@ -530,7 +558,7 @@ const PaymentReceiptManagement = () => {
       filterable: true,
       width: 140,
       resizable: true,
-      render: (value) => (value ? value : "-"),
+      render: (value) => (value && value.length > 0 ? value : "-"),
     },
     {
       key: "purpose",
@@ -623,10 +651,35 @@ const PaymentReceiptManagement = () => {
     const formattedDate = formatDateDDMMYYYY(record.receiptDate);
     // Use createdAt for signature date & time
     const signatureDateTime = formatDateTime(record.createdAt);
-    // Prefer applied invoice reference if backend provides it
-    let referenceInvoiceNumber =
-      record.appliedInvoiceNumber || record.invoiceNumber || "";
-    if (record.paymentType === "advance" && !referenceInvoiceNumber) {
+    // Build reference invoice numbers from allocations (if available), or fall back to invoiceNumbers array, or single invoiceNumber
+    let referenceInvoiceNumber = "-";
+    if (
+      Array.isArray(record.invoiceAllocations) &&
+      record.invoiceAllocations.length > 0
+    ) {
+      const allocatedNumbers = record.invoiceAllocations
+        .map((alloc) => alloc.invoiceNumber)
+        .filter(Boolean);
+      if (allocatedNumbers.length > 0) {
+        referenceInvoiceNumber = allocatedNumbers.join(", ");
+      }
+    } else if (
+      Array.isArray(record.invoiceNumbers) &&
+      record.invoiceNumbers.length > 0
+    ) {
+      const validNumbers = record.invoiceNumbers.filter(Boolean);
+      if (validNumbers.length > 0) {
+        referenceInvoiceNumber = validNumbers.join(", ");
+      }
+    } else if (record.invoiceNumber) {
+      referenceInvoiceNumber = record.invoiceNumber;
+    } else if (record.appliedInvoiceNumber) {
+      referenceInvoiceNumber = record.appliedInvoiceNumber;
+    }
+    if (
+      record.paymentType === "advance" &&
+      (!referenceInvoiceNumber || referenceInvoiceNumber === "-")
+    ) {
       referenceInvoiceNumber = "Advance Payment (Invoice Pending)";
     }
     return {

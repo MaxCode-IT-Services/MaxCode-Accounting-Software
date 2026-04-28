@@ -262,18 +262,21 @@ const SalesManagement = () => {
   // Helper function to calculate total received amount for an invoice
   const getTotalReceivedAmount = (sale) => {
     let totalReceived = 0;
-    
+
     // Add regular receipt total
     totalReceived += parseFloat(sale.regularReceiptTotal || 0);
-    
+
     // Add advance adjusted total
     totalReceived += parseFloat(sale.advanceAdjustedTotal || 0);
-    
+
     // If amountReceived is directly available, use that as well (to avoid missing any)
-    if (sale.amountReceived && parseFloat(sale.amountReceived) > totalReceived) {
+    if (
+      sale.amountReceived &&
+      parseFloat(sale.amountReceived) > totalReceived
+    ) {
       totalReceived = parseFloat(sale.amountReceived);
     }
-    
+
     return totalReceived;
   };
 
@@ -519,12 +522,18 @@ const SalesManagement = () => {
           let received = 0;
           received += parseFloat(regularReceiptTotal || 0);
           received += parseFloat(sale.advanceAdjustedTotal || 0);
-          if (sale.amountReceived && parseFloat(sale.amountReceived) > received) {
+          if (
+            sale.amountReceived &&
+            parseFloat(sale.amountReceived) > received
+          ) {
             received = parseFloat(sale.amountReceived);
           }
           return received;
         })();
-        const totalDueAmount = Math.max(0, parseFloat(totalAmount) - totalReceivedAmount);
+        const totalDueAmount = Math.max(
+          0,
+          parseFloat(totalAmount) - totalReceivedAmount,
+        );
 
         return {
           ...sale,
@@ -1090,7 +1099,7 @@ const SalesManagement = () => {
   };
 
   // Handle form submit
-  const handleFormSubmit = async (formData) => {
+  const handleFormSubmit = async (submitData) => {
     if (!editingRecord) {
       const defaultFinancialYear = getDefaultFinancialYearRecord();
 
@@ -1109,7 +1118,7 @@ const SalesManagement = () => {
       }
 
       const isValidInvoiceDate = isInvoiceDateWithinFinancialYear(
-        formData.invoiceDate,
+        submitData.invoiceDate,
         defaultFinancialYear,
       );
 
@@ -1123,9 +1132,9 @@ const SalesManagement = () => {
 
     const selectedClient = clients.find(
       (c) =>
-        c.id == formData.clientRefId ||
-        c._id == formData.clientRefId ||
-        c.clientId == formData.clientRefId,
+        c.id == submitData.clientRefId ||
+        c._id == submitData.clientRefId ||
+        c.clientId == submitData.clientRefId,
     );
 
     const clientName =
@@ -1133,22 +1142,21 @@ const SalesManagement = () => {
 
     try {
       if (editingRecord && !editingRecord.isViewMode) {
+        // Use the full submitData object for update (includes all fields from CreateSales)
         const invoiceId = editingRecord._id || editingRecord.id;
         const payload = {
-          ...formData,
+          ...submitData, // submitData contains all computed fields (items, advances, etc.)
           clientName,
           createdDate: editingRecord.createdDate,
         };
-
         await apiPut(API_ENDPOINTS.INVOICES.UPDATE(invoiceId), payload);
         showSuccess("Sales updated successfully!");
       } else {
         const payload = {
-          ...formData,
+          ...submitData,
           clientName,
           createdDate: new Date().toISOString(),
         };
-
         await apiPost(API_ENDPOINTS.INVOICES.CREATE, payload);
         showSuccess("Sales added successfully!");
       }

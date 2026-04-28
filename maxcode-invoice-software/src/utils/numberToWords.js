@@ -36,26 +36,26 @@ const tens = [
   "Ninety",
 ];
 
-function numToWords(num) {
-  if (num === 0) return "Zero Rupees Only";
+function numToWords(num, isInnerCall = false) {
+  if (num === 0) return isInnerCall ? "" : "Zero Rupees Only";
   if (typeof num !== "number") num = Number(num);
   if (!Number.isFinite(num)) return "-";
 
   let str = "";
   if (num >= 10000000) {
-    str += numToWords(Math.floor(num / 10000000)) + " Crore ";
+    str += numToWords(Math.floor(num / 10000000), true) + " Crore ";
     num %= 10000000;
   }
   if (num >= 100000) {
-    str += numToWords(Math.floor(num / 100000)) + " Lakh ";
+    str += numToWords(Math.floor(num / 100000), true) + " Lakh ";
     num %= 100000;
   }
   if (num >= 1000) {
-    str += numToWords(Math.floor(num / 1000)) + " Thousand ";
+    str += numToWords(Math.floor(num / 1000), true) + " Thousand ";
     num %= 1000;
   }
   if (num >= 100) {
-    str += numToWords(Math.floor(num / 100)) + " Hundred ";
+    str += numToWords(Math.floor(num / 100), true) + " Hundred ";
     num %= 100;
   }
   if (num > 0) {
@@ -65,7 +65,8 @@ function numToWords(num) {
       if (num % 10 > 0) str += ones[num % 10] + " ";
     }
   }
-  return str.trim() + " Rupees Only";
+  str = str.trim();
+  return isInnerCall ? str : str ? str + " Rupees Only" : "Zero Rupees Only";
 }
 
 export default numToWords;

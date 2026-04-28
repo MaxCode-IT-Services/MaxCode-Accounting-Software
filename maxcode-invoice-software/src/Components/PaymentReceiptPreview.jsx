@@ -66,18 +66,49 @@ const PaymentReceiptPreview = ({
     data.clientAddress || data.address || data.businessAddress || "-";
   const signatureDateTimeText = data.signatureDateTime || "-";
   const receiptRefNumber = data.receiptNo || "-";
-  const referenceInvoiceNumber =
-    data.appliedInvoiceNumber ||
-    data.appliedToInvoice ||
-    data.referenceInvoiceNumber ||
-    data.invoiceNumber ||
-    "-";
+
+  // Build reference invoice numbers from allocations
+  let referenceInvoiceNumber = "-";
+
+  if (
+    Array.isArray(data.invoiceAllocations) &&
+    data.invoiceAllocations.length > 0
+  ) {
+    const allocatedNumbers = data.invoiceAllocations
+      .map((alloc) => {
+        return (
+          alloc.invoiceNumber ||
+          alloc.invoice_no ||
+          alloc.invoiceNo ||
+          alloc.referenceNumber
+        );
+      })
+      .filter(Boolean);
+
+    if (allocatedNumbers.length > 0) {
+      referenceInvoiceNumber = allocatedNumbers.join(", ");
+    }
+  } else if (
+    Array.isArray(data.invoiceNumbers) &&
+    data.invoiceNumbers.length > 0
+  ) {
+    const validNumbers = data.invoiceNumbers.filter(Boolean);
+    if (validNumbers.length > 0) {
+      referenceInvoiceNumber = validNumbers.join(", ");
+    }
+  } else if (data.invoiceNumber) {
+    referenceInvoiceNumber = data.invoiceNumber;
+  } else if (data.appliedInvoiceNumber) {
+    referenceInvoiceNumber = data.appliedInvoiceNumber;
+  }
+
   const companyPhoneDisplay = data.companyPhone || data.phone || "-";
   const companyWebsiteDisplay =
     data.companyWebsite || data.website || "www.maxcode.in";
   const companyEmailDisplay = data.companyEmail || data.email || "-";
   const companyAddressDisplay = data.companyAddress || "-";
   const amountText = formatCurrency(data.amount);
+
   const dotBackgroundImage = useMemo(() => {
     const svg =
       '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="1" fill="rgba(18,118,69,0.14)"/></svg>';

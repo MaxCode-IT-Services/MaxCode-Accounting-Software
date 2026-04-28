@@ -64,6 +64,7 @@ export async function handler(event) {
       "staffManagementServerSide",
       "teamManagementServerSide",
       "vendorManagementServerSide",
+      "paymentReceiptManagementServerSide",
       "fingerprintLoginEnabled",
       "usbKeyLoginEnabled",
     ];

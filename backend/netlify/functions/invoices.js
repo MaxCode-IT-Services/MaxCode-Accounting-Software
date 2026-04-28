@@ -155,6 +155,7 @@ export async function handler(event) {
       appliedAdvances,
       fallbackPaymentDate,
       fallbackPaymentMethod,
+      manualAmountReceived = 0,
     }) => {
       const resolvedInvoiceId = String(invoiceId || "");
       const resolvedInvoiceNumber = String(invoiceNumber || "");
@@ -204,7 +205,11 @@ export async function handler(event) {
         (sum, advance) => sum + toNumber(advance.appliedAmount),
         0,
       );
-      const amountReceived = regularReceivedAmount + advanceAdjustedTotal;
+
+      // IMPORTANT: Include both payment receipts AND manually entered payment amounts from CreateSales
+      const manualPaymentAmount = toNumber(manualAmountReceived);
+      const amountReceived =
+        regularReceivedAmount + advanceAdjustedTotal + manualPaymentAmount;
       const dueAmount = Math.max(0, toNumber(totalAmount) - amountReceived);
       const paymentStatus = derivePaymentStatus(totalAmount, amountReceived);
       const latestAdvanceMeta = getLatestAdvanceMeta(normalizedAppliedAdvances);
@@ -375,6 +380,7 @@ export async function handler(event) {
           appliedAdvances: hydratedAppliedAdvances,
           fallbackPaymentDate: invoice.paymentDate,
           fallbackPaymentMethod: invoice.paymentMethod,
+          manualAmountReceived: invoice.amountReceived,
         });
 
         const binding = await getInvoiceTermsBinding();
@@ -950,6 +956,7 @@ export async function handler(event) {
         appliedAdvances,
         fallbackPaymentDate: invoiceData.paymentDate,
         fallbackPaymentMethod: invoiceData.paymentMethod,
+        manualAmountReceived: invoiceData.amountReceived,
       });
 
       const result = await invoicesCollection.insertOne({
@@ -1143,10 +1150,26 @@ export async function handler(event) {
         invoiceNumber: resolvedInvoiceNumber,
         totalAmount: totalAmountForSnapshot,
         appliedAdvances: effectiveAppliedAdvances,
-        fallbackPaymentDate:
-          invoiceData.paymentDate || currentInvoice.paymentDate,
-        fallbackPaymentMethod:
-          invoiceData.paymentMethod || currentInvoice.paymentMethod,
+        // If the incoming payload explicitly contains the field (even empty), use it.
+        // Otherwise, fall back to the existing invoice value.
+        fallbackPaymentDate: Object.prototype.hasOwnProperty.call(
+          invoiceData,
+          "paymentDate",
+        )
+          ? invoiceData.paymentDate
+          : currentInvoice.paymentDate,
+        fallbackPaymentMethod: Object.prototype.hasOwnProperty.call(
+          invoiceData,
+          "paymentMethod",
+        )
+          ? invoiceData.paymentMethod
+          : currentInvoice.paymentMethod,
+        manualAmountReceived: Object.prototype.hasOwnProperty.call(
+          invoiceData,
+          "amountReceived",
+        )
+          ? invoiceData.amountReceived
+          : currentInvoice.amountReceived,
       });
 
       invoiceData.amountReceived = paymentSnapshot.amountReceived;

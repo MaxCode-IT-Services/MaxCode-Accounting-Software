@@ -1303,12 +1303,14 @@ const CreateSales = ({
 
       setSubmitting(true);
       try {
+        const resolvedId = editingRecord?._id || editingRecord?.id;
+        // Build submitData but do NOT include _id (MongoDB does not allow updating _id)
         const submitData = {
           ...formData,
           dueAmount: dueAmount.toFixed(2),
           items: items,
           taxData: taxData,
-          id: editingRecord?.id || Date.now(),
+          id: resolvedId || Date.now(),
           createdDate: editingRecord?.createdDate || new Date().toISOString(),
           appliedAdvances: appliedAdvances
             .filter((a) => a.appliedAmount > 0)

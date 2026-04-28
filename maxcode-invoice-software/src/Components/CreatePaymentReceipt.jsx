@@ -30,7 +30,7 @@ const emptyForm = {
   purpose: "",
   note: "",
   paymentType: "regular",
-  againstType: "", // Changed from "invoice" to empty string
+  againstType: "",
   invoiceId: "",
   invoiceNumber: "",
   invoiceIds: [],
@@ -40,7 +40,6 @@ const emptyForm = {
   financialYear: "",
 };
 
-// Against Type options
 const againstTypeOptions = [
   { value: "invoice", label: "Invoice" },
   { value: "debit_note", label: "Debit Note" },
@@ -70,10 +69,7 @@ const CreatePaymentReceipt = ({
     "Card",
   ]);
 
-  // On mount, get canonical payment methods from CreateSales
   useEffect(() => {
-    // Simulate fetching all possible payment methods from CreateSales
-    // In real app, you might fetch from API or business settings
     setPaymentMethodOptions(
       normalizePaymentMethodOptions([
         "Cash",
@@ -125,18 +121,39 @@ const CreatePaymentReceipt = ({
     };
   }, [show]);
 
-  // Init form
+  // Init form - FIXED for editing mode
   useEffect(() => {
     if (!show) return;
+
     if (editingRecord) {
-      // Patch: Always set all client fields, even if missing in editingRecord
-      setFormData((prev) => ({
+      // Extract invoice allocations properly
+      const invoiceAllocations = editingRecord.invoiceAllocations || [];
+      const invoiceIdsFromAllocations = invoiceAllocations
+        .map((alloc) => alloc.invoiceId)
+        .filter(Boolean);
+      const invoiceNumbersFromAllocations = invoiceAllocations
+        .map((alloc) => alloc.invoiceNumber)
+        .filter(Boolean);
+      const totalAllocatedAmount = invoiceAllocations.reduce(
+        (sum, alloc) => sum + toNumber(alloc.amount || 0),
+        0,
+      );
+
+      // Determine againstType from allocations
+      let againstTypeValue = editingRecord.againstType || "";
+      if (!againstTypeValue && invoiceAllocations.length > 0) {
+        againstTypeValue = "invoice";
+      }
+
+      setFormData({
         ...emptyForm,
         ...editingRecord,
         amount:
           editingRecord.amount !== undefined
             ? String(editingRecord.amount)
-            : "",
+            : totalAllocatedAmount > 0
+              ? String(totalAllocatedAmount)
+              : "",
         clientRefId: editingRecord.clientRefId || editingRecord.clientId || "",
         clientId: editingRecord.clientId || editingRecord.clientRefId || "",
         clientName: editingRecord.clientName || "",
@@ -145,39 +162,41 @@ const CreatePaymentReceipt = ({
         email: editingRecord.email || "",
         address: editingRecord.address || "",
         paymentType: editingRecord.paymentType || defaultPaymentType,
-        againstType: editingRecord.againstType || "", // Changed to empty string default
+        againstType: againstTypeValue,
         invoiceId: editingRecord.invoiceId || "",
         invoiceNumber: editingRecord.invoiceNumber || "",
         invoiceIds:
-          Array.isArray(editingRecord.invoiceIds) &&
-          editingRecord.invoiceIds.length > 0
-            ? editingRecord.invoiceIds
-            : Array.isArray(editingRecord.invoiceAllocations) &&
-                editingRecord.invoiceAllocations.length > 0
-              ? editingRecord.invoiceAllocations
-                  .map((allocation) => allocation?.invoiceId)
-                  .filter(Boolean)
+          invoiceIdsFromAllocations.length > 0
+            ? invoiceIdsFromAllocations
+            : Array.isArray(editingRecord.invoiceIds) &&
+                editingRecord.invoiceIds.length > 0
+              ? editingRecord.invoiceIds
               : editingRecord.invoiceId
                 ? [editingRecord.invoiceId]
                 : [],
         invoiceNumbers:
-          Array.isArray(editingRecord.invoiceNumbers) &&
-          editingRecord.invoiceNumbers.length > 0
-            ? editingRecord.invoiceNumbers
-            : Array.isArray(editingRecord.invoiceAllocations) &&
-                editingRecord.invoiceAllocations.length > 0
-              ? editingRecord.invoiceAllocations
-                  .map((allocation) => allocation?.invoiceNumber)
-                  .filter(Boolean)
+          invoiceNumbersFromAllocations.length > 0
+            ? invoiceNumbersFromAllocations
+            : Array.isArray(editingRecord.invoiceNumbers) &&
+                editingRecord.invoiceNumbers.length > 0
+              ? editingRecord.invoiceNumbers
               : editingRecord.invoiceNumber
                 ? [editingRecord.invoiceNumber]
                 : [],
         debitNoteId: editingRecord.debitNoteId || "",
         debitNoteNumber: editingRecord.debitNoteNumber || "",
-        financialYear: editingRecord.financialYear || "",
-      }));
+        financialYear:
+          editingRecord.financialYear ||
+          defaultFinancialYear?.financialYear ||
+          "",
+        purpose:
+          editingRecord.purpose ||
+          (invoiceNumbersFromAllocations.length > 0
+            ? `Against Invoice ${invoiceNumbersFromAllocations.join(", ")}`
+            : ""),
+      });
+      setErrors({});
     } else {
-      // Autofill today's date and default financial year
       const today = new Date();
       const dateStr = today.toISOString().split("T")[0];
       setFormData({
@@ -185,12 +204,12 @@ const CreatePaymentReceipt = ({
         paymentType: defaultPaymentType,
         receiptDate: dateStr,
         financialYear: defaultFinancialYear?.financialYear || "",
-        againstType: "", // Explicitly set empty string for new records
+        againstType: "",
       });
       setErrors({});
       generateReceiptNumber(null, defaultFinancialYear);
     }
-  }, [editingRecord, show, defaultPaymentType]);
+  }, [editingRecord, show, defaultPaymentType, defaultFinancialYear]);
 
   // Fetch clients on open
   useEffect(() => {
@@ -227,7 +246,7 @@ const CreatePaymentReceipt = ({
     };
   }, [show]);
 
-  // Fetch invoices when client is selected and againstType is "invoice" (for "regular" type)
+  // Fetch invoices when client is selected and againstType is "invoice"
   useEffect(() => {
     if (
       !formData.clientRefId ||
@@ -237,6 +256,7 @@ const CreatePaymentReceipt = ({
       setInvoiceOptions([]);
       return;
     }
+
     const fetchInvoices = async () => {
       setIsInvoiceLoading(true);
       try {
@@ -246,16 +266,12 @@ const CreatePaymentReceipt = ({
           res?.data?.data ||
           res?.data?.invoices ||
           (Array.isArray(res?.data) ? res.data : []);
-        const clientInvoices = all
+        let clientInvoices = all
           .filter(
             (inv) =>
               inv.clientRefId === formData.clientRefId ||
               inv.clientId === formData.clientId,
           )
-          .filter((inv) => {
-            const dueAmount = getInvoiceDueAmount(inv);
-            return dueAmount > 0;
-          })
           .map((inv) => ({
             value: inv._id || inv.id,
             dueAmount: getInvoiceDueAmount(inv),
@@ -266,7 +282,12 @@ const CreatePaymentReceipt = ({
             label: `${inv.invoiceNumber} — Due ₹${getInvoiceDueAmount(inv).toLocaleString("en-IN")} / Total ₹${toNumber(inv.taxData?.totalAmount || inv.totalAmount || 0).toLocaleString("en-IN")}`,
             invoiceNumber: inv.invoiceNumber,
           }));
+        // Sort by invoiceNumber ascending
+        clientInvoices = clientInvoices.sort((a, b) =>
+          (a.invoiceNumber || "").localeCompare(b.invoiceNumber || ""),
+        );
 
+        // For editing mode, ensure selected invoices are included even if fully paid
         if (editingRecord && formData.paymentType === "regular") {
           const selectedIds = Array.isArray(formData.invoiceIds)
             ? formData.invoiceIds
@@ -303,10 +324,12 @@ const CreatePaymentReceipt = ({
             };
           });
 
-          setInvoiceOptions([
-            ...clientInvoices,
-            ...fallbackOptions.filter(Boolean),
-          ]);
+          const sortedFallback = fallbackOptions
+            .filter(Boolean)
+            .sort((a, b) =>
+              (a.invoiceNumber || "").localeCompare(b.invoiceNumber || ""),
+            );
+          setInvoiceOptions([...clientInvoices, ...sortedFallback]);
         } else {
           setInvoiceOptions(clientInvoices);
         }
@@ -321,10 +344,6 @@ const CreatePaymentReceipt = ({
     formData.clientRefId,
     formData.paymentType,
     formData.againstType,
-    formData.invoiceId,
-    formData.invoiceIds,
-    formData.invoiceNumber,
-    formData.invoiceNumbers,
     editingRecord,
   ]);
 
@@ -373,6 +392,7 @@ const CreatePaymentReceipt = ({
     editingRecord,
   ]);
 
+  // FIXED: Auto-fill amount when invoice selection changes
   useEffect(() => {
     if (
       formData.paymentType !== "regular" ||
@@ -395,33 +415,33 @@ const CreatePaymentReceipt = ({
       optionIdSet.has(String(id)),
     );
 
-    if (validSelectedIds.length !== selectedIds.length) {
-      const selectedOptions = invoiceOptions.filter((option) =>
-        validSelectedIds.includes(String(option.value)),
-      );
-      const dueTotal = selectedOptions.reduce(
-        (sum, option) => sum + toNumber(option.dueAmount || 0),
-        0,
-      );
+    const selectedOptions = invoiceOptions.filter((option) =>
+      validSelectedIds.includes(String(option.value)),
+    );
 
+    const dueTotal = selectedOptions.reduce(
+      (sum, option) => sum + toNumber(option.dueAmount || 0),
+      0,
+    );
+
+    // Only update amount if it's editing mode or the amount hasn't been manually set
+    if (dueTotal > 0) {
       setFormData((prev) => ({
         ...prev,
         invoiceIds: validSelectedIds,
         invoiceNumbers: selectedOptions.map((option) => option.invoiceNumber),
         invoiceId: validSelectedIds[0] || "",
         invoiceNumber: selectedOptions[0]?.invoiceNumber || "",
-        amount: dueTotal > 0 ? String(dueTotal) : "",
+        amount: String(dueTotal),
+        purpose:
+          selectedOptions.length > 0
+            ? `Against Invoice ${selectedOptions.map((opt) => opt.invoiceNumber).join(", ")}`
+            : prev.purpose,
       }));
     }
-  }, [
-    invoiceOptions,
-    formData.paymentType,
-    formData.againstType,
-    formData.invoiceIds,
-    formData.invoiceId,
-  ]);
+  }, [invoiceOptions, formData.invoiceIds, formData.invoiceId]);
 
-  // Auto-fill financial year and receipt number from defaultFinancialYear on mount
+  // Auto-fill financial year and receipt number
   useEffect(() => {
     if (!show || editingRecord || !defaultFinancialYear) return;
     setFormData((prev) => ({
@@ -528,7 +548,7 @@ const CreatePaymentReceipt = ({
         invoiceNumbers: [],
         debitNoteId: "",
         debitNoteNumber: "",
-        againstType: "", // Reset against type when client changes
+        againstType: "",
         amount: prev.paymentType === "regular" ? "" : prev.amount,
       }));
       return;
@@ -548,7 +568,7 @@ const CreatePaymentReceipt = ({
       invoiceNumbers: [],
       debitNoteId: "",
       debitNoteNumber: "",
-      againstType: "", // Reset against type when client changes
+      againstType: "",
       amount: prev.paymentType === "regular" ? "" : prev.amount,
     }));
     if (errors.clientName) setErrors((prev) => ({ ...prev, clientName: "" }));
@@ -564,7 +584,7 @@ const CreatePaymentReceipt = ({
     setFormData((prev) => ({
       ...prev,
       paymentType: type,
-      againstType: "", // Reset against type when payment type changes
+      againstType: "",
       invoiceId: "",
       invoiceNumber: "",
       invoiceIds: [],
@@ -576,10 +596,8 @@ const CreatePaymentReceipt = ({
     }));
   };
 
-  // New handler for Against Type select box
   const handleAgainstTypeSelect = (selectedOption) => {
     const selectedValue = selectedOption?.value || "";
-
     setFormData((prev) => ({
       ...prev,
       againstType: selectedValue,
@@ -589,12 +607,10 @@ const CreatePaymentReceipt = ({
       invoiceNumbers: [],
       debitNoteId: "",
       debitNoteNumber: "",
-      amount: "",
+      amount: editingRecord ? prev.amount : "",
       purpose: "",
     }));
   };
-
-  // Remove the old handleAgainstTypeChange function and replace with the above
 
   const handleInvoiceSelectionChange = (selectedOptions) => {
     const normalizedSelection = Array.isArray(selectedOptions)
@@ -603,14 +619,30 @@ const CreatePaymentReceipt = ({
         ? [selectedOptions]
         : [];
 
-    const invoiceIds = normalizedSelection.map((option) => option.value);
-    const invoiceNumbers = normalizedSelection.map(
+    // Sort selection by invoiceNumber ascending
+    const sortedSelection = [...normalizedSelection].sort((a, b) =>
+      (a.invoiceNumber || "").localeCompare(b.invoiceNumber || ""),
+    );
+
+    const invoiceIds = sortedSelection.map((option) => option.value);
+    const invoiceNumbers = sortedSelection.map(
       (option) => option.invoiceNumber,
     );
-    const dueTotal = normalizedSelection.reduce(
+    const dueTotal = sortedSelection.reduce(
       (sum, option) => sum + toNumber(option.dueAmount || 0),
       0,
     );
+
+    // Prepare note string: '₹1000 paid against Invoice MC/26-27/0001, ₹500 paid against Invoice MC/26-27/0002'
+    let note = "";
+    if (sortedSelection.length > 0) {
+      note = sortedSelection
+        .map(
+          (opt) =>
+            `₹${toNumber(opt.dueAmount || 0).toLocaleString("en-IN")} paid against Invoice ${opt.invoiceNumber}`,
+        )
+        .join(", ");
+    }
 
     setFormData((prev) => ({
       ...prev,
@@ -618,13 +650,14 @@ const CreatePaymentReceipt = ({
       invoiceNumbers,
       invoiceId: invoiceIds[0] || "",
       invoiceNumber: invoiceNumbers[0] || "",
-      amount: dueTotal > 0 ? String(dueTotal) : "",
+      amount: dueTotal > 0 ? String(dueTotal) : prev.amount,
       purpose:
         invoiceNumbers.length > 0
           ? `Against Invoice ${invoiceNumbers.join(", ")}`
           : prev.paymentType === "advance"
             ? "Advance Payment"
             : "",
+      note: note,
     }));
   };
 
@@ -636,8 +669,15 @@ const CreatePaymentReceipt = ({
         debitNoteNumber: "",
         amount: "",
         purpose: "",
+        note: "",
       }));
       return;
+    }
+
+    // Prepare note string: '₹1000 paid against Debit Note DN/26-27/0001'
+    let note = "";
+    if (selectedOption.noteNumber) {
+      note = `₹${toNumber(selectedOption.dueAmount || 0).toLocaleString("en-IN")} paid against Debit Note ${selectedOption.noteNumber}`;
     }
 
     setFormData((prev) => ({
@@ -651,6 +691,7 @@ const CreatePaymentReceipt = ({
       purpose: selectedOption.noteNumber
         ? `Against Debit Note ${selectedOption.noteNumber}`
         : "Against Debit Note",
+      note: note,
     }));
   };
 
@@ -660,7 +701,6 @@ const CreatePaymentReceipt = ({
       errs.clientName = "Client is required";
     if (!formData.receiptDate) errs.receiptDate = "Receipt date is required";
 
-    // Validate that receipt date falls within the default financial year's date range
     if (formData.receiptDate && defaultFinancialYear) {
       const receiptDate = new Date(formData.receiptDate);
       const fyStartDate = new Date(defaultFinancialYear.startDate);
@@ -675,7 +715,6 @@ const CreatePaymentReceipt = ({
     if (!formData.amount || isNaN(amt) || amt <= 0)
       errs.amount = "Amount must be a positive number";
 
-    // Validate Against Type selection for regular payments
     if (formData.paymentType === "regular" && !formData.againstType) {
       errs.againstType = "Please select Against Type";
     }
@@ -701,7 +740,6 @@ const CreatePaymentReceipt = ({
       return;
     }
 
-    // Check for duplicate receipt number (only for new records)
     if (!editingRecord && formData.receiptNumber) {
       setSubmitting(true);
       try {
@@ -727,7 +765,6 @@ const CreatePaymentReceipt = ({
         }
       } catch (err) {
         console.error("Failed to check for duplicate receipt number:", err);
-        // Continue with submission even if duplicate check fails
       }
     }
 
@@ -838,7 +875,6 @@ const CreatePaymentReceipt = ({
     ClearIndicator: null,
   };
 
-  // Patch: Always show a selected option for Select, even if not in clientOptions
   const selectedClientOption =
     formData.clientRefId || formData.clientName || formData.businessName
       ? clientOptions.find(
@@ -866,14 +902,20 @@ const CreatePaymentReceipt = ({
     : formData.invoiceId
       ? [formData.invoiceId]
       : [];
-  const selectedInvoiceOptions = invoiceOptions.filter((option) =>
-    selectedInvoiceIds.map((id) => String(id)).includes(String(option.value)),
-  );
+
+  // Always show selected invoices sorted by invoiceNumber ascending
+  const selectedInvoiceOptions = invoiceOptions
+    .filter((option) =>
+      selectedInvoiceIds.map((id) => String(id)).includes(String(option.value)),
+    )
+    .sort((a, b) =>
+      (a.invoiceNumber || "").localeCompare(b.invoiceNumber || ""),
+    );
+
   const selectedDebitNoteOption = debitNoteOptions.find(
     (option) => String(option.value) === String(formData.debitNoteId || ""),
   );
 
-  // Find selected Against Type option
   const selectedAgainstTypeOption = againstTypeOptions.find(
     (option) => option.value === formData.againstType,
   );
@@ -882,13 +924,11 @@ const CreatePaymentReceipt = ({
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className="modal-backdrop fade show"
         style={{ zIndex: 1040 }}
         onClick={onClose}
       />
-      {/* Modal */}
       <div
         className="modal fade show d-block"
         tabIndex="-1"
@@ -897,7 +937,6 @@ const CreatePaymentReceipt = ({
       >
         <div className="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
           <div className="modal-content">
-            {/* Header */}
             <div className="modal-header bg-success text-white">
               <h5 className="modal-title">
                 <i
@@ -918,7 +957,6 @@ const CreatePaymentReceipt = ({
                 aria-label="Close"
               />
             </div>
-            {/* Body & Footer wrapped in one parent div for valid JSX */}
             <div>
               <div
                 className="modal-body"
@@ -926,7 +964,6 @@ const CreatePaymentReceipt = ({
               >
                 <form onSubmit={handleSubmit} noValidate>
                   <div className="row g-3">
-                    {/* Payment Type Toggle */}
                     {!editingRecord && (
                       <div className="col-md-6 mb-3">
                         <label className="form-label">
@@ -953,7 +990,7 @@ const CreatePaymentReceipt = ({
                         </div>
                       </div>
                     )}
-                    {/* Receipt Number */}
+
                     <div className="col-md-6">
                       <label className="form-label">
                         <i className="fas fa-hashtag me-2 text-primary"></i>
@@ -977,7 +1014,6 @@ const CreatePaymentReceipt = ({
                       </div>
                     </div>
 
-                    {/* Receipt Date */}
                     <div className="col-md-6">
                       <label className="form-label">
                         <i className="fas fa-calendar me-2 text-primary"></i>
@@ -999,7 +1035,6 @@ const CreatePaymentReceipt = ({
                       )}
                     </div>
 
-                    {/* Client */}
                     <div className="col-md-6">
                       <label className="form-label">
                         <i className="fas fa-user me-2 text-primary"></i>
@@ -1037,7 +1072,6 @@ const CreatePaymentReceipt = ({
                       )}
                     </div>
 
-                    {/* Patch: Always show client details section in view/edit mode if any info exists */}
                     {(formData.clientName ||
                       formData.businessName ||
                       formData.phoneNumber ||
@@ -1146,7 +1180,6 @@ const CreatePaymentReceipt = ({
                       </>
                     )}
 
-                    {/* Against Type Select Box - Only for regular payments */}
                     {formData.paymentType === "regular" && (
                       <div className="col-md-6">
                         <label className="form-label">
@@ -1171,7 +1204,6 @@ const CreatePaymentReceipt = ({
                       </div>
                     )}
 
-                    {/* Invoice Selection - shown only when againstType is "invoice" */}
                     {formData.paymentType === "regular" &&
                       formData.againstType === "invoice" && (
                         <div className="col-md-6">
@@ -1221,7 +1253,6 @@ const CreatePaymentReceipt = ({
                         </div>
                       )}
 
-                    {/* Debit Note Selection - shown only when againstType is "debit_note" */}
                     {formData.paymentType === "regular" &&
                       formData.againstType === "debit_note" && (
                         <div className="col-md-6">
@@ -1256,7 +1287,6 @@ const CreatePaymentReceipt = ({
                         </div>
                       )}
 
-                    {/* Amount */}
                     <div className="col-md-6">
                       <label className="form-label">
                         <i className="fas fa-rupee-sign me-2 text-primary"></i>
@@ -1281,7 +1311,6 @@ const CreatePaymentReceipt = ({
                       )}
                     </div>
 
-                    {/* Payment Method */}
                     <div className="col-md-6">
                       <label className="form-label">
                         <i className="fas fa-credit-card me-2 text-primary"></i>
@@ -1320,7 +1349,6 @@ const CreatePaymentReceipt = ({
                       )}
                     </div>
 
-                    {/* Bank Name (if applicable) */}
                     {[
                       "Bank Transfer",
                       "NEFT",
@@ -1347,7 +1375,6 @@ const CreatePaymentReceipt = ({
                       </div>
                     )}
 
-                    {/* Cheque Number */}
                     {formData.paymentMethod === "Cheque" && (
                       <div className="col-md-6">
                         <label className="form-label">
@@ -1367,7 +1394,6 @@ const CreatePaymentReceipt = ({
                       </div>
                     )}
 
-                    {/* Purpose */}
                     <div className="col-md-6">
                       <label className="form-label">
                         <i className="fas fa-align-left me-2 text-primary"></i>
@@ -1389,7 +1415,6 @@ const CreatePaymentReceipt = ({
                       />
                     </div>
 
-                    {/* Note */}
                     <div className="col-12">
                       <label className="form-label">
                         <i className="fas fa-sticky-note me-2 text-primary"></i>
