@@ -2478,7 +2478,7 @@ const CreateSales = ({
                                       </div>
                                       <div className="col date-col small">
                                         {adv.receiptDate
-                                          ? formatDateHyphen(adv.receiptDate)
+                                          ? `${formatDateHyphen(adv.receiptDate)}${adv.financialYear ? ` (FY ${adv.financialYear})` : ""}`
                                           : "-"}
                                       </div>
                                       <div className="col amount-col">
@@ -2683,7 +2683,7 @@ const CreateSales = ({
         .advance-list-header,
         .advance-item {
           display: grid;
-          grid-template-columns: 60px 1fr 160px 140px 140px 180px;
+          grid-template-columns: 60px 1fr 180px 140px 140px 180px;
           gap: 12px;
           align-items: center;
           padding: 12px 16px;

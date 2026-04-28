@@ -225,15 +225,11 @@ export function getAuditFieldsFromEvent(event, mode = "create") {
     if (mode === "update") {
       return {
         updatedBy: actor.name || actor.id,
-        updatedById: actor.id || undefined,
-        updatedByName: actor.name || undefined,
       };
     }
 
     return {
       createdBy: actor.name || actor.id,
-      createdById: actor.id || undefined,
-      createdByName: actor.name || undefined,
     };
   } catch (error) {
     return {};

@@ -213,17 +213,38 @@ const LedgerManagement = () => {
   };
 
   const getPaidAmount = (record, totalAmount) => {
+    const isSalesInvoice = Boolean(
+      record?.invoiceNumber ||
+        record?.invoiceDate ||
+        record?.taxData ||
+        record?.clientRefId,
+    );
+    const appliedAdvanceFromInvoice = Math.max(
+      toNumber(record?.advanceAdjustedTotal || 0),
+      Array.isArray(record?.appliedAdvances)
+        ? record.appliedAdvances.reduce(
+            (sum, advance) => sum + toNumber(advance?.appliedAmount || 0),
+            0,
+          )
+        : 0,
+    );
     const explicitPaid = Math.max(
       toNumber(record?.amountReceived || 0),
       toNumber(record?.paidAmount || 0),
       toNumber(record?.amountPaid || 0),
     );
 
-    if (explicitPaid > 0) {
-      return Math.min(explicitPaid, totalAmount);
+    const effectivePaid = isSalesInvoice
+      ? Math.max(0, explicitPaid - appliedAdvanceFromInvoice)
+      : explicitPaid;
+
+    if (effectivePaid > 0) {
+      return Math.min(effectivePaid, totalAmount);
     }
 
     if (record?.paymentStatus === "Paid") {
+      const paidByAdvanceOnly = isSalesInvoice && appliedAdvanceFromInvoice > 0;
+      if (paidByAdvanceOnly) return 0;
       return totalAmount;
     }
 
@@ -963,16 +984,44 @@ const LedgerManagement = () => {
       );
       const isCreditNote = String(record?.noteType || "") === "Credit Note";
       if (isCreditNote) {
-        // Credit note is a separate liability. It does not increase/decrease advance.
+        const refundAmount = Math.min(
+          toNumber(record?.refundAmount || 0),
+          Math.max(totalAmount, 0),
+        );
+        const creditOutstanding = Math.max(totalAmount - refundAmount, 0);
+
+        // Credit note raises payable at creation, then reduces payable when refunded.
         totals.salesReturnDebit += taxableAmount;
         totals.gstOutputDebit += taxAmount;
-        totals.creditNotePayableCredit += totalAmount;
+        totals.creditNotePayableCredit += creditOutstanding;
+
+        if (refundAmount > 0) {
+          if (isCashPayment(record?.refundMethod)) {
+            totals.cashCredit += refundAmount;
+          } else if (isBankPayment(record?.refundMethod)) {
+            totals.bankCredit += refundAmount;
+          }
+        }
       } else {
-        // Debit note increases customer receivable and revenue.
+        const receivedAmount = Math.min(
+          toNumber(record?.receivedAmount || 0),
+          Math.max(totalAmount, 0),
+        );
+        const debitOutstanding = Math.max(totalAmount - receivedAmount, 0);
+
+        // Debit note raises receivable at creation, then decreases when payment is received.
         totals.salesCredit += taxableAmount;
         totals.gstOutputCredit += taxAmount;
         totals.salesTaxOutput += taxAmount;
-        totals.sundryDebtorsDebit += totalAmount;
+        totals.sundryDebtorsDebit += debitOutstanding;
+
+        if (receivedAmount > 0) {
+          if (isCashPayment(record?.paymentMethod)) {
+            totals.cashDebit += receivedAmount;
+          } else if (isBankPayment(record?.paymentMethod)) {
+            totals.bankDebit += receivedAmount;
+          }
+        }
       }
     });
 

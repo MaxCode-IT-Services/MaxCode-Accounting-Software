@@ -254,8 +254,8 @@ const API_ENDPOINTS = {
     LIST: "/payment-receipts",
     CREATE: "/payment-receipts",
     NEXT_NUMBER: "/payment-receipts?action=next-number",
-    AVAILABLE_ADVANCES: (clientRefId) =>
-      `/payment-receipts?action=available-advances&clientRefId=${encodeURIComponent(clientRefId || "")}`,
+    AVAILABLE_ADVANCES: (clientRefOrId) =>
+      `/payment-receipts?action=available-advances&clientRefId=${encodeURIComponent(clientRefOrId || "")}&clientId=${encodeURIComponent(clientRefOrId || "")}`,
     GET: (id) => `/payment-receipts?id=${id}`,
     UPDATE: (id) => `/payment-receipts?id=${id}`,
     DELETE: (id) => `/payment-receipts?id=${id}`,

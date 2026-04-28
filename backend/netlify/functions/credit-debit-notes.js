@@ -74,7 +74,9 @@ const normalizeAppliedAdvances = (appliedAdvances) => {
         appliedAmount,
         maxAmount: toNumber(advance?.maxAmount || appliedAmount),
         paymentMethod: String(advance?.paymentMethod || "").trim(),
-        receiptDate: advance?.receiptDate ? new Date(advance.receiptDate) : null,
+        receiptDate: advance?.receiptDate
+          ? new Date(advance.receiptDate)
+          : null,
       };
     })
     .filter(Boolean);
@@ -253,11 +255,7 @@ export async function handler(event) {
           })
           .filter((note) => note.dueAmount > 0);
 
-        return createResponse(
-          200,
-          { records, total: records.length },
-          origin,
-        );
+        return createResponse(200, { records, total: records.length }, origin);
       }
 
       if (action === "next-number") {
@@ -722,12 +720,16 @@ export async function handler(event) {
         refundDate: noteData.refundDate ? new Date(noteData.refundDate) : null,
         refundAmount: toNumber(noteData.refundAmount),
         refundMethod: String(noteData.refundMethod || "").trim(),
-        referenceNumber: String(noteData.referenceNumber || "").trim(),
         // Debit note fields
         paymentStatus:
           String(noteData.paymentStatus || "").trim() ||
-          getDebitNotePaymentStatus(totalAmount, toNumber(noteData.receivedAmount)),
-        paymentDate: noteData.paymentDate ? new Date(noteData.paymentDate) : null,
+          getDebitNotePaymentStatus(
+            totalAmount,
+            toNumber(noteData.receivedAmount),
+          ),
+        paymentDate: noteData.paymentDate
+          ? new Date(noteData.paymentDate)
+          : null,
         receivedAmount: toNumber(noteData.receivedAmount),
         paymentMethod: String(noteData.paymentMethod || "").trim(),
         appliedAdvances: normalizedAppliedAdvances,
@@ -750,7 +752,8 @@ export async function handler(event) {
 
           const nextAdjusted = Math.min(
             toNumber(receipt.amount || 0),
-            toNumber(receipt.adjustedAmount || 0) + toNumber(advance.appliedAmount),
+            toNumber(receipt.adjustedAmount || 0) +
+              toNumber(advance.appliedAmount),
           );
           await receiptsCollection.updateOne(
             { _id: receipt._id },
@@ -884,7 +887,6 @@ export async function handler(event) {
               : null,
             refundAmount: toNumber(noteData.refundAmount),
             refundMethod: String(noteData.refundMethod || "").trim(),
-            referenceNumber: String(noteData.referenceNumber || "").trim(),
             // Debit note fields
             paymentStatus:
               String(noteData.paymentStatus || "").trim() ||
@@ -922,7 +924,8 @@ export async function handler(event) {
           if (!receipt) continue;
           const reversedAdjusted = Math.max(
             0,
-            toNumber(receipt.adjustedAmount || 0) - toNumber(advance.appliedAmount),
+            toNumber(receipt.adjustedAmount || 0) -
+              toNumber(advance.appliedAmount),
           );
           await receiptsCollection.updateOne(
             { _id: receipt._id },
@@ -954,7 +957,8 @@ export async function handler(event) {
           if (!receipt) continue;
           const nextAdjusted = Math.min(
             toNumber(receipt.amount || 0),
-            toNumber(receipt.adjustedAmount || 0) + toNumber(advance.appliedAmount),
+            toNumber(receipt.adjustedAmount || 0) +
+              toNumber(advance.appliedAmount),
           );
           await receiptsCollection.updateOne(
             { _id: receipt._id },

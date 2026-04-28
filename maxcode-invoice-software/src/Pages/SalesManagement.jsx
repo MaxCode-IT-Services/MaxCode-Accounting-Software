@@ -259,6 +259,31 @@ const SalesManagement = () => {
     };
   }, [serverSide]);
 
+  // Helper function to calculate total received amount for an invoice
+  const getTotalReceivedAmount = (sale) => {
+    let totalReceived = 0;
+    
+    // Add regular receipt total
+    totalReceived += parseFloat(sale.regularReceiptTotal || 0);
+    
+    // Add advance adjusted total
+    totalReceived += parseFloat(sale.advanceAdjustedTotal || 0);
+    
+    // If amountReceived is directly available, use that as well (to avoid missing any)
+    if (sale.amountReceived && parseFloat(sale.amountReceived) > totalReceived) {
+      totalReceived = parseFloat(sale.amountReceived);
+    }
+    
+    return totalReceived;
+  };
+
+  // Helper function to calculate total due amount for an invoice
+  const getTotalDueAmount = (sale) => {
+    const totalAmount = parseFloat(sale.totalAmount || 0);
+    const totalReceived = getTotalReceivedAmount(sale);
+    return Math.max(0, totalAmount - totalReceived);
+  };
+
   // Fetch sales from API with server-side parameters
   const fetchSales = async () => {
     // Cancel previous request if running
@@ -489,6 +514,18 @@ const SalesManagement = () => {
           return { regularReceiptTotal: total, regularReceiptNumbers: nums };
         })();
 
+        const totalAmount = sale.taxData?.totalAmount || 0;
+        const totalReceivedAmount = (() => {
+          let received = 0;
+          received += parseFloat(regularReceiptTotal || 0);
+          received += parseFloat(sale.advanceAdjustedTotal || 0);
+          if (sale.amountReceived && parseFloat(sale.amountReceived) > received) {
+            received = parseFloat(sale.amountReceived);
+          }
+          return received;
+        })();
+        const totalDueAmount = Math.max(0, parseFloat(totalAmount) - totalReceivedAmount);
+
         return {
           ...sale,
           id: sale._id || sale.id,
@@ -498,7 +535,9 @@ const SalesManagement = () => {
             ? formatDateForDisplay(sale.paymentDate)
             : "-",
           createdDateTime: formatDateTimeForDisplay(createdDate),
-          totalAmount: sale.taxData?.totalAmount || 0,
+          totalAmount: totalAmount,
+          totalReceivedAmount: totalReceivedAmount,
+          totalDueAmount: totalDueAmount,
           advanceAdjustedTotal: sale.advanceAdjustedTotal || 0,
           advanceAdjReceiptNumbers,
           regularReceiptTotal,
@@ -781,7 +820,7 @@ const SalesManagement = () => {
     }
   };
 
-  // Columns configuration
+  // Columns configuration - Added Total Received Amount and Total Due Amount columns after Total Amount
   const columns = [
     { key: "sn", label: "S.No", width: 70 },
     { key: "invoiceNumber", label: "Invoice No.", width: 130 },
@@ -812,6 +851,34 @@ const SalesManagement = () => {
         <span className="fw-bold text-success">
           ₹{" "}
           {parseFloat(value).toLocaleString("en-IN", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </span>
+      ),
+    },
+    {
+      key: "totalReceivedAmount",
+      label: "Total Received Amount",
+      width: 150,
+      render: (value) => (
+        <span className="fw-bold text-primary">
+          ₹{" "}
+          {parseFloat(value || 0).toLocaleString("en-IN", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </span>
+      ),
+    },
+    {
+      key: "totalDueAmount",
+      label: "Total Due Amount",
+      width: 130,
+      render: (value) => (
+        <span className="fw-bold text-danger">
+          ₹{" "}
+          {parseFloat(value || 0).toLocaleString("en-IN", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
           })}
@@ -901,6 +968,8 @@ const SalesManagement = () => {
     "invoiceDateFormatted",
     "businessName",
     "totalAmount",
+    "totalReceivedAmount",
+    "totalDueAmount",
     "paymentStatus",
     "action",
   ];

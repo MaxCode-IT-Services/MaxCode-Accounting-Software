@@ -116,6 +116,16 @@ export async function handler(event) {
     const usersCollection = db.collection("users");
     const preferencesCollection = db.collection("userPreferences");
 
+    const resolveActorName = async (userDoc = {}) => {
+      const fallbackName = String(
+        userDoc?.name || userDoc?.displayName || "",
+      ).trim();
+      const userId = String(userDoc?._id || "").trim();
+      const email = String(userDoc?.email || "").trim();
+      const phone = String(userDoc?.phone || "").trim();
+      return fallbackName || email || phone || userId;
+    };
+
     const queryAction = event.queryStringParameters?.action;
     const isVerifySessionRequest =
       event.httpMethod === "GET" &&
@@ -306,8 +316,10 @@ export async function handler(event) {
         }
 
         // Generate token
+        const actorName = await resolveActorName(user);
         const tokenPayload = {
           userId: user._id.toString(),
+          name: actorName,
           email: user.email,
           phone: user.phone,
           role: user.role || "user",
@@ -417,8 +429,10 @@ export async function handler(event) {
         }
 
         // Generate full token
+        const actorName = await resolveActorName(user);
         const tokenPayload = {
           userId: user._id.toString(),
+          name: actorName,
           email: user.email,
           phone: user.phone,
           role: user.role || "user",
@@ -530,8 +544,10 @@ export async function handler(event) {
           );
         }
 
+        const actorName = await resolveActorName(user);
         const tokenPayload = {
           userId: user._id.toString(),
+          name: actorName,
           email: user.email,
           phone: user.phone,
           role: user.role || "user",
@@ -644,8 +660,10 @@ export async function handler(event) {
           );
         }
 
+        const actorName = await resolveActorName(user);
         const tokenPayload = {
           userId: user._id.toString(),
+          name: actorName,
           email: user.email,
           phone: user.phone,
           role: user.role || "user",
@@ -725,8 +743,10 @@ export async function handler(event) {
         newUser._id = result.insertedId;
 
         // Generate token
+        const actorName = await resolveActorName(newUser);
         const tokenPayload = {
           userId: newUser._id.toString(),
+          name: actorName,
           phone: newUser.phone,
           role: newUser.role,
         };

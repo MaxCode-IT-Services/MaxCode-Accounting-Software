@@ -983,6 +983,81 @@ const CreditDebitNotePreview = ({
                     </div>
                   </div>
 
+                  <div
+                    className="px-3 py-2"
+                    style={{
+                      borderTop: "3px solid #000",
+                      borderBottom: "3px solid #000",
+                      backgroundColor: "#f8f9fa",
+                    }}
+                  >
+                    <h6 className="fw-bold mb-2">
+                      <i className="fas fa-credit-card me-2"></i>
+                      Payment Information
+                    </h6>
+                    <div className="row g-2 fs-6">
+                      {noteType === "Credit Note" ? (
+                        <>
+                          <div className="col-6">
+                            <span className="fw-bold">Refund Date:</span>{" "}
+                            {formatDateOnly(
+                              notePreviewData.refundDate || noteRecord?.refundDate,
+                            ) || "-"}
+                          </div>
+                          <div className="col-6">
+                            <span className="fw-bold">Refund Amount:</span> ₹
+                            {formatCurrency(
+                              notePreviewData.refundAmount ||
+                                noteRecord?.refundAmount ||
+                                0,
+                            )}
+                          </div>
+                          <div className="col-6">
+                            <span className="fw-bold">Refund Method:</span>{" "}
+                            {notePreviewData.refundMethod ||
+                              noteRecord?.refundMethod ||
+                              "-"}
+                          </div>
+                          <div className="col-6">
+                            <span className="fw-bold">Refund Status:</span>{" "}
+                            {notePreviewData.refundStatus ||
+                              noteRecord?.refundStatus ||
+                              "-"}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="col-6">
+                            <span className="fw-bold">Payment Date:</span>{" "}
+                            {formatDateOnly(
+                              notePreviewData.paymentDate || noteRecord?.paymentDate,
+                            ) || "-"}
+                          </div>
+                          <div className="col-6">
+                            <span className="fw-bold">Recived Amount:</span> ₹
+                            {formatCurrency(
+                              notePreviewData.receivedAmount ||
+                                noteRecord?.receivedAmount ||
+                                0,
+                            )}
+                          </div>
+                          <div className="col-6">
+                            <span className="fw-bold">Payment Method:</span>{" "}
+                            {notePreviewData.paymentMethod ||
+                              noteRecord?.paymentMethod ||
+                              "-"}
+                          </div>
+                          <div className="col-6">
+                            <span className="fw-bold">Payment Status:</span>{" "}
+                            {notePreviewData.paymentStatus ||
+                              noteRecord?.paymentStatus ||
+                              "-"}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
                   <table className="table table-bordered invoice-table mb-0 text-center">
                     <thead>
                       <tr>

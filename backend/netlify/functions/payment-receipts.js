@@ -416,6 +416,7 @@ export async function handler(event) {
         paymentType,
         paymentMethod,
         clientRefId,
+        clientId,
         sortBy = "createdAt",
         sortOrder = "desc",
         filter,
@@ -455,16 +456,26 @@ export async function handler(event) {
 
       // ── available-advances: unapplied/partial advances for a client ──────
       if (action === "available-advances") {
-        if (!clientRefId) {
+        const normalizedClientRefId = String(clientRefId || "").trim();
+        const normalizedClientId = String(clientId || "").trim();
+        if (!normalizedClientRefId && !normalizedClientId) {
           return createResponse(
             400,
-            { error: "clientRefId is required" },
+            { error: "clientRefId or clientId is required" },
             origin,
           );
         }
+        const clientMatch = [
+          ...(normalizedClientRefId
+            ? [{ clientRefId: normalizedClientRefId }, { clientId: normalizedClientRefId }]
+            : []),
+          ...(normalizedClientId
+            ? [{ clientRefId: normalizedClientId }, { clientId: normalizedClientId }]
+            : []),
+        ];
         const advances = await col
           .find({
-            clientRefId,
+            $or: clientMatch,
             paymentType: "advance",
             isDeleted: { $ne: true },
             $expr: { $gt: ["$amount", { $ifNull: ["$adjustedAmount", 0] }] },
@@ -481,6 +492,7 @@ export async function handler(event) {
           availableAmount:
             Number(a.amount || 0) - Number(a.adjustedAmount || 0),
           paymentMethod: a.paymentMethod,
+          financialYear: a.financialYear || "",
           note: a.note || "",
         }));
         return createResponse(
@@ -857,17 +869,7 @@ export async function handler(event) {
         suppliedReceiptNumber ||
         (await getNextReceiptNumber(col, receiptNumberPrefix));
 
-      // Patch: Always prefer user name for CreatedByName
       let auditFields = getAuditFieldsFromEvent(event, user);
-      // If createdByName is an email, but user.name or user.displayName exists, prefer that
-      if (auditFields && auditFields.createdByName && user) {
-        const isEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(
-          auditFields.createdByName,
-        );
-        if (isEmail && (user.name || user.displayName)) {
-          auditFields.createdByName = user.name || user.displayName;
-        }
-      }
       const now = new Date();
 
       // Normalize payment methods

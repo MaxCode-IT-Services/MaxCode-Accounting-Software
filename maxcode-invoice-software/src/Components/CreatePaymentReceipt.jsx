@@ -30,7 +30,7 @@ const emptyForm = {
   purpose: "",
   note: "",
   paymentType: "regular",
-  againstType: "invoice",
+  againstType: "", // Changed from "invoice" to empty string
   invoiceId: "",
   invoiceNumber: "",
   invoiceIds: [],
@@ -39,6 +39,12 @@ const emptyForm = {
   debitNoteNumber: "",
   financialYear: "",
 };
+
+// Against Type options
+const againstTypeOptions = [
+  { value: "invoice", label: "Invoice" },
+  { value: "debit_note", label: "Debit Note" },
+];
 
 const CreatePaymentReceipt = ({
   show,
@@ -63,6 +69,7 @@ const CreatePaymentReceipt = ({
     "IMPS",
     "Card",
   ]);
+
   // On mount, get canonical payment methods from CreateSales
   useEffect(() => {
     // Simulate fetching all possible payment methods from CreateSales
@@ -83,6 +90,7 @@ const CreatePaymentReceipt = ({
       ]),
     );
   }, []);
+
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [clientOptions, setClientOptions] = useState([]);
@@ -137,7 +145,7 @@ const CreatePaymentReceipt = ({
         email: editingRecord.email || "",
         address: editingRecord.address || "",
         paymentType: editingRecord.paymentType || defaultPaymentType,
-        againstType: editingRecord.againstType || "invoice",
+        againstType: editingRecord.againstType || "", // Changed to empty string default
         invoiceId: editingRecord.invoiceId || "",
         invoiceNumber: editingRecord.invoiceNumber || "",
         invoiceIds:
@@ -177,6 +185,7 @@ const CreatePaymentReceipt = ({
         paymentType: defaultPaymentType,
         receiptDate: dateStr,
         financialYear: defaultFinancialYear?.financialYear || "",
+        againstType: "", // Explicitly set empty string for new records
       });
       setErrors({});
       generateReceiptNumber(null, defaultFinancialYear);
@@ -218,9 +227,13 @@ const CreatePaymentReceipt = ({
     };
   }, [show]);
 
-  // Fetch invoices when client is selected (for "regular" type)
+  // Fetch invoices when client is selected and againstType is "invoice" (for "regular" type)
   useEffect(() => {
-    if (!formData.clientRefId || formData.paymentType !== "regular") {
+    if (
+      !formData.clientRefId ||
+      formData.paymentType !== "regular" ||
+      formData.againstType !== "invoice"
+    ) {
       setInvoiceOptions([]);
       return;
     }
@@ -307,6 +320,7 @@ const CreatePaymentReceipt = ({
   }, [
     formData.clientRefId,
     formData.paymentType,
+    formData.againstType,
     formData.invoiceId,
     formData.invoiceIds,
     formData.invoiceNumber,
@@ -314,6 +328,7 @@ const CreatePaymentReceipt = ({
     editingRecord,
   ]);
 
+  // Fetch debit notes when client is selected and againstType is "debit_note"
   useEffect(() => {
     if (
       !formData.clientRefId ||
@@ -359,7 +374,11 @@ const CreatePaymentReceipt = ({
   ]);
 
   useEffect(() => {
-    if (formData.paymentType !== "regular") return;
+    if (
+      formData.paymentType !== "regular" ||
+      formData.againstType !== "invoice"
+    )
+      return;
 
     const selectedIds = Array.isArray(formData.invoiceIds)
       ? formData.invoiceIds
@@ -397,6 +416,7 @@ const CreatePaymentReceipt = ({
   }, [
     invoiceOptions,
     formData.paymentType,
+    formData.againstType,
     formData.invoiceIds,
     formData.invoiceId,
   ]);
@@ -508,6 +528,7 @@ const CreatePaymentReceipt = ({
         invoiceNumbers: [],
         debitNoteId: "",
         debitNoteNumber: "",
+        againstType: "", // Reset against type when client changes
         amount: prev.paymentType === "regular" ? "" : prev.amount,
       }));
       return;
@@ -527,6 +548,7 @@ const CreatePaymentReceipt = ({
       invoiceNumbers: [],
       debitNoteId: "",
       debitNoteNumber: "",
+      againstType: "", // Reset against type when client changes
       amount: prev.paymentType === "regular" ? "" : prev.amount,
     }));
     if (errors.clientName) setErrors((prev) => ({ ...prev, clientName: "" }));
@@ -542,7 +564,7 @@ const CreatePaymentReceipt = ({
     setFormData((prev) => ({
       ...prev,
       paymentType: type,
-      againstType: "invoice",
+      againstType: "", // Reset against type when payment type changes
       invoiceId: "",
       invoiceNumber: "",
       invoiceIds: [],
@@ -554,10 +576,13 @@ const CreatePaymentReceipt = ({
     }));
   };
 
-  const handleAgainstTypeChange = (type) => {
+  // New handler for Against Type select box
+  const handleAgainstTypeSelect = (selectedOption) => {
+    const selectedValue = selectedOption?.value || "";
+
     setFormData((prev) => ({
       ...prev,
-      againstType: type,
+      againstType: selectedValue,
       invoiceId: "",
       invoiceNumber: "",
       invoiceIds: [],
@@ -568,6 +593,8 @@ const CreatePaymentReceipt = ({
       purpose: "",
     }));
   };
+
+  // Remove the old handleAgainstTypeChange function and replace with the above
 
   const handleInvoiceSelectionChange = (selectedOptions) => {
     const normalizedSelection = Array.isArray(selectedOptions)
@@ -647,6 +674,12 @@ const CreatePaymentReceipt = ({
     const amt = Number(formData.amount);
     if (!formData.amount || isNaN(amt) || amt <= 0)
       errs.amount = "Amount must be a positive number";
+
+    // Validate Against Type selection for regular payments
+    if (formData.paymentType === "regular" && !formData.againstType) {
+      errs.againstType = "Please select Against Type";
+    }
+
     if (
       formData.paymentType === "regular" &&
       formData.againstType === "debit_note" &&
@@ -654,6 +687,7 @@ const CreatePaymentReceipt = ({
     ) {
       errs.amount = errs.amount || "Please select a debit note";
     }
+
     if (!formData.paymentMethod)
       errs.paymentMethod = "Payment method is required";
     return errs;
@@ -717,7 +751,7 @@ const CreatePaymentReceipt = ({
         invoiceNumbers: normalizedInvoiceNumbers,
         invoiceId: normalizedInvoiceIds[0] || "",
         invoiceNumber: normalizedInvoiceNumbers[0] || "",
-        againstType: formData.againstType || "invoice",
+        againstType: formData.againstType || "",
         debitNoteId: formData.debitNoteId || "",
         debitNoteNumber: formData.debitNoteNumber || "",
       };
@@ -837,6 +871,11 @@ const CreatePaymentReceipt = ({
   );
   const selectedDebitNoteOption = debitNoteOptions.find(
     (option) => String(option.value) === String(formData.debitNoteId || ""),
+  );
+
+  // Find selected Against Type option
+  const selectedAgainstTypeOption = againstTypeOptions.find(
+    (option) => option.value === formData.againstType,
   );
 
   if (!show) return null;
@@ -1107,81 +1146,82 @@ const CreatePaymentReceipt = ({
                       </>
                     )}
 
-                    {/* Against Type + link — only for regular payments */}
+                    {/* Against Type Select Box - Only for regular payments */}
                     {formData.paymentType === "regular" && (
                       <div className="col-md-6">
                         <label className="form-label">
                           <i className="fas fa-link me-2 text-primary"></i>
-                          Against Type
-                        </label>
-                        <div className="d-flex gap-2">
-                          <button
-                            type="button"
-                            className={`btn flex-fill ${formData.againstType !== "debit_note" ? "btn-success" : "btn-outline-secondary"}`}
-                            onClick={() => handleAgainstTypeChange("invoice")}
-                            disabled={readOnly}
-                          >
-                            Invoice
-                          </button>
-                          <button
-                            type="button"
-                            className={`btn flex-fill ${formData.againstType === "debit_note" ? "btn-warning" : "btn-outline-secondary"}`}
-                            onClick={() => handleAgainstTypeChange("debit_note")}
-                            disabled={readOnly}
-                          >
-                            Debit Note
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {formData.paymentType === "regular" &&
-                      formData.againstType !== "debit_note" && (
-                      <div className="col-md-6">
-                        <label className="form-label">
-                          <i className="fas fa-file-invoice-dollar me-2 text-primary"></i>
-                          Against Invoice{" "}
-                          <span className="text-muted small">
-                            (Optional, Multi Select)
-                          </span>
+                          Against Type <span className="text-danger">*</span>
                         </label>
                         <Select
-                          options={invoiceOptions}
-                          value={selectedInvoiceOptions}
-                          onChange={handleInvoiceSelectionChange}
-                          isMulti={true}
-                          closeMenuOnSelect={false}
-                          isLoading={isInvoiceLoading}
-                          isClearable={false}
-                          placeholder={
-                            formData.clientRefId
-                              ? "Select due invoice(s)"
-                              : "Select a client first"
-                          }
-                          isDisabled={!formData.clientRefId || readOnly}
+                          options={againstTypeOptions}
+                          value={selectedAgainstTypeOption || null}
+                          onChange={handleAgainstTypeSelect}
+                          isClearable={true}
+                          placeholder="Select Against Type"
                           styles={calmSelectStyles}
-                          components={invoiceSelectComponents}
-                          noOptionsMessage={() =>
-                            isInvoiceLoading
-                              ? "Loading..."
-                              : formData.clientRefId
-                                ? "No due invoices found for this client"
-                                : "Select a client first"
-                          }
+                          isDisabled={readOnly}
+                          classNamePrefix="react-select"
                         />
-                        {selectedInvoiceOptions.length > 0 && (
-                          <div className="form-text mt-1">
-                            Total selected due amount: ₹
-                            {selectedInvoiceOptions
-                              .reduce(
-                                (sum, option) =>
-                                  sum + toNumber(option.dueAmount || 0),
-                                0,
-                              )
-                              .toLocaleString("en-IN")}
+                        {errors.againstType && (
+                          <div className="text-danger small mt-1">
+                            {errors.againstType}
                           </div>
                         )}
                       </div>
                     )}
+
+                    {/* Invoice Selection - shown only when againstType is "invoice" */}
+                    {formData.paymentType === "regular" &&
+                      formData.againstType === "invoice" && (
+                        <div className="col-md-6">
+                          <label className="form-label">
+                            <i className="fas fa-file-invoice-dollar me-2 text-primary"></i>
+                            Against Invoice{" "}
+                            <span className="text-muted small">
+                              (Optional, Multi Select)
+                            </span>
+                          </label>
+                          <Select
+                            options={invoiceOptions}
+                            value={selectedInvoiceOptions}
+                            onChange={handleInvoiceSelectionChange}
+                            isMulti={true}
+                            closeMenuOnSelect={false}
+                            isLoading={isInvoiceLoading}
+                            isClearable={false}
+                            placeholder={
+                              formData.clientRefId
+                                ? "Select due invoice(s)"
+                                : "Select a client first"
+                            }
+                            isDisabled={!formData.clientRefId || readOnly}
+                            styles={calmSelectStyles}
+                            components={invoiceSelectComponents}
+                            noOptionsMessage={() =>
+                              isInvoiceLoading
+                                ? "Loading..."
+                                : formData.clientRefId
+                                  ? "No due invoices found for this client"
+                                  : "Select a client first"
+                            }
+                          />
+                          {selectedInvoiceOptions.length > 0 && (
+                            <div className="form-text mt-1">
+                              Total selected due amount: ₹
+                              {selectedInvoiceOptions
+                                .reduce(
+                                  (sum, option) =>
+                                    sum + toNumber(option.dueAmount || 0),
+                                  0,
+                                )
+                                .toLocaleString("en-IN")}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                    {/* Debit Note Selection - shown only when againstType is "debit_note" */}
                     {formData.paymentType === "regular" &&
                       formData.againstType === "debit_note" && (
                         <div className="col-md-6">

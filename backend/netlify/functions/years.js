@@ -607,6 +607,7 @@ export async function handler(event) {
       const updateData = {
         ...payload,
         updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "update"),
       };
 
       if (payload.taxPercentage !== undefined) {
@@ -658,6 +659,7 @@ export async function handler(event) {
             isDeleted: true,
             deletedAt: new Date(),
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );

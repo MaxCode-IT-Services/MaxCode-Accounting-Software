@@ -239,6 +239,18 @@ const CreateCreditDebitNote = ({
     }));
   };
 
+  const formatDateWithFinancialYear = (dateValue, financialYearValue) => {
+    if (!dateValue) return "-";
+    const d = new Date(dateValue);
+    const datePart = Number.isNaN(d.getTime())
+      ? String(dateValue)
+      : `${String(d.getDate()).padStart(2, "0")}-${String(
+          d.getMonth() + 1,
+        ).padStart(2, "0")}-${d.getFullYear()}`;
+    const fyPart = String(financialYearValue || "").trim();
+    return fyPart ? `${datePart} (FY ${fyPart})` : datePart;
+  };
+
   useEffect(() => {
     if (show) {
       document.body.style.overflow = "hidden";
@@ -350,7 +362,8 @@ const CreateCreditDebitNote = ({
   }, [editingRecord, show]);
 
   useEffect(() => {
-    if (!show || formData.noteType !== "Debit Note" || !formData.clientId) {
+    const clientRef = formData.clientId || formData.clientRefId;
+    if (!show || formData.noteType !== "Debit Note" || !clientRef) {
       setAvailableAdvances([]);
       return;
     }
@@ -359,7 +372,7 @@ const CreateCreditDebitNote = ({
       setIsLoadingAdvances(true);
       try {
         const res = await apiGet(
-          API_ENDPOINTS.PAYMENT_RECEIPTS.AVAILABLE_ADVANCES(formData.clientId),
+          API_ENDPOINTS.PAYMENT_RECEIPTS.AVAILABLE_ADVANCES(clientRef),
         );
         const advances = Array.isArray(res?.data?.advances) ? res.data.advances : [];
         setAvailableAdvances(advances);
@@ -371,7 +384,7 @@ const CreateCreditDebitNote = ({
     };
 
     fetchAdvances();
-  }, [show, formData.noteType, formData.clientId]);
+  }, [show, formData.noteType, formData.clientId, formData.clientRefId]);
 
   useEffect(() => {
     if (formData.noteType !== "Debit Note") return;
@@ -1545,9 +1558,10 @@ const CreateCreditDebitNote = ({
                                       </td>
                                       <td>{adv.receiptNumber || "-"}</td>
                                       <td>
-                                        {adv.receiptDate
-                                          ? String(adv.receiptDate).slice(0, 10)
-                                          : "-"}
+                                        {formatDateWithFinancialYear(
+                                          adv.receiptDate,
+                                          adv.financialYear,
+                                        )}
                                       </td>
                                       <td>
                                         ₹
