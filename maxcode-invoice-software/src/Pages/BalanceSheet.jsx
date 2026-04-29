@@ -143,6 +143,22 @@ const BalanceSheet = () => {
     const selectedRange = getSelectedYearRange();
     if (!selectedRange) return records;
 
+    // For accounting purposes, include all transactions up to the end date
+    // This ensures cumulative balances are calculated correctly
+    return records.filter((record) => {
+      const invoiceDate = getDateOnly(getRecordDate(record));
+      if (!invoiceDate) return false;
+      return invoiceDate <= selectedRange.endDate;
+    });
+  };
+
+  const filterByFinancialYearStrict = (records) => {
+    if (!Array.isArray(records)) return [];
+
+    const selectedRange = getSelectedYearRange();
+    if (!selectedRange) return records;
+
+    // Strict filtering for period-based reports (only transactions within the year)
     return records.filter((record) => {
       const invoiceDate = getDateOnly(getRecordDate(record));
       if (!invoiceDate) return false;

@@ -407,7 +407,14 @@ export async function handler(event) {
 
       const result = await fundsCollection.updateOne(
         { _id: new ObjectId(id) },
-        { $set: { isDeleted: true, deletedAt: new Date() } },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: new Date(),
+            updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "delete"),
+          }
+        },
       );
 
       if (result.matchedCount === 0) {

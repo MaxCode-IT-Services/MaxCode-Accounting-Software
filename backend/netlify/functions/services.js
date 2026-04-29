@@ -749,6 +749,7 @@ export async function handler(event) {
             isDeleted: true,
             deletedAt: new Date(),
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "delete"),
           },
         },
       );

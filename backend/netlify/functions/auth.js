@@ -117,13 +117,29 @@ export async function handler(event) {
     const preferencesCollection = db.collection("userPreferences");
 
     const resolveActorName = async (userDoc = {}) => {
-      const fallbackName = String(
-        userDoc?.name || userDoc?.displayName || "",
-      ).trim();
+      // Prioritize actual name fields in order of preference
+      const nameFields = [
+        userDoc?.name,
+        userDoc?.fullName,
+        userDoc?.displayName,
+        userDoc?.userName,
+        userDoc?.username,
+      ];
+      
+      for (const field of nameFields) {
+        if (field && String(field).trim()) {
+          return String(field).trim();
+        }
+      }
+      
+      // If no name fields found, use user ID (not email)
       const userId = String(userDoc?._id || "").trim();
-      const email = String(userDoc?.email || "").trim();
-      const phone = String(userDoc?.phone || "").trim();
-      return fallbackName || email || phone || userId;
+      if (userId) {
+        return `User ${userId.substring(0, 8)}`;
+      }
+      
+      // Fallback to "User" if nothing else available
+      return "User";
     };
 
     const queryAction = event.queryStringParameters?.action;

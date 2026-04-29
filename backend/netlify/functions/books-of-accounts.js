@@ -206,8 +206,12 @@ export async function handler(event) {
 
         if (yearStartDate || yearEndDate || periodStartDate || periodEndDate) {
           query[dateField] = query[dateField] || {};
-          if (yearStartDate) query[dateField].$gte = yearStartDate;
+          // For accounting correctness, when a financial year is selected,
+          // we include all transactions up to the end date (cumulative)
+          // Opening balances from previous years are handled separately
           if (yearEndDate) query[dateField].$lte = yearEndDate;
+          // Note: We don't apply yearStartDate as lower bound for cumulative filtering
+          // Only apply period-based bounds for period filters
           if (periodStartDate) query[dateField].$gte = periodStartDate;
           if (periodEndDate) query[dateField].$lte = periodEndDate;
         }

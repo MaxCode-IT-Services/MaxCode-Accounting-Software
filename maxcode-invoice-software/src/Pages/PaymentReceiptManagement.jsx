@@ -1035,7 +1035,7 @@ const PaymentReceiptManagement = () => {
           title="Delete Receipt"
           message={`Are you sure you want to delete receipt "${recordToDelete?.receiptNumber}"? This action cannot be undone.`}
           confirmText="Delete"
-          confirmVariant="danger"
+          variant="danger"
           onConfirm={handleDelete}
           onCancel={() => {
             setShowDeleteConfirm(false);

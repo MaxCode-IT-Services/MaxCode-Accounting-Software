@@ -888,7 +888,7 @@ export async function handler(event) {
         suppliedReceiptNumber ||
         (await getNextReceiptNumber(col, receiptNumberPrefix));
 
-      let auditFields = getAuditFieldsFromEvent(event, user);
+      let auditFields = getAuditFieldsFromEvent(event, "create");
       const now = new Date();
 
       // Normalize payment methods
@@ -1226,7 +1226,7 @@ export async function handler(event) {
         return createResponse(404, { error: "Receipt not found" }, origin);
       }
 
-      const auditFields = getAuditFieldsFromEvent(event, user);
+      const auditFields = getAuditFieldsFromEvent(event, "update");
       const numAmount =
         body.amount !== undefined ? Number(body.amount) : existing.amount;
 
@@ -1405,7 +1405,7 @@ export async function handler(event) {
         );
       }
 
-      const auditFields = getAuditFieldsFromEvent(event, user);
+      const auditFields = getAuditFieldsFromEvent(event, "delete");
       await col.updateOne(
         { _id: new ObjectId(id) },
         {

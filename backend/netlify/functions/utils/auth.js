@@ -228,6 +228,12 @@ export function getAuditFieldsFromEvent(event, mode = "create") {
       };
     }
 
+    if (mode === "delete") {
+      return {
+        deletedBy: actor.name || actor.id,
+      };
+    }
+
     return {
       createdBy: actor.name || actor.id,
     };
