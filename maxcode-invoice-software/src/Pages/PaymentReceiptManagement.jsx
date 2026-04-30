@@ -570,6 +570,24 @@ const PaymentReceiptManagement = () => {
       resizable: true,
     },
     {
+      key: "createdByName",
+      label: "Created By",
+      sortable: true,
+      filterable: true,
+      filterType: "search",
+      width: 160,
+      resizable: true,
+    },
+    {
+      key: "createdDateTime",
+      label: "Created Date & Time",
+      sortable: true,
+      filterable: true,
+      filterType: "dateRange",
+      width: 200,
+      resizable: true,
+    },
+    {
       key: "action",
       label: "Actions",
       sortable: false,
@@ -620,7 +638,6 @@ const PaymentReceiptManagement = () => {
       return dateString;
     }
   };
-
   // Helper: format date & time as DD-MM-YYYY | hh:mm:ss AM/PM
   const formatDateTime = (dateString) => {
     if (!dateString) return "-";
