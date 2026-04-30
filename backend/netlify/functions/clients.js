@@ -544,6 +544,7 @@ export async function handler(event) {
           $set: {
             ...clientData,
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );

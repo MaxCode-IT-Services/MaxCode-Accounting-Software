@@ -561,6 +561,7 @@ export async function handler(event) {
       const updateData = {
         ...payload,
         updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "update"),
       };
 
       if (payload.showNotification !== undefined) {
@@ -625,7 +626,11 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         },
         {
-          $set: updateData,
+          $set: {
+            ...updateData,
+            updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
+          },
         },
       );
 
@@ -663,6 +668,7 @@ export async function handler(event) {
             isDeleted: true,
             deletedAt: new Date(),
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "delete"),
           },
         },
       );

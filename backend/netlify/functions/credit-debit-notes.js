@@ -901,6 +901,7 @@ export async function handler(event) {
             paymentMethod: String(noteData.paymentMethod || "").trim(),
             appliedAdvances: normalizedAppliedAdvances,
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );

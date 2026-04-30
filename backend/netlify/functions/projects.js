@@ -1710,6 +1710,7 @@ export async function handler(event) {
           $set: {
             ...projectData,
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );

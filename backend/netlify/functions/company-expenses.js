@@ -1020,6 +1020,7 @@ export async function handler(event) {
             invoiceType: "No GST",
             items: expenseData.items || [],
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );

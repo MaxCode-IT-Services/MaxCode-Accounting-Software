@@ -969,6 +969,7 @@ export async function handler(event) {
           $set: {
             ...purchaseData,
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );

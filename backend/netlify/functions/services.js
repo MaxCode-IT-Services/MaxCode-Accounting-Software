@@ -713,6 +713,7 @@ export async function handler(event) {
           $set: {
             ...serviceData,
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );

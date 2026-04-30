@@ -1187,6 +1187,7 @@ export async function handler(event) {
           $set: {
             ...invoiceData,
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );

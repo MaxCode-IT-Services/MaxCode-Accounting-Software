@@ -385,7 +385,7 @@ export async function handler(event) {
 
       const result = await fundsCollection.updateOne(
         { _id: new ObjectId(id), isDeleted: { $ne: true } },
-        { $set: { ...updateData, updatedAt: new Date() } },
+        { $set: { ...updateData, updatedAt: new Date(), ...getAuditFieldsFromEvent(event, "update") } },
       );
       return createResponse(
         200,

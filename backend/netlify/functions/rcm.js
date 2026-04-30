@@ -1010,6 +1010,7 @@ export async function handler(event) {
             ...rcmData,
             placeOfSupply: rcmData.placeOfSupply || "Rajasthan (08)",
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );

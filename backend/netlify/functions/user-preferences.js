@@ -1,5 +1,5 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
-import { verifyRequestToken } from "./utils/auth.js";
+import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { ObjectId } from "mongodb";
 
 /**
@@ -277,6 +277,7 @@ export async function handler(event) {
               ...existingPreferences,
               ...updateFields,
               updatedAt: new Date(),
+              ...getAuditFieldsFromEvent(event, "update"),
             },
             $setOnInsert: {
               createdAt: new Date(),
@@ -368,6 +369,7 @@ export async function handler(event) {
             $set: {
               ...userUpdateFields,
               updatedAt: new Date(),
+              ...getAuditFieldsFromEvent(event, "update"),
             },
           },
         );

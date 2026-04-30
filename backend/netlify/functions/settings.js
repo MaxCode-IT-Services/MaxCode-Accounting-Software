@@ -5,6 +5,7 @@ import {
   comparePassword,
   hashPassword,
   sanitizeUser,
+  getAuditFieldsFromEvent,
 } from "./utils/auth.js";
 
 const PROFILE_FIELDS = [
@@ -123,6 +124,7 @@ export async function handler(event) {
             $set: {
               pin: hashedPin,
               updatedAt: new Date(),
+              ...getAuditFieldsFromEvent(event, "update"),
             },
           },
         );
@@ -219,6 +221,8 @@ export async function handler(event) {
       }
 
       updates.updatedAt = new Date();
+      const auditFields = getAuditFieldsFromEvent(event, "update");
+      Object.assign(updates, auditFields);
 
       await usersCollection.updateOne(
         { _id: currentUser._id },

@@ -631,6 +631,7 @@ export async function handler(event) {
           $set: {
             ...staffData,
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );

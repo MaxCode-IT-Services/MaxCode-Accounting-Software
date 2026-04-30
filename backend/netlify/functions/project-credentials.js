@@ -992,6 +992,7 @@ export async function handler(event) {
           $set: {
             ...securedPayload,
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
           $unset: {
             serverUsername: "",

@@ -932,6 +932,7 @@ export async function handler(event) {
             ...qutationData,
             qutationTotalAmount: Number(qutationData.qutationTotalAmount || 0),
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "update"),
           },
         },
       );
@@ -995,6 +996,7 @@ export async function handler(event) {
             isDeleted: true,
             deletedAt: new Date(),
             updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "delete"),
           },
         },
       );
