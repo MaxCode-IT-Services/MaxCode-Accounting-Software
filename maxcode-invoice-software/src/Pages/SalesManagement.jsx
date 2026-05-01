@@ -1195,21 +1195,28 @@ const SalesManagement = () => {
     }
   };
 
-  // Handle view
+  // Handle view - FIXED: Use a temporary copy to prevent amount from changing
   const handleView = async (record) => {
     try {
       const invoiceId = record._id || record.id;
       if (!invoiceId) {
-        setEditingRecord({ ...record, isViewMode: true });
+        const stableRecord = JSON.parse(JSON.stringify(record));
+        setEditingRecord({ ...stableRecord, isViewMode: true });
       } else {
-        const response = await apiGet(API_ENDPOINTS.INVOICES.GET(invoiceId));
-        setEditingRecord({ ...(response?.data || record), isViewMode: true });
+        // YAHAN skipRecalculation=true ADD KARO
+        const response = await apiGet(API_ENDPOINTS.INVOICES.GET(invoiceId), {
+          params: { skipRecalculation: "true" },
+        });
+        const fetchedData = response?.data || record;
+        const stableData = JSON.parse(JSON.stringify(fetchedData));
+        setEditingRecord({ ...stableData, isViewMode: true });
       }
       setShowCreateSalesForm(true);
       showInfo(`Viewing sales: ${record.invoiceNumber}`);
     } catch (error) {
       console.error("Failed to fetch invoice details for view:", error);
-      setEditingRecord({ ...record, isViewMode: true });
+      const stableRecord = JSON.parse(JSON.stringify(record));
+      setEditingRecord({ ...stableRecord, isViewMode: true });
       setShowCreateSalesForm(true);
       showInfo(`Viewing sales: ${record.invoiceNumber}`);
     }

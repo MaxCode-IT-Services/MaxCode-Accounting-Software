@@ -666,39 +666,75 @@ const PaymentReceiptManagement = () => {
     const amount = Number(record.amount || 0);
     const receiptNumber = record.receiptNumber || "0001";
     const formattedDate = formatDateDDMMYYYY(record.receiptDate);
-    // Use createdAt for signature date & time
     const signatureDateTime = formatDateTime(record.createdAt);
-    // Build reference invoice numbers from allocations (if available), or fall back to invoiceNumbers array, or single invoiceNumber
-    let referenceInvoiceNumber = "-";
+
+    // Multiple sources se invoice numbers collect karna
+    const invoiceNumbersList = [];
+
+    // Source 1: invoiceAllocations array se
     if (
       Array.isArray(record.invoiceAllocations) &&
       record.invoiceAllocations.length > 0
     ) {
-      const allocatedNumbers = record.invoiceAllocations
-        .map((alloc) => alloc.invoiceNumber)
-        .filter(Boolean);
-      if (allocatedNumbers.length > 0) {
-        referenceInvoiceNumber = allocatedNumbers.join(", ");
-      }
-    } else if (
+      record.invoiceAllocations.forEach((alloc) => {
+        const invNum =
+          alloc.invoiceNumber ||
+          alloc.invoice_no ||
+          alloc.invoiceNo ||
+          alloc.referenceNumber;
+        if (invNum && !invoiceNumbersList.includes(invNum)) {
+          invoiceNumbersList.push(invNum);
+        }
+      });
+    }
+
+    // Source 2: invoiceNumbers array se
+    if (
       Array.isArray(record.invoiceNumbers) &&
       record.invoiceNumbers.length > 0
     ) {
-      const validNumbers = record.invoiceNumbers.filter(Boolean);
-      if (validNumbers.length > 0) {
-        referenceInvoiceNumber = validNumbers.join(", ");
-      }
-    } else if (record.invoiceNumber) {
-      referenceInvoiceNumber = record.invoiceNumber;
-    } else if (record.appliedInvoiceNumber) {
-      referenceInvoiceNumber = record.appliedInvoiceNumber;
+      record.invoiceNumbers.forEach((invId) => {
+        const isId =
+          invId && (invId.match(/^[0-9a-fA-F]{24}$/) || invId.length > 15);
+        if (!isId && invId && !invoiceNumbersList.includes(invId)) {
+          invoiceNumbersList.push(invId);
+        }
+      });
     }
+
+    // Source 3: single invoiceNumber field
     if (
-      record.paymentType === "advance" &&
-      (!referenceInvoiceNumber || referenceInvoiceNumber === "-")
+      record.invoiceNumber &&
+      !invoiceNumbersList.includes(record.invoiceNumber)
     ) {
+      const isId = record.invoiceNumber.match(/^[0-9a-fA-F]{24}$/);
+      if (!isId) {
+        invoiceNumbersList.push(record.invoiceNumber);
+      }
+    }
+
+    // Source 4: appliedInvoiceNumber field
+    if (
+      record.appliedInvoiceNumber &&
+      !invoiceNumbersList.includes(record.appliedInvoiceNumber)
+    ) {
+      const isId = record.appliedInvoiceNumber.match(/^[0-9a-fA-F]{24}$/);
+      if (!isId) {
+        invoiceNumbersList.push(record.appliedInvoiceNumber);
+      }
+    }
+
+    // Build reference invoice number string
+    let referenceInvoiceNumber = "-";
+    if (invoiceNumbersList.length > 0) {
+      referenceInvoiceNumber = invoiceNumbersList.join(", ");
+    }
+
+    // Agar advance payment hai aur koi invoice nahi mila toh
+    if (record.paymentType === "advance" && invoiceNumbersList.length === 0) {
       referenceInvoiceNumber = "Advance Payment (Invoice Pending)";
     }
+
     return {
       companyName: businessSettings.companyName || "MaxCode IT Services",
       companyAddress: businessSettings.companyAddress || "Jaipur, Rajasthan",
@@ -725,12 +761,14 @@ const PaymentReceiptManagement = () => {
         (record.paymentType === "advance"
           ? "Advance Payment"
           : "Sales Invoice"),
-      amount,
+      amount: amount,
       amountInWords: numToWords(amount),
-      referenceInvoiceNumber,
+      invoiceNumbers: invoiceNumbersList,
+      invoiceAllocations: record.invoiceAllocations,
+      referenceInvoiceNumber: referenceInvoiceNumber,
       note: record.note || "",
       receivedBy: businessSettings.companyName || "MaxCode IT Services",
-      signatureDateTime,
+      signatureDateTime: signatureDateTime,
     };
   };
 

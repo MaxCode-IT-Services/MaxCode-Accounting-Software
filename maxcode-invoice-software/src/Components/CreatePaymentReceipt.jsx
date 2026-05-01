@@ -612,6 +612,7 @@ const CreatePaymentReceipt = ({
     }));
   };
 
+  // FIXED: Completely rewritten invoice selection handler for better multi-select performance
   const handleInvoiceSelectionChange = (selectedOptions) => {
     const normalizedSelection = Array.isArray(selectedOptions)
       ? selectedOptions
@@ -633,7 +634,7 @@ const CreatePaymentReceipt = ({
       0,
     );
 
-    // Prepare note string: '₹1000 paid against Invoice MC/26-27/0001, ₹500 paid against Invoice MC/26-27/0002'
+    // Prepare note string
     let note = "";
     if (sortedSelection.length > 0) {
       note = sortedSelection
@@ -646,8 +647,8 @@ const CreatePaymentReceipt = ({
 
     setFormData((prev) => ({
       ...prev,
-      invoiceIds,
-      invoiceNumbers,
+      invoiceIds: invoiceIds,
+      invoiceNumbers: invoiceNumbers,
       invoiceId: invoiceIds[0] || "",
       invoiceNumber: invoiceNumbers[0] || "",
       amount: dueTotal > 0 ? String(dueTotal) : prev.amount,
@@ -674,7 +675,7 @@ const CreatePaymentReceipt = ({
       return;
     }
 
-    // Prepare note string: '₹1000 paid against Debit Note DN/26-27/0001'
+    // Prepare note string
     let note = "";
     if (selectedOption.noteNumber) {
       note = `₹${toNumber(selectedOption.dueAmount || 0).toLocaleString("en-IN")} paid against Debit Note ${selectedOption.noteNumber}`;
@@ -862,6 +863,27 @@ const CreatePaymentReceipt = ({
       ...selectStyles.valueContainer(base, state),
       overflowX: "hidden",
     }),
+    // FIXED: Improved menu and option styles for better multi-select interaction
+    menu: (base) => ({
+      ...base,
+      zIndex: 9999,
+      maxHeight: "300px",
+      overflowY: "auto",
+    }),
+    option: (base, state) => ({
+      ...base,
+      cursor: "pointer",
+      padding: "8px 12px",
+      backgroundColor: state.isSelected
+        ? "#d4edda"
+        : state.isFocused
+          ? "#f0f8ff"
+          : "white",
+      color: "#333",
+      "&:active": {
+        backgroundColor: "#c8e6d9",
+      },
+    }),
   };
 
   const clientSelectComponents = {
@@ -873,6 +895,88 @@ const CreatePaymentReceipt = ({
   const invoiceSelectComponents = {
     IndicatorSeparator: null,
     ClearIndicator: null,
+    // FIXED: Add custom Option component for better click handling
+    Option: (props) => {
+      const { innerRef, innerProps, isSelected, data, isFocused } = props;
+      return (
+        <div
+          ref={innerRef}
+          {...innerProps}
+          style={{
+            padding: "10px 12px",
+            cursor: "pointer",
+            backgroundColor: isSelected
+              ? "#d4edda"
+              : isFocused
+                ? "#f0f8ff"
+                : "white",
+            borderBottom: "1px solid #f0f0f0",
+            transition: "all 0.2s ease",
+          }}
+          className="invoice-option"
+        >
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={isSelected}
+              readOnly
+              style={{
+                marginRight: "10px",
+                cursor: "pointer",
+                width: "16px",
+                height: "16px",
+              }}
+            />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 500, fontSize: "14px" }}>
+                {data.label}
+              </div>
+              {data.dueAmount > 0 && data.totalAmount > 0 && (
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: "#666",
+                    marginTop: "2px",
+                  }}
+                >
+                  Due: ₹{data.dueAmount.toLocaleString("en-IN")}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    },
+    MultiValue: (props) => {
+      const { data, removeProps, children } = props;
+      return (
+        <div
+          style={{
+            backgroundColor: "#e9ecef",
+            borderRadius: "4px",
+            display: "inline-flex",
+            alignItems: "center",
+            margin: "2px",
+            padding: "2px 6px",
+            fontSize: "12px",
+          }}
+        >
+          <span>{children}</span>
+          <span
+            {...removeProps}
+            style={{
+              marginLeft: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: "bold",
+              color: "#666",
+            }}
+          >
+            ×
+          </span>
+        </div>
+      );
+    },
   };
 
   const selectedClientOption =
@@ -1220,6 +1324,7 @@ const CreatePaymentReceipt = ({
                             onChange={handleInvoiceSelectionChange}
                             isMulti={true}
                             closeMenuOnSelect={false}
+                            hideSelectedOptions={false}
                             isLoading={isInvoiceLoading}
                             isClearable={false}
                             placeholder={
@@ -1228,7 +1333,15 @@ const CreatePaymentReceipt = ({
                                 : "Select a client first"
                             }
                             isDisabled={!formData.clientRefId || readOnly}
-                            styles={calmSelectStyles}
+                            styles={{
+                              ...calmSelectStyles,
+                              menu: (base) => ({
+                                ...base,
+                                zIndex: 9999,
+                                maxHeight: "300px",
+                                overflowY: "auto",
+                              }),
+                            }}
                             components={invoiceSelectComponents}
                             noOptionsMessage={() =>
                               isInvoiceLoading
@@ -1491,6 +1604,10 @@ const CreatePaymentReceipt = ({
           height: 15px;
           margin-right: 8px;
           border-radius: 2px;
+        }
+        
+        .invoice-option:hover {
+          background-color: #f0f8ff !important;
         }
       `}</style>
       </div>

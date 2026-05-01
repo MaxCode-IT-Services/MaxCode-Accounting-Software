@@ -156,7 +156,27 @@ export async function handler(event) {
       fallbackPaymentDate,
       fallbackPaymentMethod,
       manualAmountReceived = 0,
+      skipRecalculation = false, // <-- NEW PARAMETER
     }) => {
+      // Agar skipRecalculation true hai to matlab view mode hai, isliye manualAmountReceived use karo as is
+      if (skipRecalculation && manualAmountReceived > 0) {
+        const amountReceived = toNumber(manualAmountReceived);
+        const paymentStatus = derivePaymentStatus(totalAmount, amountReceived);
+        const dueAmount = Math.max(0, toNumber(totalAmount) - amountReceived);
+
+        return {
+          amountReceived: amountReceived > 0 ? String(amountReceived) : "",
+          paymentStatus,
+          paymentDate: fallbackPaymentDate || "",
+          paymentMethod: fallbackPaymentMethod || "",
+          dueAmount: dueAmount.toFixed(2),
+          advanceAdjustedTotal: (appliedAdvances || []).reduce(
+            (sum, advance) => sum + toNumber(advance.appliedAmount),
+            0,
+          ),
+        };
+      }
+
       const resolvedInvoiceId = String(invoiceId || "");
       const resolvedInvoiceNumber = String(invoiceNumber || "");
       const paymentReceiptsCol = db.collection("payment_receipts");
@@ -206,7 +226,7 @@ export async function handler(event) {
         0,
       );
 
-      // IMPORTANT: Include both payment receipts AND manually entered payment amounts from CreateSales
+      // Include both payment receipts AND manually entered payment amounts from CreateSales
       const manualPaymentAmount = toNumber(manualAmountReceived);
       const amountReceived =
         regularReceivedAmount + advanceAdjustedTotal + manualPaymentAmount;
@@ -254,8 +274,9 @@ export async function handler(event) {
         paymentDateFormatted_end,
         sortBy = "createdAt",
         sortOrder = "desc",
-        filter, // For card filters
+        filter,
         includeDebug = "false",
+        skipRecalculation = "false", // <-- NEW QUERY PARAMETER
       } = event.queryStringParameters || {};
 
       if (action === "next-number") {
@@ -373,6 +394,9 @@ export async function handler(event) {
           }),
         );
 
+        // Check if this is a view mode request (skip recalculation)
+        const shouldSkipRecalculation = skipRecalculation === "true";
+
         const paymentSnapshot = await computeInvoicePaymentSnapshot({
           invoiceId: String(invoice._id),
           invoiceNumber: invoice.invoiceNumber,
@@ -381,6 +405,7 @@ export async function handler(event) {
           fallbackPaymentDate: invoice.paymentDate,
           fallbackPaymentMethod: invoice.paymentMethod,
           manualAmountReceived: invoice.amountReceived,
+          skipRecalculation: shouldSkipRecalculation, // <-- PASS THE PARAMETER
         });
 
         const binding = await getInvoiceTermsBinding();
@@ -404,12 +429,16 @@ export async function handler(event) {
           Number(hydratedInvoice.advanceAdjustedTotal || 0) !==
             Number(paymentSnapshot.advanceAdjustedTotal || 0);
 
+        // IMPORTANT: Agar skipRecalculation true hai to database UPDATE MAT KARO
+        const hasUpdate =
+          Object.keys(updatePayload).length > 0 && !shouldSkipRecalculation;
+
         const updatePayload = {
           ...(patch || {}),
           ...(needsAdvanceMetaPatch
             ? { appliedAdvances: hydratedAppliedAdvances }
             : {}),
-          ...(needsPaymentPatch
+          ...(needsPaymentPatch && !shouldSkipRecalculation // <-- ONLY UPDATE IF NOT SKIP
             ? {
                 amountReceived: paymentSnapshot.amountReceived,
                 paymentStatus: paymentSnapshot.paymentStatus,
@@ -420,8 +449,6 @@ export async function handler(event) {
               }
             : {}),
         };
-
-        const hasUpdate = Object.keys(updatePayload).length > 0;
 
         if (hasUpdate) {
           await invoicesCollection.updateOne(
@@ -455,7 +482,7 @@ export async function handler(event) {
         return createResponse(200, responseInvoice, origin);
       }
 
-      // Build filter query
+      // Build filter query (rest of the code remains same)
       const filterQuery = { isDeleted: { $ne: true } };
       const params = event.queryStringParameters || {};
 
@@ -512,7 +539,6 @@ export async function handler(event) {
         }
 
         if (startDate && endDate) {
-          // If invoiceDate is string in DB, use YYYY-MM-DD string for range
           const pad = (n) => String(n).padStart(2, "0");
           const startStr = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`;
           const endStr = `${endDate.getFullYear()}-${pad(endDate.getMonth() + 1)}-${pad(endDate.getDate())}`;
@@ -536,13 +562,13 @@ export async function handler(event) {
             "search",
             "id",
             "includeDebug",
+            "skipRecalculation",
           ].includes(key)
         )
           return;
 
         if (key.endsWith("_start") || key.endsWith("_end")) return;
 
-        // Handle filter keys
         if (key === "paymentStatus") {
           filterQuery.paymentStatus = value;
           return;
@@ -553,19 +579,16 @@ export async function handler(event) {
           return;
         }
 
-        // If value is comma-separated, treat as array
         if (typeof value === "string" && value.includes(",")) {
           filterQuery[key] = {
             $in: value.split(",").map((v) => v.trim()),
           };
         } else if (typeof value === "string") {
-          // Exact match for dropdown columns
           if (
             ["paymentStatus", "paymentMethod", "placeOfSupply"].includes(key)
           ) {
             filterQuery[key] = value.trim();
           } else {
-            // Text search fields
             filterQuery[key] = {
               $regex: value.trim(),
               $options: "i",
@@ -592,7 +615,6 @@ export async function handler(event) {
 
           const dateParts = value.split("-");
           if (dateParts.length === 3) {
-            // For paymentDate and invoiceDate (string fields), use string comparison (YYYY-MM-DD)
             if (baseKey === "paymentDate" || baseKey === "invoiceDate") {
               const year = dateParts[0];
               const month = dateParts[1].padStart(2, "0");
@@ -866,7 +888,7 @@ export async function handler(event) {
       );
     }
 
-    // POST - Create new invoice
+    // POST - Create new invoice (rest remains same)
     if (event.httpMethod === "POST") {
       const invoiceData = normalizePaymentMethodsInRecord(
         JSON.parse(event.body || "{}"),
@@ -1015,7 +1037,7 @@ export async function handler(event) {
       );
     }
 
-    // PUT - Update existing invoice
+    // PUT - Update existing invoice (rest remains same)
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
@@ -1150,8 +1172,6 @@ export async function handler(event) {
         invoiceNumber: resolvedInvoiceNumber,
         totalAmount: totalAmountForSnapshot,
         appliedAdvances: effectiveAppliedAdvances,
-        // If the incoming payload explicitly contains the field (even empty), use it.
-        // Otherwise, fall back to the existing invoice value.
         fallbackPaymentDate: Object.prototype.hasOwnProperty.call(
           invoiceData,
           "paymentDate",
