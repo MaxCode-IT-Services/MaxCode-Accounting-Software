@@ -305,7 +305,11 @@ const insertDocumentsInBatches = async ({
     return;
   }
 
-  for (let start = 0; start < documents.length; start += RESTORE_INSERT_BATCH_SIZE) {
+  for (
+    let start = 0;
+    start < documents.length;
+    start += RESTORE_INSERT_BATCH_SIZE
+  ) {
     const chunk = documents.slice(start, start + RESTORE_INSERT_BATCH_SIZE);
     await collection.insertMany(chunk, {
       ordered: false,

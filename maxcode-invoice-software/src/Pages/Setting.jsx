@@ -2208,12 +2208,16 @@ const Settings = () => {
         setBackupProgress("Step 5: Sending data to server for restore...");
 
         // Send to backend
-        await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
-          action: "restore",
-          backupData: `base64:${base64Data}`,
-        }, {
-          timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
-        });
+        await apiPost(
+          API_ENDPOINTS.BACKUP.RESTORE,
+          {
+            action: "restore",
+            backupData: `base64:${base64Data}`,
+          },
+          {
+            timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
+          },
+        );
 
         setBackupProgress("Step 6: Finalizing restore...");
         showSuccess("Backup restored successfully!");
@@ -2319,12 +2323,16 @@ const Settings = () => {
       setIsDriveSaving(true);
       showInfo("Testing Google Drive connection...");
 
-      const response = await apiPost(API_ENDPOINTS.BACKUP.TEST_DRIVE, {
-        action: "test-drive-config",
-        driveConfig,
-      }, {
-        timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
-      });
+      const response = await apiPost(
+        API_ENDPOINTS.BACKUP.TEST_DRIVE,
+        {
+          action: "test-drive-config",
+          driveConfig,
+        },
+        {
+          timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
+        },
+      );
 
       if (response?.data?.user?.emailAddress) {
         showSuccess(
@@ -2351,11 +2359,15 @@ const Settings = () => {
       setIsDriveSaving(true);
       showInfo("⏳ Creating backup and uploading to Google Drive...");
 
-      const response = await apiPost(API_ENDPOINTS.BACKUP.RUN_NOW, {
-        action: "run-now",
-      }, {
-        timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
-      });
+      const response = await apiPost(
+        API_ENDPOINTS.BACKUP.RUN_NOW,
+        {
+          action: "run-now",
+        },
+        {
+          timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
+        },
+      );
 
       const stats = response?.data?.stats;
       const drive = response?.data?.drive;
