@@ -136,9 +136,7 @@ const PurchaseManagement = () => {
       unpaid: toSafeNumber(payload.unpaid ?? payload.unpaidAmount ?? 0),
       partial: Math.max(
         0,
-        Math.round(
-          toSafeNumber(payload.partial ?? payload.partialCount ?? 0),
-        ),
+        Math.round(toSafeNumber(payload.partial ?? payload.partialCount ?? 0)),
       ),
       totalAmount: toSafeNumber(payload.totalAmount ?? payload.amount ?? 0),
     };
