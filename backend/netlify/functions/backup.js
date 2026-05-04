@@ -34,6 +34,8 @@ const DEFAULT_BACKUP_COLLECTIONS = [
   "backup_runs",
 ];
 
+const RESTORE_INSERT_BATCH_SIZE = 500;
+
 const GLOBAL_SETTINGS_SCOPE = "global";
 
 const getSharedBusinessSettings = async (db, fallbackUserId) => {
@@ -234,8 +236,21 @@ const validateJwtAccess = (event) => {
   return decoded;
 };
 
-const buildBackupPayload = async (db) => {
-  const collectionNames = await getDynamicCollectionNames(db);
+const buildBackupPayload = async (db, options = {}) => {
+  const requestedCollections = Array.isArray(options.collectionNames)
+    ? options.collectionNames
+    : null;
+
+  const collectionNames = requestedCollections
+    ? requestedCollections
+        .filter(
+          (name) =>
+            typeof name === "string" &&
+            name.length > 0 &&
+            !name.startsWith("system."),
+        )
+        .filter((name, index, arr) => arr.indexOf(name) === index)
+    : await getDynamicCollectionNames(db);
   const failedCollections = [];
   const collectionStats = {};
 
@@ -279,6 +294,24 @@ const buildBackupPayload = async (db) => {
   }
 
   return backupData;
+};
+
+const insertDocumentsInBatches = async ({
+  collection,
+  documents,
+  writeOptions,
+}) => {
+  if (!Array.isArray(documents) || documents.length === 0) {
+    return;
+  }
+
+  for (let start = 0; start < documents.length; start += RESTORE_INSERT_BATCH_SIZE) {
+    const chunk = documents.slice(start, start + RESTORE_INSERT_BATCH_SIZE);
+    await collection.insertMany(chunk, {
+      ordered: false,
+      ...writeOptions,
+    });
+  }
 };
 
 const getBackupStats = (backupData) => {
@@ -388,12 +421,7 @@ const replaceCollectionsData = async ({
     const writeOptions = session ? { session } : {};
 
     await collection.deleteMany({}, writeOptions);
-    if (documents.length > 0) {
-      await collection.insertMany(documents, {
-        ordered: false,
-        ...writeOptions,
-      });
-    }
+    await insertDocumentsInBatches({ collection, documents, writeOptions });
   }
 };
 
@@ -426,8 +454,18 @@ const replaceCollectionsDataWithRollback = async ({
 };
 
 const restoreBackupData = async (client, db, backupData, userId) => {
+  const normalizedCollections = normalizeBackupCollections(
+    backupData?.collections || {},
+  );
+
+  const snapshotCollectionNames = Object.keys(normalizedCollections).filter(
+    (name) => name !== UNDO_BACKUP_COLLECTION,
+  );
+
   // 1. Take a snapshot of current data for undo (before restore)
-  const currentData = await buildBackupPayload(db);
+  const currentData = await buildBackupPayload(db, {
+    collectionNames: snapshotCollectionNames,
+  });
   const undoBackup = {
     createdAt: new Date(),
     userId: userId || null,
@@ -440,11 +478,6 @@ const restoreBackupData = async (client, db, backupData, userId) => {
     ...undoBackup,
     _id: new (await import("mongodb")).ObjectId(),
   });
-
-  // 2. Restore the new backup
-  const normalizedCollections = normalizeBackupCollections(
-    backupData?.collections || {},
-  );
 
   let usedTransaction = false;
 

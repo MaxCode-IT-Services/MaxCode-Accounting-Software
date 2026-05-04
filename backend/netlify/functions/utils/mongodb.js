@@ -98,7 +98,7 @@ export async function connectToDatabase() {
         ),
         socketTimeoutMS: readPositiveIntegerEnv(
           "MONGODB_SOCKET_TIMEOUT_MS",
-          45000,
+          300000,
         ),
       });
 

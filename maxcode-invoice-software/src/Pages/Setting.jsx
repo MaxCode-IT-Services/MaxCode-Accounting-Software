@@ -2027,6 +2027,8 @@ const Settings = () => {
     }
   };
 
+  const BACKUP_LONG_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
+
   // Export Backup Handler
   // Export Backup Handler - BSON Format
   // Update the Export Backup Handler in your Settings component
@@ -2051,6 +2053,7 @@ const Settings = () => {
 
       const response = await apiGet(API_ENDPOINTS.BACKUP.EXPORT, {
         headers: headers,
+        timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
         // Don't specify responseType for JSON, let axios handle it
         responseType: selectedFormat === "bson" ? "arraybuffer" : "json",
       });
@@ -2150,28 +2153,24 @@ const Settings = () => {
 
     try {
       if (isJson) {
-        // Read JSON file
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          try {
-            const jsonText = e.target.result;
-            const backupData = JSON.parse(jsonText);
-            await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
-              action: "restore",
-              backupData,
-            });
-            showSuccess("Backup imported successfully from JSON file!");
-          } catch (err) {
-            showError("Failed to parse JSON backup file.");
-          } finally {
-            setIsImporting(false);
-            setBackupProgress("");
-            if (backupFileInputRef.current) {
-              backupFileInputRef.current.value = "";
-            }
-          }
-        };
-        reader.readAsText(file);
+        setBackupProgress("Step 1: Reading JSON backup file...");
+        const jsonText = await file.text();
+        const backupData = JSON.parse(jsonText);
+
+        setBackupProgress("Step 2: Restoring data on server...");
+        await apiPost(
+          API_ENDPOINTS.BACKUP.RESTORE,
+          {
+            action: "restore",
+            backupData,
+          },
+          {
+            timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
+          },
+        );
+
+        showSuccess("Backup imported successfully from JSON file!");
+        setBackupProgress("");
         return;
       } else if (isBson) {
         setBackupProgress("Step 1: Reading backup file...");
@@ -2212,6 +2211,8 @@ const Settings = () => {
         await apiPost(API_ENDPOINTS.BACKUP.RESTORE, {
           action: "restore",
           backupData: `base64:${base64Data}`,
+        }, {
+          timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
         });
 
         setBackupProgress("Step 6: Finalizing restore...");
@@ -2224,6 +2225,17 @@ const Settings = () => {
         error?.response?.data?.error ||
         error?.message ||
         "Failed to import backup";
+
+      const isNetworkError =
+        !error?.response &&
+        (error?.message === "Network Error" ||
+          String(error?.code || "").toUpperCase() === "ERR_NETWORK");
+
+      if (isNetworkError) {
+        errMsg =
+          "Restore request server tak nahi pahunchi (Network Error). Please ensure backend Netlify functions are running and /api/backup is reachable, then retry.";
+      }
+
       if (errMsg.includes("timeout") || errMsg.includes("server")) {
         errMsg += "\nRestore may have timed out. Try again or contact support.";
       }
@@ -2310,6 +2322,8 @@ const Settings = () => {
       const response = await apiPost(API_ENDPOINTS.BACKUP.TEST_DRIVE, {
         action: "test-drive-config",
         driveConfig,
+      }, {
+        timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
       });
 
       if (response?.data?.user?.emailAddress) {
@@ -2339,6 +2353,8 @@ const Settings = () => {
 
       const response = await apiPost(API_ENDPOINTS.BACKUP.RUN_NOW, {
         action: "run-now",
+      }, {
+        timeout: BACKUP_LONG_REQUEST_TIMEOUT_MS,
       });
 
       const stats = response?.data?.stats;
