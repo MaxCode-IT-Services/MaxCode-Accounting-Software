@@ -100,6 +100,50 @@ const PurchaseManagement = () => {
     totalAmount: 0,
   });
 
+  const toSafeNumber = (value) => {
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    if (typeof value === "string") {
+      const sanitized = value.replace(/[^0-9.-]/g, "").trim();
+      if (!sanitized) return 0;
+      const parsed = Number(sanitized);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const normalizeStatisticsPayload = (payload = {}) => {
+    if (!payload || typeof payload !== "object") {
+      return {
+        total: 0,
+        paid: 0,
+        unpaid: 0,
+        partial: 0,
+        totalAmount: 0,
+      };
+    }
+
+    return {
+      total: Math.max(
+        0,
+        Math.round(toSafeNumber(payload.total ?? payload.totalRecords ?? 0)),
+      ),
+      paid: toSafeNumber(payload.paid ?? payload.paidAmount ?? 0),
+      unpaid: toSafeNumber(payload.unpaid ?? payload.unpaidAmount ?? 0),
+      partial: Math.max(
+        0,
+        Math.round(
+          toSafeNumber(payload.partial ?? payload.partialCount ?? 0),
+        ),
+      ),
+      totalAmount: toSafeNumber(payload.totalAmount ?? payload.amount ?? 0),
+    };
+  };
+
   // Columns with date range filter
   const columnsWithDateFilter = [
     "createdDateTime",
@@ -292,7 +336,7 @@ const PurchaseManagement = () => {
 
         // Update statistics from response if available
         if (response.data?.statistics) {
-          setStatistics(response.data.statistics);
+          setStatistics(normalizeStatisticsPayload(response.data.statistics));
         }
         if (response.data?.filterOptions) {
           const backendPaymentMethods = Array.isArray(
@@ -341,7 +385,7 @@ const PurchaseManagement = () => {
             ? formatDateForDisplay(purchase.paymentDate)
             : "-",
           createdDateTime: formatDateTimeForDisplay(createdDate),
-          totalAmount: purchase.taxData?.totalAmount || 0,
+          totalAmount: toSafeNumber(purchase.taxData?.totalAmount || 0),
           roundingAmount: purchase.roundingAmount || 0,
           itemCount: purchase.items?.length || 0,
           vendorName: getVendorName(purchase),
@@ -385,7 +429,7 @@ const PurchaseManagement = () => {
   // Update statistics (client-side)
   const updateStatistics = (data) => {
     const totalAmount = data.reduce(
-      (sum, r) => sum + parseFloat(r.taxData?.totalAmount || 0),
+      (sum, r) => sum + toSafeNumber(r.taxData?.totalAmount || 0),
       0,
     );
 
@@ -395,11 +439,11 @@ const PurchaseManagement = () => {
       )
       .reduce((sum, r) => {
         if (r.amountReceived !== undefined && r.amountReceived !== null) {
-          return sum + parseFloat(r.amountReceived || 0);
+          return sum + toSafeNumber(r.amountReceived || 0);
         } else if (r.paymentStatus === "Paid") {
-          return sum + parseFloat(r.taxData?.totalAmount || 0);
+          return sum + toSafeNumber(r.taxData?.totalAmount || 0);
         } else if (r.paymentStatus === "Partial") {
-          return sum + parseFloat(r.taxData?.totalAmount || 0) / 2;
+          return sum + toSafeNumber(r.taxData?.totalAmount || 0) / 2;
         }
         return sum;
       }, 0);
@@ -1202,7 +1246,7 @@ const PurchaseManagement = () => {
               card.key === "paid" ||
               card.key === "unpaid"
             ) {
-              displayValue = `₹ ${parseFloat(card.count || 0).toLocaleString(
+              displayValue = `₹ ${toSafeNumber(card.count || 0).toLocaleString(
                 "en-IN",
                 {
                   minimumFractionDigits: 2,

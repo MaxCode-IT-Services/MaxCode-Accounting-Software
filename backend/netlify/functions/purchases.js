@@ -10,6 +10,22 @@ let purchasesMetaCache = {
   expiresAt: 0,
 };
 
+const toSafeNumber = (value) => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === "string") {
+    const sanitized = value.replace(/[^0-9.-]/g, "").trim();
+    if (!sanitized) return 0;
+    const parsed = Number(sanitized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 const normalizeCloudflareSettings = (settings = {}) => {
   if (!settings || typeof settings !== "object") return null;
 
@@ -686,7 +702,7 @@ export async function handler(event) {
           .toArray();
 
         totalAmount = allPurchases.reduce(
-          (sum, p) => sum + (p.taxData?.totalAmount || 0),
+          (sum, p) => sum + toSafeNumber(p.taxData?.totalAmount || 0),
           0,
         );
 
@@ -696,15 +712,15 @@ export async function handler(event) {
           )
           .reduce((sum, p) => {
             if (p.amountReceived !== undefined && p.amountReceived !== null) {
-              return sum + (p.amountReceived || 0);
+              return sum + toSafeNumber(p.amountReceived || 0);
             }
 
             if (p.paymentStatus === "Paid") {
-              return sum + (p.taxData?.totalAmount || 0);
+              return sum + toSafeNumber(p.taxData?.totalAmount || 0);
             }
 
             if (p.paymentStatus === "Partial") {
-              return sum + (p.taxData?.totalAmount || 0) / 2;
+              return sum + toSafeNumber(p.taxData?.totalAmount || 0) / 2;
             }
 
             return sum;
