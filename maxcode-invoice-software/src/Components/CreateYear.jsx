@@ -78,11 +78,11 @@ const CreateYear = ({
     /^MC\/SRV\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoProjectFormat = (value) =>
     /^MC\/PRJ\/\d{2}-\d{2}\/0001$/.test(value);
-
   const isAutoCompanyExpenseFormat = (value) =>
     /^MC\/CEXP\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoPaymentReceiptFormat = (value) =>
     /^MC\/RCPT\/\d{2}-\d{2}\/0001$/.test(value);
+
   useEffect(() => {
     if (show) {
       document.body.style.overflow = "hidden";
@@ -90,7 +90,6 @@ const CreateYear = ({
       document.body.style.overflow = "auto";
     }
 
-    // Cleanup function
     return () => {
       document.body.style.overflow = "auto";
     };
@@ -126,8 +125,9 @@ const CreateYear = ({
         openingIgstItc:
           editingRecord.openingIgstItc || editingRecord.openingItcIgst || "",
       });
+      setCarryForwardSourceYear("");
+      setIsCarryForwardLoading(false);
     } else {
-      // Reset form with empty values for new year (allow initialData overrides)
       setFormData({
         financialYear: "",
         startDate: "",
@@ -153,37 +153,29 @@ const CreateYear = ({
         openingIgstItc: "",
       });
       setErrors({});
+      setCarryForwardSourceYear("");
+      setIsCarryForwardLoading(false);
       if (initialData && typeof initialData === "object") {
         setFormData((prev) => ({ ...prev, ...initialData }));
       }
     }
   }, [editingRecord, show]);
 
-  // Auto-calculate financial year based on start date
+  // Load carry forward data only when financial year changes and not in editing mode
   useEffect(() => {
-    if (formData.startDate && !editingRecord) {
-      const startDate = new Date(formData.startDate);
-      const startYear = startDate.getFullYear();
-      const endYear = startYear + 1;
-      const financialYear = `${startYear}-${endYear.toString().slice(-2)}`;
-
-      setFormData((prev) => ({
-        ...prev,
-        financialYear: financialYear,
-      }));
-    }
-  }, [formData.startDate, editingRecord]);
-
-  useEffect(() => {
-    if (editingRecord || !formData.financialYear) {
+    // Reset carry forward when in editing mode
+    if (editingRecord) {
       setCarryForwardSourceYear("");
       setIsCarryForwardLoading(false);
       return;
     }
 
     const normalizedFinancialYear = String(formData.financialYear || "").trim();
+
+    // Only proceed if financial year is valid
     if (!/^\d{4}-\d{2}$/.test(normalizedFinancialYear)) {
       setCarryForwardSourceYear("");
+      setIsCarryForwardLoading(false);
       return;
     }
 
@@ -202,29 +194,32 @@ const CreateYear = ({
 
         setCarryForwardSourceYear(carryForward.sourceFinancialYear || "");
 
-        setFormData((prev) => ({
-          ...prev,
-          openingCash:
-            carryForward.openingCash !== ""
-              ? carryForward.openingCash
-              : prev.openingCash,
-          openingBank:
-            carryForward.openingBank !== ""
-              ? carryForward.openingBank
-              : prev.openingBank,
-          openingCgstItc:
-            carryForward.openingCgstItc !== ""
-              ? carryForward.openingCgstItc
-              : prev.openingCgstItc,
-          openingSgstItc:
-            carryForward.openingSgstItc !== ""
-              ? carryForward.openingSgstItc
-              : prev.openingSgstItc,
-          openingIgstItc:
-            carryForward.openingIgstItc !== ""
-              ? carryForward.openingIgstItc
-              : prev.openingIgstItc,
-        }));
+        // Only update if there are values from carry forward
+        if (carryForward.sourceFinancialYear) {
+          setFormData((prev) => ({
+            ...prev,
+            openingCash:
+              carryForward.openingCash !== ""
+                ? carryForward.openingCash
+                : prev.openingCash,
+            openingBank:
+              carryForward.openingBank !== ""
+                ? carryForward.openingBank
+                : prev.openingBank,
+            openingCgstItc:
+              carryForward.openingCgstItc !== ""
+                ? carryForward.openingCgstItc
+                : prev.openingCgstItc,
+            openingSgstItc:
+              carryForward.openingSgstItc !== ""
+                ? carryForward.openingSgstItc
+                : prev.openingSgstItc,
+            openingIgstItc:
+              carryForward.openingIgstItc !== ""
+                ? carryForward.openingIgstItc
+                : prev.openingIgstItc,
+          }));
+        }
       } catch (error) {
         if (carryForwardRequestRef.current === requestId) {
           console.error("Failed to load carry-forward defaults:", error);
@@ -254,7 +249,6 @@ const CreateYear = ({
     const nextQutationFormat = `MC/QTN/${yearPart}/0001`;
     const nextServiceFormat = `MC/SRV/${yearPart}/0001`;
     const nextProjectFormat = `MC/PRJ/${yearPart}/0001`;
-
     const nextCompanyExpenseFormat = `MC/CEXP/${yearPart}/0001`;
     const nextPaymentReceiptFormat = `MC/RCPT/${yearPart}/0001`;
 
@@ -278,13 +272,13 @@ const CreateYear = ({
       !formData.serviceFormat || isAutoServiceFormat(formData.serviceFormat);
     const shouldUpdateProjectFormat =
       !formData.projectFormat || isAutoProjectFormat(formData.projectFormat);
-
     const shouldUpdateCompanyExpenseFormat =
       !formData.companyExpenseFormat ||
       isAutoCompanyExpenseFormat(formData.companyExpenseFormat);
     const shouldUpdatePaymentReceiptFormat =
       !formData.paymentReceiptFormat ||
       isAutoPaymentReceiptFormat(formData.paymentReceiptFormat);
+
     if (
       !shouldUpdateInvoiceFormat &&
       !shouldUpdateSelfInvoiceFormat &&
@@ -343,6 +337,7 @@ const CreateYear = ({
     formData.serviceFormat,
     formData.projectFormat,
     formData.companyExpenseFormat,
+    formData.paymentReceiptFormat,
     editingRecord,
   ]);
 
@@ -392,7 +387,6 @@ const CreateYear = ({
         [name]: checked,
       }));
     } else if (name === "taxPercentage") {
-      // Allow only numbers and decimal point
       const numericValue = value.replace(/[^0-9.]/g, "");
       setFormData((prev) => ({
         ...prev,
@@ -407,7 +401,6 @@ const CreateYear = ({
         "openingIgstItc",
       ].includes(name)
     ) {
-      // Allow only numbers and decimal point for balance fields
       const numericValue = value.replace(/[^0-9.]/g, "");
       setFormData((prev) => ({
         ...prev,
@@ -432,7 +425,6 @@ const CreateYear = ({
       }));
     }
 
-    // Clear error when user starts typing
     if (errors[name]) {
       setErrors((prev) => ({
         ...prev,
@@ -455,7 +447,6 @@ const CreateYear = ({
   const validateForm = () => {
     const newErrors = {};
 
-    // Required fields
     const requiredFields = [
       "financialYear",
       "startDate",
@@ -479,7 +470,6 @@ const CreateYear = ({
       }
     });
 
-    // Validate financial year format (YYYY-YY)
     if (
       formData.financialYear &&
       !/^\d{4}-\d{2}$/.test(formData.financialYear)
@@ -488,13 +478,11 @@ const CreateYear = ({
         "Financial Year must be in format YYYY-YY (e.g., 2024-25)";
     }
 
-    // Check for duplicate financial year
     if (formData.financialYear && !editingRecord) {
       if (existingYears.includes(formData.financialYear)) {
         newErrors.financialYear = "This financial year already exists";
       }
     } else if (formData.financialYear && editingRecord) {
-      // When editing, check if the new financial year is different and already exists
       if (
         formData.financialYear !== editingRecord.financialYear &&
         existingYears.includes(formData.financialYear)
@@ -503,7 +491,6 @@ const CreateYear = ({
       }
     }
 
-    // Validate dates
     if (formData.startDate && formData.endDate) {
       const start = new Date(formData.startDate);
       const end = new Date(formData.endDate);
@@ -512,7 +499,6 @@ const CreateYear = ({
         newErrors.endDate = "End date must be after start date";
       }
 
-      // Check if financial year is exactly 1 year (approximately)
       const diffTime = Math.abs(end - start);
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -521,18 +507,15 @@ const CreateYear = ({
           "Financial year should be approximately 365 days (Apr 1 to Mar 31)";
       }
 
-      // Check if start date is April 1
       if (start.getMonth() !== 3 || start.getDate() !== 1) {
         newErrors.startDate = "Financial year should start from April 1";
       }
 
-      // Check if end date is March 31
       if (end.getMonth() !== 2 || end.getDate() !== 31) {
         newErrors.endDate = "Financial year should end on March 31";
       }
     }
 
-    // Validate tax percentage - now as input field
     if (formData.taxPercentage === "" || formData.taxPercentage === null) {
       newErrors.taxPercentage = "Tax percentage is required";
     } else {
@@ -544,11 +527,9 @@ const CreateYear = ({
       }
     }
 
-    // Validate invoice format - optional validation
     if (formData.invoiceFormat && formData.invoiceFormat.length < 3) {
       newErrors.invoiceFormat = "Invoice format must be at least 3 characters";
     }
-
     if (formData.selfInvoiceFormat && formData.selfInvoiceFormat.length < 3) {
       newErrors.selfInvoiceFormat =
         "Self invoice format must be at least 3 characters";
@@ -578,7 +559,6 @@ const CreateYear = ({
     if (formData.projectFormat && formData.projectFormat.length < 3) {
       newErrors.projectFormat = "Project format must be at least 3 characters";
     }
-
     if (
       formData.companyExpenseFormat &&
       formData.companyExpenseFormat.length < 3
@@ -596,14 +576,12 @@ const CreateYear = ({
 
     setErrors(newErrors);
 
-    // Find first error field and scroll to it
     if (Object.keys(newErrors).length > 0) {
       const firstErrorField = Object.keys(newErrors)[0];
       setTimeout(() => {
         scrollToField(firstErrorField);
       }, 100);
 
-      // Show error message for first field only
       const firstFieldName = fieldNames[firstErrorField] || firstErrorField;
       showError(`Please fill ${firstFieldName} field correctly`);
 
@@ -697,12 +675,10 @@ const CreateYear = ({
     }
   };
 
-  // Add red star for required fields
   const RequiredStar = () => <span className="text-danger">*</span>;
 
   if (!show) return null;
 
-  // Determine modal title and mode
   const modalTitle = editingRecord
     ? editingRecord.isViewMode
       ? `View Financial Year - ${editingRecord.financialYear}`
@@ -710,14 +686,6 @@ const CreateYear = ({
     : "Add New Financial Year";
 
   const isViewMode = editingRecord?.isViewMode;
-
-  // Example invoice formats for placeholder
-  const invoiceFormatExamples = [
-    "MC/25-26/0001",
-    "INV/2024-25/001",
-    "FY-2024-25/{number}",
-    "RAJS/24-25/INV-001",
-  ];
 
   return (
     <div
@@ -748,15 +716,13 @@ const CreateYear = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control modern-input ${errors.financialYear ? "is-invalid" : ""} ${!editingRecord && formData.startDate ? "bg-light" : ""}`}
+                    className={`form-control modern-input ${errors.financialYear ? "is-invalid" : ""}`}
                     id="financialYear"
                     name="financialYear"
                     value={formData.financialYear}
                     onChange={handleInputChange}
                     placeholder="YYYY-YY (e.g., 2024-25)"
-                    readOnly={
-                      isViewMode || (!editingRecord && formData.startDate)
-                    }
+                    readOnly={isViewMode}
                     maxLength="7"
                   />
                   {errors.financialYear && (
@@ -829,7 +795,7 @@ const CreateYear = ({
                   )}
                 </div>
 
-                {/* Tax Percentage - Input Field */}
+                {/* Tax Percentage */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="taxPercentage" className="form-label">
                     <i className="fas fa-percent me-2 text-primary"></i>
@@ -852,7 +818,7 @@ const CreateYear = ({
                   )}
                 </div>
 
-                {/* Invoice Format - Input Field */}
+                {/* Invoice Format */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="invoiceFormat" className="form-label">
                     <i className="fas fa-file-invoice me-2 text-primary"></i>
@@ -875,7 +841,7 @@ const CreateYear = ({
                   )}
                 </div>
 
-                {/* Self Invoice Format - Input Field */}
+                {/* Self Invoice Format */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="selfInvoiceFormat" className="form-label">
                     <i className="fas fa-file-invoice me-2 text-primary"></i>
@@ -898,7 +864,7 @@ const CreateYear = ({
                   )}
                 </div>
 
-                {/* Performa Invoice Format - Input Field */}
+                {/* Performa Invoice Format */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="performaInvoiceFormat" className="form-label">
                     <i className="fas fa-file-invoice me-2 text-primary"></i>
@@ -921,7 +887,7 @@ const CreateYear = ({
                   )}
                 </div>
 
-                {/* Credit Note Format - Input Field */}
+                {/* Credit Note Format */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="creditNoteFormat" className="form-label">
                     <i className="fas fa-file-invoice me-2 text-success"></i>
@@ -944,7 +910,7 @@ const CreateYear = ({
                   )}
                 </div>
 
-                {/* Debit Note Format - Input Field */}
+                {/* Debit Note Format */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="debitNoteFormat" className="form-label">
                     <i className="fas fa-file-invoice me-2 text-danger"></i>
@@ -967,6 +933,7 @@ const CreateYear = ({
                   )}
                 </div>
 
+                {/* Qutation Format */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="qutationFormat" className="form-label">
                     <i className="fas fa-file-signature me-2 text-primary"></i>
@@ -989,6 +956,7 @@ const CreateYear = ({
                   )}
                 </div>
 
+                {/* Service Format */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="serviceFormat" className="form-label">
                     <i className="fas fa-gears me-2 text-primary"></i>
@@ -1011,6 +979,7 @@ const CreateYear = ({
                   )}
                 </div>
 
+                {/* Project Format */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="projectFormat" className="form-label">
                     <i className="fas fa-diagram-project me-2 text-primary"></i>
@@ -1033,6 +1002,7 @@ const CreateYear = ({
                   )}
                 </div>
 
+                {/* Company Expense Format */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="companyExpenseFormat" className="form-label">
                     <i className="fas fa-receipt me-2 text-primary"></i>
@@ -1055,7 +1025,7 @@ const CreateYear = ({
                   )}
                 </div>
 
-                {/* Payment Receipt Format - Input Field */}
+                {/* Payment Receipt Format */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="paymentReceiptFormat" className="form-label">
                     <i className="fas fa-receipt me-2 text-primary"></i>
@@ -1099,12 +1069,6 @@ const CreateYear = ({
                       {errors.openingCash}
                     </div>
                   )}
-                  {isCarryForwardLoading && !isViewMode && (
-                    <small className="text-muted d-block mt-1">
-                      Calculating carry-forward from the previous financial
-                      year...
-                    </small>
-                  )}
                 </div>
 
                 {/* Opening Bank Balance */}
@@ -1130,6 +1094,7 @@ const CreateYear = ({
                   )}
                 </div>
 
+                {/* Opening CGST ITC */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="openingCgstItc" className="form-label">
                     <i className="fas fa-receipt me-2 text-success"></i>
@@ -1139,6 +1104,9 @@ const CreateYear = ({
                     type="text"
                     className={`form-control modern-input ${errors.openingCgstItc ? "is-invalid" : ""}`}
                     id="openingCgstItc"
+                    name="openingCgstItc"
+                    value={formData.openingCgstItc}
+                    onChange={handleInputChange}
                     placeholder="Enter opening CGST ITC (optional)"
                     readOnly={isViewMode}
                   />
@@ -1149,6 +1117,7 @@ const CreateYear = ({
                   )}
                 </div>
 
+                {/* Opening SGST ITC */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="openingSgstItc" className="form-label">
                     <i className="fas fa-receipt me-2 text-primary"></i>
@@ -1156,6 +1125,9 @@ const CreateYear = ({
                   </label>
                   <input
                     type="text"
+                    className={`form-control modern-input ${errors.openingSgstItc ? "is-invalid" : ""}`}
+                    id="openingSgstItc"
+                    name="openingSgstItc"
                     value={formData.openingSgstItc}
                     onChange={handleInputChange}
                     placeholder="Enter opening SGST ITC (optional)"
@@ -1168,6 +1140,7 @@ const CreateYear = ({
                   )}
                 </div>
 
+                {/* Opening IGST ITC */}
                 <div className="col-md-4 mb-3">
                   <label htmlFor="openingIgstItc" className="form-label">
                     <i className="fas fa-receipt me-2 text-warning"></i>
@@ -1175,6 +1148,10 @@ const CreateYear = ({
                   </label>
                   <input
                     type="text"
+                    className={`form-control modern-input ${errors.openingIgstItc ? "is-invalid" : ""}`}
+                    id="openingIgstItc"
+                    name="openingIgstItc"
+                    value={formData.openingIgstItc}
                     onChange={handleInputChange}
                     placeholder="Enter opening IGST ITC (optional)"
                     readOnly={isViewMode}
@@ -1184,14 +1161,6 @@ const CreateYear = ({
                       {errors.openingIgstItc}
                     </div>
                   )}
-                  {!isCarryForwardLoading &&
-                    carryForwardSourceYear &&
-                    !isViewMode && (
-                      <small className="text-muted d-block mt-1">
-                        Auto-filled from closing balances of FY{" "}
-                        {carryForwardSourceYear}.
-                      </small>
-                    )}
                 </div>
 
                 {/* Description */}
@@ -1228,19 +1197,6 @@ const CreateYear = ({
                       <i className="fas fa-star text-warning me-2"></i>
                       Set as Default Financial Year
                     </label>
-                  </div>
-                  <small className="text-muted">
-                    The default financial year will be used for all new
-                    transactions and invoices
-                  </small>
-                </div>
-
-                {/* Info Alert */}
-                <div className="col-12">
-                  <div className="alert alert-info" role="alert">
-                    <i className="fas fa-info-circle me-2"></i>
-                    <strong>Note:</strong> You can enter any invoice format you
-                    want and any tax percentage between 0-100.
                   </div>
                 </div>
               </div>
