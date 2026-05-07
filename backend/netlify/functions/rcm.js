@@ -7,6 +7,7 @@ import {
   applyTermsBindingToDocument,
   getTermsBindingFromDatabase,
 } from "./utils/terms-versioning.js";
+import { syncTransactionSnapshot } from "./utils/transactions.js";
 
 const normalizeCloudflareSettings = (settings = {}) => {
   if (!settings || typeof settings !== "object") return null;
@@ -890,13 +891,23 @@ export async function handler(event) {
 
       delete rcmData.rcmUpload;
 
-      const result = await rcmCollection.insertOne({
+      const newRcm = {
         _id: new ObjectId(),
         ...rcmData,
         selfInvoiceTermsVersion: binding?.version || "V1.0.0",
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
+      };
+
+      const result = await rcmCollection.insertOne(newRcm);
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "rcm",
+        sourceType: "rcm",
+        sourceRecord: newRcm,
+        sourceLabel: newRcm.selfInvoiceNumber || "",
       });
 
       return createResponse(
@@ -1003,21 +1014,33 @@ export async function handler(event) {
 
       delete rcmData.rcmUpload;
 
+      const updatedRcmRecord = {
+        ...existingRcmRecord,
+        ...rcmData,
+        _id: rcmObjectId,
+        placeOfSupply: rcmData.placeOfSupply || "Rajasthan (08)",
+        updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "update"),
+      };
+
       const result = await rcmCollection.updateOne(
         { _id: rcmObjectId, isDeleted: { $ne: true } },
         {
-          $set: {
-            ...rcmData,
-            placeOfSupply: rcmData.placeOfSupply || "Rajasthan (08)",
-            updatedAt: new Date(),
-            ...getAuditFieldsFromEvent(event, "update"),
-          },
+          $set: updatedRcmRecord,
         },
       );
 
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "RCM record not found" }, origin);
       }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "rcm",
+        sourceType: "rcm",
+        sourceRecord: updatedRcmRecord,
+        sourceLabel: updatedRcmRecord.selfInvoiceNumber || "",
+      });
 
       return createResponse(
         200,
@@ -1066,6 +1089,15 @@ export async function handler(event) {
           objectPath: existingRcmRecord.rcmFilePath,
         });
       }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "rcm",
+        sourceType: "rcm",
+        sourceRecord: existingRcmRecord,
+        sourceLabel: existingRcmRecord.selfInvoiceNumber || "",
+        deleted: true,
+      });
 
       const result = await rcmCollection.updateOne(
         { _id: rcmObjectId, isDeleted: { $ne: true } },

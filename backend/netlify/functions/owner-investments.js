@@ -2,6 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
+import { syncTransactionSnapshot } from "./utils/transactions.js";
 
 /**
  * Owner Investments API
@@ -327,11 +328,22 @@ export async function handler(event) {
         return createResponse(400, { error: validationError }, origin);
       }
 
-      const result = await fundsCollection.insertOne({
+      const newFund = {
+        _id: new ObjectId(),
         ...fundData,
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
+      };
+
+      const result = await fundsCollection.insertOne(newFund);
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "personalFunds",
+        sourceType: "owner_investment",
+        sourceRecord: newFund,
+        sourceLabel: newFund.entryNumber || "",
       });
 
       return createResponse(
@@ -383,10 +395,33 @@ export async function handler(event) {
         return createResponse(400, { error: validationError }, origin);
       }
 
+      const updatedRecord = {
+        ...mergedData,
+        updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "update"),
+      };
+
       const result = await fundsCollection.updateOne(
         { _id: new ObjectId(id), isDeleted: { $ne: true } },
-        { $set: { ...updateData, updatedAt: new Date(), ...getAuditFieldsFromEvent(event, "update") } },
+        { $set: updatedRecord },
       );
+
+      if (result.matchedCount === 0) {
+        return createResponse(
+          404,
+          { error: "Owner investment not found" },
+          origin,
+        );
+      }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "personalFunds",
+        sourceType: "owner_investment",
+        sourceRecord: updatedRecord,
+        sourceLabel: updatedRecord.entryNumber || "",
+      });
+
       return createResponse(
         200,
         { message: "Owner investment updated successfully" },
@@ -405,6 +440,28 @@ export async function handler(event) {
         );
       }
 
+      const existingRecord = await fundsCollection.findOne({
+        _id: new ObjectId(id),
+        isDeleted: { $ne: true },
+      });
+
+      if (!existingRecord) {
+        return createResponse(
+          404,
+          { error: "Owner investment not found" },
+          origin,
+        );
+      }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "personalFunds",
+        sourceType: "owner_investment",
+        sourceRecord: existingRecord,
+        sourceLabel: existingRecord.entryNumber || "",
+        deleted: true,
+      });
+
       const result = await fundsCollection.updateOne(
         { _id: new ObjectId(id) },
         {
@@ -413,7 +470,7 @@ export async function handler(event) {
             deletedAt: new Date(),
             updatedAt: new Date(),
             ...getAuditFieldsFromEvent(event, "delete"),
-          }
+          },
         },
       );
 

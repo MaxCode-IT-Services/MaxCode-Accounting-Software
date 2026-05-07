@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
 import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
+import { syncTransactionSnapshot } from "./utils/transactions.js";
 
 const normalizeCloudflareSettings = (settings = {}) => {
   if (!settings || typeof settings !== "object") return null;
@@ -891,6 +892,14 @@ export async function handler(event) {
 
       const result = await expensesCollection.insertOne(normalizedExpense);
 
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "company_expenses",
+        sourceType: "expense",
+        sourceRecord: normalizedExpense,
+        sourceLabel: normalizedExpense.expenseNumber || "",
+      });
+
       return createResponse(
         201,
         {
@@ -1002,6 +1011,14 @@ export async function handler(event) {
 
       delete expenseData.expenseUpload;
 
+      const updatedExpenseRecord = {
+        ...existingExpenseRecord,
+        ...expenseData,
+        _id: expenseObjectId,
+        updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "update"),
+      };
+
       const result = await expensesCollection.updateOne(
         { _id: expenseObjectId, isDeleted: { $ne: true } },
         {
@@ -1028,6 +1045,14 @@ export async function handler(event) {
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "Expense not found" }, origin);
       }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "company_expenses",
+        sourceType: "expense",
+        sourceRecord: updatedExpenseRecord,
+        sourceLabel: updatedExpenseRecord.expenseNumber || "",
+      });
 
       return createResponse(
         200,
@@ -1076,6 +1101,15 @@ export async function handler(event) {
           objectPath: existingExpenseRecord.expenseFilePath,
         });
       }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "company_expenses",
+        sourceType: "expense",
+        sourceRecord: existingExpenseRecord,
+        sourceLabel: existingExpenseRecord.expenseNumber || "",
+        deleted: true,
+      });
 
       const result = await expensesCollection.updateOne(
         { _id: expenseObjectId, isDeleted: { $ne: true } },

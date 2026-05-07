@@ -3,6 +3,10 @@ import ReusableTable from "../Components/ReusableTable";
 import { showError, showInfo } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { fetchAllPaginatedEntities } from "../utils/fetchAllEntities";
+import {
+  filterTransactionsBySourceType,
+  flattenTransactionRecord,
+} from "../utils/transactions";
 
 const LedgerManagement = () => {
   useEffect(() => {
@@ -329,38 +333,9 @@ const LedgerManagement = () => {
         endpoint: API_ENDPOINTS.YEARS.LIST,
         fallbackKeys: ["years"],
       });
-      const salesResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.INVOICES.LIST,
-        fallbackKeys: ["invoices"],
-      });
-      const creditDebitResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.CREDIT_DEBIT_NOTES.LIST,
-        fallbackKeys: ["notes", "data"],
-      });
-      const purchaseResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.PURCHASES.LIST,
-        fallbackKeys: ["purchases"],
-      });
-      const companyExpenseResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.COMPANY_EXPENSES.LIST,
-        fallbackKeys: ["companyExpenses", "expenses"],
-      });
-      const rcmResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.RCM.LIST,
-        fallbackKeys: ["records", "rcm"],
-      });
-      const projectsResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.PROJECTS.LIST,
-        fallbackKeys: ["projects"],
-      });
-
-      const personalFundsResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.OWNER_INVESTMENTS.LIST,
-        fallbackKeys: ["data", "personalFunds"],
-      });
-      const paymentReceiptsResult = await fetchSafe({
-        endpoint: API_ENDPOINTS.PAYMENT_RECEIPTS.LIST,
-        fallbackKeys: ["records", "receipts", "data"],
+      const transactionsResult = await fetchSafe({
+        endpoint: API_ENDPOINTS.TRANSACTIONS.LIST,
+        fallbackKeys: ["data"],
         fetchAll: true,
       });
 
@@ -375,71 +350,48 @@ const LedgerManagement = () => {
           value: yearRecord.financialYear || yearRecord.year,
         }));
 
-      const invoicesData =
-        salesResult.status === "fulfilled" ? salesResult.value : [];
-
-      const purchasesData =
-        purchaseResult.status === "fulfilled" ? purchaseResult.value : [];
-
-      const creditDebitData =
-        creditDebitResult.status === "fulfilled" ? creditDebitResult.value : [];
-
-      const companyExpensesData =
-        companyExpenseResult.status === "fulfilled"
-          ? companyExpenseResult.value
+      const transactionsData =
+        transactionsResult.status === "fulfilled"
+          ? transactionsResult.value.map(flattenTransactionRecord)
           : [];
 
-      const rcmData = rcmResult.status === "fulfilled" ? rcmResult.value : [];
-
-      const projectsData =
-        projectsResult.status === "fulfilled" ? projectsResult.value : [];
-
-      const personalFundsData =
-        personalFundsResult.status === "fulfilled"
-          ? personalFundsResult.value
-          : [];
-      const paymentReceiptsData =
-        paymentReceiptsResult.status === "fulfilled"
-          ? paymentReceiptsResult.value
-          : [];
+      const invoicesData = filterTransactionsBySourceType(
+        transactionsData,
+        "invoice",
+      );
+      const purchasesData = filterTransactionsBySourceType(
+        transactionsData,
+        "purchase",
+      );
+      const creditDebitData = filterTransactionsBySourceType(
+        transactionsData,
+        "credit-debit-note",
+      );
+      const companyExpensesData = filterTransactionsBySourceType(
+        transactionsData,
+        "company-expense",
+      );
+      const rcmData = filterTransactionsBySourceType(transactionsData, "rcm");
+      const projectsData = filterTransactionsBySourceType(
+        transactionsData,
+        "project",
+      );
+      const personalFundsData = filterTransactionsBySourceType(
+        transactionsData,
+        "owner-investment",
+      );
+      const paymentReceiptsData = filterTransactionsBySourceType(
+        transactionsData,
+        "payment-receipt",
+      );
 
       if (yearsResult.status === "rejected") {
         console.error("Failed to fetch financial years:", yearsResult.reason);
       }
-      if (salesResult.status === "rejected") {
-        console.error("Failed to fetch invoices:", salesResult.reason);
-      }
-      if (purchaseResult.status === "rejected") {
-        console.error("Failed to fetch purchases:", purchaseResult.reason);
-      }
-      if (creditDebitResult.status === "rejected") {
+      if (transactionsResult.status === "rejected") {
         console.error(
-          "Failed to fetch credit/debit notes:",
-          creditDebitResult.reason,
-        );
-      }
-      if (companyExpenseResult.status === "rejected") {
-        console.error(
-          "Failed to fetch company expenses:",
-          companyExpenseResult.reason,
-        );
-      }
-      if (rcmResult.status === "rejected") {
-        console.error("Failed to fetch RCM:", rcmResult.reason);
-      }
-      if (projectsResult.status === "rejected") {
-        console.error("Failed to fetch projects:", projectsResult.reason);
-      }
-      if (personalFundsResult.status === "rejected") {
-        console.error(
-          "Failed to fetch personal funds:",
-          personalFundsResult.reason,
-        );
-      }
-      if (paymentReceiptsResult.status === "rejected") {
-        console.error(
-          "Failed to fetch payment receipts:",
-          paymentReceiptsResult.reason,
+          "Failed to fetch transactions:",
+          transactionsResult.reason,
         );
       }
 
@@ -454,7 +406,6 @@ const LedgerManagement = () => {
         creditDebitData.map((note) => ({
           ...note,
           id: note._id || note.id,
-          invoiceDate: note.noteDate || note.noteDateTime || note.createdAt,
         })),
       );
       setPurchaseRecords(
@@ -467,7 +418,6 @@ const LedgerManagement = () => {
         companyExpensesData.map((expense) => ({
           ...expense,
           id: expense._id || expense.id,
-          invoiceDate: expense.invoiceDate || expense.expenseDate,
         })),
       );
       setRcmRecords(
@@ -487,43 +437,37 @@ const LedgerManagement = () => {
         personalFundsData.map((record) => ({
           ...record,
           id: record._id || record.id,
-          invoiceDate: record.fundDate,
         })),
       );
       setPaymentReceiptRecords(
         paymentReceiptsData.map((record) => ({
           ...record,
           id: record._id || record.id,
-          invoiceDate: record.receiptDate || record.invoiceDate,
         })),
       );
 
       setApiStatus({
         years: yearsResult.status === "fulfilled" ? "loaded" : "failed",
-        invoices: salesResult.status === "fulfilled" ? "loaded" : "failed",
+        invoices:
+          transactionsResult.status === "fulfilled" ? "loaded" : "failed",
         creditDebitNotes:
-          creditDebitResult.status === "fulfilled" ? "loaded" : "failed",
-        purchases: purchaseResult.status === "fulfilled" ? "loaded" : "failed",
+          transactionsResult.status === "fulfilled" ? "loaded" : "failed",
+        purchases:
+          transactionsResult.status === "fulfilled" ? "loaded" : "failed",
         companyExpenses:
-          companyExpenseResult.status === "fulfilled" ? "loaded" : "failed",
-        rcm: rcmResult.status === "fulfilled" ? "loaded" : "failed",
-        projects: projectsResult.status === "fulfilled" ? "loaded" : "failed",
+          transactionsResult.status === "fulfilled" ? "loaded" : "failed",
+        rcm: transactionsResult.status === "fulfilled" ? "loaded" : "failed",
+        projects:
+          transactionsResult.status === "fulfilled" ? "loaded" : "failed",
         personalFunds:
-          personalFundsResult.status === "fulfilled" ? "loaded" : "failed",
+          transactionsResult.status === "fulfilled" ? "loaded" : "failed",
         paymentReceipts:
-          paymentReceiptsResult.status === "fulfilled" ? "loaded" : "failed",
+          transactionsResult.status === "fulfilled" ? "loaded" : "failed",
       });
 
       if (
         yearsResult.status === "rejected" ||
-        salesResult.status === "rejected" ||
-        creditDebitResult.status === "rejected" ||
-        purchaseResult.status === "rejected" ||
-        companyExpenseResult.status === "rejected" ||
-        rcmResult.status === "rejected" ||
-        projectsResult.status === "rejected" ||
-        personalFundsResult.status === "rejected" ||
-        paymentReceiptsResult.status === "rejected"
+        transactionsResult.status === "rejected"
       ) {
         showInfo("Some ledger data could not be loaded. Please refresh again.");
       }

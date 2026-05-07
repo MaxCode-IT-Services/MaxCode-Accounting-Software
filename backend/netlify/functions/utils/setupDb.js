@@ -77,6 +77,17 @@ export async function setupDb(db) {
         name: "isDeleted_financialYear",
       },
     ]),
+    db.collection("transactions").createIndexes([
+      {
+        key: { sourceKey: 1, isDeleted: 1 },
+        name: "sourceKey_isDeleted",
+      },
+      { key: { financialYear: 1 }, name: "financialYear" },
+      { key: { transactionDate: 1 }, name: "transactionDate" },
+      { key: { sourceType: 1 }, name: "sourceType" },
+      { key: { sourceCollection: 1 }, name: "sourceCollection" },
+      { key: { accountHead: 1 }, name: "accountHead" },
+    ]),
     db.collection("services").createIndexes([
       { key: { isDeleted: 1, createdAt: -1 }, name: "isDeleted_createdAt" },
       {

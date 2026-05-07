@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { showSuccess, showError } from "./ToastNotification";
 import { apiPost, apiPut } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
+import { loadCarryForwardDefaults } from "../utils/financialYearCarryForward";
 
 const CreateYear = ({
   show,
@@ -9,6 +10,7 @@ const CreateYear = ({
   onSubmit,
   editingRecord = null,
   existingYears = [],
+  initialData = {},
 }) => {
   const [formData, setFormData] = useState({
     financialYear: "",
@@ -37,6 +39,9 @@ const CreateYear = ({
 
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [isCarryForwardLoading, setIsCarryForwardLoading] = useState(false);
+  const [carryForwardSourceYear, setCarryForwardSourceYear] = useState("");
+  const carryForwardRequestRef = useRef(0);
 
   const getInvoiceYearPart = (financialYear) => {
     if (!financialYear || !/^\d{4}-\d{2}$/.test(financialYear)) return "";
@@ -122,7 +127,7 @@ const CreateYear = ({
           editingRecord.openingIgstItc || editingRecord.openingItcIgst || "",
       });
     } else {
-      // Reset form with empty values for new year
+      // Reset form with empty values for new year (allow initialData overrides)
       setFormData({
         financialYear: "",
         startDate: "",
@@ -148,6 +153,9 @@ const CreateYear = ({
         openingIgstItc: "",
       });
       setErrors({});
+      if (initialData && typeof initialData === "object") {
+        setFormData((prev) => ({ ...prev, ...initialData }));
+      }
     }
   }, [editingRecord, show]);
 
@@ -165,6 +173,71 @@ const CreateYear = ({
       }));
     }
   }, [formData.startDate, editingRecord]);
+
+  useEffect(() => {
+    if (editingRecord || !formData.financialYear) {
+      setCarryForwardSourceYear("");
+      setIsCarryForwardLoading(false);
+      return;
+    }
+
+    const normalizedFinancialYear = String(formData.financialYear || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(normalizedFinancialYear)) {
+      setCarryForwardSourceYear("");
+      return;
+    }
+
+    const requestId = carryForwardRequestRef.current + 1;
+    carryForwardRequestRef.current = requestId;
+
+    const loadDefaults = async () => {
+      setIsCarryForwardLoading(true);
+      try {
+        const carryForward = await loadCarryForwardDefaults({
+          financialYearValue: normalizedFinancialYear,
+          forceRefresh: true,
+        });
+
+        if (carryForwardRequestRef.current !== requestId) return;
+
+        setCarryForwardSourceYear(carryForward.sourceFinancialYear || "");
+
+        setFormData((prev) => ({
+          ...prev,
+          openingCash:
+            carryForward.openingCash !== ""
+              ? carryForward.openingCash
+              : prev.openingCash,
+          openingBank:
+            carryForward.openingBank !== ""
+              ? carryForward.openingBank
+              : prev.openingBank,
+          openingCgstItc:
+            carryForward.openingCgstItc !== ""
+              ? carryForward.openingCgstItc
+              : prev.openingCgstItc,
+          openingSgstItc:
+            carryForward.openingSgstItc !== ""
+              ? carryForward.openingSgstItc
+              : prev.openingSgstItc,
+          openingIgstItc:
+            carryForward.openingIgstItc !== ""
+              ? carryForward.openingIgstItc
+              : prev.openingIgstItc,
+        }));
+      } catch (error) {
+        if (carryForwardRequestRef.current === requestId) {
+          console.error("Failed to load carry-forward defaults:", error);
+        }
+      } finally {
+        if (carryForwardRequestRef.current === requestId) {
+          setIsCarryForwardLoading(false);
+        }
+      }
+    };
+
+    loadDefaults();
+  }, [editingRecord, formData.financialYear]);
 
   // Auto-fill invoice formats from financial year for new records
   useEffect(() => {
@@ -772,9 +845,6 @@ const CreateYear = ({
                     placeholder="Enter tax percentage (0-100)"
                     readOnly={isViewMode}
                   />
-                  <small className="text-muted">
-                    Enter any value between 0 and 100
-                  </small>
                   {errors.taxPercentage && (
                     <div className="invalid-feedback d-block">
                       {errors.taxPercentage}
@@ -1024,13 +1094,16 @@ const CreateYear = ({
                     placeholder="Enter opening cash (optional)"
                     readOnly={isViewMode}
                   />
-                  <small className="text-muted">
-                    Cash balance at start of financial year
-                  </small>
                   {errors.openingCash && (
                     <div className="invalid-feedback d-block">
                       {errors.openingCash}
                     </div>
+                  )}
+                  {isCarryForwardLoading && !isViewMode && (
+                    <small className="text-muted d-block mt-1">
+                      Calculating carry-forward from the previous financial
+                      year...
+                    </small>
                   )}
                 </div>
 
@@ -1050,9 +1123,6 @@ const CreateYear = ({
                     placeholder="Enter opening bank amount (optional)"
                     readOnly={isViewMode}
                   />
-                  <small className="text-muted">
-                    Bank balance at start of financial year
-                  </small>
                   {errors.openingBank && (
                     <div className="invalid-feedback d-block">
                       {errors.openingBank}
@@ -1069,9 +1139,6 @@ const CreateYear = ({
                     type="text"
                     className={`form-control modern-input ${errors.openingCgstItc ? "is-invalid" : ""}`}
                     id="openingCgstItc"
-                    name="openingCgstItc"
-                    value={formData.openingCgstItc}
-                    onChange={handleInputChange}
                     placeholder="Enter opening CGST ITC (optional)"
                     readOnly={isViewMode}
                   />
@@ -1089,9 +1156,6 @@ const CreateYear = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control modern-input ${errors.openingSgstItc ? "is-invalid" : ""}`}
-                    id="openingSgstItc"
-                    name="openingSgstItc"
                     value={formData.openingSgstItc}
                     onChange={handleInputChange}
                     placeholder="Enter opening SGST ITC (optional)"
@@ -1111,10 +1175,6 @@ const CreateYear = ({
                   </label>
                   <input
                     type="text"
-                    className={`form-control modern-input ${errors.openingIgstItc ? "is-invalid" : ""}`}
-                    id="openingIgstItc"
-                    name="openingIgstItc"
-                    value={formData.openingIgstItc}
                     onChange={handleInputChange}
                     placeholder="Enter opening IGST ITC (optional)"
                     readOnly={isViewMode}
@@ -1124,6 +1184,14 @@ const CreateYear = ({
                       {errors.openingIgstItc}
                     </div>
                   )}
+                  {!isCarryForwardLoading &&
+                    carryForwardSourceYear &&
+                    !isViewMode && (
+                      <small className="text-muted d-block mt-1">
+                        Auto-filled from closing balances of FY{" "}
+                        {carryForwardSourceYear}.
+                      </small>
+                    )}
                 </div>
 
                 {/* Description */}

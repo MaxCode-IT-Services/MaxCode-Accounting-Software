@@ -2,6 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
+import { syncTransactionSnapshot } from "./utils/transactions.js";
 
 const RECEIPT_META_CACHE_TTL_MS = 30 * 1000;
 const receiptMetaCache = { value: null, expiresAt: 0 };
@@ -1110,6 +1111,14 @@ export async function handler(event) {
         },
       ];
 
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "payment_receipts",
+        sourceType: "payment_receipt",
+        sourceRecord: { ...regularDoc, _id: insertResult.insertedId },
+        sourceLabel: regularDoc.receiptNumber || "",
+      });
+
       if (normalizedPaymentType === "regular" && overflowAdvanceAmount > 0) {
         const nextAdvanceReceiptNumber = await getNextReceiptNumber(
           col,
@@ -1148,6 +1157,14 @@ export async function handler(event) {
           ...advanceDoc,
           id: String(advanceInsertResult.insertedId),
           _id: advanceInsertResult.insertedId,
+        });
+
+        await syncTransactionSnapshot({
+          db,
+          sourceCollection: "payment_receipts",
+          sourceType: "payment_receipt",
+          sourceRecord: { ...advanceDoc, _id: advanceInsertResult.insertedId },
+          sourceLabel: advanceDoc.receiptNumber || "",
         });
       }
 
@@ -1355,6 +1372,14 @@ export async function handler(event) {
 
       const updated = await col.findOne({ _id: new ObjectId(id) });
 
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "payment_receipts",
+        sourceType: "payment_receipt",
+        sourceRecord: updated,
+        sourceLabel: updated.receiptNumber || "",
+      });
+
       const refsToRecalc = [
         ...(existing.paymentType !== "advance"
           ? collectInvoiceRefsFromReceipt(existing)
@@ -1406,6 +1431,16 @@ export async function handler(event) {
       }
 
       const auditFields = getAuditFieldsFromEvent(event, "delete");
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "payment_receipts",
+        sourceType: "payment_receipt",
+        sourceRecord: existing,
+        sourceLabel: existing.receiptNumber || "",
+        deleted: true,
+      });
+
       await col.updateOne(
         { _id: new ObjectId(id) },
         {

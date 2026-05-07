@@ -61,6 +61,7 @@ const FinancialYearManagement = () => {
   const [showCreateYearForm, setShowCreateYearForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [allExistingYears, setAllExistingYears] = useState([]);
+  const [createYearInitial, setCreateYearInitial] = useState({});
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [yearToDelete, setYearToDelete] = useState(null);
@@ -577,6 +578,19 @@ const FinancialYearManagement = () => {
       }
       setEditingRecord(null);
       fetchAllExistingYears();
+      // Suggest a start date (next financial year start) and financial year string
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth() + 1;
+      const nextStartYear = currentMonth >= 4 ? currentYear + 1 : currentYear;
+      const suggestedStartDate = `${nextStartYear}-04-01`;
+      const suggestedFinancialYear = `${nextStartYear}-${(nextStartYear + 1)
+        .toString()
+        .slice(-2)}`;
+      setCreateYearInitial({
+        startDate: suggestedStartDate,
+        financialYear: suggestedFinancialYear,
+      });
       setShowCreateYearForm(true);
     } else {
       setActiveCardFilter(cardKey);
@@ -1037,6 +1051,7 @@ const FinancialYearManagement = () => {
                   .filter((r) => r.isDeleted !== true)
                   .map((r) => r.financialYear)
           }
+          initialData={createYearInitial}
         />
 
         <ConfirmationModal

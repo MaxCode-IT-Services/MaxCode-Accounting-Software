@@ -236,6 +236,11 @@ const API_ENDPOINTS = {
     STATISTICS: "/books-of-accounts/statistics",
   },
 
+  TRANSACTIONS: {
+    LIST: "/transactions",
+    GET: (id) => `/transactions?id=${id}`,
+  },
+
   DASHBOARD: {
     SUMMARY: "/dashboard-summary",
   },

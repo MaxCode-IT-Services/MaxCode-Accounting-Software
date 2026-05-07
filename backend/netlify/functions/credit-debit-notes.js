@@ -5,6 +5,7 @@ import {
   applyTermsBindingToDocument,
   getTermsBindingFromDatabase,
 } from "./utils/terms-versioning.js";
+import { syncTransactionSnapshot } from "./utils/transactions.js";
 
 const NOTES_META_CACHE_TTL_MS = 60000;
 let notesMetaCache = {
@@ -700,7 +701,7 @@ export async function handler(event) {
 
       const binding = await getNoteTermsBinding();
 
-      const result = await notesCollection.insertOne({
+      const newNote = {
         ...noteData,
         items: normalizedItems,
         noteNumber,
@@ -734,9 +735,20 @@ export async function handler(event) {
         paymentMethod: String(noteData.paymentMethod || "").trim(),
         appliedAdvances: normalizedAppliedAdvances,
         creditDebitNoteTermsVersion: binding?.version || "V1.0.0",
+        _id: new ObjectId(),
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
+      };
+
+      const result = await notesCollection.insertOne(newNote);
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "creditDebitNotes",
+        sourceType: "credit_note",
+        sourceRecord: newNote,
+        sourceLabel: newNote.noteNumber || "",
       });
 
       if (noteType === "Debit Note" && normalizedAppliedAdvances.length > 0) {
@@ -862,53 +874,62 @@ export async function handler(event) {
           ? toNumber(noteData.totalAmount)
           : Number((amount + taxAmount).toFixed(2));
 
+      const updatedNoteRecord = {
+        ...noteData,
+        items: normalizedItems,
+        noteNumber,
+        noteType,
+        clientName,
+        businessName: String(noteData.businessName || "").trim(),
+        referenceNumber: String(noteData.referenceNumber || "").trim(),
+        noteDate,
+        amount,
+        taxRate,
+        taxAmount,
+        totalAmount,
+        status: String(noteData.status || "Pending").trim() || "Pending",
+        remarks: String(noteData.remarks || "").trim(),
+        // Credit note fields
+        refundStatus: String(noteData.refundStatus || "").trim(),
+        refundDate: noteData.refundDate ? new Date(noteData.refundDate) : null,
+        refundAmount: toNumber(noteData.refundAmount),
+        refundMethod: String(noteData.refundMethod || "").trim(),
+        // Debit note fields
+        paymentStatus:
+          String(noteData.paymentStatus || "").trim() ||
+          getDebitNotePaymentStatus(
+            totalAmount,
+            toNumber(noteData.receivedAmount),
+          ),
+        paymentDate: noteData.paymentDate
+          ? new Date(noteData.paymentDate)
+          : null,
+        receivedAmount: toNumber(noteData.receivedAmount),
+        paymentMethod: String(noteData.paymentMethod || "").trim(),
+        appliedAdvances: normalizedAppliedAdvances,
+        _id: noteObjectId,
+        updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "update"),
+      };
+
       const result = await notesCollection.updateOne(
         { _id: noteObjectId },
         {
-          $set: {
-            ...noteData,
-            items: normalizedItems,
-            noteNumber,
-            noteType,
-            clientName,
-            businessName: String(noteData.businessName || "").trim(),
-            referenceNumber: String(noteData.referenceNumber || "").trim(),
-            noteDate,
-            amount,
-            taxRate,
-            taxAmount,
-            totalAmount,
-            status: String(noteData.status || "Pending").trim() || "Pending",
-            remarks: String(noteData.remarks || "").trim(),
-            // Credit note fields
-            refundStatus: String(noteData.refundStatus || "").trim(),
-            refundDate: noteData.refundDate
-              ? new Date(noteData.refundDate)
-              : null,
-            refundAmount: toNumber(noteData.refundAmount),
-            refundMethod: String(noteData.refundMethod || "").trim(),
-            // Debit note fields
-            paymentStatus:
-              String(noteData.paymentStatus || "").trim() ||
-              getDebitNotePaymentStatus(
-                totalAmount,
-                toNumber(noteData.receivedAmount),
-              ),
-            paymentDate: noteData.paymentDate
-              ? new Date(noteData.paymentDate)
-              : null,
-            receivedAmount: toNumber(noteData.receivedAmount),
-            paymentMethod: String(noteData.paymentMethod || "").trim(),
-            appliedAdvances: normalizedAppliedAdvances,
-            updatedAt: new Date(),
-            ...getAuditFieldsFromEvent(event, "update"),
-          },
+          $set: updatedNoteRecord,
         },
       );
 
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "Note not found" }, origin);
       }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "creditDebitNotes",
+        sourceType: "credit_note",
+        sourceRecord: updatedNoteRecord,
+        sourceLabel: updatedNoteRecord.noteNumber || "",
+      });
 
       if (
         String(currentNote?.noteType || "") === "Debit Note" ||
@@ -986,8 +1007,27 @@ export async function handler(event) {
         return createResponse(400, { error: "Note ID is required" }, origin);
       }
 
+      const noteObjectId = new ObjectId(id);
+      const existingNote = await notesCollection.findOne({
+        _id: noteObjectId,
+        isDeleted: { $ne: true },
+      });
+
+      if (!existingNote) {
+        return createResponse(404, { error: "Note not found" }, origin);
+      }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "creditDebitNotes",
+        sourceType: "credit_note",
+        sourceRecord: existingNote,
+        sourceLabel: existingNote.noteNumber || "",
+        deleted: true,
+      });
+
       const result = await notesCollection.updateOne(
-        { _id: new ObjectId(id) },
+        { _id: noteObjectId },
         {
           $set: {
             isDeleted: true,

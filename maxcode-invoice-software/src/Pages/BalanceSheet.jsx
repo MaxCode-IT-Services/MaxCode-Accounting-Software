@@ -3,6 +3,10 @@ import ReusableTable from "../Components/ReusableTable";
 import { showError, showInfo } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { fetchAllPaginatedEntities } from "../utils/fetchAllEntities";
+import {
+  filterTransactionsBySourceType,
+  flattenTransactionRecord,
+} from "../utils/transactions";
 
 const BalanceSheet = () => {
   useEffect(() => {
@@ -205,9 +209,9 @@ const BalanceSheet = () => {
   const getPaidAmount = (record, totalAmount) => {
     const isSalesInvoice = Boolean(
       record?.invoiceNumber ||
-        record?.invoiceDate ||
-        record?.taxData ||
-        record?.clientRefId,
+      record?.invoiceDate ||
+      record?.taxData ||
+      record?.clientRefId,
     );
     const appliedAdvanceFromInvoice = Math.max(
       toNumber(record?.advanceAdjustedTotal || 0),
@@ -288,52 +292,14 @@ const BalanceSheet = () => {
         }
       };
 
-      const [
-        yearsResult,
-        salesResult,
-        creditDebitResult,
-        purchaseResult,
-        companyExpenseResult,
-        rcmResult,
-        projectsResult,
-        personalFundsResult,
-        paymentReceiptsResult,
-      ] = await Promise.all([
+      const [yearsResult, transactionsResult] = await Promise.all([
         fetchSafe({
           endpoint: API_ENDPOINTS.YEARS.LIST,
           fallbackKeys: ["years"],
         }),
         fetchSafe({
-          endpoint: API_ENDPOINTS.INVOICES.LIST,
-          fallbackKeys: ["invoices"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.CREDIT_DEBIT_NOTES.LIST,
-          fallbackKeys: ["notes", "data"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.PURCHASES.LIST,
-          fallbackKeys: ["purchases"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.COMPANY_EXPENSES.LIST,
-          fallbackKeys: ["companyExpenses", "expenses"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.RCM.LIST,
-          fallbackKeys: ["records", "rcm"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.PROJECTS.LIST,
-          fallbackKeys: ["projects"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.OWNER_INVESTMENTS.LIST,
-          fallbackKeys: ["data", "personalFunds"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.PAYMENT_RECEIPTS.LIST,
-          fallbackKeys: ["records", "receipts", "data"],
+          endpoint: API_ENDPOINTS.TRANSACTIONS.LIST,
+          fallbackKeys: ["data"],
           fetchAll: true,
         }),
       ]);
@@ -349,37 +315,44 @@ const BalanceSheet = () => {
           value: yearRecord.financialYear || yearRecord.year,
         }));
 
-      const invoicesData =
-        salesResult.status === "fulfilled" ? salesResult.value : [];
-
-      const purchasesData =
-        purchaseResult.status === "fulfilled" ? purchaseResult.value : [];
-
-      const creditDebitData =
-        creditDebitResult.status === "fulfilled" ? creditDebitResult.value : [];
-
-      const companyExpensesData =
-        companyExpenseResult.status === "fulfilled"
-          ? companyExpenseResult.value
+      const transactionsData =
+        transactionsResult.status === "fulfilled"
+          ? transactionsResult.value.map(flattenTransactionRecord)
           : [];
 
-      const rcmData = rcmResult.status === "fulfilled" ? rcmResult.value : [];
-
-      const projectsData =
-        projectsResult.status === "fulfilled" ? projectsResult.value : [];
-
-      const personalFundsData =
-        personalFundsResult.status === "fulfilled"
-          ? personalFundsResult.value
-          : [];
-      const paymentReceiptsData =
-        paymentReceiptsResult.status === "fulfilled"
-          ? paymentReceiptsResult.value
-          : [];
+      const salesData = filterTransactionsBySourceType(
+        transactionsData,
+        "invoice",
+      );
+      const purchasesData = filterTransactionsBySourceType(
+        transactionsData,
+        "purchase",
+      );
+      const creditDebitData = filterTransactionsBySourceType(
+        transactionsData,
+        "credit-debit-note",
+      );
+      const companyExpensesData = filterTransactionsBySourceType(
+        transactionsData,
+        "company-expense",
+      );
+      const rcmData = filterTransactionsBySourceType(transactionsData, "rcm");
+      const projectsData = filterTransactionsBySourceType(
+        transactionsData,
+        "project",
+      );
+      const personalFundsData = filterTransactionsBySourceType(
+        transactionsData,
+        "owner-investment",
+      );
+      const paymentReceiptsData = filterTransactionsBySourceType(
+        transactionsData,
+        "payment-receipt",
+      );
 
       setFinancialYears(normalizedYears);
       setSalesRecords(
-        invoicesData.map((record) => ({
+        salesData.map((record) => ({
           ...record,
           id: record._id || record.id,
         })),
@@ -388,8 +361,6 @@ const BalanceSheet = () => {
         creditDebitData.map((record) => ({
           ...record,
           id: record._id || record.id,
-          invoiceDate:
-            record.noteDate || record.noteDateTime || record.createdAt,
         })),
       );
       setPurchaseRecords(
@@ -402,7 +373,6 @@ const BalanceSheet = () => {
         companyExpensesData.map((record) => ({
           ...record,
           id: record._id || record.id,
-          invoiceDate: record.invoiceDate || record.expenseDate,
         })),
       );
       setRcmRecords(
@@ -428,20 +398,12 @@ const BalanceSheet = () => {
         paymentReceiptsData.map((record) => ({
           ...record,
           id: record._id || record.id,
-          invoiceDate: record.receiptDate || record.invoiceDate,
         })),
       );
 
       if (
         yearsResult.status === "rejected" ||
-        salesResult.status === "rejected" ||
-        creditDebitResult.status === "rejected" ||
-        purchaseResult.status === "rejected" ||
-        companyExpenseResult.status === "rejected" ||
-        rcmResult.status === "rejected" ||
-        projectsResult.status === "rejected" ||
-        personalFundsResult.status === "rejected" ||
-        paymentReceiptsResult.status === "rejected"
+        transactionsResult.status === "rejected"
       ) {
         showInfo("Some balance sheet data could not be loaded.");
       }

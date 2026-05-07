@@ -16,7 +16,9 @@
     "migrate:team-permissions:dry": "node scripts/normalize-team-member-permissions.js --dry-run",
     "migrate:team-permissions": "node scripts/normalize-team-member-permissions.js --apply",
     "migrate:terms-version:dry": "node scripts/backfill-terms-versions.js --dry-run",
-    "migrate:terms-version": "node scripts/backfill-terms-versions.js --apply"
+    "migrate:terms-version": "node scripts/backfill-terms-versions.js --apply",
+    "migrate:transactions:dry": "node scripts/migrate-transactions.js --dry-run",
+    "migrate:transactions": "node scripts/migrate-transactions.js --apply"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

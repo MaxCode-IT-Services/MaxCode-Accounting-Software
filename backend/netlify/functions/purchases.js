@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
 import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
+import { syncTransactionSnapshot } from "./utils/transactions.js";
 
 const PURCHASES_META_CACHE_TTL_MS = 60000;
 let purchasesMetaCache = {
@@ -859,11 +860,20 @@ export async function handler(event) {
 
       delete purchaseData.invoiceUpload;
 
-      const result = await purchasesCollection.insertOne({
+      const purchaseRecordForSync = {
         ...purchaseData,
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
+      };
+
+      const result = await purchasesCollection.insertOne(purchaseRecordForSync);
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "purchases",
+        sourceType: "purchase",
+        sourceRecord: purchaseRecordForSync,
+        sourceLabel: purchaseRecordForSync.invoiceNumber || "",
       });
 
       return createResponse(
@@ -979,6 +989,14 @@ export async function handler(event) {
 
       delete purchaseData.invoiceUpload;
 
+      const updatedPurchaseRecord = {
+        ...existingPurchase,
+        ...purchaseData,
+        _id: purchaseObjectId,
+        updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "update"),
+      };
+
       const result = await purchasesCollection.updateOne(
         { _id: purchaseObjectId, isDeleted: { $ne: true } },
         {
@@ -993,6 +1011,14 @@ export async function handler(event) {
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "Purchase not found" }, origin);
       }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "purchases",
+        sourceType: "purchase",
+        sourceRecord: updatedPurchaseRecord,
+        sourceLabel: updatedPurchaseRecord.invoiceNumber || "",
+      });
 
       return createResponse(
         200,
@@ -1045,6 +1071,15 @@ export async function handler(event) {
           objectPath: purchase.invoiceFilePath,
         });
       }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "purchases",
+        sourceType: "purchase",
+        sourceRecord: purchase,
+        sourceLabel: purchase.invoiceNumber || "",
+        deleted: true,
+      });
 
       const result = await purchasesCollection.updateOne(
         { _id: purchaseObjectId, isDeleted: { $ne: true } },

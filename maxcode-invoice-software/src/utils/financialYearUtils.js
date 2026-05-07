@@ -25,6 +25,17 @@ export const normalizeFinancialYearValue = (financialYearRecord) => {
   );
 };
 
+export const getPreviousFinancialYearValue = (financialYearValue) => {
+  const value = String(financialYearValue || "").trim();
+  const match = value.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return "";
+
+  const startYear = Number(match[1]);
+  if (Number.isNaN(startYear) || startYear <= 0) return "";
+
+  return `${startYear - 1}-${String(startYear).slice(-2)}`;
+};
+
 export const getFinancialYearToken = (financialYearValue) => {
   const value = String(financialYearValue || "").trim();
   if (/^\d{4}-\d{2}$/.test(value)) {

@@ -2,6 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
+import { syncTransactionSnapshot } from "./utils/transactions.js";
 import {
   applyTermsBindingToDocument,
   getTermsBindingFromDatabase,
@@ -981,7 +982,7 @@ export async function handler(event) {
         manualAmountReceived: invoiceData.amountReceived,
       });
 
-      const result = await invoicesCollection.insertOne({
+      const invoiceRecordForSync = {
         _id: newInvoiceId,
         ...invoiceData,
         appliedAdvances,
@@ -996,6 +997,15 @@ export async function handler(event) {
         createdAt: new Date(),
         updatedAt: new Date(),
         ...getAuditFieldsFromEvent(event, "create"),
+      };
+
+      const result = await invoicesCollection.insertOne(invoiceRecordForSync);
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "invoices",
+        sourceType: "invoice",
+        sourceRecord: invoiceRecordForSync,
+        sourceLabel: invoiceRecordForSync.invoiceNumber || "",
       });
 
       // Update advance payment receipts with linked invoice info
@@ -1201,6 +1211,24 @@ export async function handler(event) {
         invoiceData.advanceAdjustedTotal = paymentSnapshot.advanceAdjustedTotal;
       }
 
+      const updatedInvoiceRecord = {
+        ...currentInvoice,
+        ...invoiceData,
+        _id: invoiceObjectId,
+        appliedAdvances: effectiveAppliedAdvances,
+        advanceAdjustedTotal:
+          paymentSnapshot.advanceAdjustedTotal ??
+          invoiceData.advanceAdjustedTotal ??
+          currentInvoice.advanceAdjustedTotal,
+        amountReceived: paymentSnapshot.amountReceived,
+        paymentStatus: paymentSnapshot.paymentStatus,
+        paymentDate: paymentSnapshot.paymentDate,
+        paymentMethod: paymentSnapshot.paymentMethod,
+        dueAmount: paymentSnapshot.dueAmount,
+        updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "update"),
+      };
+
       const result = await invoicesCollection.updateOne(
         { _id: invoiceObjectId, isDeleted: { $ne: true } },
         {
@@ -1215,6 +1243,14 @@ export async function handler(event) {
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "Invoice not found" }, origin);
       }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "invoices",
+        sourceType: "invoice",
+        sourceRecord: updatedInvoiceRecord,
+        sourceLabel: updatedInvoiceRecord.invoiceNumber || "",
+      });
 
       invoiceMetaCache.value = null;
       invoiceMetaCache.expiresAt = 0;
@@ -1237,6 +1273,15 @@ export async function handler(event) {
         return createResponse(400, { error: "Invalid invoice ID" }, origin);
       }
 
+      const currentInvoice = await invoicesCollection.findOne({
+        _id: new ObjectId(id),
+        isDeleted: { $ne: true },
+      });
+
+      if (!currentInvoice) {
+        return createResponse(404, { error: "Invoice not found" }, origin);
+      }
+
       const result = await invoicesCollection.updateOne(
         { _id: new ObjectId(id), isDeleted: { $ne: true } },
         {
@@ -1252,6 +1297,15 @@ export async function handler(event) {
       if (result.matchedCount === 0) {
         return createResponse(404, { error: "Invoice not found" }, origin);
       }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "invoices",
+        sourceType: "invoice",
+        sourceRecord: { ...currentInvoice, _id: new ObjectId(id) },
+        sourceLabel: currentInvoice.invoiceNumber || "",
+        deleted: true,
+      });
 
       invoiceMetaCache.value = null;
       invoiceMetaCache.expiresAt = 0;
