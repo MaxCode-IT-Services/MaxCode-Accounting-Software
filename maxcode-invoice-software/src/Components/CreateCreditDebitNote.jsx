@@ -19,10 +19,10 @@ const NOTE_TYPE_REASONS = {
     "Overbilling Correction",
     "Partial Service Delivery",
     "Project Cancellation",
-    "Client Requested Refund",
+    "Refund Adjustment",
     "Partial Refund",
     "SLA Compensation",
-    "Advance/Retainer Adjustment",
+    "Advance Adjustment",
   ],
   "Debit Note": [
     "Scope Change Adjustment",
@@ -374,7 +374,9 @@ const CreateCreditDebitNote = ({
         const res = await apiGet(
           API_ENDPOINTS.PAYMENT_RECEIPTS.AVAILABLE_ADVANCES(clientRef),
         );
-        const advances = Array.isArray(res?.data?.advances) ? res.data.advances : [];
+        const advances = Array.isArray(res?.data?.advances)
+          ? res.data.advances
+          : [];
         setAvailableAdvances(advances);
       } catch {
         setAvailableAdvances([]);
@@ -395,12 +397,17 @@ const CreateCreditDebitNote = ({
     );
     const cappedReceived = Math.min(totalAmount, advanceTotal);
     const paymentStatus =
-      cappedReceived <= 0 ? "Unpaid" : cappedReceived >= totalAmount ? "Paid" : "Partial";
+      cappedReceived <= 0
+        ? "Unpaid"
+        : cappedReceived >= totalAmount
+          ? "Paid"
+          : "Partial";
     const latestAdvance = [...appliedAdvances]
       .filter((adv) => toNumber(adv.appliedAmount) > 0)
       .sort(
         (a, b) =>
-          new Date(a.receiptDate || 0).getTime() - new Date(b.receiptDate || 0).getTime(),
+          new Date(a.receiptDate || 0).getTime() -
+          new Date(b.receiptDate || 0).getTime(),
       )
       .pop();
 
@@ -419,7 +426,12 @@ const CreateCreditDebitNote = ({
           ? latestAdvance?.paymentMethod || prev.paymentMethod
           : prev.paymentMethod,
     }));
-  }, [appliedAdvances, formData.noteType, formData.totalAmount, formData.noteDate]);
+  }, [
+    appliedAdvances,
+    formData.noteType,
+    formData.totalAmount,
+    formData.noteDate,
+  ]);
 
   useEffect(() => {
     if (!show || editingRecord || !formData.noteType) return;
@@ -1496,7 +1508,9 @@ const CreateCreditDebitNote = ({
                       </div>
                       <div className="card-body">
                         {isLoadingAdvances ? (
-                          <div className="text-muted small">Loading advances...</div>
+                          <div className="text-muted small">
+                            Loading advances...
+                          </div>
                         ) : availableAdvances.length === 0 ? (
                           <div className="text-muted small">
                             No available advance amount for this client.
@@ -1533,7 +1547,8 @@ const CreateCreditDebitNote = ({
                                                 ...prev,
                                                 {
                                                   advanceId: key,
-                                                  receiptNumber: adv.receiptNumber || "",
+                                                  receiptNumber:
+                                                    adv.receiptNumber || "",
                                                   appliedAmount: toNumber(
                                                     adv.availableAmount,
                                                   ),
@@ -1542,14 +1557,16 @@ const CreateCreditDebitNote = ({
                                                   ),
                                                   paymentMethod:
                                                     adv.paymentMethod || "",
-                                                  receiptDate: adv.receiptDate || "",
+                                                  receiptDate:
+                                                    adv.receiptDate || "",
                                                 },
                                               ]);
                                             } else {
                                               setAppliedAdvances((prev) =>
                                                 prev.filter(
                                                   (item) =>
-                                                    String(item.advanceId) !== key,
+                                                    String(item.advanceId) !==
+                                                    key,
                                                 ),
                                               );
                                             }
@@ -1589,7 +1606,10 @@ const CreateCreditDebitNote = ({
                                             setAppliedAdvances((prev) =>
                                               prev.map((item) =>
                                                 String(item.advanceId) === key
-                                                  ? { ...item, appliedAmount: next }
+                                                  ? {
+                                                      ...item,
+                                                      appliedAmount: next,
+                                                    }
                                                   : item,
                                               ),
                                             );
@@ -1836,10 +1856,10 @@ const CreateCreditDebitNote = ({
                                                   : option === "RTGS"
                                                     ? "🏦 RTGS"
                                                     : option ===
-                                                          "Zoho Payment Gateway"
+                                                        "Zoho Payment Gateway"
                                                       ? "🌐 Zoho Payment Gateway"
                                                       : option ===
-                                                            "Cashfree Payment Gateway"
+                                                          "Cashfree Payment Gateway"
                                                         ? "🌐 Cashfree Payment Gateway"
                                                         : "🌐 PayU Payment Gateway"}
                                     </option>
@@ -1881,7 +1901,9 @@ const CreateCreditDebitNote = ({
                                   onChange={handleInputChange}
                                   disabled={isViewMode}
                                 >
-                                  <option value="">Select Payment Status</option>
+                                  <option value="">
+                                    Select Payment Status
+                                  </option>
                                   {PAYMENT_STATUS_OPTIONS.map((option) => (
                                     <option key={option} value={option}>
                                       {option === "Paid"
@@ -1943,7 +1965,9 @@ const CreateCreditDebitNote = ({
                                   onChange={handleInputChange}
                                   disabled={isViewMode}
                                 >
-                                  <option value="">Select Payment Method</option>
+                                  <option value="">
+                                    Select Payment Method
+                                  </option>
                                   {PAYMENT_METHOD_OPTIONS.map((option) => (
                                     <option key={option} value={option}>
                                       {option === "Cash"
@@ -1961,10 +1985,10 @@ const CreateCreditDebitNote = ({
                                                   : option === "RTGS"
                                                     ? "🏦 RTGS"
                                                     : option ===
-                                                          "Zoho Payment Gateway"
+                                                        "Zoho Payment Gateway"
                                                       ? "🌐 Zoho Payment Gateway"
                                                       : option ===
-                                                            "Cashfree Payment Gateway"
+                                                          "Cashfree Payment Gateway"
                                                         ? "🌐 Cashfree Payment Gateway"
                                                         : "🌐 PayU Payment Gateway"}
                                     </option>

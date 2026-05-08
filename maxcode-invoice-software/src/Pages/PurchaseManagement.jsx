@@ -770,7 +770,7 @@ const PurchaseManagement = () => {
     {
       key: "invoiceFile",
       label: "Invoice File",
-      width: 120,
+      width: 160,
       disableSort: true,
       disableFilter: true,
       render: (_, record) =>
@@ -804,7 +804,7 @@ const PurchaseManagement = () => {
     {
       key: "invoiceLink",
       label: "Invoice Link",
-      width: 120,
+      width: 160,
       disableSort: true,
       disableFilter: true,
       render: (_, record) =>

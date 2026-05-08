@@ -1101,31 +1101,49 @@ export const buildTransactionSnapshot = ({
     sourceRecord,
   );
 
+  const _taxCgst = roundAmount(
+    toNumber(sourceRecord?.taxData?.cgst ?? sourceRecord?.cgst ?? 0),
+  );
+  const _taxSgst = roundAmount(
+    toNumber(sourceRecord?.taxData?.sgst ?? sourceRecord?.sgst ?? 0),
+  );
+  const _taxIgst = roundAmount(
+    toNumber(sourceRecord?.taxData?.igst ?? sourceRecord?.igst ?? 0),
+  );
+  const _explicitTax = _taxCgst + _taxSgst + _taxIgst;
+  const _totalTax = roundAmount(
+    _explicitTax > 0
+      ? _explicitTax
+      : toNumber(
+          sourceRecord?.taxData?.totalTax ?? sourceRecord?.taxAmount ?? 0,
+        ),
+  );
+
+  // Derive CGST/SGST vs IGST split when only totalTax is available
+  let derivedCgst = _taxCgst;
+  let derivedSgst = _taxSgst;
+  let derivedIgst = _taxIgst;
+  if (_explicitTax === 0 && _totalTax > 0) {
+    const placeOfSupply = String(
+      sourceRecord?.placeOfSupply ||
+        sourceRecord?.supplyState ||
+        sourceRecord?.state ||
+        "",
+    ).toLowerCase();
+    const isRajasthan = placeOfSupply.includes("rajasthan");
+    if (isRajasthan) {
+      derivedCgst = roundAmount(_totalTax / 2);
+      derivedSgst = roundAmount(_totalTax / 2);
+    } else {
+      derivedIgst = _totalTax;
+    }
+  }
+
   const taxData = {
-    cgst: roundAmount(
-      toNumber(sourceRecord?.taxData?.cgst || sourceRecord?.cgst || 0),
-    ),
-    sgst: roundAmount(
-      toNumber(sourceRecord?.taxData?.sgst || sourceRecord?.sgst || 0),
-    ),
-    igst: roundAmount(
-      toNumber(sourceRecord?.taxData?.igst || sourceRecord?.igst || 0),
-    ),
-    totalTax: roundAmount(
-      toNumber(
-        sourceRecord?.taxData?.totalTax ||
-          sourceRecord?.taxAmount ||
-          roundAmount(
-            toNumber(sourceRecord?.taxData?.cgst || sourceRecord?.cgst || 0),
-          ) +
-            roundAmount(
-              toNumber(sourceRecord?.taxData?.sgst || sourceRecord?.sgst || 0),
-            ) +
-            roundAmount(
-              toNumber(sourceRecord?.taxData?.igst || sourceRecord?.igst || 0),
-            ),
-      ),
-    ),
+    cgst: derivedCgst,
+    sgst: derivedSgst,
+    igst: derivedIgst,
+    totalTax: _totalTax,
   };
 
   const inventoryValue = roundAmount(
@@ -1197,18 +1215,18 @@ export const syncTransactionSnapshot = async ({
 
   const sourceKey = `${sourceCollection}:${sourceId}`;
 
-  await transactionsCollection.updateMany(
-    { sourceKey, isDeleted: { $ne: true } },
-    {
-      $set: {
-        isDeleted: true,
-        deletedAt: new Date(),
-        updatedAt: new Date(),
-      },
-    },
-  );
-
   if (deleted) {
+    // Soft delete: mark existing active record(s) as deleted
+    await transactionsCollection.updateMany(
+      { sourceKey, isDeleted: { $ne: true } },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
+    );
     return null;
   }
 
@@ -1220,8 +1238,23 @@ export const syncTransactionSnapshot = async ({
     operation: "upsert",
   });
 
-  const result = await transactionsCollection.insertOne(snapshot);
-  return result.insertedId;
+  // Exclude createdAt from $set so it is only written on insert, not overwritten on update
+  const { createdAt, isDeleted, deletedAt, ...updateFields } = snapshot;
+
+  const result = await transactionsCollection.updateOne(
+    { sourceKey, isDeleted: { $ne: true } },
+    {
+      $set: { ...updateFields, updatedAt: new Date() },
+      $setOnInsert: {
+        createdAt: new Date(),
+        isDeleted: false,
+        deletedAt: null,
+      },
+    },
+    { upsert: true },
+  );
+
+  return result.upsertedId ?? (result.modifiedCount > 0 ? sourceKey : null);
 };
 
 export const parseTransactionLine = (line = {}) => ({

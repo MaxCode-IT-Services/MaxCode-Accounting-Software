@@ -1012,6 +1012,7 @@ const CreditDebitNotesManagement = () => {
           show={showNotePreview}
           onClose={closeNotePreview}
           id={notePreviewRecord?._id || notePreviewRecord?.id}
+          noteData={notePreviewRecord}
         />
       </div>
     </>
