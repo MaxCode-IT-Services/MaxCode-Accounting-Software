@@ -977,8 +977,6 @@ const SalesManagement = () => {
     "invoiceDateFormatted",
     "businessName",
     "totalAmount",
-    "totalReceivedAmount",
-    "totalDueAmount",
     "paymentStatus",
     "action",
   ];

@@ -208,6 +208,54 @@ const buildGstOutputLines = (
   return lines;
 };
 
+const balanceLines = (lines = [], preferredAccountHeads = []) => {
+  if (!Array.isArray(lines) || lines.length === 0) return lines;
+
+  const debitTotal = roundAmount(
+    lines.reduce((sum, line) => sum + toNumber(line?.debit || 0), 0),
+  );
+  const creditTotal = roundAmount(
+    lines.reduce((sum, line) => sum + toNumber(line?.credit || 0), 0),
+  );
+  const diff = roundAmount(debitTotal - creditTotal);
+
+  if (Math.abs(diff) < 0.01 || Math.abs(diff) > 0.05) {
+    return lines;
+  }
+
+  const sideToAdjust = diff > 0 ? "credit" : "debit";
+  const adjustment = roundAmount(Math.abs(diff));
+  const candidates = lines.filter(
+    (line) => toNumber(line?.[sideToAdjust] || 0) > 0,
+  );
+
+  if (candidates.length === 0) return lines;
+
+  const preferredLine = preferredAccountHeads
+    .map((accountHead) =>
+      candidates.find(
+        (line) => String(line?.accountHead || "") === accountHead,
+      ),
+    )
+    .find(Boolean);
+
+  const targetLine =
+    preferredLine ||
+    candidates.reduce((largest, current) => {
+      const currentAmount = toNumber(current?.[sideToAdjust] || 0);
+      const largestAmount = toNumber(largest?.[sideToAdjust] || 0);
+      return currentAmount >= largestAmount ? current : largest;
+    });
+
+  if (!targetLine) return lines;
+
+  targetLine[sideToAdjust] = roundAmount(
+    toNumber(targetLine?.[sideToAdjust] || 0) + adjustment,
+  );
+
+  return lines;
+};
+
 const pickFields = (record = {}, fields = []) => {
   const out = {};
   for (const field of fields) {
@@ -243,6 +291,10 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
     "serviceProviderBusinessName",
     "staffName",
     "clientName",
+    "gstin",
+    "createdBy",
+    "updatedBy",
+    "deletedBy",
     "paymentMethod",
     "paymentStatus",
     "paymentSource",
@@ -278,6 +330,9 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
         toNumber(sourceRecord.taxData.totalAmount || sourceRecord.amount || 0),
       ),
       subtotal: roundAmount(toNumber(sourceRecord.taxData.subtotal || 0)),
+      taxPercentage: roundAmount(
+        toNumber(sourceRecord.taxData.taxPercentage || 0),
+      ),
     };
   }
 
@@ -430,7 +485,7 @@ const buildLinesForInvoice = (record = {}) => {
 
   lines.push(...buildGstOutputLines({ cgst, sgst, igst }));
 
-  return lines;
+  return balanceLines(lines, ["Sales Account", "Sundry Debtors Account"]);
 };
 
 const buildLinesForPurchase = (record = {}) => {
@@ -496,7 +551,7 @@ const buildLinesForPurchase = (record = {}) => {
     });
   }
 
-  return lines;
+  return balanceLines(lines, ["Purchase Account", "Sundry Creditors Account"]);
 };
 
 const buildLinesForExpense = (record = {}) => {
@@ -545,7 +600,10 @@ const buildLinesForExpense = (record = {}) => {
     });
   }
 
-  return lines;
+  return balanceLines(lines, [
+    "Company Expense Account",
+    "Sundry Creditors Account",
+  ]);
 };
 
 const buildLinesForReceipt = (record = {}) => {
@@ -594,7 +652,10 @@ const buildLinesForReceipt = (record = {}) => {
     });
   }
 
-  return lines;
+  return balanceLines(lines, [
+    "Advance from Customer",
+    "Sundry Debtors Account",
+  ]);
 };
 
 const buildLinesForCreditDebitNote = (record = {}) => {
@@ -664,7 +725,10 @@ const buildLinesForCreditDebitNote = (record = {}) => {
       });
     }
 
-    return lines;
+    return balanceLines(lines, [
+      "Sales Return / Adjustment Account",
+      "Credit Note Payable",
+    ]);
   }
 
   const receivedAmount = roundAmount(Math.min(paidAmount, totalAmount));
@@ -701,7 +765,7 @@ const buildLinesForCreditDebitNote = (record = {}) => {
     lines.push(...buildGstOutputLines({ cgst, sgst, igst }));
   }
 
-  return lines;
+  return balanceLines(lines, ["Sales Account", "Sundry Debtors Account"]);
 };
 
 const buildLinesForRcm = (record = {}) => {
@@ -851,7 +915,7 @@ const buildLinesForRcm = (record = {}) => {
     });
   }
 
-  return lines;
+  return balanceLines(lines, ["Purchase Account", "Sundry Creditors Account"]);
 };
 
 const buildLinesForOwnerInvestment = (record = {}) => {
@@ -866,7 +930,7 @@ const buildLinesForOwnerInvestment = (record = {}) => {
     "Bank Account",
   );
 
-  return [
+  return balanceLines([
     {
       accountHead,
       accountType: "Asset",
@@ -879,7 +943,7 @@ const buildLinesForOwnerInvestment = (record = {}) => {
       debit: 0,
       credit: receivedAmount,
     },
-  ];
+  ]);
 };
 
 const buildLinesForProject = (record = {}) => {
@@ -913,20 +977,23 @@ const buildLinesForProject = (record = {}) => {
     Object.values(paymentBuckets).reduce((sum, row) => sum + row.amount, 0),
   );
 
-  return [
-    {
-      accountHead: "Project Cost Account",
-      accountType: "Expense",
-      debit: totalAmount,
-      credit: 0,
-    },
-    ...Object.values(paymentBuckets).map((row) => ({
-      accountHead: row.accountHead,
-      accountType: row.accountType,
-      debit: 0,
-      credit: row.amount,
-    })),
-  ];
+  return balanceLines(
+    [
+      {
+        accountHead: "Project Cost Account",
+        accountType: "Expense",
+        debit: totalAmount,
+        credit: 0,
+      },
+      ...Object.values(paymentBuckets).map((row) => ({
+        accountHead: row.accountHead,
+        accountType: row.accountType,
+        debit: 0,
+        credit: row.amount,
+      })),
+    ],
+    ["Project Cost Account"],
+  );
 };
 
 const buildLines = (sourceType, sourceRecord) => {
@@ -1099,6 +1166,7 @@ export const buildTransactionSnapshot = ({
       sourceRecord?.staffName ||
       sourceRecord?.clientName ||
       "",
+    createdBy: sourceRecord?.createdBy || "",
     paymentMethod: normalizePaymentMethod(
       sourceRecord?.paymentMethod ||
         sourceRecord?.refundMethod ||

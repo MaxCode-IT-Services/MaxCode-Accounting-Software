@@ -625,6 +625,12 @@ const BooksOfAccounts = () => {
       return {
         id: item.id || item._id,
         type: item.recordType || item.type,
+        createdBy:
+          item.createdBy ||
+          item.createdByName ||
+          item.creatorName ||
+          item.createdByUserName ||
+          "-",
         period: getPeriodDisplay(item.invoiceDate, financialPeriodMode),
         date: formatDateForDisplay(item.invoiceDate),
         dateTime: formatDateTimeForDisplay(item.invoiceDate),
@@ -896,6 +902,12 @@ const BooksOfAccounts = () => {
     return {
       id: `${entry.sourceType}-${record.id || record._id}`,
       type: entry.type,
+      createdBy:
+        record?.createdBy ||
+        record?.createdByName ||
+        record?.creatorName ||
+        record?.createdByUserName ||
+        "-",
       period: getPeriodDisplay(record.invoiceDate, financialPeriodMode),
       date: formatDateForDisplay(record.invoiceDate),
       dateTime: formatDateTimeForDisplay(record.invoiceDate),
@@ -1460,8 +1472,8 @@ const BooksOfAccounts = () => {
       </div>
 
       <ReusableTable
-          ensureCreatedByColumn={true}
-          createdByLabel="Created By"
+        ensureCreatedByColumn={true}
+        createdByLabel="Created By"
         moduleKey={moduleKey}
         columns={columns}
         data={tableData}

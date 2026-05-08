@@ -1,491 +1,567 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
-import { ObjectId } from "mongodb";
 import { verifyRequestToken } from "./utils/auth.js";
+import { normalizeTransactionSnapshot } from "./utils/transactions.js";
 
-/**
- * Books of Accounts API
- * Provides combined ledger data from multiple collections with pagination
- * Requires JWT authentication
- */
+const toNumber = (value) => {
+  const num = parseFloat(value);
+  return Number.isNaN(num) ? 0 : num;
+};
+
+const round2 = (value) => Math.round(toNumber(value) * 100) / 100;
+
+const escapeRegExp = (value) =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const parseDateValue = (value) => {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const direct = new Date(raw);
+  if (!Number.isNaN(direct.getTime())) return direct;
+
+  const dashMatch = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (dashMatch) {
+    const parsed = new Date(
+      Number(dashMatch[3]),
+      Number(dashMatch[2]) - 1,
+      Number(dashMatch[1]),
+    );
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const parsed = new Date(
+      Number(slashMatch[3]),
+      Number(slashMatch[2]) - 1,
+      Number(slashMatch[1]),
+    );
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  return null;
+};
+
+const getOpeningBalance = (yearRecord, keys) => {
+  if (!yearRecord) return 0;
+
+  const value = keys.reduce((found, key) => {
+    if (found !== null) return found;
+    const candidate = yearRecord?.[key];
+    return candidate !== undefined && candidate !== null ? candidate : null;
+  }, null);
+
+  return value !== null ? toNumber(value) : 0;
+};
+
+const getTaxAmount = (record = {}) => {
+  const taxData = record?.taxData || {};
+  const cgst = toNumber(taxData.cgst || 0);
+  const sgst = toNumber(taxData.sgst || 0);
+  const igst = toNumber(taxData.igst || 0);
+  const explicitTax = cgst + sgst + igst;
+
+  if (explicitTax > 0) return round2(explicitTax);
+
+  const totalAmount = toNumber(taxData.totalAmount || record?.amount || 0);
+  const taxableAmount = toNumber(
+    taxData.taxableAmount || taxData.subtotal || record?.amount || 0,
+  );
+
+  return round2(Math.max(totalAmount - taxableAmount, 0));
+};
+
+const getStandardSourceType = (sourceType = "") => {
+  switch (
+    String(sourceType || "")
+      .trim()
+      .toLowerCase()
+  ) {
+    case "invoice":
+      return "sales";
+    case "purchase":
+      return "purchase";
+    case "company-expense":
+      return "companyExpense";
+    case "rcm":
+      return "rcm";
+    case "project":
+      return "project";
+    default:
+      return String(sourceType || "").trim();
+  }
+};
+
+const getRecordType = (sourceType = "") => {
+  switch (sourceType) {
+    case "sales":
+      return "Sales";
+    case "purchase":
+      return "Purchase";
+    case "companyExpense":
+      return "Company Expense";
+    case "rcm":
+      return "RCM";
+    case "project":
+      return "Developer Payout";
+    default:
+      return sourceType;
+  }
+};
+
+const buildBaseRecord = (transaction = {}, overrides = {}) => {
+  const sourceRecord =
+    transaction?.sourceRecord && typeof transaction.sourceRecord === "object"
+      ? transaction.sourceRecord
+      : {};
+  const sourceTaxData =
+    sourceRecord?.taxData && typeof sourceRecord.taxData === "object"
+      ? sourceRecord.taxData
+      : {};
+  const sourceType =
+    overrides.sourceType || getStandardSourceType(transaction.sourceType);
+
+  return {
+    id: overrides.id || transaction.sourceId,
+    sourceType,
+    recordType: overrides.recordType || getRecordType(sourceType),
+    invoiceNumber:
+      overrides.invoiceNumber ||
+      sourceRecord.invoiceNumber ||
+      sourceRecord.receiptNumber ||
+      sourceRecord.projectId ||
+      transaction.sourceLabel ||
+      "",
+    expenseNumber: overrides.expenseNumber || sourceRecord.expenseNumber || "",
+    selfInvoiceNumber:
+      overrides.selfInvoiceNumber || sourceRecord.selfInvoiceNumber || "",
+    originalRefNo: overrides.originalRefNo || sourceRecord.originalRefNo || "",
+    businessName: overrides.businessName || sourceRecord.businessName || "",
+    partyName: overrides.partyName || sourceRecord.partyName || "",
+    vendorName: overrides.vendorName || sourceRecord.vendorName || "",
+    serviceProviderBusinessName:
+      overrides.serviceProviderBusinessName ||
+      sourceRecord.serviceProviderBusinessName ||
+      "",
+    staffName: overrides.staffName || sourceRecord.staffName || "",
+    gstin: overrides.gstin || sourceRecord.gstin || "-",
+    invoiceDate:
+      overrides.invoiceDate ||
+      sourceRecord.invoiceDate ||
+      sourceRecord.noteDate ||
+      sourceRecord.expenseDate ||
+      sourceRecord.receiptDate ||
+      sourceRecord.projectDate ||
+      sourceRecord.fundDate ||
+      transaction.transactionDate ||
+      "",
+    paymentMethod:
+      overrides.paymentMethod ||
+      sourceRecord.paymentMethod ||
+      transaction.paymentMethod ||
+      "",
+    paymentStatus:
+      overrides.paymentStatus || sourceRecord.paymentStatus || "Unpaid",
+    invoiceType: overrides.invoiceType || sourceRecord.invoiceType || "-",
+    amount:
+      overrides.amount !== undefined
+        ? round2(overrides.amount)
+        : round2(sourceTaxData.totalAmount || transaction.amount || 0),
+    amountPaid:
+      overrides.amountPaid !== undefined
+        ? round2(overrides.amountPaid)
+        : round2(
+            sourceRecord.amountPaid ||
+              sourceRecord.paidAmount ||
+              sourceRecord.amountReceived ||
+              sourceRecord.receivedAmount ||
+              0,
+          ),
+    amountReceived:
+      overrides.amountReceived !== undefined
+        ? round2(overrides.amountReceived)
+        : round2(
+            sourceRecord.amountReceived ||
+              sourceRecord.receivedAmount ||
+              sourceRecord.amountPaid ||
+              sourceRecord.paidAmount ||
+              0,
+          ),
+    createdBy:
+      overrides.createdBy ||
+      sourceRecord.createdBy ||
+      transaction.createdBy ||
+      "",
+    taxData: {
+      taxableAmount: round2(
+        overrides.taxableAmount ??
+          sourceTaxData.taxableAmount ??
+          sourceTaxData.subtotal ??
+          0,
+      ),
+      subtotal: round2(
+        overrides.subtotal ??
+          sourceTaxData.subtotal ??
+          sourceTaxData.taxableAmount ??
+          0,
+      ),
+      totalAmount: round2(
+        overrides.totalAmount ??
+          sourceTaxData.totalAmount ??
+          transaction.amount ??
+          0,
+      ),
+      cgst: round2(
+        overrides.cgst ?? sourceTaxData.cgst ?? transaction.taxData?.cgst ?? 0,
+      ),
+      sgst: round2(
+        overrides.sgst ?? sourceTaxData.sgst ?? transaction.taxData?.sgst ?? 0,
+      ),
+      igst: round2(
+        overrides.igst ?? sourceTaxData.igst ?? transaction.taxData?.igst ?? 0,
+      ),
+      taxPercentage: round2(
+        overrides.taxPercentage ?? sourceTaxData.taxPercentage ?? 0,
+      ),
+    },
+  };
+};
+
+const buildProjectRecords = (transaction = {}) => {
+  const sourceRecord =
+    transaction?.sourceRecord && typeof transaction.sourceRecord === "object"
+      ? transaction.sourceRecord
+      : {};
+  const projectName = sourceRecord.projectName || transaction.partyName || "";
+  const projectId = sourceRecord.projectId || transaction.sourceLabel || "";
+  const createdBy = sourceRecord.createdBy || transaction.createdBy || "";
+  const developerTransactions = Array.isArray(
+    sourceRecord.developerTransactions,
+  )
+    ? sourceRecord.developerTransactions
+    : [];
+
+  if (developerTransactions.length === 0) {
+    return [
+      buildBaseRecord(transaction, {
+        sourceType: "project",
+        recordType: "Developer Payout",
+        invoiceNumber: projectId,
+        businessName: projectName,
+        invoiceDate: sourceRecord.projectDate || transaction.transactionDate,
+        paymentMethod: sourceRecord.paymentMethod || transaction.paymentMethod,
+        paymentStatus: "Paid",
+        amount: transaction.amount,
+        amountPaid: transaction.amount,
+        amountReceived: transaction.amount,
+        totalAmount: transaction.amount,
+        taxableAmount: transaction.amount,
+        subtotal: transaction.amount,
+        createdBy,
+      }),
+    ];
+  }
+
+  return developerTransactions.map((row = {}, index) => {
+    const payoutAmount = round2(row.payoutAmount || 0);
+    return buildBaseRecord(transaction, {
+      id: `${transaction.sourceId}-${index + 1}`,
+      sourceType: "project",
+      recordType: "Developer Payout",
+      invoiceNumber: projectId,
+      businessName: row.staffName || projectName,
+      staffName: row.staffName || "",
+      invoiceDate:
+        row.payoutDate ||
+        row.paymentDate ||
+        sourceRecord.projectDate ||
+        transaction.transactionDate,
+      paymentMethod:
+        row.payoutMethod || transaction.paymentMethod || "Bank Transfer",
+      paymentStatus: "Paid",
+      amount: payoutAmount,
+      amountPaid: payoutAmount,
+      amountReceived: payoutAmount,
+      totalAmount: payoutAmount,
+      taxableAmount: payoutAmount,
+      subtotal: payoutAmount,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      taxPercentage: 0,
+      createdBy,
+    });
+  });
+};
+
+const buildRecordsFromTransactions = (transactions = []) => {
+  return transactions.flatMap((transaction) => {
+    const sourceType = getStandardSourceType(transaction.sourceType);
+
+    if (sourceType === "project") {
+      return buildProjectRecords(transaction);
+    }
+
+    return [
+      buildBaseRecord(transaction, {
+        sourceType,
+        recordType: getRecordType(sourceType),
+        invoiceNumber:
+          sourceType === "sales" || sourceType === "purchase"
+            ? transaction.sourceLabel
+            : undefined,
+        expenseNumber:
+          sourceType === "companyExpense" ? transaction.sourceLabel : undefined,
+        selfInvoiceNumber:
+          sourceType === "rcm" ? transaction.sourceLabel : undefined,
+        invoiceDate:
+          sourceType === "companyExpense"
+            ? transaction.sourceRecord?.expenseDate ||
+              transaction.transactionDate
+            : undefined,
+        amount:
+          sourceType === "rcm"
+            ? transaction.sourceRecord?.taxData?.totalAmount ||
+              transaction.sourceRecord?.amount ||
+              transaction.amount
+            : undefined,
+      }),
+    ];
+  });
+};
+
+const getComparableFieldValue = (record, key) => {
+  switch (key) {
+    case "type":
+      return record.recordType || "";
+    case "paymentMode":
+      return record.paymentMethod || "";
+    case "paid":
+      return record.paymentStatus || "";
+    case "invoiceNo":
+      return (
+        record.invoiceNumber ||
+        record.expenseNumber ||
+        record.selfInvoiceNumber ||
+        record.originalRefNo ||
+        ""
+      );
+    case "clientSecondary":
+      return (
+        record.businessName ||
+        record.partyName ||
+        record.vendorName ||
+        record.serviceProviderBusinessName ||
+        record.staffName ||
+        ""
+      );
+    case "date":
+    case "dateTime":
+    case "invoiceDate":
+      return record.invoiceDate || "";
+    default:
+      return record[key];
+  }
+};
+
+const applyPeriodFilter = (records, period) => {
+  if (!period || period === "yearly") return records;
+
+  const today = new Date();
+  let rangeStart = null;
+  let rangeEnd = null;
+
+  if (period === "daily") {
+    rangeStart = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    );
+    rangeEnd = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+      23,
+      59,
+      59,
+      999,
+    );
+  } else if (period === "monthly") {
+    rangeStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    rangeEnd = new Date(
+      today.getFullYear(),
+      today.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+  } else if (period === "quarterly") {
+    const quarter = Math.floor(today.getMonth() / 3);
+    rangeStart = new Date(today.getFullYear(), quarter * 3, 1);
+    rangeEnd = new Date(
+      today.getFullYear(),
+      quarter * 3 + 3,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+  } else if (period === "halfYearly") {
+    const halfStartMonth = today.getMonth() < 6 ? 0 : 6;
+    rangeStart = new Date(today.getFullYear(), halfStartMonth, 1);
+    rangeEnd = new Date(
+      today.getFullYear(),
+      halfStartMonth + 6,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  if (!rangeStart || !rangeEnd) return records;
+
+  return records.filter((record) => {
+    const recordDate = parseDateValue(record.invoiceDate);
+    return Boolean(
+      recordDate && recordDate >= rangeStart && recordDate <= rangeEnd,
+    );
+  });
+};
+
 export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
-  // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
     return createResponse(200, {}, origin);
   }
 
   try {
-    // Verify JWT token
-    const user = verifyRequestToken(event);
+    verifyRequestToken(event);
+
+    if (event.httpMethod !== "GET") {
+      return createResponse(405, { error: "Method not allowed" }, origin);
+    }
 
     const { db } = await connectToDatabase();
-    const salesCollection = db.collection("invoices");
-    const purchasesCollection = db.collection("purchases");
-    const companyExpensesCollection = db.collection("company_expenses");
-    const rcmCollection = db.collection("rcm");
-    const projectsCollection = db.collection("projects");
+    const transactionsCollection = db.collection("transactions");
     const yearsCollection = db.collection("financialYears");
+    const params = event.queryStringParameters || {};
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      financialYear = "ALL",
+      period,
+      recordType,
+      date_start,
+      date_end,
+      sortBy = "invoiceDate",
+      sortOrder = "desc",
+    } = params;
 
-    const escapeRegExp = (value) => {
-      return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const limitNum = Math.max(parseInt(limit, 10) || 10, 1);
+    const skip = (pageNum - 1) * limitNum;
+
+    const query = {
+      isDeleted: { $ne: true },
+      sourceType: {
+        $in: ["invoice", "purchase", "company-expense", "rcm", "project"],
+      },
     };
 
-    const toNumber = (value) => {
-      const num = parseFloat(value);
-      return Number.isNaN(num) ? 0 : num;
-    };
+    if (financialYear && financialYear !== "ALL") {
+      query.financialYear = String(financialYear).trim();
+    }
 
-    const getTaxAmount = (record) => {
-      const taxData = record?.taxData || {};
-      const cgst = toNumber(taxData.cgst || 0);
-      const sgst = toNumber(taxData.sgst || 0);
-      const igst = toNumber(taxData.igst || 0);
-      const explicitTax = cgst + sgst + igst;
+    const transactions = await transactionsCollection.find(query).toArray();
+    const normalizedTransactions = transactions.map(
+      normalizeTransactionSnapshot,
+    );
+    const allRecords = buildRecordsFromTransactions(normalizedTransactions);
 
-      if (explicitTax > 0) return explicitTax;
+    let filteredRecords = [...allRecords];
 
-      const totalAmount = toNumber(taxData.totalAmount || 0);
-      const taxableAmount = toNumber(
-        taxData.taxableAmount || taxData.subtotal || 0,
+    if (recordType && recordType !== "all") {
+      filteredRecords = filteredRecords.filter(
+        (record) => record.sourceType === recordType,
       );
-      return Math.max(totalAmount - taxableAmount, 0);
-    };
+    }
 
-    const getOpeningBalance = (yearRecord, keys) => {
-      if (!yearRecord) return 0;
+    filteredRecords = applyPeriodFilter(filteredRecords, period);
 
-      const value = keys.reduce((found, key) => {
-        if (found !== null) return found;
-        const candidate = yearRecord?.[key];
-        return candidate !== undefined && candidate !== null ? candidate : null;
-      }, null);
+    if (date_start || date_end) {
+      const startDate = parseDateValue(date_start);
+      const endDate = parseDateValue(date_end);
+      if (endDate) endDate.setHours(23, 59, 59, 999);
 
-      return value !== null ? toNumber(value) : 0;
-    };
+      filteredRecords = filteredRecords.filter((record) => {
+        const recordDate = parseDateValue(record.invoiceDate);
+        if (!recordDate) return false;
+        if (startDate && recordDate < startDate) return false;
+        if (endDate && recordDate > endDate) return false;
+        return true;
+      });
+    }
 
-    // GET - Fetch paginated ledger data
-    if (event.httpMethod === "GET") {
-      const params = event.queryStringParameters || {};
-      const {
-        page = 1,
-        limit = 10,
-        search,
-        financialYear,
-        period,
-        recordType,
-        date_start,
-        date_end,
-        sortBy = "invoiceDate",
-        sortOrder = "desc",
-      } = params;
+    if (search) {
+      const searchRegex = new RegExp(escapeRegExp(String(search).trim()), "i");
+      filteredRecords = filteredRecords.filter((record) => {
+        const searchableValues = [
+          getComparableFieldValue(record, "invoiceNo"),
+          getComparableFieldValue(record, "clientSecondary"),
+          getComparableFieldValue(record, "type"),
+          getComparableFieldValue(record, "paymentMode"),
+          getComparableFieldValue(record, "paid"),
+          record.gstin || "",
+          record.createdBy || "",
+          record.sourceType || "",
+        ];
 
-      const pageNum = parseInt(page);
-      const limitNum = parseInt(limit);
-      const skip = (pageNum - 1) * limitNum;
-
-      // Build date range filter
-      let dateFilter = {};
-      if (date_start || date_end) {
-        dateFilter = {};
-        if (date_start) {
-          dateFilter.$gte = date_start;
-        }
-        if (date_end) {
-          dateFilter.$lte = date_end;
-        }
-      }
-
-      // Get financial year range if selected
-      let yearStartDate = null;
-      let yearEndDate = null;
-      if (financialYear && financialYear !== "ALL") {
-        const yearRecord = await yearsCollection.findOne({
-          financialYear: financialYear,
-          isDeleted: { $ne: true },
-        });
-        if (yearRecord?.startDate && yearRecord?.endDate) {
-          yearStartDate = yearRecord.startDate;
-          yearEndDate = yearRecord.endDate;
-        }
-      }
-
-      // Period filter
-      let periodStartDate = null;
-      let periodEndDate = null;
-      if (period && period !== "yearly") {
-        const today = new Date();
-
-        if (period === "daily") {
-          const start = new Date(today.setHours(0, 0, 0, 0));
-          const end = new Date(today.setHours(23, 59, 59, 999));
-          periodStartDate = start.toISOString().split("T")[0];
-          periodEndDate = end.toISOString().split("T")[0];
-        } else if (period === "monthly") {
-          const start = new Date(today.getFullYear(), today.getMonth(), 1);
-          const end = new Date(
-            today.getFullYear(),
-            today.getMonth() + 1,
-            0,
-            23,
-            59,
-            59,
-            999,
-          );
-          periodStartDate = start.toISOString().split("T")[0];
-          periodEndDate = end.toISOString().split("T")[0];
-        } else if (period === "quarterly") {
-          const quarter = Math.floor(today.getMonth() / 3);
-          const start = new Date(today.getFullYear(), quarter * 3, 1);
-          const end = new Date(
-            today.getFullYear(),
-            (quarter + 1) * 3,
-            0,
-            23,
-            59,
-            59,
-            999,
-          );
-          periodStartDate = start.toISOString().split("T")[0];
-          periodEndDate = end.toISOString().split("T")[0];
-        } else if (period === "halfYearly") {
-          const half = today.getMonth() < 6 ? 0 : 6;
-          const start = new Date(today.getFullYear(), half, 1);
-          const end = new Date(
-            today.getFullYear(),
-            half + 6,
-            0,
-            23,
-            59,
-            59,
-            999,
-          );
-          periodStartDate = start.toISOString().split("T")[0];
-          periodEndDate = end.toISOString().split("T")[0];
-        }
-      }
-
-      // Build search query for source collections (base pre-filter)
-      let searchQuery = {};
-      if (search) {
-        const searchRegex = { $regex: escapeRegExp(search), $options: "i" };
-        searchQuery = {
-          $or: [
-            { invoiceNumber: searchRegex },
-            { expenseNumber: searchRegex },
-            { selfInvoiceNumber: searchRegex },
-            { businessName: searchRegex },
-            { partyName: searchRegex },
-            { vendorName: searchRegex },
-            { serviceProviderBusinessName: searchRegex },
-            { staffName: searchRegex },
-            { projectName: searchRegex },
-          ],
-        };
-      }
-
-      // Fetch data from all collections
-      const allRecords = [];
-
-      // Helper function to fetch from a collection
-      const fetchFromCollection = async (
-        collection,
-        type,
-        mapFn,
-        baseQuery = {},
-      ) => {
-        let query = {
-          isDeleted: { $ne: true },
-          ...baseQuery,
-          ...searchQuery,
-        };
-
-        // Apply date filters
-        const dateField =
-          type === "Company Expense" ? "expenseDate" : "invoiceDate";
-
-        if (yearStartDate || yearEndDate || periodStartDate || periodEndDate) {
-          query[dateField] = query[dateField] || {};
-          // For accounting correctness, when a financial year is selected,
-          // we include all transactions up to the end date (cumulative)
-          // Opening balances from previous years are handled separately
-          if (yearEndDate) query[dateField].$lte = yearEndDate;
-          // Note: We don't apply yearStartDate as lower bound for cumulative filtering
-          // Only apply period-based bounds for period filters
-          if (periodStartDate) query[dateField].$gte = periodStartDate;
-          if (periodEndDate) query[dateField].$lte = periodEndDate;
-        }
-
-        // Apply date range filter
-        if (Object.keys(dateFilter).length > 0) {
-          query[dateField] = { ...query[dateField], ...dateFilter };
-        }
-
-        // Apply record type filter
-        if (recordType && recordType !== "all") {
-          if (type === "Sales" && recordType !== "sales") return [];
-          if (type === "Purchase" && recordType !== "purchase") return [];
-          if (type === "Company Expense" && recordType !== "companyExpense")
-            return [];
-          if (type === "RCM" && recordType !== "rcm") return [];
-        }
-
-        const records = await collection.find(query).toArray();
-        return records.map(mapFn);
-      };
-
-      // Fetch Sales
-      if (!recordType || recordType === "all" || recordType === "sales") {
-        const salesRecords = await fetchFromCollection(
-          salesCollection,
-          "Sales",
-          (record) => ({
-            id: record._id,
-            sourceType: "sales",
-            recordType: "Sales",
-            invoiceNumber: record.invoiceNumber,
-            businessName: record.businessName,
-            gstin: record.gstin,
-            invoiceDate: record.invoiceDate,
-            paymentMethod: record.paymentMethod,
-            paymentStatus: record.paymentStatus,
-            taxData: record.taxData,
-            amount: record.amount,
-            amountReceived: record.amountReceived,
-          }),
+        return searchableValues.some((value) =>
+          searchRegex.test(String(value || "")),
         );
-        allRecords.push(...salesRecords);
-      }
+      });
+    }
 
-      // Fetch Purchases
-      if (!recordType || recordType === "all" || recordType === "purchase") {
-        const purchaseRecords = await fetchFromCollection(
-          purchasesCollection,
-          "Purchase",
-          (record) => ({
-            id: record._id,
-            sourceType: "purchase",
-            recordType: "Purchase",
-            invoiceNumber: record.invoiceNumber,
-            businessName: record.businessName,
-            gstin: record.gstin,
-            invoiceDate: record.invoiceDate,
-            paymentMethod: record.paymentMethod,
-            paymentStatus: record.paymentStatus,
-            taxData: record.taxData,
-            amount: record.amount,
-            amountPaid: record.amountPaid,
-          }),
+    const reservedParamKeys = new Set([
+      "page",
+      "limit",
+      "sortBy",
+      "sortOrder",
+      "search",
+      "financialYear",
+      "period",
+      "recordType",
+    ]);
+    const dropdownFilterKeys = new Set([
+      "type",
+      "paymentMode",
+      "paid",
+      "gstin",
+      "createdByDisplay",
+    ]);
+
+    Object.entries(params)
+      .filter(([key, value]) => {
+        if (reservedParamKeys.has(key)) return false;
+        if (key.endsWith("_start") || key.endsWith("_end")) return false;
+        return !(
+          value === undefined ||
+          value === null ||
+          value === "" ||
+          value === "All"
         );
-        allRecords.push(...purchaseRecords);
-      }
-
-      // Fetch Company Expenses
-      if (
-        !recordType ||
-        recordType === "all" ||
-        recordType === "companyExpense"
-      ) {
-        const expenseRecords = await fetchFromCollection(
-          companyExpensesCollection,
-          "Company Expense",
-          (record) => ({
-            id: record._id,
-            sourceType: "companyExpense",
-            recordType: "Company Expense",
-            expenseNumber: record.expenseNumber,
-            partyName: record.partyName,
-            businessName: record.businessName,
-            gstin: record.gstin,
-            invoiceDate: record.expenseDate,
-            paymentMethod: record.paymentMethod,
-            paymentStatus: record.paymentStatus,
-            taxData: record.taxData,
-            amount: record.amount,
-            amountReceived: record.amountReceived,
-          }),
-        );
-        allRecords.push(...expenseRecords);
-      }
-
-      // Fetch RCM
-      if (!recordType || recordType === "all" || recordType === "rcm") {
-        const rcmRecords = await fetchFromCollection(
-          rcmCollection,
-          "RCM",
-          (record) => ({
-            id: record._id,
-            sourceType: "rcm",
-            recordType: "RCM",
-            selfInvoiceNumber: record.selfInvoiceNumber,
-            originalRefNo: record.originalRefNo,
-            serviceProviderBusinessName: record.serviceProviderBusinessName,
-            gstin: record.gstin,
-            invoiceDate: record.invoiceDate,
-            paymentMethod: record.paymentMethod,
-            paymentStatus: record.paymentStatus,
-            taxData: record.taxData,
-            amount: record.amount,
-            amountPaid: record.amountPaid,
-          }),
-        );
-        allRecords.push(...rcmRecords);
-      }
-
-      // Fetch Projects (Developer Payouts)
-      if (!recordType || recordType === "all" || recordType === "project") {
-        let projectQuery = { isDeleted: { $ne: true }, ...searchQuery };
-
-        if (yearStartDate || yearEndDate || periodStartDate || periodEndDate) {
-          projectQuery.projectDate = projectQuery.projectDate || {};
-          if (yearStartDate) projectQuery.projectDate.$gte = yearStartDate;
-          if (yearEndDate) projectQuery.projectDate.$lte = yearEndDate;
-          if (periodStartDate) projectQuery.projectDate.$gte = periodStartDate;
-          if (periodEndDate) projectQuery.projectDate.$lte = periodEndDate;
-        }
-
-        if (Object.keys(dateFilter).length > 0) {
-          projectQuery.projectDate = {
-            ...projectQuery.projectDate,
-            ...dateFilter,
-          };
-        }
-
-        const projects = await projectsCollection.find(projectQuery).toArray();
-
-        projects.forEach((project) => {
-          const transactions = Array.isArray(project.developerTransactions)
-            ? project.developerTransactions
-            : [];
-
-          transactions.forEach((transaction, index) => {
-            const payoutAmount = toNumber(transaction.payoutAmount || 0);
-            const payoutDate =
-              transaction.payoutDate ||
-              transaction.paymentDate ||
-              project.projectDate ||
-              project.createdDate ||
-              "";
-
-            allRecords.push({
-              id: `${project._id}-${transaction.id || index}`,
-              sourceType: "project",
-              recordType: "Developer Payout",
-              invoiceNumber: project.projectId || `PRJ-${project._id}`,
-              businessName: transaction.staffName || project.projectName,
-              gstin: "-",
-              invoiceDate: payoutDate,
-              paymentMethod: transaction.payoutMethod || "Bank Transfer",
-              paymentStatus: "Paid",
-              taxData: {
-                taxableAmount: payoutAmount,
-                subtotal: payoutAmount,
-                totalAmount: payoutAmount,
-                cgst: 0,
-                sgst: 0,
-                igst: 0,
-                taxPercentage: 0,
-              },
-              amount: payoutAmount,
-              amountPaid: payoutAmount,
-            });
-          });
-        });
-      }
-
-      const getComparableFieldValue = (record, key) => {
-        switch (key) {
-          case "type":
-            return record.recordType || "";
-          case "paymentMode":
-            return record.paymentMethod || "";
-          case "paid":
-            return record.paymentStatus || "";
-          case "invoiceNo":
-            return (
-              record.invoiceNumber ||
-              record.expenseNumber ||
-              record.selfInvoiceNumber ||
-              record.referenceNo ||
-              ""
-            );
-          case "clientSecondary":
-            return (
-              record.businessName ||
-              record.partyName ||
-              record.vendorName ||
-              record.serviceProviderBusinessName ||
-              record.staffName ||
-              ""
-            );
-          case "date":
-          case "dateTime":
-            return record.invoiceDate || "";
-          default:
-            return record[key];
-        }
-      };
-
-      const reservedParamKeys = new Set([
-        "page",
-        "limit",
-        "sortBy",
-        "sortOrder",
-        "search",
-        "financialYear",
-        "period",
-        "recordType",
-      ]);
-
-      const dropdownFilterKeys = new Set([
-        "type",
-        "paymentMode",
-        "paid",
-        "gstin",
-      ]);
-
-      const customFilterEntries = Object.entries(params).filter(
-        ([key, value]) => {
-          if (reservedParamKeys.has(key)) return false;
-          if (key.endsWith("_start") || key.endsWith("_end")) return false;
-          if (
-            value === undefined ||
-            value === null ||
-            value === "" ||
-            value === "All"
-          ) {
-            return false;
-          }
-          return true;
-        },
-      );
-
-      let filteredRecords = [...allRecords];
-
-      // Apply robust global search on normalized ledger fields
-      if (search) {
-        const searchLower = String(search).toLowerCase().trim();
-        filteredRecords = filteredRecords.filter((record) => {
-          const searchableValues = [
-            getComparableFieldValue(record, "invoiceNo"),
-            getComparableFieldValue(record, "clientSecondary"),
-            getComparableFieldValue(record, "type"),
-            getComparableFieldValue(record, "paymentMode"),
-            getComparableFieldValue(record, "paid"),
-            record.gstin || "",
-            record.sourceType || "",
-          ];
-
-          return searchableValues.some((value) =>
-            String(value || "")
-              .toLowerCase()
-              .includes(searchLower),
-          );
-        });
-      }
-
-      // Apply dynamic column filters
-      customFilterEntries.forEach(([key, rawValue]) => {
+      })
+      .forEach(([key, rawValue]) => {
         const filterValues = String(rawValue)
           .split(",")
           .map((value) => value.trim())
@@ -494,14 +570,14 @@ export async function handler(event) {
         if (filterValues.length === 0) return;
 
         filteredRecords = filteredRecords.filter((record) => {
-          const comparableValue = getComparableFieldValue(record, key);
-
-          if (comparableValue === undefined || comparableValue === null) {
+          const comparableValue =
+            key === "createdByDisplay"
+              ? record.createdBy || ""
+              : getComparableFieldValue(record, key);
+          if (comparableValue === undefined || comparableValue === null)
             return false;
-          }
 
           const recordValue = String(comparableValue).toLowerCase();
-
           if (dropdownFilterKeys.has(key)) {
             return filterValues.some(
               (value) => recordValue === String(value).toLowerCase(),
@@ -514,137 +590,118 @@ export async function handler(event) {
         });
       });
 
-      // Calculate statistics
-      let outputGst = 0;
-      let inputGst = 0;
-      let rcmTax = 0;
+    let openingItcTotal = 0;
+    if (financialYear && financialYear !== "ALL") {
+      const yearRecord = await yearsCollection.findOne({
+        financialYear: String(financialYear).trim(),
+        isDeleted: { $ne: true },
+      });
 
-      // Get opening ITC for the financial year
-      let openingItcTotal = 0;
-      if (financialYear && financialYear !== "ALL") {
-        const yearRecord = await yearsCollection.findOne({
-          financialYear: financialYear,
-          isDeleted: { $ne: true },
-        });
-        if (yearRecord) {
-          const cgst = getOpeningBalance(yearRecord, [
-            "openingCgstItc",
-            "openingItcCgst",
-          ]);
-          const sgst = getOpeningBalance(yearRecord, [
-            "openingSgstItc",
-            "openingItcSgst",
-          ]);
-          const igst = getOpeningBalance(yearRecord, [
-            "openingIgstItc",
-            "openingItcIgst",
-          ]);
-          const extra = getOpeningBalance(yearRecord, [
-            "openingItc",
-            "openingGstInput",
-          ]);
-          openingItcTotal = cgst + sgst + igst + extra;
-        }
+      if (yearRecord) {
+        const cgst = getOpeningBalance(yearRecord, [
+          "openingCgstItc",
+          "openingItcCgst",
+        ]);
+        const sgst = getOpeningBalance(yearRecord, [
+          "openingSgstItc",
+          "openingItcSgst",
+        ]);
+        const igst = getOpeningBalance(yearRecord, [
+          "openingIgstItc",
+          "openingItcIgst",
+        ]);
+        const extra = getOpeningBalance(yearRecord, [
+          "openingItc",
+          "openingGstInput",
+        ]);
+        openingItcTotal = round2(cgst + sgst + igst + extra);
       }
-
-      inputGst += openingItcTotal;
-
-      filteredRecords.forEach((record) => {
-        const taxAmount = getTaxAmount(record);
-
-        if (record.sourceType === "sales") {
-          outputGst += taxAmount;
-        } else if (record.sourceType === "purchase") {
-          inputGst += taxAmount;
-        } else if (record.sourceType === "rcm") {
-          rcmTax += taxAmount;
-          inputGst += taxAmount;
-          outputGst += taxAmount;
-        }
-      });
-
-      // Apply sorting
-      const sortField = sortBy || "invoiceDate";
-      const sortMultiplier = sortOrder === "asc" ? 1 : -1;
-
-      filteredRecords.sort((a, b) => {
-        let valA = getComparableFieldValue(a, sortField);
-        let valB = getComparableFieldValue(b, sortField);
-
-        if (
-          sortField === "invoiceDate" ||
-          sortField === "date" ||
-          sortField === "dateTime"
-        ) {
-          valA = new Date(valA || 0).getTime();
-          valB = new Date(valB || 0).getTime();
-        } else if (typeof valA === "string" && typeof valB === "string") {
-          valA = valA.toLowerCase();
-          valB = valB.toLowerCase();
-        }
-
-        if (valA < valB) return -1 * sortMultiplier;
-        if (valA > valB) return 1 * sortMultiplier;
-        return 0;
-      });
-
-      // Get distinct filter options
-      const types = [...new Set(allRecords.map((r) => r.recordType))]
-        .filter(Boolean)
-        .sort();
-      const paymentModes = [
-        ...new Set(
-          allRecords
-            .map((r) => r.paymentMethod)
-            .filter((m) => m && m !== "" && m !== "-"),
-        ),
-      ].sort();
-      const paidStatuses = [
-        ...new Set(
-          allRecords
-            .map((r) => r.paymentStatus)
-            .filter((status) => status && status !== ""),
-        ),
-      ].sort();
-      const gstins = [
-        ...new Set(
-          allRecords
-            .map((r) => r.gstin)
-            .filter((gstin) => gstin && gstin !== "" && gstin !== "-"),
-        ),
-      ].sort();
-
-      // Paginate
-      const paginatedRecords = filteredRecords.slice(skip, skip + limitNum);
-
-      return createResponse(
-        200,
-        {
-          data: paginatedRecords,
-          pagination: {
-            page: pageNum,
-            limit: limitNum,
-            totalRecords: filteredRecords.length,
-            totalPages: Math.ceil(filteredRecords.length / limitNum),
-          },
-          statistics: {
-            outputGst,
-            inputGst,
-            rcmTax,
-            totalPayable: outputGst - inputGst,
-          },
-          filterOptions: {
-            type: types,
-            paymentMode: paymentModes,
-            paid: paidStatuses,
-            gstin: gstins,
-          },
-        },
-        origin,
-      );
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    let outputGst = 0;
+    let inputGst = openingItcTotal;
+    let rcmTax = 0;
+
+    filteredRecords.forEach((record) => {
+      const taxAmount = getTaxAmount(record);
+      if (record.sourceType === "sales") {
+        outputGst = round2(outputGst + taxAmount);
+      } else if (record.sourceType === "purchase") {
+        inputGst = round2(inputGst + taxAmount);
+      } else if (record.sourceType === "rcm") {
+        rcmTax = round2(rcmTax + taxAmount);
+        inputGst = round2(inputGst + taxAmount);
+        outputGst = round2(outputGst + taxAmount);
+      }
+    });
+
+    const sortField = sortBy || "invoiceDate";
+    const sortMultiplier = sortOrder === "asc" ? 1 : -1;
+
+    filteredRecords.sort((a, b) => {
+      let valA = getComparableFieldValue(a, sortField);
+      let valB = getComparableFieldValue(b, sortField);
+
+      if (["invoiceDate", "date", "dateTime"].includes(sortField)) {
+        valA = parseDateValue(valA)?.getTime() || 0;
+        valB = parseDateValue(valB)?.getTime() || 0;
+      } else if (typeof valA === "string" && typeof valB === "string") {
+        valA = valA.toLowerCase();
+        valB = valB.toLowerCase();
+      } else {
+        valA = valA ?? 0;
+        valB = valB ?? 0;
+      }
+
+      if (valA < valB) return -1 * sortMultiplier;
+      if (valA > valB) return 1 * sortMultiplier;
+      return 0;
+    });
+
+    const types = [...new Set(allRecords.map((record) => record.recordType))]
+      .filter(Boolean)
+      .sort();
+    const paymentModes = [
+      ...new Set(allRecords.map((record) => record.paymentMethod)),
+    ]
+      .filter((value) => value && value !== "" && value !== "-")
+      .sort();
+    const paidStatuses = [
+      ...new Set(allRecords.map((record) => record.paymentStatus)),
+    ]
+      .filter(Boolean)
+      .sort();
+    const gstins = [...new Set(allRecords.map((record) => record.gstin))]
+      .filter((value) => value && value !== "" && value !== "-")
+      .sort();
+
+    const paginatedRecords = filteredRecords.slice(skip, skip + limitNum);
+
+    return createResponse(
+      200,
+      {
+        data: paginatedRecords,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalRecords: filteredRecords.length,
+          totalPages: Math.ceil(filteredRecords.length / limitNum),
+        },
+        statistics: {
+          outputGst: round2(outputGst),
+          inputGst: round2(inputGst),
+          rcmTax: round2(rcmTax),
+          totalPayable: round2(outputGst - inputGst),
+        },
+        filterOptions: {
+          type: types,
+          paymentMode: paymentModes,
+          paid: paidStatuses,
+          gstin: gstins,
+        },
+      },
+      origin,
+    );
   } catch (error) {
     console.error("Books of Accounts API Error:", error);
 
