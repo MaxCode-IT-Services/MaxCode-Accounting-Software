@@ -1,9 +1,14 @@
 import dotenv from "dotenv";
-dotenv.config();
+import { fileURLToPath } from "url";
+
+dotenv.config({
+  path: fileURLToPath(new URL("../.env", import.meta.url)),
+});
 
 import { ObjectId } from "mongodb";
-import { connectToDatabase } from "../netlify/functions/utils/mongodb.js";
-import { buildTransactionSnapshot } from "../netlify/functions/utils/transactions.js";
+
+let connectToDatabase;
+let buildTransactionSnapshot;
 
 const TARGET_COLLECTIONS = [
   { name: "invoices", sourceType: "invoice" },
@@ -75,6 +80,18 @@ const normalizeSourceRecord = (record = {}) => {
 };
 
 const run = async () => {
+  if (!connectToDatabase || !buildTransactionSnapshot) {
+    const [
+      { connectToDatabase: connect },
+      { buildTransactionSnapshot: build },
+    ] = await Promise.all([
+      import("../netlify/functions/utils/mongodb.js"),
+      import("../netlify/functions/utils/transactions.js"),
+    ]);
+    connectToDatabase = connect;
+    buildTransactionSnapshot = build;
+  }
+
   const { isDryRun, force, collections } = parseArgs();
   const mode = isDryRun ? "DRY-RUN" : "APPLY";
 

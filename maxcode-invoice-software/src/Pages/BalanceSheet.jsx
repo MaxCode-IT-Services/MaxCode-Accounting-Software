@@ -1,12 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import { showError, showInfo } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { fetchAllPaginatedEntities } from "../utils/fetchAllEntities";
-import {
-  filterTransactionsBySourceType,
-  flattenTransactionRecord,
-} from "../utils/transactions";
+import { apiGet } from "../utils/api";
 
 const BalanceSheet = () => {
   useEffect(() => {
@@ -17,20 +13,24 @@ const BalanceSheet = () => {
   const [selectedFinancialYear, setSelectedFinancialYear] = useState(
     localStorage.getItem("selectedFinancialYear") || "ALL",
   );
-  const [salesRecords, setSalesRecords] = useState([]);
-  const [creditDebitNoteRecords, setCreditDebitNoteRecords] = useState([]);
-  const [purchaseRecords, setPurchaseRecords] = useState([]);
-  const [companyExpenseRecords, setCompanyExpenseRecords] = useState([]);
-  const [rcmRecords, setRcmRecords] = useState([]);
-  const [projectRecords, setProjectRecords] = useState([]);
-  const [personalFundRecords, setPersonalFundRecords] = useState([]);
-  const [paymentReceiptRecords, setPaymentReceiptRecords] = useState([]);
+  const [balanceData, setBalanceData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [activeCardFilter, setActiveCardFilter] = useState("all");
+  const [apiStatus, setApiStatus] = useState({
+    years: "idle",
+    balanceSheet: "idle",
+  });
 
   const toNumber = (value) => {
     const num = parseFloat(value);
     return Number.isNaN(num) ? 0 : num;
+  };
+
+  const extractPayload = (response) => {
+    if (response && typeof response === "object" && "data" in response) {
+      return response.data;
+    }
+    return response;
   };
 
   const formatCurrency = (value) => {
@@ -40,389 +40,79 @@ const BalanceSheet = () => {
     })}`;
   };
 
-  const getDateOnly = (value) => {
-    if (!value) return null;
-    const parseDate = (rawValue) => {
-      const direct = new Date(rawValue);
-      if (!Number.isNaN(direct.getTime())) return direct;
+  const loadFinancialYears = useCallback(
+    async ({ forceRefresh = false } = {}) => {
+      setApiStatus((prev) => ({ ...prev, years: "loading" }));
+      try {
+        const url = API_ENDPOINTS.YEARS.LIST;
+        const response = await apiGet(url, { forceRefresh });
+        const payload = extractPayload(response);
+        const yearsData = Array.isArray(payload)
+          ? payload
+          : payload?.years || payload?.data || [];
 
-      const raw = String(rawValue || "").trim();
-      const dashMatch = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-      if (dashMatch) {
-        const parsed = new Date(
-          Number(dashMatch[3]),
-          Number(dashMatch[2]) - 1,
-          Number(dashMatch[1]),
-        );
-        if (!Number.isNaN(parsed.getTime())) return parsed;
+        const normalizedYears = yearsData
+          .filter((yearRecord) => yearRecord?.isDeleted !== true)
+          .map((yearRecord) => ({
+            ...yearRecord,
+            id: yearRecord.id || yearRecord._id,
+            value: yearRecord.financialYear || yearRecord.year,
+            startDate: yearRecord.startDate,
+            endDate: yearRecord.endDate,
+          }));
+
+        setFinancialYears(normalizedYears);
+        setApiStatus((prev) => ({ ...prev, years: "loaded" }));
+        return normalizedYears;
+      } catch (error) {
+        console.error("Failed to fetch financial years:", error);
+        setFinancialYears([]);
+        setApiStatus((prev) => ({ ...prev, years: "failed" }));
+        throw error;
       }
+    },
+    [],
+  );
 
-      const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (slashMatch) {
-        const parsed = new Date(
-          Number(slashMatch[3]),
-          Number(slashMatch[2]) - 1,
-          Number(slashMatch[1]),
-        );
-        if (!Number.isNaN(parsed.getTime())) return parsed;
-      }
-
-      return null;
-    };
-
-    const date = parseDate(value);
-    if (!date) return null;
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  };
-
-  const getRecordDate = (record) => {
-    return (
-      record?.invoiceDate ||
-      record?.noteDate ||
-      record?.expenseDate ||
-      record?.date ||
-      record?.createdDate ||
-      record?.createdAt ||
-      null
-    );
-  };
-
-  const getSelectedYearRange = () => {
-    if (!selectedFinancialYear || selectedFinancialYear === "ALL") {
-      return null;
-    }
-
-    const matchedYear = financialYears.find(
-      (year) => year.value === selectedFinancialYear,
-    );
-
-    if (!matchedYear?.startDate || !matchedYear?.endDate) {
-      return null;
-    }
-
-    const startDate = getDateOnly(matchedYear.startDate);
-    const endDate = getDateOnly(matchedYear.endDate);
-    if (!startDate || !endDate) return null;
-
-    return { startDate, endDate };
-  };
-
-  const getSelectedYearRecord = () => {
-    if (!selectedFinancialYear || selectedFinancialYear === "ALL") {
-      return null;
-    }
-
-    return (
-      financialYears.find((year) => year.value === selectedFinancialYear) ||
-      null
-    );
-  };
-
-  const getOpeningBalance = (yearRecord, keys) => {
-    if (!yearRecord) return 0;
-    const value = keys.reduce((found, key) => {
-      if (found !== null) return found;
-      const candidate = yearRecord?.[key];
-      return candidate !== undefined && candidate !== null ? candidate : null;
-    }, null);
-
-    return value !== null ? toNumber(value) : 0;
-  };
-
-  const sumOptionalValues = (records, keys) => {
-    if (!Array.isArray(records)) return 0;
-    return records.reduce((sum, record) => {
-      const recordTotal = keys.reduce((acc, key) => {
-        const value = record?.[key];
-        if (value === undefined || value === null) return acc;
-        return acc + toNumber(value);
-      }, 0);
-      return sum + recordTotal;
-    }, 0);
-  };
-
-  const filterByFinancialYear = (records) => {
-    if (!Array.isArray(records)) return [];
-
-    const selectedRange = getSelectedYearRange();
-    if (!selectedRange) return records;
-
-    // For accounting purposes, include all transactions up to the end date
-    // This ensures cumulative balances are calculated correctly
-    return records.filter((record) => {
-      const invoiceDate = getDateOnly(getRecordDate(record));
-      if (!invoiceDate) return false;
-      return invoiceDate <= selectedRange.endDate;
-    });
-  };
-
-  const filterByFinancialYearStrict = (records) => {
-    if (!Array.isArray(records)) return [];
-
-    const selectedRange = getSelectedYearRange();
-    if (!selectedRange) return records;
-
-    // Strict filtering for period-based reports (only transactions within the year)
-    return records.filter((record) => {
-      const invoiceDate = getDateOnly(getRecordDate(record));
-      if (!invoiceDate) return false;
-      return (
-        invoiceDate >= selectedRange.startDate &&
-        invoiceDate <= selectedRange.endDate
-      );
-    });
-  };
-
-  const getTaxAmount = (record) => {
-    const taxData = record?.taxData || {};
-    const cgst = toNumber(taxData.cgst || 0);
-    const sgst = toNumber(taxData.sgst || 0);
-    const igst = toNumber(taxData.igst || 0);
-    const explicitTax = cgst + sgst + igst;
-
-    if (explicitTax > 0) return explicitTax;
-
-    const totalAmount = toNumber(taxData.totalAmount || 0);
-    const taxableAmount = toNumber(
-      taxData.taxableAmount || taxData.subtotal || 0,
-    );
-
-    return Math.max(totalAmount - taxableAmount, 0);
-  };
-
-  const getTaxableAmount = (record) => {
-    const taxData = record?.taxData || {};
-    const taxableFromRecord = toNumber(
-      taxData.taxableAmount || taxData.subtotal || 0,
-    );
-    if (taxableFromRecord > 0) return taxableFromRecord;
-
-    const totalAmount = toNumber(taxData.totalAmount || 0);
-    const taxAmount = getTaxAmount(record);
-    return Math.max(totalAmount - taxAmount, 0);
-  };
-
-  const getTotalAmount = (record) => {
-    return toNumber(record?.taxData?.totalAmount || record?.amount || 0);
-  };
-
-  const getPaidAmount = (record, totalAmount) => {
-    const isSalesInvoice = Boolean(
-      record?.invoiceNumber ||
-      record?.invoiceDate ||
-      record?.taxData ||
-      record?.clientRefId,
-    );
-    const appliedAdvanceFromInvoice = Math.max(
-      toNumber(record?.advanceAdjustedTotal || 0),
-      Array.isArray(record?.appliedAdvances)
-        ? record.appliedAdvances.reduce(
-            (sum, advance) => sum + toNumber(advance?.appliedAmount || 0),
-            0,
-          )
-        : 0,
-    );
-    const explicitPaid = Math.max(
-      toNumber(record?.amountReceived || 0),
-      toNumber(record?.paidAmount || 0),
-      toNumber(record?.amountPaid || 0),
-    );
-
-    const effectivePaid = isSalesInvoice
-      ? Math.max(0, explicitPaid - appliedAdvanceFromInvoice)
-      : explicitPaid;
-
-    if (effectivePaid > 0) {
-      return Math.min(effectivePaid, totalAmount);
-    }
-
-    if (record?.paymentStatus === "Paid") {
-      const paidByAdvanceOnly = isSalesInvoice && appliedAdvanceFromInvoice > 0;
-      if (paidByAdvanceOnly) return 0;
-      return totalAmount;
-    }
-
-    return 0;
-  };
-
-  const isCashPayment = (paymentMethod) => {
-    const method = String(paymentMethod || "")
-      .trim()
-      .toLowerCase();
-    return method.includes("cash");
-  };
-
-  const isBankPayment = (paymentMethod) => {
-    const method = String(paymentMethod || "")
-      .trim()
-      .toLowerCase();
-    if (!method) return false;
-    return !isCashPayment(method);
-  };
-
-  const isPurchaseItcEligible = (invoiceType) => {
-    const normalizedType = String(invoiceType || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, " ");
-
-    return normalizedType === "itc" || normalizedType === "rcm + itc";
-  };
-
-  const isOwnerPersonalPayment = (record) => {
-    const source = String(record?.paymentSource || "")
-      .trim()
-      .toLowerCase();
-    return source.includes("owner") || source.includes("personal");
-  };
-
-  const loadAllData = async (options = {}) => {
-    const { forceRefresh = false } = options;
-    setLoading(true);
-    try {
-      const fetchSafe = async (config) => {
-        try {
-          const value = await fetchAllPaginatedEntities({
-            ...config,
-            forceRefresh,
+  const loadBalanceSheet = useCallback(
+    async ({ forceRefresh = false } = {}) => {
+      setApiStatus((prev) => ({ ...prev, balanceSheet: "loading" }));
+      setLoading(true);
+      try {
+        const url = API_ENDPOINTS.BALANCE_SHEET.SUMMARY(selectedFinancialYear);
+        const response = await apiGet(url, { forceRefresh });
+        const payload = extractPayload(response);
+        setBalanceData(payload || null);
+        if (import.meta.env.DEV) {
+          console.log("[BalanceSheet] summary payload", {
+            selectedFinancialYear,
+            hasAssets: Boolean(payload?.assets),
+            totalAssets: payload?.totalAssets,
+            totalLiabilities: payload?.totalLiabilities,
           });
-          return { status: "fulfilled", value };
-        } catch (reason) {
-          return { status: "rejected", reason };
         }
-      };
-
-      const [yearsResult, transactionsResult] = await Promise.all([
-        fetchSafe({
-          endpoint: API_ENDPOINTS.YEARS.LIST,
-          fallbackKeys: ["years"],
-        }),
-        fetchSafe({
-          endpoint: API_ENDPOINTS.TRANSACTIONS.LIST,
-          fallbackKeys: ["data"],
-          fetchAll: true,
-        }),
-      ]);
-
-      const yearsData =
-        yearsResult.status === "fulfilled" ? yearsResult.value : [];
-
-      const normalizedYears = yearsData
-        .filter((yearRecord) => yearRecord?.isDeleted !== true)
-        .map((yearRecord) => ({
-          ...yearRecord,
-          id: yearRecord.id || yearRecord._id,
-          value: yearRecord.financialYear || yearRecord.year,
-        }));
-
-      const transactionsData =
-        transactionsResult.status === "fulfilled"
-          ? transactionsResult.value.map(flattenTransactionRecord)
-          : [];
-
-      const salesData = filterTransactionsBySourceType(
-        transactionsData,
-        "invoice",
-      );
-      const purchasesData = filterTransactionsBySourceType(
-        transactionsData,
-        "purchase",
-      );
-      const creditDebitData = filterTransactionsBySourceType(
-        transactionsData,
-        "credit-debit-note",
-      );
-      const companyExpensesData = filterTransactionsBySourceType(
-        transactionsData,
-        "company-expense",
-      );
-      const rcmData = filterTransactionsBySourceType(transactionsData, "rcm");
-      const projectsData = filterTransactionsBySourceType(
-        transactionsData,
-        "project",
-      );
-      const personalFundsData = filterTransactionsBySourceType(
-        transactionsData,
-        "owner-investment",
-      );
-      const paymentReceiptsData = filterTransactionsBySourceType(
-        transactionsData,
-        "payment-receipt",
-      );
-
-      setFinancialYears(normalizedYears);
-      setSalesRecords(
-        salesData.map((record) => ({
-          ...record,
-          id: record._id || record.id,
-        })),
-      );
-      setCreditDebitNoteRecords(
-        creditDebitData.map((record) => ({
-          ...record,
-          id: record._id || record.id,
-        })),
-      );
-      setPurchaseRecords(
-        purchasesData.map((record) => ({
-          ...record,
-          id: record._id || record.id,
-        })),
-      );
-      setCompanyExpenseRecords(
-        companyExpensesData.map((record) => ({
-          ...record,
-          id: record._id || record.id,
-        })),
-      );
-      setRcmRecords(
-        rcmData.map((record) => ({
-          ...record,
-          id: record._id || record.id,
-        })),
-      );
-      setProjectRecords(
-        projectsData.map((record) => ({
-          ...record,
-          id: record._id || record.id,
-        })),
-      );
-
-      setPersonalFundRecords(
-        personalFundsData.map((record) => ({
-          ...record,
-          id: record._id || record.id,
-        })),
-      );
-      setPaymentReceiptRecords(
-        paymentReceiptsData.map((record) => ({
-          ...record,
-          id: record._id || record.id,
-        })),
-      );
-
-      if (
-        yearsResult.status === "rejected" ||
-        transactionsResult.status === "rejected"
-      ) {
-        showInfo("Some balance sheet data could not be loaded.");
+        setApiStatus((prev) => ({ ...prev, balanceSheet: "loaded" }));
+      } catch (err) {
+        console.error("Failed to load balance sheet:", err);
+        showError("Failed to fetch balance sheet data");
+        setBalanceData(null);
+        setApiStatus((prev) => ({ ...prev, balanceSheet: "failed" }));
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Failed to load balance sheet data:", error);
-      showError("Failed to fetch balance sheet data");
-      setFinancialYears([]);
-      setSalesRecords([]);
-      setCreditDebitNoteRecords([]);
-      setPurchaseRecords([]);
-      setCompanyExpenseRecords([]);
-      setRcmRecords([]);
-      setProjectRecords([]);
-      setPersonalFundRecords([]);
-      setPaymentReceiptRecords([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [selectedFinancialYear],
+  );
+
+  const loadAllData = useCallback(
+    async ({ forceRefresh = false } = {}) => {
+      await Promise.all([
+        loadFinancialYears({ forceRefresh }),
+        loadBalanceSheet({ forceRefresh }),
+      ]);
+    },
+    [loadFinancialYears, loadBalanceSheet],
+  );
 
   useEffect(() => {
     loadAllData();
@@ -446,358 +136,95 @@ const BalanceSheet = () => {
         handleFinancialYearSelectionChanged,
       );
     };
-  }, []);
+  }, [loadAllData]);
 
-  const balanceSummary = useMemo(() => {
-    const sales = filterByFinancialYear(salesRecords);
-    const creditDebitNotes = filterByFinancialYear(
-      creditDebitNoteRecords,
-    ).filter(
-      (record) =>
-        record?.isDeleted !== true &&
-        String(record?.status || "").toLowerCase() !== "cancelled",
-    );
-    const purchases = filterByFinancialYear(purchaseRecords);
-    const companyExpenses = filterByFinancialYear(companyExpenseRecords);
-    const rcm = filterByFinancialYear(rcmRecords);
-    const personalFunds = filterByFinancialYear(
-      personalFundRecords.map((r) => ({
-        ...r,
-        invoiceDate: r.fundDate || r.invoiceDate,
-      })),
-    );
-    const paymentReceipts = filterByFinancialYear(paymentReceiptRecords);
-    const selectedRange = getSelectedYearRange();
-
-    const projectPayoutEntries = projectRecords.flatMap((project) => {
-      const transactions = Array.isArray(project.developerTransactions)
-        ? project.developerTransactions
-        : [];
-
-      return transactions
-        .map((transaction) => {
-          const payoutDate =
-            transaction.payoutDate ||
-            transaction.paymentDate ||
-            project.projectDate ||
-            project.createdDate;
-          const payoutDateOnly = getDateOnly(payoutDate);
-          const amount = toNumber(transaction.payoutAmount || 0);
-
-          if (!payoutDateOnly || amount <= 0) return null;
-
-          if (selectedRange) {
-            const isWithinYear =
-              payoutDateOnly >= selectedRange.startDate &&
-              payoutDateOnly <= selectedRange.endDate;
-            if (!isWithinYear) return null;
-          }
-
-          return {
-            amount,
-            paymentMethod: transaction.payoutMethod || "Bank Transfer",
-            payoutSource: transaction.payoutSource || "Business Account",
-          };
-        })
-        .filter(Boolean);
-    });
-
-    const totals = {
-      cashDebit: 0,
-      cashCredit: 0,
-      bankDebit: 0,
-      bankCredit: 0,
-      salesCredit: 0,
-      salesReturnDebit: 0,
-      creditNotePayableCredit: 0,
-      purchaseDebit: 0,
-      gstOutputCredit: 0,
-      gstOutputDebit: 0,
-      gstInputDebit: 0,
-      sundryDebtorsDebit: 0,
-      sundryCreditorsCredit: 0,
-      ownerFundingCredit: 0,
-      customerOverpaymentCredit: 0,
-    };
-
-    sales.forEach((record) => {
-      const totalAmount = getTotalAmount(record);
-      const taxAmount = getTaxAmount(record);
-      const taxableAmount = getTaxableAmount(record);
-      const paidAmount = getPaidAmount(record, totalAmount);
-
-      totals.salesCredit += taxableAmount;
-      totals.gstOutputCredit += taxAmount;
-      totals.sundryDebtorsDebit += Math.max(totalAmount - paidAmount, 0);
-
-      if (isCashPayment(record.paymentMethod)) {
-        totals.cashDebit += paidAmount;
-      } else if (isBankPayment(record.paymentMethod)) {
-        totals.bankDebit += paidAmount;
-      }
-    });
-
-    creditDebitNotes.forEach((record) => {
-      const taxableAmount = toNumber(record?.amount || record?.subtotal || 0);
-      const taxAmount = toNumber(record?.taxAmount || 0);
-      const totalAmount = toNumber(
-        record?.totalAmount || taxableAmount + taxAmount,
-      );
-      const isCreditNote = String(record?.noteType || "") === "Credit Note";
-      if (isCreditNote) {
-        const refundAmount = Math.min(
-          toNumber(record?.refundAmount || 0),
-          Math.max(totalAmount, 0),
-        );
-        const creditOutstanding = Math.max(totalAmount - refundAmount, 0);
-
-        totals.salesReturnDebit += taxableAmount;
-        totals.gstOutputDebit += taxAmount;
-        totals.creditNotePayableCredit += creditOutstanding;
-
-        if (refundAmount > 0) {
-          if (isCashPayment(record?.refundMethod)) {
-            totals.cashCredit += refundAmount;
-          } else if (isBankPayment(record?.refundMethod)) {
-            totals.bankCredit += refundAmount;
-          }
-        }
-      } else {
-        const receivedAmount = Math.min(
-          toNumber(record?.receivedAmount || 0),
-          Math.max(totalAmount, 0),
-        );
-        const debitOutstanding = Math.max(totalAmount - receivedAmount, 0);
-
-        totals.salesCredit += taxableAmount;
-        totals.gstOutputCredit += taxAmount;
-        totals.sundryDebtorsDebit += debitOutstanding;
-
-        if (receivedAmount > 0) {
-          if (isCashPayment(record?.paymentMethod)) {
-            totals.cashDebit += receivedAmount;
-          } else if (isBankPayment(record?.paymentMethod)) {
-            totals.bankDebit += receivedAmount;
-          }
-        }
-      }
-    });
-
-    purchases.forEach((record) => {
-      const totalAmount = getTotalAmount(record);
-      const taxAmount = getTaxAmount(record);
-      const taxableAmount = getTaxableAmount(record);
-      const paidAmount = getPaidAmount(record, totalAmount);
-
-      totals.purchaseDebit += taxableAmount;
-      totals.sundryCreditorsCredit += Math.max(totalAmount - paidAmount, 0);
-
-      if (isCashPayment(record.paymentMethod)) {
-        if (isOwnerPersonalPayment(record)) {
-          totals.ownerFundingCredit += paidAmount;
-        } else {
-          totals.cashCredit += paidAmount;
-        }
-      } else if (isBankPayment(record.paymentMethod)) {
-        if (isOwnerPersonalPayment(record)) {
-          totals.ownerFundingCredit += paidAmount;
-        } else {
-          totals.bankCredit += paidAmount;
-        }
-      } else if (isOwnerPersonalPayment(record) && paidAmount > 0) {
-        totals.ownerFundingCredit += paidAmount;
-      }
-
-      if (isPurchaseItcEligible(record.invoiceType)) {
-        totals.gstInputDebit += taxAmount;
-      }
-    });
-
-    companyExpenses.forEach((record) => {
-      const totalAmount = getTotalAmount(record);
-      const paidAmount = getPaidAmount(record, totalAmount);
-
-      totals.sundryCreditorsCredit += Math.max(totalAmount - paidAmount, 0);
-
-      if (isCashPayment(record.paymentMethod)) {
-        totals.cashCredit += paidAmount;
-      } else if (isBankPayment(record.paymentMethod)) {
-        totals.bankCredit += paidAmount;
-      }
-    });
-
-    rcm.forEach((record) => {
-      const totalAmount = getTotalAmount(record);
-      const taxAmount = getTaxAmount(record);
-      const taxableAmount = getTaxableAmount(record);
-      const paidAmount = Math.min(
-        getPaidAmount(record, totalAmount),
-        Math.max(taxableAmount, 0),
-      );
-
-      totals.purchaseDebit += taxableAmount;
-      totals.gstOutputCredit += taxAmount;
-      totals.gstInputDebit += taxAmount;
-      totals.sundryCreditorsCredit += Math.max(taxableAmount - paidAmount, 0);
-
-      if (isCashPayment(record.paymentMethod)) {
-        totals.cashCredit += paidAmount;
-      } else if (isBankPayment(record.paymentMethod)) {
-        totals.bankCredit += paidAmount;
-      }
-    });
-
-    projectPayoutEntries.forEach((entry) => {
-      const isPersonalPayout =
-        String(entry.payoutSource || "")
-          .toLowerCase()
-          .includes("personal") ||
-        String(entry.payoutSource || "")
-          .toLowerCase()
-          .includes("owner");
-
-      if (isPersonalPayout) {
-        totals.ownerFundingCredit += entry.amount;
-      } else if (isCashPayment(entry.paymentMethod)) {
-        totals.cashCredit += entry.amount;
-      } else {
-        totals.bankCredit += entry.amount;
-      }
-    });
-
-    personalFunds.forEach((fund) => {
-      const amount = toNumber(fund.amount || 0);
-      if (amount <= 0) return;
-      if (
-        String(fund.transferredTo || "")
-          .toLowerCase()
-          .includes("cash")
-      ) {
-        totals.cashDebit += amount;
-      } else {
-        totals.bankDebit += amount;
-      }
-    });
-
-    const unappliedAdvanceReceipts = paymentReceipts.reduce((sum, receipt) => {
-      const isAdvance =
-        String(receipt.paymentType || "")
-          .trim()
-          .toLowerCase() === "advance";
-      if (!isAdvance) return sum;
-      const unappliedAmount = Math.max(
-        toNumber(receipt.amount || 0) - toNumber(receipt.adjustedAmount || 0),
-        0,
-      );
-      return sum + unappliedAmount;
-    }, 0);
-
-    if (totals.sundryDebtorsDebit < 0) {
-      totals.customerOverpaymentCredit = Math.abs(totals.sundryDebtorsDebit);
-      totals.sundryDebtorsDebit = 0;
+  useEffect(() => {
+    if (selectedFinancialYear) {
+      loadBalanceSheet();
     }
+  }, [selectedFinancialYear, loadBalanceSheet]);
 
-    const selectedYear = getSelectedYearRecord();
-    const openingCash = getOpeningBalance(selectedYear, [
-      "openingCash",
-      "openingCashBalance",
-    ]);
-    const openingBank = getOpeningBalance(selectedYear, [
-      "openingBank",
-      "openingBankBalance",
-      "openingBankAmount",
-    ]);
-    const openingCapital = getOpeningBalance(selectedYear, [
-      "openingCapital",
-      "capitalAmount",
-      "ownerCapital",
-    ]);
-    const openingGstInput =
-      getOpeningBalance(selectedYear, ["openingCgstItc", "openingItcCgst"]) +
-      getOpeningBalance(selectedYear, ["openingSgstItc", "openingItcSgst"]) +
-      getOpeningBalance(selectedYear, ["openingIgstItc", "openingItcIgst"]) +
-      getOpeningBalance(selectedYear, ["openingItc", "openingGstInput"]);
+  const getStatusBadgeClass = (status) => {
+    if (status === "loaded") return "bg-success";
+    if (status === "failed") return "bg-danger";
+    if (status === "loading") return "bg-warning";
+    return "bg-secondary";
+  };
 
-    totals.gstInputDebit += openingGstInput;
+  const getStatusLabel = (status) => {
+    if (status === "loaded") return "Loaded";
+    if (status === "failed") return "Failed";
+    if (status === "loading") return "Loading";
+    return "Idle";
+  };
 
-    const cashBalance = totals.cashDebit - totals.cashCredit;
-    const bankBalance = totals.bankDebit - totals.bankCredit;
-    const gstNet = totals.gstOutputCredit - totals.gstInputDebit;
-
-    const cashClosing = openingCash + cashBalance;
-    const bankClosing = openingBank + bankBalance;
-    const cashOverdraft = Math.max(-cashClosing, 0);
-    const bankOverdraft = Math.max(-bankClosing, 0);
-
-    const inventoryValue = Math.max(
-      sumOptionalValues(purchases, [
-        "inventoryValue",
-        "stockValue",
-        "closingStock",
-        "inventoryAmount",
-      ]),
-      0,
+  const renderStatusContent = (name, status) => {
+    return (
+      <>
+        {name}:{" "}
+        {status === "loading" && (
+          <i className="fa-solid fa-spinner fa-spin me-1" />
+        )}
+        {getStatusLabel(status)}
+      </>
     );
+  };
 
-    const assets = {
-      cashOpening: openingCash,
-      cashClosing: cashClosing,
-      bankOpening: openingBank,
-      bankClosing: bankClosing,
-      cash: Math.max(cashClosing, 0),
-      bank: Math.max(bankClosing, 0),
-      receivables: totals.sundryDebtorsDebit,
-      gstReceivable: Math.max(-gstNet, 0),
-      inventory: inventoryValue,
-      openingGstInput,
-    };
+  const retrySingleApi = async (apiKey) => {
+    setApiStatus((prev) => ({ ...prev, [apiKey]: "loading" }));
+    try {
+      if (apiKey === "years") {
+        await loadFinancialYears({ forceRefresh: true });
+      } else if (apiKey === "balanceSheet") {
+        await loadBalanceSheet({ forceRefresh: true });
+      }
+      showInfo(`${apiKey.toUpperCase()} API retried successfully.`);
+    } catch (error) {
+      showError(`Failed to retry ${apiKey} API.`);
+    }
+  };
 
-    const liabilities = {
-      payables: totals.sundryCreditorsCredit,
-      gstPayable: Math.max(gstNet, 0),
-      overdraft: cashOverdraft + bankOverdraft,
-      ownerFunding: totals.ownerFundingCredit,
-      customerAdvance: unappliedAdvanceReceipts,
-      creditNotePayable: totals.creditNotePayableCredit,
-      customerOverpayment: totals.customerOverpaymentCredit,
-    };
+  const failedApiKeys = useMemo(() => {
+    return Object.entries(apiStatus)
+      .filter(([, status]) => status === "failed")
+      .map(([key]) => key);
+  }, [apiStatus]);
 
-    const totalAssets =
-      assets.cash +
-      assets.bank +
-      assets.receivables +
-      assets.gstReceivable +
-      assets.inventory;
-    const totalLiabilities =
-      liabilities.payables +
-      liabilities.gstPayable +
-      liabilities.overdraft +
-      liabilities.ownerFunding +
-      liabilities.creditNotePayable +
-      liabilities.customerOverpayment +
-      liabilities.customerAdvance;
-    const equity = totalAssets - totalLiabilities - openingCapital;
+  const isAnyApiLoading = useMemo(() => {
+    return Object.values(apiStatus).some((status) => status === "loading");
+  }, [apiStatus]);
 
-    return {
-      assets,
-      liabilities,
-      totalAssets,
-      totalLiabilities,
-      equity,
-      openingCapital,
-    };
-  }, [
-    salesRecords,
-    creditDebitNoteRecords,
-    purchaseRecords,
-    companyExpenseRecords,
-    rcmRecords,
-    projectRecords,
-    personalFundRecords,
-    paymentReceiptRecords,
-    selectedFinancialYear,
-    financialYears,
-  ]);
+  const retryAllFailedApis = async () => {
+    if (!failedApiKeys.length) return;
+    for (const apiKey of failedApiKeys) {
+      await retrySingleApi(apiKey);
+    }
+  };
+
+  const assets = balanceData?.assets || {
+    cashOpening: 0,
+    cash: 0,
+    bankOpening: 0,
+    bank: 0,
+    receivables: 0,
+    gstReceivable: 0,
+    inventory: 0,
+  };
+
+  const liabilities = balanceData?.liabilities || {
+    payables: 0,
+    gstPayable: 0,
+    overdraft: 0,
+    ownerFunding: 0,
+    customerAdvance: 0,
+    creditNotePayable: 0,
+    customerOverpayment: 0,
+  };
+
+  const totalAssets = balanceData?.totalAssets || 0;
+  const totalLiabilities = balanceData?.totalLiabilities || 0;
+  const equity = balanceData?.equity || 0;
+  const openingCapital = balanceData?.openingCapital || 0;
 
   const rows = useMemo(() => {
     const getDescription = (account, section, isTotal) => {
@@ -806,7 +233,7 @@ const BalanceSheet = () => {
           return "Total value of all assets";
         }
         if (section === "Liabilities & Equity") {
-          return "Total of liabilities and owner’s equity";
+          return "Total of liabilities and owner's equity";
         }
         return `Total of ${section}`;
       }
@@ -840,12 +267,10 @@ const BalanceSheet = () => {
           return "Negative cash/bank closing balance shown as liability";
         case "Owner Funding (Personal Payments)":
           return "Amount paid directly from owner's personal account for business purchases/RCM/developer payouts";
-        case "Owner Capital Contribution (Personal Fund In)":
-          return "Personal money transferred by owner into business current account or cash box";
         case "Capital (Opening)":
           return "Owner capital brought at year start";
         case "Owner's Equity (Calculated)":
-          return "Owner’s net investment after assets minus liabilities";
+          return "Owner's net investment after assets minus liabilities";
         case "Total Liabilities & Equity":
           return "Liabilities plus equity total";
         default:
@@ -857,47 +282,39 @@ const BalanceSheet = () => {
       {
         section: "Assets",
         account: "Cash (Opening)",
-        amount: balanceSummary.assets.cashOpening,
+        amount: assets.cashOpening,
       },
-      {
-        section: "Assets",
-        account: "Cash (Closing)",
-        amount: balanceSummary.assets.cash,
-      },
+      { section: "Assets", account: "Cash (Closing)", amount: assets.cash },
       {
         section: "Assets",
         account: "Bank (Opening)",
-        amount: balanceSummary.assets.bankOpening,
+        amount: assets.bankOpening,
       },
-      {
-        section: "Assets",
-        account: "Bank (Closing)",
-        amount: balanceSummary.assets.bank,
-      },
+      { section: "Assets", account: "Bank (Closing)", amount: assets.bank },
       {
         section: "Assets",
         account: "Accounts Receivable (Sundry Debtors)",
-        amount: balanceSummary.assets.receivables,
+        amount: assets.receivables,
       },
       {
         section: "Assets",
         account: "GST Receivable",
-        amount: balanceSummary.assets.gstReceivable,
+        amount: assets.gstReceivable,
       },
     ];
 
-    if (balanceSummary.assets.inventory > 0) {
+    if (assets.inventory > 0) {
       assetRows.push({
         section: "Assets",
         account: "Inventory",
-        amount: balanceSummary.assets.inventory,
+        amount: assets.inventory,
       });
     }
 
     assetRows.push({
       section: "Assets",
       account: "Total Assets",
-      amount: balanceSummary.totalAssets,
+      amount: totalAssets,
       isTotal: true,
     });
 
@@ -905,83 +322,93 @@ const BalanceSheet = () => {
       {
         section: "Liabilities",
         account: "Accounts Payable (Sundry Creditors)",
-        amount: balanceSummary.liabilities.payables,
+        amount: liabilities.payables,
       },
       {
         section: "Liabilities",
         account: "GST Payable",
-        amount: balanceSummary.liabilities.gstPayable,
+        amount: liabilities.gstPayable,
       },
     ];
 
-    if (balanceSummary.liabilities.overdraft > 0) {
+    if (liabilities.overdraft > 0) {
       liabilityRows.push({
         section: "Liabilities",
         account: "Bank/Cash Overdraft",
-        amount: balanceSummary.liabilities.overdraft,
+        amount: liabilities.overdraft,
       });
     }
 
-    if (balanceSummary.liabilities.customerAdvance > 0) {
+    if (liabilities.customerAdvance > 0) {
       liabilityRows.push({
         section: "Liabilities",
         account: "Customer Advance Payment (Customer Credit)",
-        amount: balanceSummary.liabilities.customerAdvance,
+        amount: liabilities.customerAdvance,
       });
     }
 
-    if (balanceSummary.liabilities.creditNotePayable > 0) {
+    if (liabilities.creditNotePayable > 0) {
       liabilityRows.push({
         section: "Liabilities",
         account: "Credit Note / Customer Refund Payable",
-        amount: balanceSummary.liabilities.creditNotePayable,
+        amount: liabilities.creditNotePayable,
       });
     }
 
-    if (balanceSummary.liabilities.customerOverpayment > 0) {
+    if (liabilities.customerOverpayment > 0) {
       liabilityRows.push({
         section: "Liabilities",
         account: "Customer Credit Balance (Overpayment)",
-        amount: balanceSummary.liabilities.customerOverpayment,
+        amount: liabilities.customerOverpayment,
       });
     }
 
-    if (balanceSummary.liabilities.ownerFunding > 0) {
+    if (liabilities.ownerFunding > 0) {
       liabilityRows.push({
         section: "Liabilities",
         account: "Owner Funding (Personal Payments)",
-        amount: balanceSummary.liabilities.ownerFunding,
+        amount: liabilities.ownerFunding,
       });
     }
 
     const equityRows = [];
 
-    if (balanceSummary.openingCapital > 0) {
+    if (openingCapital > 0) {
       equityRows.push({
         section: "Liabilities & Equity",
         account: "Capital (Opening)",
-        amount: balanceSummary.openingCapital,
+        amount: openingCapital,
       });
     }
 
     equityRows.push({
       section: "Liabilities & Equity",
       account: "Owner's Equity (Calculated)",
-      amount: balanceSummary.equity,
+      amount: equity,
     });
-
     equityRows.push({
       section: "Liabilities & Equity",
       account: "Total Liabilities & Equity",
-      amount: balanceSummary.totalLiabilities + balanceSummary.equity,
+      amount: totalLiabilities + equity,
       isTotal: true,
     });
 
-    return [...assetRows, ...liabilityRows, ...equityRows].map((row) => ({
-      ...row,
-      description: getDescription(row.account, row.section, row.isTotal),
-    }));
-  }, [balanceSummary]);
+    return [...assetRows, ...liabilityRows, ...equityRows].map(
+      (row, index) => ({
+        ...row,
+        sn: index + 1,
+        amountFormatted: formatCurrency(row.amount),
+        description: getDescription(row.account, row.section, row.isTotal),
+      }),
+    );
+  }, [
+    assets,
+    liabilities,
+    totalAssets,
+    totalLiabilities,
+    equity,
+    openingCapital,
+  ]);
 
   const filteredRows = useMemo(() => {
     if (activeCardFilter === "all") return rows;
@@ -1020,61 +447,58 @@ const BalanceSheet = () => {
     {
       key: "cashOpen",
       title: "Cash Opening",
-      value: formatCurrency(balanceSummary.assets.cashOpening),
+      value: formatCurrency(assets.cashOpening),
       icon: "fa-solid fa-wallet",
     },
     {
       key: "cashClose",
       title: "Cash Closing",
-      value: formatCurrency(balanceSummary.assets.cash),
+      value: formatCurrency(assets.cash),
       icon: "fa-solid fa-wallet",
     },
     {
       key: "bankOpen",
       title: "Bank Opening",
-      value: formatCurrency(balanceSummary.assets.bankOpening),
+      value: formatCurrency(assets.bankOpening),
       icon: "fa-solid fa-building-columns",
     },
     {
       key: "bankClose",
       title: "Bank Closing",
-      value: formatCurrency(balanceSummary.assets.bank),
+      value: formatCurrency(assets.bank),
       icon: "fa-solid fa-building-columns",
     },
     {
       key: "totalAssets",
       title: "Total Assets",
-      value: formatCurrency(balanceSummary.totalAssets),
+      value: formatCurrency(totalAssets),
       icon: "fa-solid fa-scale-balanced",
     },
     {
       key: "totalLiabilities",
       title: "Total Liabilities",
-      value: formatCurrency(balanceSummary.totalLiabilities),
+      value: formatCurrency(totalLiabilities),
       icon: "fa-solid fa-scale-unbalanced",
     },
   ];
 
-  const balanceDifference =
-    balanceSummary.totalAssets -
-    (balanceSummary.totalLiabilities + balanceSummary.equity);
+  const balanceDifference = totalAssets - (totalLiabilities + equity);
   const isBalanceMatched = Math.abs(balanceDifference) < 0.01;
 
-  const getCardNumber = (index) => {
-    return (index % 8) + 1;
-  };
+  const getCardNumber = (index) => (index % 8) + 1;
 
   const columns = [
+    { key: "sn", label: "S.No", width: 70 },
     { key: "section", label: "Section", width: 220 },
     { key: "account", label: "Account", width: 260 },
     { key: "description", label: "Description", width: 320 },
     {
-      key: "amount",
+      key: "amountFormatted",
       label: "Amount",
       width: 160,
       render: (value, row) => (
         <span className={row?.isTotal ? "fw-bold" : "fw-semibold"}>
-          {formatCurrency(value)}
+          {value}
         </span>
       ),
     },
@@ -1088,10 +512,9 @@ const BalanceSheet = () => {
   return (
     <div className="container-fluid">
       <div
-        className="py-3 d-flex justify-content-between align-items-center"
+        className="py-3 d-flex justify-content-between align-items-center flex-wrap"
         style={{ marginTop: "70px" }}
       >
-        {/* Left */}
         <div>
           <h4 className="fs-18 fw-semibold m-0">Balance Sheet</h4>
           <small className="text-muted">
@@ -1099,17 +522,54 @@ const BalanceSheet = () => {
           </small>
         </div>
 
-        {/* Right */}
-        <div className="d-flex align-items-center gap-2">
-          <span className="badge bg-light text-dark border">
-            Financial Year:{" "}
-            {selectedFinancialYear === "ALL"
-              ? "All Year"
-              : selectedFinancialYear}
+        <div className="d-flex flex-wrap gap-2 mt-2 mt-sm-0 justify-content-end">
+          <span className="badge bg-light text-dark border d-inline-flex align-items-center">
+            API Status
+          </span>
+
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-primary"
+            onClick={retryAllFailedApis}
+            disabled={!failedApiKeys.length || isAnyApiLoading}
+            title={
+              failedApiKeys.length
+                ? "Retry all failed APIs"
+                : "No failed APIs to retry"
+            }
+          >
+            <i className="fa-solid fa-rotate me-1"></i>
+            Retry All Failed
+          </button>
+
+          <span
+            className={`badge ${getStatusBadgeClass(apiStatus.years)} d-inline-flex align-items-center`}
+            style={{
+              cursor: apiStatus.years === "failed" ? "pointer" : "default",
+            }}
+            onClick={() =>
+              apiStatus.years === "failed" && retrySingleApi("years")
+            }
+          >
+            {renderStatusContent("Years", apiStatus.years)}
           </span>
 
           <span
-            className={`badge ${isBalanceMatched ? "bg-success" : "bg-danger"}`}
+            className={`badge ${getStatusBadgeClass(apiStatus.balanceSheet)} d-inline-flex align-items-center`}
+            style={{
+              cursor:
+                apiStatus.balanceSheet === "failed" ? "pointer" : "default",
+            }}
+            onClick={() =>
+              apiStatus.balanceSheet === "failed" &&
+              retrySingleApi("balanceSheet")
+            }
+          >
+            {renderStatusContent("Balance", apiStatus.balanceSheet)}
+          </span>
+
+          <span
+            className={`badge d-inline-flex align-items-center ${isBalanceMatched ? "bg-success" : "bg-danger"}`}
             title={
               isBalanceMatched
                 ? "Assets and Liabilities + Equity are matched"
@@ -1120,10 +580,6 @@ const BalanceSheet = () => {
               ? "Balanced"
               : `Mismatch ${formatCurrency(Math.abs(balanceDifference))}`}
           </span>
-
-          {loading && (
-            <span className="badge bg-warning text-dark">Loading...</span>
-          )}
         </div>
       </div>
 
@@ -1132,6 +588,7 @@ const BalanceSheet = () => {
           const cardNumber = getCardNumber(index);
           const cardClass = `card${cardNumber}`;
           const cardIconBgClass = `card-icon-bg${cardNumber}`;
+          const isActive = activeCardFilter === card.key;
 
           return (
             <div key={card.key} className="col-md-6 col-xl-2 mb-4">
@@ -1142,14 +599,10 @@ const BalanceSheet = () => {
                   cursor: "pointer",
                   height: "100%",
                   borderRadius: "12px",
-                  border:
-                    activeCardFilter === card.key
-                      ? "2px solid #0d6efd"
-                      : "1px solid #dee2e6",
-                  boxShadow:
-                    activeCardFilter === card.key
-                      ? "0 6px 15px rgba(13, 110, 253, 0.3)"
-                      : "0 0.125rem 0.25rem rgba(0, 0, 0, 0.075)",
+                  border: isActive ? "2px solid #0d6efd" : "1px solid #dee2e6",
+                  boxShadow: isActive
+                    ? "0 6px 15px rgba(13, 110, 253, 0.3)"
+                    : "0 0.125rem 0.25rem rgba(0, 0, 0, 0.075)",
                 }}
                 onClick={() => handleCardClick(card.key)}
               >
@@ -1190,8 +643,14 @@ const BalanceSheet = () => {
         data={filteredRows}
         loading={loading}
         showActions={false}
-        fixedColumns={["section"]}
-        defaultVisibleColumns={["section", "account", "description", "amount"]}
+        fixedColumns={["sn"]}
+        defaultVisibleColumns={[
+          "sn",
+          "section",
+          "account",
+          "description",
+          "amountFormatted",
+        ]}
         tableTitle="Balance Sheet"
         showColumnSelector={true}
         showExport={true}

@@ -265,6 +265,16 @@ const API_ENDPOINTS = {
     UPDATE: (id) => `/payment-receipts?id=${id}`,
     DELETE: (id) => `/payment-receipts?id=${id}`,
   },
+
+  LEDGER_SUMMARY: {
+    GET: (financialYear = "ALL") =>
+      `/ledger-summary?financialYear=${financialYear}`,
+  },
+
+  BALANCE_SHEET: {
+    SUMMARY: (financialYear = "ALL") =>
+      `/balance-sheet-summary?financialYear=${financialYear}`,
+  },
 };
 
 export default API_ENDPOINTS;
