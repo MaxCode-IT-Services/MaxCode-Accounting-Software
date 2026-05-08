@@ -84,6 +84,24 @@ const run = async () => {
   console.log(`Starting transaction migration in ${mode} mode`);
   console.log(`Collections: ${collections.join(", ")}`);
 
+  if (force) {
+    if (isDryRun) {
+      const existingCount = await transactionsCollection.countDocuments({
+        sourceCollection: { $in: collections },
+      });
+      console.log(
+        `Force rebuild (dry-run): existing snapshots for selected collections = ${existingCount}`,
+      );
+    } else {
+      const deleteResult = await transactionsCollection.deleteMany({
+        sourceCollection: { $in: collections },
+      });
+      console.log(
+        `Force rebuild: removed existing snapshots = ${deleteResult.deletedCount}`,
+      );
+    }
+  }
+
   const stats = [];
 
   for (const collectionName of collections) {
@@ -111,6 +129,11 @@ const run = async () => {
         sourceRecord: normalizedRecord,
         sourceLabel: getSourceLabel(config.sourceType, normalizedRecord),
       });
+
+      if (!snapshot?.sourceKey || !snapshot?.sourceId) {
+        skipped += 1;
+        continue;
+      }
 
       if (!force) {
         const existing = await transactionsCollection.findOne({

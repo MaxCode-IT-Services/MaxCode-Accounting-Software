@@ -5,6 +5,8 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const roundAmount = (value) => Number(toNumber(value).toFixed(2));
+
 const parseDateValue = (value) => {
   if (!value) return null;
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
@@ -56,8 +58,241 @@ const getFinancialYear = (dateValue) => {
   return `${startYear}-${endYearShort}`;
 };
 
-const normalizePaymentMethod = (value) => {
-  return String(value || "").trim();
+const normalizePaymentMethod = (value) => String(value || "").trim();
+
+const normalizeSourceType = (sourceType = "") => {
+  const normalized = String(sourceType || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[ _]+/g, "-");
+
+  switch (normalized) {
+    case "sales":
+      return "invoice";
+    case "expense":
+    case "companyexpense":
+      return "company-expense";
+    case "payment-receipts":
+      return "payment-receipt";
+    case "owner-investment":
+      return "owner-investment";
+    case "credit-note":
+    case "debit-note":
+      return "credit-debit-note";
+    default:
+      return normalized;
+  }
+};
+
+const isCashLike = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .includes("cash");
+
+const getPaymentAccountHead = (paymentMethod, fallback = "Bank Account") =>
+  isCashLike(paymentMethod) ? "Cash Account" : fallback;
+
+const isOwnerPersonal = (record = {}, fallback = "") => {
+  const source = String(
+    record?.paymentSource || record?.payoutSource || fallback || "",
+  )
+    .trim()
+    .toLowerCase();
+  return source.includes("owner") || source.includes("personal");
+};
+
+const isPurchaseItcEligible = (invoiceType) => {
+  const normalized = String(invoiceType || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return normalized === "itc" || normalized === "rcm + itc";
+};
+
+const getAppliedAdvanceAmount = (record = {}) => {
+  const direct = toNumber(record?.advanceAdjustedTotal || 0);
+  const mapped = Array.isArray(record?.appliedAdvances)
+    ? record.appliedAdvances.reduce(
+        (sum, row) => sum + toNumber(row?.appliedAmount || 0),
+        0,
+      )
+    : 0;
+  return Math.max(direct, mapped);
+};
+
+const getExplicitPaidAmount = (record = {}) =>
+  Math.max(
+    toNumber(record?.amountReceived || 0),
+    toNumber(record?.amountPaid || 0),
+    toNumber(record?.paidAmount || 0),
+    toNumber(record?.receivedAmount || 0),
+    toNumber(record?.refundAmount || 0),
+  );
+
+const getTaxComponents = (record = {}) => {
+  const taxData = record?.taxData || {};
+  const cgst = toNumber(taxData.cgst ?? record?.cgst ?? 0);
+  const sgst = toNumber(taxData.sgst ?? record?.sgst ?? 0);
+  const igst = toNumber(taxData.igst ?? record?.igst ?? 0);
+  const explicit = cgst + sgst + igst;
+  const totalTax =
+    explicit > 0
+      ? explicit
+      : toNumber(taxData.totalTax ?? record?.taxAmount ?? 0);
+  return { cgst, sgst, igst, totalTax };
+};
+
+const buildGstInputLines = ({ cgst = 0, sgst = 0, igst = 0 } = {}) => {
+  const lines = [];
+  if (cgst > 0) {
+    lines.push({
+      accountHead: "GST Input CGST",
+      accountType: "Asset",
+      debit: roundAmount(cgst),
+      credit: 0,
+    });
+  }
+  if (sgst > 0) {
+    lines.push({
+      accountHead: "GST Input SGST",
+      accountType: "Asset",
+      debit: roundAmount(sgst),
+      credit: 0,
+    });
+  }
+  if (igst > 0) {
+    lines.push({
+      accountHead: "GST Input IGST",
+      accountType: "Asset",
+      debit: roundAmount(igst),
+      credit: 0,
+    });
+  }
+  return lines;
+};
+
+const buildGstOutputLines = ({ cgst = 0, sgst = 0, igst = 0 } = {}, side = "credit") => {
+  const line = (head, amount) => ({
+    accountHead: head,
+    accountType: "Liability",
+    debit: side === "debit" ? roundAmount(amount) : 0,
+    credit: side === "credit" ? roundAmount(amount) : 0,
+  });
+
+  const lines = [];
+  if (cgst > 0) lines.push(line("GST Output CGST", cgst));
+  if (sgst > 0) lines.push(line("GST Output SGST", sgst));
+  if (igst > 0) lines.push(line("GST Output IGST", igst));
+  return lines;
+};
+
+const pickFields = (record = {}, fields = []) => {
+  const out = {};
+  for (const field of fields) {
+    const value = record?.[field];
+    if (value !== undefined) out[field] = value;
+  }
+  return out;
+};
+
+const normalizeDeveloperTransactions = (rows = []) => {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row = {}) => ({
+    payoutAmount: roundAmount(row?.payoutAmount || 0),
+    payoutMethod: row?.payoutMethod || "",
+    payoutSource: row?.payoutSource || "",
+    payoutDate: row?.payoutDate || row?.paymentDate || "",
+    staffName: row?.staffName || "",
+  }));
+};
+
+const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
+  const type = normalizeSourceType(sourceType);
+  const base = pickFields(sourceRecord, [
+    "invoiceDate",
+    "noteDate",
+    "expenseDate",
+    "date",
+    "createdDate",
+    "createdAt",
+    "businessName",
+    "partyName",
+    "vendorName",
+    "serviceProviderBusinessName",
+    "staffName",
+    "clientName",
+    "paymentMethod",
+    "paymentStatus",
+    "paymentSource",
+    "invoiceType",
+    "amount",
+    "amountPaid",
+    "amountReceived",
+    "paidAmount",
+    "receivedAmount",
+    "advanceAdjustedTotal",
+    "appliedAdvances",
+    "financialYear",
+    "fiscalYear",
+    "inventoryValue",
+    "stockValue",
+    "closingStock",
+    "inventoryAmount",
+  ]);
+
+  if (sourceRecord?.taxData && typeof sourceRecord.taxData === "object") {
+    base.taxData = {
+      cgst: toNumber(sourceRecord.taxData.cgst || 0),
+      sgst: toNumber(sourceRecord.taxData.sgst || 0),
+      igst: toNumber(sourceRecord.taxData.igst || 0),
+      taxableAmount: toNumber(
+        sourceRecord.taxData.taxableAmount || sourceRecord.taxData.subtotal || 0,
+      ),
+      totalAmount: toNumber(sourceRecord.taxData.totalAmount || sourceRecord.amount || 0),
+      subtotal: toNumber(sourceRecord.taxData.subtotal || 0),
+    };
+  }
+
+  if (type === "credit-debit-note") {
+    Object.assign(
+      base,
+      pickFields(sourceRecord, [
+        "noteType",
+        "status",
+        "subtotal",
+        "taxAmount",
+        "totalAmount",
+        "refundAmount",
+        "refundMethod",
+      ]),
+    );
+  }
+
+  if (type === "payment-receipt") {
+    Object.assign(
+      base,
+      pickFields(sourceRecord, [
+        "receiptDate",
+        "paymentType",
+        "adjustedAmount",
+        "receiptNumber",
+      ]),
+    );
+  }
+
+  if (type === "owner-investment") {
+    Object.assign(base, pickFields(sourceRecord, ["fundDate", "transferredTo", "fundNumber"]));
+  }
+
+  if (type === "project") {
+    Object.assign(base, pickFields(sourceRecord, ["projectDate", "projectName", "projectId"]));
+    base.developerTransactions = normalizeDeveloperTransactions(
+      sourceRecord?.developerTransactions,
+    );
+  }
+
+  return base;
 };
 
 const getDocumentId = (sourceRecord = {}) => {
@@ -67,9 +302,9 @@ const getDocumentId = (sourceRecord = {}) => {
 };
 
 const getSourceDate = (sourceRecord = {}, sourceType = "") => {
-  switch (sourceType) {
+  const type = normalizeSourceType(sourceType);
+  switch (type) {
     case "invoice":
-    case "sales":
       return sourceRecord.invoiceDate || sourceRecord.createdAt;
     case "purchase":
       return sourceRecord.invoiceDate || sourceRecord.createdAt;
@@ -98,73 +333,52 @@ const buildLinesForInvoice = (record = {}) => {
   const totalAmount = toNumber(
     record?.taxData?.totalAmount || record?.amount || 0,
   );
-  const taxCgst = toNumber(record?.taxData?.cgst || 0);
-  const taxSgst = toNumber(record?.taxData?.sgst || 0);
-  const taxIgst = toNumber(record?.taxData?.igst || 0);
-  const taxTotal = taxCgst + taxSgst + taxIgst;
-  const receivedAmount = Math.max(
-    toNumber(record.amountReceived || 0),
-    toNumber(record.amountPaid || 0),
+  const { cgst, sgst, igst, totalTax } = getTaxComponents(record);
+  const taxableAmount = Math.max(totalAmount - totalTax, 0);
+  const appliedAdvance = getAppliedAdvanceAmount(record);
+  const explicitPaid = Math.max(
+    toNumber(record?.amountReceived || 0),
+    toNumber(record?.amountPaid || 0),
+    toNumber(record?.paidAmount || 0),
   );
-  const remainingAmount = Math.max(totalAmount - receivedAmount, 0);
-  const debitAmount = receivedAmount > 0 ? receivedAmount : totalAmount;
+  const paidAmount =
+    explicitPaid > 0
+      ? Math.max(explicitPaid - appliedAdvance, 0)
+      : String(record?.paymentStatus || "").trim().toLowerCase() === "paid" &&
+          appliedAdvance <= 0
+        ? totalAmount
+        : 0;
+  const receivedAmount = Math.min(paidAmount, totalAmount);
+  const outstanding = Math.max(totalAmount - receivedAmount, 0);
 
   return [
-    {
-      accountHead:
-        receivedAmount > 0
-          ? normalizePaymentMethod(record.paymentMethod) || "Receivables"
-          : "Sundry Debtors Account",
-      accountType: "Asset",
-      debit: Number(debitAmount.toFixed(2)),
-      credit: 0,
-    },
-    {
-      accountHead: "Sales Account",
-      accountType: "Income",
-      debit: 0,
-      credit: Number((totalAmount - taxTotal).toFixed(2)),
-    },
-    ...(taxCgst > 0
+    ...(receivedAmount > 0
       ? [
           {
-            accountHead: "GST Output CGST",
-            accountType: "Liability",
-            debit: 0,
-            credit: Number(taxCgst.toFixed(2)),
-          },
-        ]
-      : []),
-    ...(taxSgst > 0
-      ? [
-          {
-            accountHead: "GST Output SGST",
-            accountType: "Liability",
-            debit: 0,
-            credit: Number(taxSgst.toFixed(2)),
-          },
-        ]
-      : []),
-    ...(taxIgst > 0
-      ? [
-          {
-            accountHead: "GST Output IGST",
-            accountType: "Liability",
-            debit: 0,
-            credit: Number(taxIgst.toFixed(2)),
-          },
-        ]
-      : []),
-    ...(remainingAmount > 0
-      ? [
-          {
-            accountHead: "Sundry Debtors Account",
+            accountHead: getPaymentAccountHead(record?.paymentMethod, "Bank Account"),
             accountType: "Asset",
-            debit: Number(remainingAmount.toFixed(2)),
+            debit: roundAmount(receivedAmount),
             credit: 0,
           },
         ]
       : []),
+    ...(outstanding > 0
+      ? [
+          {
+            accountHead: "Sundry Debtors Account",
+            accountType: "Asset",
+            debit: roundAmount(outstanding),
+            credit: 0,
+          },
+        ]
+      : []),
+    {
+      accountHead: "Sales Account",
+      accountType: "Income",
+      debit: 0,
+      credit: roundAmount(taxableAmount),
+    },
+    ...buildGstOutputLines({ cgst, sgst, igst }),
   ];
 };
 
@@ -172,59 +386,49 @@ const buildLinesForPurchase = (record = {}) => {
   const totalAmount = toNumber(
     record?.taxData?.totalAmount || record?.amount || 0,
   );
-  const taxCgst = toNumber(record?.taxData?.cgst || 0);
-  const taxSgst = toNumber(record?.taxData?.sgst || 0);
-  const taxIgst = toNumber(record?.taxData?.igst || 0);
-  const taxTotal = taxCgst + taxSgst + taxIgst;
-  const paidAmount = Math.max(
-    toNumber(record.amountPaid || 0),
-    toNumber(record.paidAmount || 0),
-  );
-  const creditAmount = Math.max(totalAmount - paidAmount, 0);
+  const { cgst, sgst, igst, totalTax } = getTaxComponents(record);
+  const isItc = isPurchaseItcEligible(record?.invoiceType);
+  const paidRaw = getExplicitPaidAmount(record);
+  const paidAmount =
+    paidRaw > 0
+      ? Math.min(paidRaw, totalAmount)
+      : String(record?.paymentStatus || "").trim().toLowerCase() === "paid"
+        ? totalAmount
+        : 0;
+  const outstanding = Math.max(totalAmount - paidAmount, 0);
+  const ownerPersonal = isOwnerPersonal(record);
+  const purchaseAmount = isItc ? Math.max(totalAmount - totalTax, 0) : totalAmount;
 
   return [
     {
       accountHead: "Purchase Account",
       accountType: "Expense",
-      debit: Number((totalAmount - taxTotal).toFixed(2)),
+      debit: roundAmount(purchaseAmount),
       credit: 0,
     },
-    ...(taxCgst > 0
+    ...(isItc ? buildGstInputLines({ cgst, sgst, igst }) : []),
+    ...(paidAmount > 0
       ? [
           {
-            accountHead: "GST Input CGST",
-            accountType: "Asset",
-            debit: Number(taxCgst.toFixed(2)),
-            credit: 0,
+            accountHead: ownerPersonal
+              ? "Owner Funding Account"
+              : getPaymentAccountHead(record?.paymentMethod, "Bank Account"),
+            accountType: ownerPersonal ? "Equity" : "Asset",
+            debit: 0,
+            credit: roundAmount(paidAmount),
           },
         ]
       : []),
-    ...(taxSgst > 0
+    ...(outstanding > 0
       ? [
           {
-            accountHead: "GST Input SGST",
-            accountType: "Asset",
-            debit: Number(taxSgst.toFixed(2)),
-            credit: 0,
+            accountHead: "Sundry Creditors Account",
+            accountType: "Liability",
+            debit: 0,
+            credit: roundAmount(outstanding),
           },
         ]
       : []),
-    ...(taxIgst > 0
-      ? [
-          {
-            accountHead: "GST Input IGST",
-            accountType: "Asset",
-            debit: Number(taxIgst.toFixed(2)),
-            credit: 0,
-          },
-        ]
-      : []),
-    {
-      accountHead: "Sundry Creditors Account",
-      accountType: "Liability",
-      debit: 0,
-      credit: Number(creditAmount.toFixed(2)),
-    },
   ];
 };
 
@@ -232,150 +436,171 @@ const buildLinesForExpense = (record = {}) => {
   const totalAmount = toNumber(
     record?.taxData?.totalAmount || record?.amount || 0,
   );
-  const taxCgst = toNumber(record?.taxData?.cgst || 0);
-  const taxSgst = toNumber(record?.taxData?.sgst || 0);
-  const taxIgst = toNumber(record?.taxData?.igst || 0);
-  const taxTotal = taxCgst + taxSgst + taxIgst;
-  const paidAmount = Math.max(
-    toNumber(record.amountReceived || 0),
-    toNumber(record.amountPaid || 0),
-  );
-  const creditAmount = Math.max(totalAmount - paidAmount, 0);
+  const paidRaw = getExplicitPaidAmount(record);
+  const paidAmount =
+    paidRaw > 0
+      ? Math.min(paidRaw, totalAmount)
+      : String(record?.paymentStatus || "").trim().toLowerCase() === "paid"
+        ? totalAmount
+        : 0;
+  const outstanding = Math.max(totalAmount - paidAmount, 0);
 
   return [
     {
-      accountHead: record?.expenseHead || "Company Expense",
+      accountHead: "Company Expense Account",
       accountType: "Expense",
-      debit: Number((totalAmount - taxTotal).toFixed(2)),
+      debit: roundAmount(totalAmount),
       credit: 0,
     },
-    ...(taxCgst > 0
+    ...(paidAmount > 0
       ? [
           {
-            accountHead: "GST Input CGST",
+            accountHead: getPaymentAccountHead(record?.paymentMethod, "Bank Account"),
             accountType: "Asset",
-            debit: Number(taxCgst.toFixed(2)),
-            credit: 0,
+            debit: 0,
+            credit: roundAmount(paidAmount),
           },
         ]
       : []),
-    ...(taxSgst > 0
+    ...(outstanding > 0
       ? [
           {
-            accountHead: "GST Input SGST",
-            accountType: "Asset",
-            debit: Number(taxSgst.toFixed(2)),
-            credit: 0,
+            accountHead: "Sundry Creditors Account",
+            accountType: "Liability",
+            debit: 0,
+            credit: roundAmount(outstanding),
           },
         ]
       : []),
-    ...(taxIgst > 0
-      ? [
-          {
-            accountHead: "GST Input IGST",
-            accountType: "Asset",
-            debit: Number(taxIgst.toFixed(2)),
-            credit: 0,
-          },
-        ]
-      : []),
-    {
-      accountHead: "Sundry Creditors Account",
-      accountType: "Liability",
-      debit: 0,
-      credit: Number(creditAmount.toFixed(2)),
-    },
   ];
 };
 
 const buildLinesForReceipt = (record = {}) => {
   const totalAmount = toNumber(record?.amount || 0);
-  const appliedAmount = toNumber(record?.adjustedAmount || 0);
-  const advanceAmount =
-    String(record?.paymentType || "").toLowerCase() === "advance"
-      ? totalAmount
-      : 0;
-  const creditAmount = Math.max(totalAmount - (appliedAmount || 0), 0);
+  const adjustedAmount = toNumber(record?.adjustedAmount || 0);
+  const isAdvance =
+    String(record?.paymentType || "").trim().toLowerCase() === "advance";
+
+  if (!isAdvance || totalAmount <= 0) {
+    return [];
+  }
+
+  const unappliedAdvance = Math.max(totalAmount - adjustedAmount, 0);
+  const debtorSettlement = Math.max(totalAmount - unappliedAdvance, 0);
 
   return [
     {
-      accountHead:
-        normalizePaymentMethod(record?.paymentMethod) || "Cash Account",
+      accountHead: getPaymentAccountHead(record?.paymentMethod, "Cash Account"),
       accountType: "Asset",
-      debit: Number(totalAmount.toFixed(2)),
+      debit: roundAmount(totalAmount),
       credit: 0,
     },
-    {
-      accountHead:
-        advanceAmount > 0 ? "Advance from Customer" : "Sundry Debtors Account",
-      accountType: "Liability",
-      debit: 0,
-      credit: Number(
-        (advanceAmount > 0 ? totalAmount : creditAmount).toFixed(2),
-      ),
-    },
+    ...(debtorSettlement > 0
+      ? [
+          {
+            accountHead: "Sundry Debtors Account",
+            accountType: "Asset",
+            debit: 0,
+            credit: roundAmount(debtorSettlement),
+          },
+        ]
+      : []),
+    ...(unappliedAdvance > 0
+      ? [
+          {
+            accountHead: "Advance from Customer",
+            accountType: "Liability",
+            debit: 0,
+            credit: roundAmount(unappliedAdvance),
+          },
+        ]
+      : []),
   ];
 };
 
 const buildLinesForCreditDebitNote = (record = {}) => {
-  const totalAmount = toNumber(record?.totalAmount || record?.amount || 0);
-  const taxAmount = toNumber(record?.taxAmount || 0);
-  const noteType = String(record?.noteType || "").toLowerCase();
-  const refundAmount = toNumber(record?.refundAmount || 0);
-  const receivedAmount = toNumber(record?.receivedAmount || 0);
-  const paymentAmount = Math.max(refundAmount || receivedAmount, 0);
+  const taxableAmount = toNumber(record?.amount || record?.subtotal || 0);
+  const { cgst, sgst, igst, totalTax } = getTaxComponents(record);
+  const fallbackTax = toNumber(record?.taxAmount || 0);
+  const taxAmount = totalTax > 0 ? totalTax : fallbackTax;
+  const totalAmount = toNumber(record?.totalAmount || taxableAmount + taxAmount);
+  const isCreditNote =
+    String(record?.noteType || "").trim().toLowerCase() === "credit note";
+  const paidAmount = Math.max(
+    toNumber(record?.refundAmount || 0),
+    toNumber(record?.receivedAmount || 0),
+  );
+  const paymentAccount = getPaymentAccountHead(
+    record?.refundMethod || record?.paymentMethod,
+    "Cash Account",
+  );
 
-  if (noteType.includes("credit")) {
+  if (isCreditNote) {
+    const payableOutstanding = Math.max(totalAmount - paidAmount, 0);
     return [
       {
-        accountHead: "Sales Return / Adjustment",
+        accountHead: "Sales Return / Adjustment Account",
         accountType: "Income",
-        debit: Number((totalAmount - taxAmount).toFixed(2)),
+        debit: roundAmount(taxableAmount),
         credit: 0,
       },
       ...(taxAmount > 0
+        ? buildGstOutputLines({ cgst, sgst, igst }, "debit")
+        : []),
+      ...(paidAmount > 0
         ? [
             {
-              accountHead: "GST Output Adjustment",
-              accountType: "Liability",
-              debit: Number(taxAmount.toFixed(2)),
-              credit: 0,
+              accountHead: paymentAccount,
+              accountType: "Asset",
+              debit: 0,
+              credit: roundAmount(paidAmount),
             },
           ]
         : []),
-      {
-        accountHead:
-          normalizePaymentMethod(record?.refundMethod) || "Cash Account",
-        accountType: "Asset",
-        debit: 0,
-        credit: Number(paymentAmount.toFixed(2)),
-      },
+      ...(payableOutstanding > 0
+        ? [
+            {
+              accountHead: "Credit Note Payable",
+              accountType: "Liability",
+              debit: 0,
+              credit: roundAmount(payableOutstanding),
+            },
+          ]
+        : []),
     ];
   }
 
+  const receivedAmount = Math.min(paidAmount, totalAmount);
+  const outstanding = Math.max(totalAmount - receivedAmount, 0);
+
   return [
-    {
-      accountHead: "Sundry Debtors Account",
-      accountType: "Asset",
-      debit: Number(totalAmount.toFixed(2)),
-      credit: 0,
-    },
-    {
-      accountHead: "Purchase Return / Adjustment",
-      accountType: "Expense",
-      debit: 0,
-      credit: Number((totalAmount - taxAmount).toFixed(2)),
-    },
-    ...(taxAmount > 0
+    ...(receivedAmount > 0
       ? [
           {
-            accountHead: "GST Output Adjustment",
-            accountType: "Liability",
-            debit: 0,
-            credit: Number(taxAmount.toFixed(2)),
+            accountHead: paymentAccount,
+            accountType: "Asset",
+            debit: roundAmount(receivedAmount),
+            credit: 0,
           },
         ]
       : []),
+    ...(outstanding > 0
+      ? [
+          {
+            accountHead: "Sundry Debtors Account",
+            accountType: "Asset",
+            debit: roundAmount(outstanding),
+            credit: 0,
+          },
+        ]
+      : []),
+    {
+      accountHead: "Sales Account",
+      accountType: "Income",
+      debit: 0,
+      credit: roundAmount(taxableAmount),
+    },
+    ...(taxAmount > 0 ? buildGstOutputLines({ cgst, sgst, igst }) : []),
   ];
 };
 
@@ -383,75 +608,59 @@ const buildLinesForRcm = (record = {}) => {
   const totalAmount = toNumber(
     record?.taxData?.totalAmount || record?.amount || 0,
   );
-  const taxCgst = toNumber(record?.taxData?.cgst || 0);
-  const taxSgst = toNumber(record?.taxData?.sgst || 0);
-  const taxIgst = toNumber(record?.taxData?.igst || 0);
-  const taxTotal = taxCgst + taxSgst + taxIgst;
-  const paidAmount = Math.max(
-    toNumber(record.amountPaid || 0),
-    toNumber(record.paidAmount || 0),
-  );
-  const creditAmount = Math.max(totalAmount - paidAmount, 0);
+  const { cgst, sgst, igst, totalTax } = getTaxComponents(record);
+  const taxableAmount = Math.max(totalAmount - totalTax, 0);
+  const paidRaw = getExplicitPaidAmount(record);
+  const paidAmount =
+    paidRaw > 0
+      ? Math.min(paidRaw, taxableAmount)
+      : String(record?.paymentStatus || "").trim().toLowerCase() === "paid"
+        ? taxableAmount
+        : 0;
+  const outstanding = Math.max(taxableAmount - paidAmount, 0);
+  const ownerPersonal = isOwnerPersonal(record);
 
   return [
     {
-      accountHead: "RCM Purchase / Expense",
+      accountHead: "Purchase Account",
       accountType: "Expense",
-      debit: Number((totalAmount - taxTotal).toFixed(2)),
+      debit: roundAmount(taxableAmount),
       credit: 0,
     },
-    ...(taxCgst > 0
+    ...buildGstInputLines({ cgst, sgst, igst }),
+    ...buildGstOutputLines({ cgst, sgst, igst }),
+    ...(paidAmount > 0
       ? [
           {
-            accountHead: "GST Input CGST",
-            accountType: "Asset",
-            debit: Number(taxCgst.toFixed(2)),
-            credit: 0,
+            accountHead: ownerPersonal
+              ? "Owner Funding Account"
+              : getPaymentAccountHead(record?.paymentMethod, "Bank Account"),
+            accountType: ownerPersonal ? "Equity" : "Asset",
+            debit: 0,
+            credit: roundAmount(paidAmount),
           },
         ]
       : []),
-    ...(taxSgst > 0
+    ...(outstanding > 0
       ? [
           {
-            accountHead: "GST Input SGST",
-            accountType: "Asset",
-            debit: Number(taxSgst.toFixed(2)),
-            credit: 0,
+            accountHead: "Sundry Creditors Account",
+            accountType: "Liability",
+            debit: 0,
+            credit: roundAmount(outstanding),
           },
         ]
       : []),
-    ...(taxIgst > 0
-      ? [
-          {
-            accountHead: "GST Input IGST",
-            accountType: "Asset",
-            debit: Number(taxIgst.toFixed(2)),
-            credit: 0,
-          },
-        ]
-      : []),
-    {
-      accountHead: "GST Output RCM",
-      accountType: "Liability",
-      debit: 0,
-      credit: Number(taxTotal.toFixed(2)),
-    },
-    {
-      accountHead: "Sundry Creditors Account",
-      accountType: "Liability",
-      debit: 0,
-      credit: Number(creditAmount.toFixed(2)),
-    },
   ];
 };
 
 const buildLinesForOwnerInvestment = (record = {}) => {
   const amount = toNumber(record?.amount || record?.investmentAmount || 0);
   const receivedAmount = toNumber(record?.amountReceived || amount || 0);
-  const source = String(
-    record?.transferredTo || record?.paymentMethod || "Bank",
-  ).toLowerCase();
-  const accountHead = source.includes("cash") ? "Cash Account" : "Bank Account";
+  const accountHead = getPaymentAccountHead(
+    record?.transferredTo || record?.paymentMethod,
+    "Bank Account",
+  );
 
   return [
     {
@@ -461,10 +670,10 @@ const buildLinesForOwnerInvestment = (record = {}) => {
       credit: 0,
     },
     {
-      accountHead: "Owner Funding / Investment",
+      accountHead: "Owner Investment Account",
       accountType: "Equity",
       debit: 0,
-      credit: Number(receivedAmount.toFixed(2)),
+      credit: roundAmount(receivedAmount),
     },
   ];
 };
@@ -477,45 +686,48 @@ const buildLinesForProject = (record = {}) => {
     const amount = toNumber(tx?.payoutAmount || 0);
     if (amount <= 0) return accumulator;
 
-    const paymentMethod = String(
-      tx?.payoutMethod || record?.payoutMethod || "Bank Transfer",
-    ).toLowerCase();
-    const accountHead = paymentMethod.includes("cash")
-      ? "Cash Account"
-      : "Bank Account";
+    const ownerPersonal = isOwnerPersonal(record, tx?.payoutSource);
+    const accountHead = ownerPersonal
+      ? "Owner Funding Account"
+      : getPaymentAccountHead(tx?.payoutMethod || record?.payoutMethod, "Bank Account");
+    const accountType = ownerPersonal ? "Equity" : "Asset";
+    const key = `${accountHead}:${accountType}`;
 
-    accumulator[accountHead] = (accumulator[accountHead] || 0) + amount;
+    accumulator[key] = accumulator[key] || {
+      accountHead,
+      accountType,
+      amount: 0,
+    };
+    accumulator[key].amount += amount;
     return accumulator;
   }, {});
 
   const totalAmount = Object.values(paymentBuckets).reduce(
-    (sum, amount) => sum + amount,
+    (sum, row) => sum + row.amount,
     0,
-  );
-  const counterLines = Object.entries(paymentBuckets).map(
-    ([accountHead, amount]) => ({
-      accountHead,
-      accountType: "Asset",
-      debit: 0,
-      credit: Number(amount.toFixed(2)),
-    }),
   );
 
   return [
     {
-      accountHead: "Project Developer Payout",
+      accountHead: "Project Cost Account",
       accountType: "Expense",
-      debit: Number(totalAmount.toFixed(2)),
+      debit: roundAmount(totalAmount),
       credit: 0,
     },
-    ...counterLines,
+    ...Object.values(paymentBuckets).map((row) => ({
+      accountHead: row.accountHead,
+      accountType: row.accountType,
+      debit: 0,
+      credit: roundAmount(row.amount),
+    })),
   ];
 };
 
 const buildLines = (sourceType, sourceRecord) => {
-  switch (sourceType) {
+  const normalizedType = normalizeSourceType(sourceType);
+
+  switch (normalizedType) {
     case "invoice":
-    case "sales":
       return buildLinesForInvoice(sourceRecord);
     case "purchase":
       return buildLinesForPurchase(sourceRecord);
@@ -537,9 +749,10 @@ const buildLines = (sourceType, sourceRecord) => {
 };
 
 const getRecordAmount = (sourceType, sourceRecord) => {
-  switch (sourceType) {
+  const normalizedType = normalizeSourceType(sourceType);
+
+  switch (normalizedType) {
     case "invoice":
-    case "sales":
     case "purchase":
     case "company-expense":
     case "rcm":
@@ -574,12 +787,13 @@ export const buildTransactionSnapshot = ({
   sourceLabel = "",
 }) => {
   const sourceId = getDocumentId(sourceRecord);
-  const sourceDate = getDateOnlyString(getSourceDate(sourceRecord, sourceType));
+  const normalizedType = normalizeSourceType(sourceType);
+  const sourceDate = getDateOnlyString(getSourceDate(sourceRecord, normalizedType));
   const financialYear =
     sourceRecord?.financialYear ||
     sourceRecord?.fiscalYear ||
     getFinancialYear(sourceDate);
-  const lines = buildLines(sourceType, sourceRecord);
+  const lines = buildLines(normalizedType, sourceRecord);
   const debitTotal = lines.reduce(
     (sum, line) => sum + toNumber(line?.debit || 0),
     0,
@@ -588,16 +802,36 @@ export const buildTransactionSnapshot = ({
     (sum, line) => sum + toNumber(line?.credit || 0),
     0,
   );
-  const amount = getRecordAmount(sourceType, sourceRecord);
+  const amount = getRecordAmount(normalizedType, sourceRecord);
   const sourceKey = `${sourceCollection}:${sourceId}`;
+  const sourceRecordForFeatures = buildSourceRecordForFeatures(
+    normalizedType,
+    sourceRecord,
+  );
+  const taxData = {
+    cgst: toNumber(sourceRecord?.taxData?.cgst || sourceRecord?.cgst || 0),
+    sgst: toNumber(sourceRecord?.taxData?.sgst || sourceRecord?.sgst || 0),
+    igst: toNumber(sourceRecord?.taxData?.igst || sourceRecord?.igst || 0),
+    totalTax: toNumber(
+      sourceRecord?.taxData?.totalTax ||
+        sourceRecord?.taxAmount ||
+        toNumber(sourceRecord?.taxData?.cgst || sourceRecord?.cgst || 0) +
+          toNumber(sourceRecord?.taxData?.sgst || sourceRecord?.sgst || 0) +
+          toNumber(sourceRecord?.taxData?.igst || sourceRecord?.igst || 0),
+    ),
+  };
+  const inventoryValue = roundAmount(
+    sourceRecord?.inventoryValue ||
+      sourceRecord?.stockValue ||
+      sourceRecord?.closingStock ||
+      sourceRecord?.inventoryAmount ||
+      0,
+  );
 
-  // Extract ONLY essential fields needed for Ledger/Balance Sheet/Books of Account
-  // Do NOT store full sourceRecord (wasteful storage)
   return {
-    // Identifiers
     sourceKey,
     sourceCollection,
-    sourceType,
+    sourceType: normalizedType,
     sourceId,
     sourceLabel:
       sourceLabel ||
@@ -609,18 +843,16 @@ export const buildTransactionSnapshot = ({
       sourceRecord?.fundNumber ||
       "",
 
-    // Core accounting data (essential)
     transactionDate: sourceDate || getDateOnlyString(new Date()),
     financialYear,
-    amount: Number(amount.toFixed(2)),
-    debitTotal: Number(debitTotal.toFixed(2)),
-    creditTotal: Number(creditTotal.toFixed(2)),
+    amount: roundAmount(amount),
+    debitTotal: roundAmount(debitTotal),
+    creditTotal: roundAmount(creditTotal),
     balanced: Math.abs(debitTotal - creditTotal) < 0.01,
 
-    // Transaction lines (essential for Ledger/Balance Sheet)
     lines,
+    sourceRecord: sourceRecordForFeatures,
 
-    // Party information (minimal - needed for description/filtering)
     partyName:
       sourceRecord?.businessName ||
       sourceRecord?.partyName ||
@@ -630,29 +862,16 @@ export const buildTransactionSnapshot = ({
       sourceRecord?.clientName ||
       "",
 
-    // Payment info (essential for cash/bank tracking)
     paymentMethod: normalizePaymentMethod(
       sourceRecord?.paymentMethod ||
         sourceRecord?.refundMethod ||
         sourceRecord?.payoutMethod ||
         sourceRecord?.transferredTo,
     ),
-    paymentStatus: sourceRecord?.paymentStatus || "",
 
-    // Tax data (essential for tax reporting, but minimal)
-    taxData: sourceRecord?.taxData
-      ? {
-          cgst: toNumber(sourceRecord.taxData.cgst),
-          sgst: toNumber(sourceRecord.taxData.sgst),
-          igst: toNumber(sourceRecord.taxData.igst),
-          totalTax:
-            toNumber(sourceRecord.taxData.cgst) +
-            toNumber(sourceRecord.taxData.sgst) +
-            toNumber(sourceRecord.taxData.igst),
-        }
-      : { cgst: 0, sgst: 0, igst: 0, totalTax: 0 },
+    taxData,
+    inventoryValue,
 
-    // Metadata
     operation,
     isDeleted: false,
     deletedAt: null,
@@ -720,7 +939,7 @@ export const normalizeTransactionSnapshot = (transaction = {}) => {
     ...transaction,
     sourceKey: String(transaction.sourceKey || "").trim(),
     sourceCollection: String(transaction.sourceCollection || "").trim(),
-    sourceType: String(transaction.sourceType || "").trim(),
+    sourceType: normalizeSourceType(transaction.sourceType || ""),
     sourceId: String(transaction.sourceId || "").trim(),
     sourceLabel: String(transaction.sourceLabel || "").trim(),
     transactionDate: getDateOnlyString(transaction.transactionDate),
@@ -731,6 +950,11 @@ export const normalizeTransactionSnapshot = (transaction = {}) => {
     creditTotal: toNumber(transaction.creditTotal || 0),
     balanced: Boolean(transaction.balanced),
     lines: normalizedLines,
+    sourceRecord:
+      transaction?.sourceRecord && typeof transaction.sourceRecord === "object"
+        ? transaction.sourceRecord
+        : {},
+    inventoryValue: toNumber(transaction.inventoryValue || 0),
     isDeleted: transaction.isDeleted === true,
   };
 };
