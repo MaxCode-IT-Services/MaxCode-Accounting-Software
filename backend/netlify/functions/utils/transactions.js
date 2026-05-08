@@ -172,7 +172,10 @@ const buildGstInputLines = ({ cgst = 0, sgst = 0, igst = 0 } = {}) => {
   return lines;
 };
 
-const buildGstOutputLines = ({ cgst = 0, sgst = 0, igst = 0 } = {}, side = "credit") => {
+const buildGstOutputLines = (
+  { cgst = 0, sgst = 0, igst = 0 } = {},
+  side = "credit",
+) => {
   const line = (head, amount) => ({
     accountHead: head,
     accountType: "Liability",
@@ -247,9 +250,13 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
       sgst: toNumber(sourceRecord.taxData.sgst || 0),
       igst: toNumber(sourceRecord.taxData.igst || 0),
       taxableAmount: toNumber(
-        sourceRecord.taxData.taxableAmount || sourceRecord.taxData.subtotal || 0,
+        sourceRecord.taxData.taxableAmount ||
+          sourceRecord.taxData.subtotal ||
+          0,
       ),
-      totalAmount: toNumber(sourceRecord.taxData.totalAmount || sourceRecord.amount || 0),
+      totalAmount: toNumber(
+        sourceRecord.taxData.totalAmount || sourceRecord.amount || 0,
+      ),
       subtotal: toNumber(sourceRecord.taxData.subtotal || 0),
     };
   }
@@ -282,11 +289,17 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
   }
 
   if (type === "owner-investment") {
-    Object.assign(base, pickFields(sourceRecord, ["fundDate", "transferredTo", "fundNumber"]));
+    Object.assign(
+      base,
+      pickFields(sourceRecord, ["fundDate", "transferredTo", "fundNumber"]),
+    );
   }
 
   if (type === "project") {
-    Object.assign(base, pickFields(sourceRecord, ["projectDate", "projectName", "projectId"]));
+    Object.assign(
+      base,
+      pickFields(sourceRecord, ["projectDate", "projectName", "projectId"]),
+    );
     base.developerTransactions = normalizeDeveloperTransactions(
       sourceRecord?.developerTransactions,
     );
@@ -344,8 +357,9 @@ const buildLinesForInvoice = (record = {}) => {
   const paidAmount =
     explicitPaid > 0
       ? Math.max(explicitPaid - appliedAdvance, 0)
-      : String(record?.paymentStatus || "").trim().toLowerCase() === "paid" &&
-          appliedAdvance <= 0
+      : String(record?.paymentStatus || "")
+            .trim()
+            .toLowerCase() === "paid" && appliedAdvance <= 0
         ? totalAmount
         : 0;
   const receivedAmount = Math.min(paidAmount, totalAmount);
@@ -355,7 +369,10 @@ const buildLinesForInvoice = (record = {}) => {
     ...(receivedAmount > 0
       ? [
           {
-            accountHead: getPaymentAccountHead(record?.paymentMethod, "Bank Account"),
+            accountHead: getPaymentAccountHead(
+              record?.paymentMethod,
+              "Bank Account",
+            ),
             accountType: "Asset",
             debit: roundAmount(receivedAmount),
             credit: 0,
@@ -392,12 +409,16 @@ const buildLinesForPurchase = (record = {}) => {
   const paidAmount =
     paidRaw > 0
       ? Math.min(paidRaw, totalAmount)
-      : String(record?.paymentStatus || "").trim().toLowerCase() === "paid"
+      : String(record?.paymentStatus || "")
+            .trim()
+            .toLowerCase() === "paid"
         ? totalAmount
         : 0;
   const outstanding = Math.max(totalAmount - paidAmount, 0);
   const ownerPersonal = isOwnerPersonal(record);
-  const purchaseAmount = isItc ? Math.max(totalAmount - totalTax, 0) : totalAmount;
+  const purchaseAmount = isItc
+    ? Math.max(totalAmount - totalTax, 0)
+    : totalAmount;
 
   return [
     {
@@ -440,7 +461,9 @@ const buildLinesForExpense = (record = {}) => {
   const paidAmount =
     paidRaw > 0
       ? Math.min(paidRaw, totalAmount)
-      : String(record?.paymentStatus || "").trim().toLowerCase() === "paid"
+      : String(record?.paymentStatus || "")
+            .trim()
+            .toLowerCase() === "paid"
         ? totalAmount
         : 0;
   const outstanding = Math.max(totalAmount - paidAmount, 0);
@@ -455,7 +478,10 @@ const buildLinesForExpense = (record = {}) => {
     ...(paidAmount > 0
       ? [
           {
-            accountHead: getPaymentAccountHead(record?.paymentMethod, "Bank Account"),
+            accountHead: getPaymentAccountHead(
+              record?.paymentMethod,
+              "Bank Account",
+            ),
             accountType: "Asset",
             debit: 0,
             credit: roundAmount(paidAmount),
@@ -479,7 +505,9 @@ const buildLinesForReceipt = (record = {}) => {
   const totalAmount = toNumber(record?.amount || 0);
   const adjustedAmount = toNumber(record?.adjustedAmount || 0);
   const isAdvance =
-    String(record?.paymentType || "").trim().toLowerCase() === "advance";
+    String(record?.paymentType || "")
+      .trim()
+      .toLowerCase() === "advance";
 
   if (!isAdvance || totalAmount <= 0) {
     return [];
@@ -523,9 +551,13 @@ const buildLinesForCreditDebitNote = (record = {}) => {
   const { cgst, sgst, igst, totalTax } = getTaxComponents(record);
   const fallbackTax = toNumber(record?.taxAmount || 0);
   const taxAmount = totalTax > 0 ? totalTax : fallbackTax;
-  const totalAmount = toNumber(record?.totalAmount || taxableAmount + taxAmount);
+  const totalAmount = toNumber(
+    record?.totalAmount || taxableAmount + taxAmount,
+  );
   const isCreditNote =
-    String(record?.noteType || "").trim().toLowerCase() === "credit note";
+    String(record?.noteType || "")
+      .trim()
+      .toLowerCase() === "credit note";
   const paidAmount = Math.max(
     toNumber(record?.refundAmount || 0),
     toNumber(record?.receivedAmount || 0),
@@ -614,7 +646,9 @@ const buildLinesForRcm = (record = {}) => {
   const paidAmount =
     paidRaw > 0
       ? Math.min(paidRaw, taxableAmount)
-      : String(record?.paymentStatus || "").trim().toLowerCase() === "paid"
+      : String(record?.paymentStatus || "")
+            .trim()
+            .toLowerCase() === "paid"
         ? taxableAmount
         : 0;
   const outstanding = Math.max(taxableAmount - paidAmount, 0);
@@ -689,7 +723,10 @@ const buildLinesForProject = (record = {}) => {
     const ownerPersonal = isOwnerPersonal(record, tx?.payoutSource);
     const accountHead = ownerPersonal
       ? "Owner Funding Account"
-      : getPaymentAccountHead(tx?.payoutMethod || record?.payoutMethod, "Bank Account");
+      : getPaymentAccountHead(
+          tx?.payoutMethod || record?.payoutMethod,
+          "Bank Account",
+        );
     const accountType = ownerPersonal ? "Equity" : "Asset";
     const key = `${accountHead}:${accountType}`;
 
@@ -788,7 +825,9 @@ export const buildTransactionSnapshot = ({
 }) => {
   const sourceId = getDocumentId(sourceRecord);
   const normalizedType = normalizeSourceType(sourceType);
-  const sourceDate = getDateOnlyString(getSourceDate(sourceRecord, normalizedType));
+  const sourceDate = getDateOnlyString(
+    getSourceDate(sourceRecord, normalizedType),
+  );
   const financialYear =
     sourceRecord?.financialYear ||
     sourceRecord?.fiscalYear ||
