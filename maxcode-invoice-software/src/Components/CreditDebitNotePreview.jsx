@@ -32,7 +32,7 @@ const CreditDebitNotePreview = ({
   );
   const [businessSettings, setBusinessSettings] = useState({});
 
-  const rawNoteData = noteRecord || (!id ? providedNoteData : null) || {};
+  const rawNoteData = noteRecord || providedNoteData || {};
 
   const normalizedItems = Array.isArray(rawNoteData?.items)
     ? rawNoteData.items
@@ -410,6 +410,47 @@ const CreditDebitNotePreview = ({
     }).format(safe);
   };
 
+  const paymentDateToShow =
+    formatDateOnly(
+      noteType === "Credit Note"
+        ? notePreviewData.refundDate || noteRecord?.refundDate
+        : notePreviewData.paymentDate || noteRecord?.paymentDate,
+    ) || "-";
+  const refundMethod = String(
+    notePreviewData.refundMethod || noteRecord?.refundMethod || "",
+  ).trim();
+  const advanceAdjustment = toMoney(
+    notePreviewData.advanceAdjustedTotal ||
+      noteRecord?.advanceAdjustedTotal ||
+      0,
+  );
+  const tdsPercent = Number(
+    notePreviewData.tdsPercent || noteRecord?.tdsPercent || 0,
+  );
+  const tdsAmount = toMoney(
+    notePreviewData.tdsAmount || noteRecord?.tdsAmount || 0,
+  );
+  const totalReceived = toMoney(
+    noteType === "Credit Note"
+      ? notePreviewData.refundAmount || noteRecord?.refundAmount || 0
+      : notePreviewData.receivedAmount ||
+          noteRecord?.receivedAmount ||
+          notePreviewData.amountReceived ||
+          noteRecord?.amountReceived ||
+          0,
+  );
+  const totalDue = Math.max(
+    0,
+    toMoney(totalAmount - totalReceived - tdsAmount),
+  );
+  const paymentStatusText = String(
+    noteType === "Credit Note"
+      ? notePreviewData.refundStatus || noteRecord?.refundStatus || ""
+      : notePreviewData.paymentStatus || noteRecord?.paymentStatus || "",
+  )
+    .trim()
+    .toUpperCase();
+
   const numberToWords = (num) => {
     if (num === 0) return "Zero";
 
@@ -641,7 +682,7 @@ const CreditDebitNotePreview = ({
 
   if (!isPrintMode && !show) return null;
 
-  if (!isPrintMode && dataLoading) {
+  if (!isPrintMode && dataLoading && !providedNoteData) {
     return (
       <div
         className="modal show d-block"
@@ -786,6 +827,68 @@ const CreditDebitNotePreview = ({
             background: transparent !important;
           }
 
+          .payment-wrapper {
+            position: relative;
+            z-index: 1;
+          }
+
+          .payment-wrapper > *:not(.payment-seal) {
+            position: relative;
+            z-index: 2;
+          }
+
+          .payment-seal {
+            position: absolute;
+            top: 70px;
+            right: 50px;
+            transform: rotate(-25deg);
+            border: 4px solid #1aa34a;
+            color: #1aa34a;
+            font-weight: 800;
+            font-size: 25px;
+            padding: 5px 8px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            background: rgba(0, 128, 0, 0.05);
+            opacity: 1;
+            z-index: 0;
+            pointer-events: none;
+            box-shadow: 0 0 10px rgba(0, 128, 0, 0.3);
+            border-radius: 8px;
+          }
+
+          .payment-seal--pending {
+            border-color: #ff0000;
+            color: #ff0000;
+            background: rgba(179, 0, 0, 0.05);
+            box-shadow: 0 0 10px rgba(179, 0, 0, 0.3);
+          }
+
+          .payment-seal--partial {
+            border-color: #f55900;
+            color: #f55900;
+            background: rgba(240, 173, 78, 0.1);
+            box-shadow: 0 0 10px rgba(240, 137, 78, 0.35);
+            text-align: center;
+          }
+
+          .payment-seal::before {
+            content: "";
+            position: absolute;
+            inset: -6px;
+            border: 2px dashed #1aa34a;
+            border-radius: 10px;
+            opacity: 0.6;
+          }
+
+          .payment-seal--pending::before {
+            border-color: #ff0000;
+          }
+
+          .payment-seal--partial::before {
+            border-color: #f0ad4e;
+          }
+
           @media print {
             .no-print { display: none !important; }
             body { background: white; margin: 0; padding: 0; }
@@ -884,7 +987,7 @@ const CreditDebitNotePreview = ({
                   <div className="row g-0">
                     <div
                       className="col-4 p-3"
-                      style={{ width: "54.4%", borderRight: "3px solid #000" }}
+                      style={{ width: "32.5%", borderRight: "3px solid #000" }}
                     >
                       <h6 className="fw-black mb-3 h4 fw-bold">
                         {noteType === "Debit Note"
@@ -893,7 +996,7 @@ const CreditDebitNotePreview = ({
                       </h6>
                       <div className="fs-6">
                         <div className="d-flex mb-1">
-                          <span style={{ width: "200px" }}>Note Date</span>
+                          <span style={{ width: "110px" }}>Note Date</span>
                           <span className="fw-bold">
                             :{" "}
                             {formatDateOnly(
@@ -903,24 +1006,24 @@ const CreditDebitNotePreview = ({
                           </span>
                         </div>
                         <div className="d-flex mb-1">
-                          <span style={{ width: "200px" }}>Note Number</span>
+                          <span style={{ width: "110px" }}>Note Number</span>
                           <span className="fw-bold">
                             : {notePreviewData.invoiceNumber}
                           </span>
                         </div>
                         <div className="d-flex mb-1">
-                          <span style={{ width: "200px" }}>
-                            Reference Invoice No.
+                          <span style={{ width: "110px" }}>
+                            Invoice Ref. No.
                           </span>
                           <span className="fw-bold">
                             : {notePreviewData.orderNumber}
                           </span>
                         </div>
                         <div className="d-flex mb-1">
-                          <span style={{ width: "200px" }}>
+                          <span style={{ width: "110px" }}>
                             {noteType === "Debit Note"
-                              ? "Reason for Debit Note"
-                              : "Reason for Credit Note"}
+                              ? "Reason for DN"
+                              : "Reason for CN"}
                           </span>
                           <span className="fw-bold">
                             :{" "}
@@ -930,7 +1033,7 @@ const CreditDebitNotePreview = ({
                           </span>
                         </div>
                         <div className="d-flex mb-1">
-                          <span style={{ width: "200px" }}>
+                          <span style={{ width: "110px" }}>
                             Place of Supply
                           </span>
                           <span className="fw-bold">
@@ -940,7 +1043,10 @@ const CreditDebitNotePreview = ({
                       </div>
                     </div>
 
-                    <div className="col-8 p-3" style={{ width: "45.6%" }}>
+                    <div
+                      className="col-4 p-3"
+                      style={{ width: "39.5%", borderRight: "3px solid #000" }}
+                    >
                       <h6 className="fw-bold mb-3 fs-5 fw-bold">Bill To :</h6>
                       <h5 className="fw-black mb-2 fw-bold">
                         {notePreviewData.businessName ||
@@ -965,6 +1071,8 @@ const CreditDebitNotePreview = ({
                         <div className="mb-1">
                           Email ID:{" "}
                           {notePreviewData.clientEmail ||
+                            notePreviewData.email ||
+                            noteRecord?.clientEmail ||
                             noteRecord?.email ||
                             invoiceRecord?.clientEmail ||
                             invoiceRecord?.email ||
@@ -981,78 +1089,148 @@ const CreditDebitNotePreview = ({
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div
-                    className="px-3 py-2"
-                    style={{
-                      borderTop: "3px solid #000",
-                      borderBottom: "3px solid #000",
-                      backgroundColor: "#f8f9fa",
-                    }}
-                  >
-                    <h6 className="fw-bold mb-2">
-                      <i className="fas fa-credit-card me-2"></i>
-                      Payment Information
-                    </h6>
-                    <div className="row g-2 fs-6">
+                    <div
+                      className="p-3 position-relative payment-wrapper"
+                      style={{ width: "25%" }}
+                    >
+                      <h6 className="fw-bold mb-3 fs-5 fw-bold">
+                        {noteType === "Credit Note"
+                          ? "Refund Information :"
+                          : "Payment Information :"}
+                      </h6>
+                      <div className="fs-6">
+                        {noteType === "Credit Note" ? (
+                          <>
+                            <div className="d-flex mb-1 fw-bold">
+                              <span style={{ width: "110px" }}>
+                                Refund Date
+                              </span>
+                              <span className="fw-bold">
+                                : {paymentDateToShow}
+                              </span>
+                            </div>
+                            <div className="d-flex mb-1 fw-bold">
+                              <span style={{ width: "110px" }}>
+                                Refund Amount
+                              </span>
+                              <span className="fw-bold">
+                                : ₹{formatCurrency(totalReceived)}
+                              </span>
+                            </div>
+                            <div className="d-flex mb-1 fw-bold">
+                              <span style={{ width: "110px" }}>
+                                Refund Method
+                              </span>
+                              <span className="fw-bold">
+                                : {refundMethod || "-"}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="d-flex mb-1 fw-bold">
+                              <span style={{ width: "110px" }}>
+                                Payment Date
+                              </span>
+                              <span className="fw-bold">
+                                : {paymentDateToShow}
+                              </span>
+                            </div>
+                            <div className="d-flex mb-1 fw-bold">
+                              <span style={{ width: "110px" }}>
+                                Advance Adj. (-)
+                              </span>
+                              <span className="fw-bold">
+                                : ₹{formatCurrency(advanceAdjustment)}
+                              </span>
+                            </div>
+                            <div className="d-flex mb-1 fw-bold">
+                              <span style={{ width: "110px" }}>
+                                TDS Ded. ({tdsPercent}%)
+                              </span>
+                              <span className="fw-bold">
+                                : ₹{formatCurrency(tdsAmount)}
+                              </span>
+                            </div>
+                            <div
+                              className="d-flex mb-1 fw-bold"
+                              style={{ color: "#000" }}
+                            >
+                              <span style={{ width: "110px" }}>
+                                Total Received
+                              </span>
+                              <span className="fw-bold">
+                                : ₹{formatCurrency(totalReceived)}
+                              </span>
+                            </div>
+                            <div
+                              className="d-flex mb-1 fw-bold"
+                              style={{
+                                color: totalDue > 0 ? "#b30000" : "#000",
+                              }}
+                            >
+                              <span style={{ width: "110px" }}>Total Due</span>
+                              <span className="fw-bold">
+                                : ₹{formatCurrency(totalDue)}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
                       {noteType === "Credit Note" ? (
                         <>
-                          <div className="col-6">
-                            <span className="fw-bold">Refund Date:</span>{" "}
-                            {formatDateOnly(
-                              notePreviewData.refundDate || noteRecord?.refundDate,
-                            ) || "-"}
-                          </div>
-                          <div className="col-6">
-                            <span className="fw-bold">Refund Amount:</span> ₹
-                            {formatCurrency(
-                              notePreviewData.refundAmount ||
-                                noteRecord?.refundAmount ||
-                                0,
-                            )}
-                          </div>
-                          <div className="col-6">
-                            <span className="fw-bold">Refund Method:</span>{" "}
-                            {notePreviewData.refundMethod ||
-                              noteRecord?.refundMethod ||
-                              "-"}
-                          </div>
-                          <div className="col-6">
-                            <span className="fw-bold">Refund Status:</span>{" "}
-                            {notePreviewData.refundStatus ||
-                              noteRecord?.refundStatus ||
-                              "-"}
-                          </div>
+                          {paymentStatusText === "FULL REFUND" && (
+                            <div className="payment-seal">
+                              FULL
+                              <br />
+                              REFUND
+                            </div>
+                          )}
+                          {paymentStatusText === "PARTIAL REFUND" && (
+                            <div className="payment-seal payment-seal--partial">
+                              PARTIAL
+                              <br />
+                              REFUND
+                            </div>
+                          )}
+                          {(paymentStatusText === "PENDING" ||
+                            !paymentStatusText ||
+                            (paymentStatusText !== "FULL REFUND" &&
+                              paymentStatusText !== "PARTIAL REFUND")) && (
+                            <div className="payment-seal payment-seal--pending">
+                              REFUND
+                              <br />
+                              PENDING
+                            </div>
+                          )}
                         </>
                       ) : (
                         <>
-                          <div className="col-6">
-                            <span className="fw-bold">Payment Date:</span>{" "}
-                            {formatDateOnly(
-                              notePreviewData.paymentDate || noteRecord?.paymentDate,
-                            ) || "-"}
-                          </div>
-                          <div className="col-6">
-                            <span className="fw-bold">Recived Amount:</span> ₹
-                            {formatCurrency(
-                              notePreviewData.receivedAmount ||
-                                noteRecord?.receivedAmount ||
-                                0,
-                            )}
-                          </div>
-                          <div className="col-6">
-                            <span className="fw-bold">Payment Method:</span>{" "}
-                            {notePreviewData.paymentMethod ||
-                              noteRecord?.paymentMethod ||
-                              "-"}
-                          </div>
-                          <div className="col-6">
-                            <span className="fw-bold">Payment Status:</span>{" "}
-                            {notePreviewData.paymentStatus ||
-                              noteRecord?.paymentStatus ||
-                              "-"}
-                          </div>
+                          {paymentStatusText === "PAID" && (
+                            <div className="payment-seal">
+                              PAYMENT
+                              <br />
+                              RECEIVED
+                            </div>
+                          )}
+                          {(paymentStatusText === "UNPAID" ||
+                            paymentStatusText === "PENDING") && (
+                            <div className="payment-seal payment-seal--pending">
+                              PAYMENT
+                              <br />
+                              PENDING
+                            </div>
+                          )}
+                          {(paymentStatusText === "PARTIAL" ||
+                            paymentStatusText === "PARTIALLY PAID") && (
+                            <div className="payment-seal payment-seal--partial">
+                              PARTIAL
+                              <br />
+                              PAID
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
@@ -1065,7 +1243,7 @@ const CreditDebitNotePreview = ({
                           S.N.
                         </th>
                         <th className="px-3 py-2">SERVICE NAME</th>
-                        <th className="px-3 py-2" style={{ width: "240.3px" }}>
+                        <th className="px-3 py-2" style={{ width: "211.3px" }}>
                           DESCRIPTION
                         </th>
                         <th className="px-3 py-2" style={{ width: "100px" }}>

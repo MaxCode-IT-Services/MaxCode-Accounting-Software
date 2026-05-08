@@ -128,16 +128,6 @@ const LedgerManagement = () => {
             ledgerRows: [],
           },
         );
-        if (import.meta.env.DEV) {
-          console.log("[LedgerManagement] summary payload", {
-            selectedFinancialYear: financialYear,
-            ledgerRows: Array.isArray(payload?.ledgerRows)
-              ? payload.ledgerRows.length
-              : 0,
-            totalDebit: payload?.totalDebit,
-            totalCredit: payload?.totalCredit,
-          });
-        }
         setApiStatus((prev) => ({ ...prev, ledger: "loaded" }));
         return payload;
       } catch (error) {

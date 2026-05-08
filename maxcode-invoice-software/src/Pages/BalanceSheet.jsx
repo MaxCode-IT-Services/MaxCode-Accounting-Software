@@ -83,14 +83,6 @@ const BalanceSheet = () => {
         const response = await apiGet(url, { forceRefresh });
         const payload = extractPayload(response);
         setBalanceData(payload || null);
-        if (import.meta.env.DEV) {
-          console.log("[BalanceSheet] summary payload", {
-            selectedFinancialYear,
-            hasAssets: Boolean(payload?.assets),
-            totalAssets: payload?.totalAssets,
-            totalLiabilities: payload?.totalLiabilities,
-          });
-        }
         setApiStatus((prev) => ({ ...prev, balanceSheet: "loaded" }));
       } catch (err) {
         console.error("Failed to load balance sheet:", err);

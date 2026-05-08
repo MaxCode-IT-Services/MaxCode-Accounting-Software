@@ -912,10 +912,13 @@ export async function handler(event) {
         ...getAuditFieldsFromEvent(event, "update"),
       };
 
+      // MongoDB does not allow updating immutable _id field via $set
+      const { _id: _unusedId, ...updatePayload } = updatedNoteRecord;
+
       const result = await notesCollection.updateOne(
         { _id: noteObjectId },
         {
-          $set: updatedNoteRecord,
+          $set: updatePayload,
         },
       );
 

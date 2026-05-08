@@ -26,7 +26,7 @@ const NOTE_TYPE_REASONS = {
   ],
   "Debit Note": [
     "Scope Change Adjustment",
-    "Pricing Negotiation Adjustment",
+    "Pricing Adjustment",
     "Milestone Delay/Pause",
     "Milestone Not Approved",
     "Tax Adjustment",
@@ -71,6 +71,7 @@ const INITIAL_FORM_STATE = {
   clientName: "",
   businessName: "",
   address: "",
+  email: "",
   placeOfSupply: "",
   phoneNumber: "",
   gstin: "",
@@ -284,6 +285,7 @@ const CreateCreditDebitNote = ({
         clientName: editingRecord.clientName || "",
         businessName: editingRecord.businessName || "",
         address: editingRecord.address || "",
+        email: editingRecord.email || editingRecord.clientEmail || "",
         placeOfSupply: editingRecord.placeOfSupply || "",
         phoneNumber: editingRecord.phoneNumber || "",
         gstin: editingRecord.gstin || "",
@@ -572,6 +574,7 @@ const CreateCreditDebitNote = ({
       clientName: invoice.clientName || prev.clientName,
       businessName: invoice.businessName || prev.businessName,
       address: invoice.address || prev.address,
+      email: invoice.clientEmail || invoice.email || prev.email,
       placeOfSupply: invoice.placeOfSupply || prev.placeOfSupply,
       phoneNumber: invoice.phoneNumber || prev.phoneNumber,
       gstin: invoice.gstin || "",
@@ -1085,6 +1088,7 @@ const CreateCreditDebitNote = ({
                           clientName: "",
                           businessName: "",
                           address: "",
+                          email: "",
                           placeOfSupply: "",
                           phoneNumber: "",
                           gstin: "",
@@ -1214,6 +1218,24 @@ const CreateCreditDebitNote = ({
                       {errors.phoneNumber}
                     </div>
                   )}
+                </div>
+
+                <div className="col-md-3 mb-3">
+                  <label htmlFor="email" className="form-label">
+                    <i className="fas fa-envelope me-2 text-primary"></i>
+                    Email ID
+                  </label>
+                  <input
+                    type="email"
+                    className="form-control modern-input"
+                    id="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    placeholder="Enter Email ID"
+                    readOnly={isViewMode}
+                    disabled={isViewMode}
+                  />
                 </div>
 
                 <div className="col-md-3 mb-3">
