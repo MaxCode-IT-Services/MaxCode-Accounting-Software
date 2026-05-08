@@ -75,6 +75,7 @@ const PDF_CELL_PADDING_PX = 5;
 const MM_PER_PX = 0.264583;
 const PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY =
   "pdfExportSinglePageColumnsMode";
+const EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY = "exportPreserveTextColorMode";
 const DEVANAGARI_FONT_NAME = "NotoSansDevanagari";
 const DEVANAGARI_FONT_FILE = "NotoSansDevanagari-Regular.ttf";
 const DEVANAGARI_FONT_URL = "/fonts/NotoSansDevanagari-Regular.ttf";
@@ -189,6 +190,39 @@ const ensureCanvasDevanagariFontLoaded = async () => {
 
 const hasIndicCharacters = (value) =>
   /[\u0900-\u097F]/.test(String(value || ""));
+
+const hasExportSensitiveCharacters = (value) =>
+  /[\u0900-\u097F₹]/.test(String(value || ""));
+
+const resolveExportTextColor = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return null;
+
+  if (
+    normalized === "active" ||
+    /^\+/.test(normalized) ||
+    /\bdr\b/.test(normalized)
+  ) {
+    return [25, 135, 84];
+  }
+
+  if (
+    normalized === "inactive" ||
+    normalized === "deactive" ||
+    /^-/.test(normalized) ||
+    /\bcr\b/.test(normalized)
+  ) {
+    return [220, 53, 69];
+  }
+
+  if (normalized === "pending") {
+    return [255, 193, 7];
+  }
+
+  return null;
+};
 
 const buildUrlWithParams = (baseUrl, params) => {
   const separator = String(baseUrl).includes("?") ? "&" : "?";
@@ -1447,7 +1481,7 @@ const ReusableTable = ({
   };
 
   // Handle refresh
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     const resetFilters = {};
     Object.keys(columnFilters).forEach((key) => {
       if (effectiveColumnsWithDropdownFilter.includes(key)) {
@@ -1469,28 +1503,47 @@ const ReusableTable = ({
     setDateFilters(resetDateFilters);
     setSearchTerm("");
     setSortConfig({ key: null, direction: "normal" });
+    setOpenFilterDropdown(null);
+
+    if (searchDebounceTimer.current) {
+      clearTimeout(searchDebounceTimer.current);
+      searchDebounceTimer.current = null;
+    }
+
+    const refreshContext = appendDataScopeToFilters({
+      forceRefresh: 1,
+      refreshTs: Date.now(),
+    });
 
     if (serverSide) {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
 
-      if (onServerSideFilter) {
-        onServerSideFilter(appendDataScopeToFilters({}));
-      }
+      // Prefer parent refresh callback to avoid duplicate/racing API calls.
+      if (propOnRefresh) {
+        await Promise.resolve(propOnRefresh(refreshContext));
+      } else {
+        if (onServerSideFilter) {
+          onServerSideFilter(refreshContext);
+        }
 
-      if (onServerSideSearch) {
-        onServerSideSearch("", appendDataScopeToFilters({}));
-      }
+        if (onServerSideSearch) {
+          onServerSideSearch("", refreshContext);
+        }
 
-      if (onServerSideSort) {
-        onServerSideSort(null, "normal", appendDataScopeToFilters({}));
+        if (onServerSideSort) {
+          onServerSideSort(null, "normal", refreshContext);
+        }
       }
     } else {
       setCurrentPage(1);
       if (onPageChange) onPageChange(1);
+
+      if (propOnRefresh) {
+        await Promise.resolve(propOnRefresh(refreshContext));
+      }
     }
 
-    if (propOnRefresh) propOnRefresh();
     showInfo("Filters cleared and data refreshed!");
   };
 
@@ -2254,9 +2307,11 @@ const ReusableTable = ({
 
   const resolvePdfFont = async ({ doc, columnLabels, exportData }) => {
     const needsIndicFont =
-      hasIndicCharacters(exportTitle) ||
-      columnLabels.some((label) => hasIndicCharacters(label)) ||
-      exportData.some((row) => row.some((value) => hasIndicCharacters(value)));
+      hasExportSensitiveCharacters(exportTitle) ||
+      columnLabels.some((label) => hasExportSensitiveCharacters(label)) ||
+      exportData.some((row) =>
+        row.some((value) => hasExportSensitiveCharacters(value)),
+      );
 
     if (!needsIndicFont) {
       return "helvetica";
@@ -2302,6 +2357,7 @@ const ReusableTable = ({
     columnLabels,
     exportData,
     now,
+    preserveTextColors = false,
   }) => {
     await ensureCanvasDevanagariFontLoaded();
 
@@ -2413,14 +2469,22 @@ const ReusableTable = ({
 
           row.forEach((cellValue) => {
             const td = document.createElement("td");
-            td.textContent = String(cellValue ?? "");
+            const textValue = String(cellValue ?? "");
+            td.textContent = textValue;
             td.style.border = "1px solid #d7d7d7";
             td.style.padding = bodyCellPadding;
             td.style.fontSize = `${bodyFontSize}px`;
             td.style.wordBreak = "normal";
             td.style.overflowWrap = "normal";
             td.style.fontWeight = "600";
-            td.style.color = "#000000";
+            if (preserveTextColors) {
+              const resolvedColor = resolveExportTextColor(textValue);
+              td.style.color = resolvedColor
+                ? `rgb(${resolvedColor[0]}, ${resolvedColor[1]}, ${resolvedColor[2]})`
+                : "#000000";
+            } else {
+              td.style.color = "#000000";
+            }
             td.style.whiteSpace = "nowrap";
             td.style.verticalAlign = "top";
             tr.appendChild(td);
@@ -2467,6 +2531,7 @@ const ReusableTable = ({
     exportRows,
     exportData,
     now,
+    preserveTextColors = false,
   }) => {
     const { jsPDF, autoTable } = await loadPdfExportLibs();
     const doc = new jsPDF({
@@ -2498,8 +2563,9 @@ const ReusableTable = ({
 
         const maxBodyWidth = measurementRows.reduce((maxWidth, row) => {
           const cellValue = String(row?.[columnIndex] ?? "");
-          const cellHasIndic = hasIndicCharacters(cellValue);
-          const fontName = cellHasIndic && useIndicFont ? pdfFont : "helvetica";
+          const cellHasSensitiveChars = hasExportSensitiveCharacters(cellValue);
+          const fontName =
+            cellHasSensitiveChars && useIndicFont ? pdfFont : "helvetica";
 
           doc.setFont(fontName, "normal");
           doc.setFontSize(fontSize);
@@ -2652,8 +2718,15 @@ const ReusableTable = ({
 
         if (!useIndicFont) return;
 
-        const rawText = (data.cell?.text || []).join(" ");
-        if (!hasIndicCharacters(rawText)) {
+        const rawText = (data.cell?.text || []).join("");
+        if (preserveTextColors && data.section === "body") {
+          const color = resolveExportTextColor(rawText);
+          if (color) {
+            data.cell.styles.textColor = color;
+          }
+        }
+
+        if (!hasExportSensitiveCharacters(rawText)) {
           if (data.section === "head") {
             data.cell.styles.font = "helvetica";
             data.cell.styles.fontStyle = "bold";
@@ -2694,10 +2767,10 @@ const ReusableTable = ({
       });
 
       const needsIndicFont =
-        hasIndicCharacters(exportTitle) ||
-        columnLabels.some((label) => hasIndicCharacters(label)) ||
+        hasExportSensitiveCharacters(exportTitle) ||
+        columnLabels.some((label) => hasExportSensitiveCharacters(label)) ||
         exportData.some((row) =>
-          row.some((value) => hasIndicCharacters(value)),
+          row.some((value) => hasExportSensitiveCharacters(value)),
         );
       const now = new Date();
       const orientation =
@@ -2706,25 +2779,19 @@ const ReusableTable = ({
         String(
           localStorage.getItem(PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY) || "",
         ).toLowerCase() === "true";
+      const preserveTextColorsEnabled =
+        String(
+          localStorage.getItem(EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY) || "",
+        ).toLowerCase() === "true";
 
       if (singlePageColumnsModeEnabled) {
-        if (needsIndicFont) {
-          await exportToPdfUsingCanvas({
-            orientation,
-            columnLabels,
-            exportData,
-            now,
-          });
-          showSuccess("PDF exported successfully!");
-          return;
-        }
-
         await exportToPdfSinglePageColumns({
           orientation,
           columnLabels,
           exportRows,
           exportData,
           now,
+          preserveTextColors: preserveTextColorsEnabled,
         });
         showSuccess("PDF exported successfully!");
         return;
@@ -2744,6 +2811,7 @@ const ReusableTable = ({
           columnLabels,
           exportData,
           now,
+          preserveTextColors: preserveTextColorsEnabled,
         });
         showSuccess("PDF exported successfully!");
         return;
@@ -2752,7 +2820,11 @@ const ReusableTable = ({
       const formattedDate = formatDateTime(now.toISOString());
       const pageWidth = doc.internal.pageSize.getWidth();
       doc.setFontSize(18);
-      doc.setFont("helvetica", "bold");
+      if (useIndicFont && hasExportSensitiveCharacters(exportTitle)) {
+        doc.setFont(DEVANAGARI_FONT_NAME, "normal");
+      } else {
+        doc.setFont("helvetica", "bold");
+      }
       const title = exportTitle;
       const titleWidth =
         (doc.getStringUnitWidth(title) * doc.internal.getFontSize()) /
@@ -2804,10 +2876,18 @@ const ReusableTable = ({
         pageBreak: "auto",
         theme: "grid",
         didParseCell: (data) => {
+          if (preserveTextColorsEnabled && data.section === "body") {
+            const rawColorText = (data.cell?.text || []).join("");
+            const color = resolveExportTextColor(rawColorText);
+            if (color) {
+              data.cell.styles.textColor = color;
+            }
+          }
+
           if (!useIndicFont) return;
 
-          const rawText = (data.cell?.text || []).join(" ");
-          if (!hasIndicCharacters(rawText)) {
+          const rawText = (data.cell?.text || []).join("");
+          if (!hasExportSensitiveCharacters(rawText)) {
             if (data.section === "head") {
               data.cell.styles.font = "helvetica";
               data.cell.styles.fontStyle = "bold";
@@ -2847,6 +2927,10 @@ const ReusableTable = ({
         });
         return row;
       });
+      const preserveTextColorsEnabled =
+        String(
+          localStorage.getItem(EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY) || "",
+        ).toLowerCase() === "true";
       const ws = XLSX.utils.json_to_sheet(exportData);
       if (!ws["!cols"]) ws["!cols"] = [];
       visibleColumnKeys.forEach((key, index) => {
@@ -2865,6 +2949,46 @@ const ReusableTable = ({
           alignment: { horizontal: "center" },
         };
       });
+
+      if (preserveTextColorsEnabled) {
+        const range = XLSX.utils.decode_range(ws["!ref"] || "A1:A1");
+        for (
+          let rowIndex = range.s.r + 1;
+          rowIndex <= range.e.r;
+          rowIndex += 1
+        ) {
+          for (
+            let columnIndex = range.s.c;
+            columnIndex <= range.e.c;
+            columnIndex += 1
+          ) {
+            const cellAddress = XLSX.utils.encode_cell({
+              r: rowIndex,
+              c: columnIndex,
+            });
+            const cell = ws[cellAddress];
+            if (!cell) continue;
+
+            const cellText = String(cell.v ?? "");
+            const color = resolveExportTextColor(cellText);
+            if (!color) continue;
+
+            const rgbHex = color
+              .map((part) => Number(part).toString(16).padStart(2, "0"))
+              .join("")
+              .toUpperCase();
+
+            cell.s = {
+              ...(cell.s || {}),
+              font: {
+                ...((cell.s && cell.s.font) || {}),
+                color: { rgb: rgbHex },
+              },
+            };
+          }
+        }
+      }
+
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
       XLSX.writeFile(

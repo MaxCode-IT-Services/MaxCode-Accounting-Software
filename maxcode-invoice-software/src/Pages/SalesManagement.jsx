@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreateSales from "../Components/CreateSales";
 import InvoicePreview from "../Components/InvoicePreview";
-import PaymentReceiptPreview from "../Components/PaymentReceiptPreview";
 import ConfirmationModal from "../Components/ConfirmationModal";
 import {
   showSuccess,
@@ -76,12 +75,10 @@ const SalesManagement = () => {
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showInvoicePreview, setShowInvoicePreview] = useState(false);
   const [previewRecord, setPreviewRecord] = useState(null);
-  const [showPaymentReceiptPreview, setShowPaymentReceiptPreview] =
-    useState(false);
-  const [paymentReceiptRecord, setPaymentReceiptRecord] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState(null);
   const [exportingInvoices, setExportingInvoices] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [businessSettings, setBusinessSettings] = useState({
     companyName: "",
     companyAddress: "",
@@ -288,7 +285,9 @@ const SalesManagement = () => {
   };
 
   // Fetch sales from API with server-side parameters
-  const fetchSales = async () => {
+  const fetchSales = async (options = {}) => {
+    const { forceRefresh = false } = options;
+
     // Cancel previous request if running
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -383,7 +382,14 @@ const SalesManagement = () => {
           params.append("filter", activeCardFilter);
         }
 
+        if (forceRefresh) {
+          params.append("_ts", String(Date.now()));
+        }
+
         url = `${url}?${params.toString()}`;
+      } else if (forceRefresh) {
+        const separator = url.includes("?") ? "&" : "?";
+        url = `${url}${separator}_ts=${Date.now()}`;
       }
 
       let response;
@@ -652,6 +658,7 @@ const SalesManagement = () => {
     activeCardFilter,
     selectedFinancialYear,
     financialPeriodMode,
+    refreshNonce,
     prefLoading,
   ]);
 
@@ -1249,10 +1256,13 @@ const SalesManagement = () => {
   };
 
   // Handle refresh
-  const handleRefresh = () => {
-    fetchFinancialYears();
-    fetchClients({ forceRefresh: true });
-    fetchBusinessSettings();
+  const handleRefresh = async () => {
+    await Promise.all([
+      fetchFinancialYears(),
+      fetchClients({ forceRefresh: true }),
+      fetchBusinessSettings(),
+    ]);
+
     if (serverSide) {
       setFilters({});
       setSearchTerm("");
@@ -1262,7 +1272,9 @@ const SalesManagement = () => {
       setActiveCardFilter("total");
       setFinancialPeriodMode("yearly");
     }
-    fetchSales();
+
+    setRefreshNonce(Date.now());
+    await fetchSales({ forceRefresh: true });
     showInfo("Data refreshed!");
   };
 
@@ -1278,225 +1290,9 @@ const SalesManagement = () => {
     setPreviewRecord(null);
   };
 
-  const openPaymentReceiptPreview = (record) => {
-    if (getInvoiceReceivedAmount(record) <= 0) {
-      showError("Is invoice par abhi received payment available nahi hai.");
-      return;
-    }
-
-    setPaymentReceiptRecord(record);
-    setShowPaymentReceiptPreview(true);
-  };
-
-  const closePaymentReceiptPreview = () => {
-    setShowPaymentReceiptPreview(false);
-    setPaymentReceiptRecord(null);
-  };
-
   // Get invoice element ID for printing
   const getInvoiceElementId = (record, index) => {
     return `invoice-print-${record.id || record.invoiceNumber || index}`;
-  };
-
-  const parseNumber = (value) => {
-    const parsed = Number.parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-
-  const getInvoiceTotalAmount = (record) => {
-    return parseNumber(record?.taxData?.totalAmount || 0);
-  };
-
-  const getInvoiceReceivedAmount = (record) => {
-    const enteredReceivedAmount = parseNumber(record?.amountReceived);
-    if (enteredReceivedAmount > 0) {
-      return enteredReceivedAmount;
-    }
-
-    const totalAmount = getInvoiceTotalAmount(record);
-    if (record?.paymentStatus === "Paid") {
-      return totalAmount;
-    }
-
-    if (record?.paymentStatus === "Partial") {
-      return totalAmount > 0 ? totalAmount / 2 : 0;
-    }
-
-    return 0;
-  };
-
-  const buildReceiptNumber = (record) => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    const invoiceNumber = String(record?.invoiceNumber || "NA")
-      .replace(/[^A-Za-z0-9-]/g, "")
-      .slice(0, 18);
-
-    return `RCPT-${y}${m}${d}-${invoiceNumber}`;
-  };
-
-  const numberToWords = (num) => {
-    const value = Math.round(parseNumber(num));
-    if (value === 0) return "Zero";
-
-    const ones = [
-      "",
-      "One",
-      "Two",
-      "Three",
-      "Four",
-      "Five",
-      "Six",
-      "Seven",
-      "Eight",
-      "Nine",
-      "Ten",
-      "Eleven",
-      "Twelve",
-      "Thirteen",
-      "Fourteen",
-      "Fifteen",
-      "Sixteen",
-      "Seventeen",
-      "Eighteen",
-      "Nineteen",
-    ];
-    const tens = [
-      "",
-      "",
-      "Twenty",
-      "Thirty",
-      "Forty",
-      "Fifty",
-      "Sixty",
-      "Seventy",
-      "Eighty",
-      "Ninety",
-    ];
-
-    const convertLessThanThousand = (n) => {
-      if (n < 20) return ones[n];
-      if (n < 100) {
-        return tens[Math.floor(n / 10)] + (n % 10 ? ` ${ones[n % 10]}` : "");
-      }
-      return (
-        `${ones[Math.floor(n / 100)]} Hundred` +
-        (n % 100 ? ` ${convertLessThanThousand(n % 100)}` : "")
-      );
-    };
-
-    if (value < 1000) return convertLessThanThousand(value);
-    if (value < 100000) {
-      return (
-        `${convertLessThanThousand(Math.floor(value / 1000))} Thousand` +
-        (value % 1000 ? ` ${convertLessThanThousand(value % 1000)}` : "")
-      );
-    }
-    if (value < 10000000) {
-      return (
-        `${convertLessThanThousand(Math.floor(value / 100000))} Lakh` +
-        (value % 100000 ? ` ${convertLessThanThousand(value % 100000)}` : "")
-      );
-    }
-
-    return (
-      `${convertLessThanThousand(Math.floor(value / 10000000))} Crore` +
-      (value % 10000000 ? ` ${convertLessThanThousand(value % 10000000)}` : "")
-    );
-  };
-
-  const amountInWords = (num) => `${numberToWords(num)} Rupees Only`;
-
-  const buildPaymentReceiptData = (record) => {
-    if (!record) return null;
-
-    const totalSaleAmount = getInvoiceTotalAmount(record);
-    const receivedAmount = getInvoiceReceivedAmount(record);
-    const pendingAmount = Math.max(totalSaleAmount - receivedAmount, 0);
-    const clientRefId = record?.clientId || record?.clientRefId || "";
-    const matchedClient = clients.find((client) => {
-      const id = client?.id || client?._id || "";
-      return String(id) === String(clientRefId);
-    });
-    const clientAddressFromDb =
-      record?.address ||
-      record?.clientAddress ||
-      record?.businessAddress ||
-      matchedClient?.address ||
-      matchedClient?.businessAddress ||
-      "-";
-    const createdBy =
-      record?.createdByName ||
-      record?.createdBy ||
-      record?.ownerName ||
-      record?.addedBy ||
-      "System";
-
-    return {
-      companyName: businessSettings.companyName || "MaxCode IT Services",
-      companyAddress: businessSettings.companyAddress || "-",
-      companyPhone:
-        businessSettings.companyPhone ||
-        businessSettings.phone ||
-        businessSettings.phoneNumber ||
-        "-",
-      companyWebsite:
-        businessSettings.companyWebsite ||
-        businessSettings.website ||
-        businessSettings.webSite ||
-        "www.maxcode.in",
-      companyEmail:
-        businessSettings.companyEmail ||
-        businessSettings.email ||
-        businessSettings.officialEmail ||
-        "-",
-      companyGstin: businessSettings.gstin || "-",
-      receiptNo: buildReceiptNumber(record),
-      memoNo: String(record.invoiceNumber || buildReceiptNumber(record)),
-      receiptDate: formatDateForDisplay(new Date().toISOString()),
-      invoiceNumber: record.invoiceNumber || "-",
-      invoiceDate: formatDateForDisplay(record.invoiceDate) || "-",
-      paymentDate: record.paymentDateFormatted || record.paymentDate || "-",
-      paymentMethod: record.paymentMethod || record.paymentSource || "-",
-      paymentStatus: record.paymentStatus || "-",
-      clientName: record.clientName || "-",
-      businessName: record.businessName || record.clientBusinessName || "-",
-      clientId: record.clientId || record.clientRefId || "-",
-      contactNo: record.phoneNumber || record.clientPhone || "-",
-      clientAddress: clientAddressFromDb,
-      address: clientAddressFromDb,
-      businessAddress:
-        record.businessAddress || matchedClient?.businessAddress || "-",
-      bankName: businessSettings.bankName || record.bankName || "-",
-      purpose:
-        record.paymentPurpose ||
-        `Towards payment of Invoice No. ${record.invoiceNumber || "-"}`,
-      receivedWithThanksFrom:
-        record.clientName ||
-        record.businessName ||
-        record.clientBusinessName ||
-        "-",
-      receivedBy: businessSettings.companyName || "MaxCode IT Services",
-      amount: receivedAmount,
-      amountInWords: amountInWords(receivedAmount),
-      totalSaleAmount,
-      receivedAmount,
-      pendingAmount,
-      createdBy,
-      signatureName:
-        businessSettings.accountName ||
-        businessSettings.companyName ||
-        createdBy,
-      sealText:
-        record.paymentStatus === "Paid"
-          ? "Payment Received"
-          : record.paymentStatus === "Partial"
-            ? "Partial Payment"
-            : "Pending",
-      note: "This receipt confirms that the above payment has been successfully received. This is a computer-generated receipt for accounting purposes.",
-    };
   };
 
   // Build invoice data for preview
@@ -1942,14 +1738,6 @@ const SalesManagement = () => {
               >
                 <i className="fas fa-file-invoice"></i>
               </button>
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-success"
-                onClick={() => openPaymentReceiptPreview(record)}
-                title="Payment Receipt"
-              >
-                <i className="fas fa-receipt"></i>
-              </button>
             </>
           )}
           serverSide={serverSide}
@@ -2002,12 +1790,6 @@ const SalesManagement = () => {
         show={showInvoicePreview}
         onClose={closeInvoicePreview}
         invoiceData={buildInvoiceData(previewRecord)}
-      />
-
-      <PaymentReceiptPreview
-        show={showPaymentReceiptPreview}
-        onClose={closePaymentReceiptPreview}
-        receiptData={buildPaymentReceiptData(paymentReceiptRecord)}
       />
 
       {/* Hidden divs for printing multiple invoices */}

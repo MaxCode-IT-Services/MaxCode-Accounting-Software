@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import ReusableTable from "../Components/ReusableTable";
 import CreatePurchase from "../Components/CreatePurchase";
 import ConfirmationModal from "../Components/ConfirmationModal";
-import UploadedFilePreviewBox from "../Components/UploadedFilePreviewBox";
 import {
   showSuccess,
   showError,
@@ -776,13 +775,21 @@ const PurchaseManagement = () => {
       disableFilter: true,
       render: (_, record) =>
         record.invoiceFileLink ? (
-          <div onClick={(event) => event.stopPropagation()}>
-            <UploadedFilePreviewBox
-              fileUrl={record.invoiceFileLink}
-              title="Open uploaded invoice file"
-              iconClassName="fa-solid fa-file-contract"
-            />
-          </div>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-success"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(
+                record.invoiceFileLink,
+                "_blank",
+                "noopener,noreferrer",
+              );
+            }}
+            title="Open uploaded invoice file"
+          >
+            <i class="fas fa-file-signature"></i>
+          </button>
         ) : (
           <button
             type="button"
@@ -790,7 +797,7 @@ const PurchaseManagement = () => {
             title="No uploaded invoice file"
             disabled
           >
-            <i class="fa-solid fa-file-contract"></i>
+            <i className="fa-solid fa-file-pdf"></i>
           </button>
         ),
     },

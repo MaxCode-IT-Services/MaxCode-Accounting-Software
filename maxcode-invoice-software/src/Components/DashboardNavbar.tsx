@@ -35,6 +35,7 @@ interface ExtendedFullscreenDocument extends Document {
 
 const PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY =
   "pdfExportSinglePageColumnsMode";
+const EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY = "exportPreserveTextColorMode";
 
 const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   // State management
@@ -56,6 +57,8 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [singlePagePdfColumnsMode, setSinglePagePdfColumnsMode] =
+    useState(false);
+  const [preserveExportTextColorMode, setPreserveExportTextColorMode] =
     useState(false);
   const [user, setUser] = useState({
     name: "Guest User",
@@ -149,6 +152,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
         localStorage.getItem(PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY) || "",
       ).toLowerCase() === "true";
     setSinglePagePdfColumnsMode(enabled);
+
+    const preserveExportTextColor =
+      String(
+        localStorage.getItem(EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY) || "",
+      ).toLowerCase() === "true";
+    setPreserveExportTextColorMode(preserveExportTextColor);
   }, []);
 
   // Load financial years and set default selection
@@ -304,6 +313,17 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     setSinglePagePdfColumnsMode(enabled);
     localStorage.setItem(
       PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY,
+      enabled ? "true" : "false",
+    );
+  };
+
+  const handleTogglePreserveExportTextColorMode = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const enabled = event.target.checked;
+    setPreserveExportTextColorMode(enabled);
+    localStorage.setItem(
+      EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY,
       enabled ? "true" : "false",
     );
   };
@@ -878,6 +898,34 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                               type="checkbox"
                               checked={singlePagePdfColumnsMode}
                               onChange={handleToggleSinglePagePdfColumnsMode}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="dropdown-item px-3 py-2 border-bottom">
+                        <div className="d-flex align-items-center justify-content-between gap-2">
+                          <div>
+                            <div
+                              className="fw-semibold"
+                              style={{ fontSize: "13px" }}
+                            >
+                              Export Preserve Text Colors
+                            </div>
+                            <small
+                              className="text-muted"
+                              style={{ fontSize: "11px" }}
+                            >
+                              On: export keeps table text colors, Off: default
+                              export colors
+                            </small>
+                          </div>
+                          <div className="form-check form-switch m-0">
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              checked={preserveExportTextColorMode}
+                              onChange={handleTogglePreserveExportTextColorMode}
                             />
                           </div>
                         </div>

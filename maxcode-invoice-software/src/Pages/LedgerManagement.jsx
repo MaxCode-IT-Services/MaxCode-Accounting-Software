@@ -364,7 +364,7 @@ const LedgerManagement = () => {
     { key: "accountName", label: "Ledger Account", width: 220 },
     {
       key: "debit",
-      label: "Debit ↑",
+      label: "Debit",
       width: 140,
       render: (value) => (
         <span className="fw-semibold">{formatCurrency(value)}</span>
@@ -372,7 +372,7 @@ const LedgerManagement = () => {
     },
     {
       key: "credit",
-      label: "Credit ↑",
+      label: "Credit",
       width: 140,
       render: (value) => (
         <span className="fw-semibold">{formatCurrency(value)}</span>
@@ -380,7 +380,7 @@ const LedgerManagement = () => {
     },
     {
       key: "balanceText",
-      label: "Balance ↑",
+      label: "Balance",
       width: 160,
       render: (value, row) => (
         <span className={`fw-semibold ${row?.balanceClass || "text-muted"}`}>
@@ -388,7 +388,7 @@ const LedgerManagement = () => {
         </span>
       ),
     },
-    { key: "notes", label: "Ledger Logic ↑", width: 340 },
+    { key: "notes", label: "Ledger Logic", width: 340 },
     { key: "description", label: "Description", width: 420 },
   ];
 
