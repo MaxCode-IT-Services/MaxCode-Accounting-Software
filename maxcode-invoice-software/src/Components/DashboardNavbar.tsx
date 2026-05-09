@@ -510,6 +510,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "fileManagement",
     },
     {
+      to: "/admin/payment-link-management",
+      icon: "fa-solid fa-link",
+      label: "Payment Links",
+      permissionKey: "paymentLinkManagement",
+    },
+    {
       to: "/admin/staff-management",
       icon: "fa-solid fa-user-tie",
       label: "Staff Management",

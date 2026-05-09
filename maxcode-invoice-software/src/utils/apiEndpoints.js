@@ -266,6 +266,20 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/payment-receipts?id=${id}`,
   },
 
+  PAYMENT_LINKS: {
+    LIST: "/payment-links",
+    CREATE: "/payment-links",
+    GET: (id) => `/payment-links?id=${id}`,
+    UPDATE: (id) => `/payment-links?id=${id}`,
+    DELETE: (id) => `/payment-links?id=${id}`,
+    CHECK_ALIAS: (alias, domain, excludeId = "") =>
+      `/payment-links?action=check-alias&alias=${encodeURIComponent(alias || "")}&domain=${encodeURIComponent(domain || "")}${excludeId ? `&excludeId=${encodeURIComponent(excludeId)}` : ""}`,
+    PUBLIC_BY_ALIAS: (alias) =>
+      `/payment-links?action=public&alias=${encodeURIComponent(alias || "")}`,
+    PUBLIC_VERIFY_BY_ALIAS: (alias) =>
+      `/payment-links?action=public-verify&alias=${encodeURIComponent(alias || "")}`,
+  },
+
   LEDGER_SUMMARY: {
     GET: (financialYear = "ALL") =>
       `/ledger-summary?financialYear=${financialYear}`,

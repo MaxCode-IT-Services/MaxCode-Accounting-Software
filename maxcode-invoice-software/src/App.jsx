@@ -62,6 +62,12 @@ const OwnerInvestment = lazy(() => import("../src/Pages/OwnerInvestment"));
 const PaymentReceiptManagement = lazy(
   () => import("../src/Pages/PaymentReceiptManagement"),
 );
+const PaymentLinkManagement = lazy(
+  () => import("../src/Pages/PaymentLinkManagement"),
+);
+const PublicPaymentLinkPage = lazy(
+  () => import("../src/Pages/PublicPaymentLinkPage"),
+);
 const BalanceSheet = lazy(() => import("../src/Pages/BalanceSheet"));
 const FinancialYearManagement = lazy(
   () => import("../src/Pages/FinancialYearManagement"),
@@ -484,6 +490,27 @@ const dashboardChildRoutes = (
     />
 
     <Route
+      path="payment-link-management"
+      element={
+        <PermissionRoute moduleKey="paymentLinkManagement">
+          <Suspense fallback={<Loading />}>
+            <PaymentLinkManagement />
+          </Suspense>
+        </PermissionRoute>
+      }
+    />
+
+    <Route
+      path="create-payment-link"
+      element={<Navigate to="../payment-link-management" replace />}
+    />
+
+    <Route
+      path="create-payment-link/:id"
+      element={<Navigate to="../payment-link-management" replace />}
+    />
+
+    <Route
       path="balance-sheet"
       element={
         <PermissionRoute moduleKey="balanceSheet">
@@ -549,6 +576,14 @@ const App = () => {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route
+          path="/:paymentAlias"
+          element={
+            <Suspense fallback={<Loading />}>
+              <PublicPaymentLinkPage />
+            </Suspense>
+          }
+        />
 
         <Route
           path="/login"

@@ -161,6 +161,7 @@ export async function connectToDatabase() {
 export function getCorsHeaders(origin) {
   const allowedOrigins = [
     "https://billing.maxcode.in",
+    "https://pay.maxcode.in",
     "https://billing-dausa.netlify.app",
     "http://localhost:5173",
     "http://localhost:5174",
