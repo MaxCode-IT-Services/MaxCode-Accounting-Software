@@ -532,6 +532,7 @@ export async function handler(event) {
         }
 
         const now = new Date();
+        const verifiedPaymentDate = normalizePaymentDate(now);
         const updateResult = await collection.findOneAndUpdate(
           {
             _id: existingRecord._id,
@@ -541,7 +542,7 @@ export async function handler(event) {
             $set: {
               utrNumber: enteredUtr,
               status: "under_verification",
-              paymentDate: now,
+              paymentDate: verifiedPaymentDate || now,
               updatedAt: now,
             },
           },

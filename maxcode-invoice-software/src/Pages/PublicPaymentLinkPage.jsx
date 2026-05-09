@@ -102,17 +102,6 @@ const PublicPaymentLinkPage = () => {
     fetchRecord();
   }, [paymentAlias]);
 
-  useEffect(() => {
-    const amt = Number(record?.amount || 0);
-    const amtFormatted =
-      Number.isFinite(amt) && amt > 0
-        ? `₹${amt.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        : null;
-    document.title = amtFormatted
-      ? `Pay ${amtFormatted} | ${branding.companyName}`
-      : `Pay Link | ${branding.companyName}`;
-  }, [branding.companyName, record?.amount]);
-
   const amountNumber = useMemo(() => {
     const parsed = Number(record?.amount || 0);
     return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0;
@@ -141,14 +130,70 @@ const PublicPaymentLinkPage = () => {
   const canPay = effectiveStatus === "pending";
   const isPaymentExpired = effectiveStatus === "expired";
 
+  useEffect(() => {
+    const companyName = branding.companyName || "MaxCode IT Services";
+
+    if (!loading && error) {
+      document.title = `Link Note Found | ${companyName}`;
+      return;
+    }
+
+    const amt = Number(record?.amount || 0);
+    const amtFormatted =
+      Number.isFinite(amt) && amt > 0
+        ? `₹${amt.toLocaleString("en-IN", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`
+        : null;
+
+    if (!amtFormatted) {
+      document.title = `Pay Link | ${companyName}`;
+      return;
+    }
+
+    if (effectiveStatus === "success") {
+      document.title = `${amtFormatted} Payment Successful | ${companyName}`;
+      return;
+    }
+
+    if (effectiveStatus === "failed") {
+      document.title = `${amtFormatted} Payment Failed | ${companyName}`;
+      return;
+    }
+
+    if (effectiveStatus === "under_verification") {
+      document.title = `${amtFormatted} Payment Under Verification | ${companyName}`;
+      return;
+    }
+
+    document.title = `Pay ${amtFormatted} | ${companyName}`;
+  }, [branding.companyName, effectiveStatus, error, loading, record?.amount]);
+
   const paymentDateDisplay = useMemo(() => {
     if (!record?.paymentDate) return "-";
-    const parsed = new Date(record.paymentDate);
+
+    const raw = String(record.paymentDate || "").trim();
+    const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) {
+      const istParsed = new Date(`${match[1]}T00:00:00.000+05:30`);
+      if (!Number.isNaN(istParsed.getTime())) {
+        return istParsed.toLocaleDateString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          timeZone: "Asia/Kolkata",
+        });
+      }
+    }
+
+    const parsed = new Date(raw);
     if (Number.isNaN(parsed.getTime())) return "-";
     return parsed.toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "short",
       year: "numeric",
+      timeZone: "Asia/Kolkata",
     });
   }, [record?.paymentDate]);
 
