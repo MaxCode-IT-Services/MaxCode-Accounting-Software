@@ -16,6 +16,7 @@ import WhatsAppCloudApiTab from "../Components/SettingsTabs/WhatsAppCloudApiTab"
 import CloudflareTab from "../Components/SettingsTabs/CloudflareTab";
 import TermsTab from "../Components/SettingsTabs/TermsTab";
 import HsnTab from "../Components/SettingsTabs/HsnTab";
+import UpiIdTab from "../Components/SettingsTabs/UpiIdTab";
 import BackupTab from "../Components/SettingsTabs/BackupTab";
 import InterestedServiceTab from "../Components/SettingsTabs/InterestedServiceTab";
 import {
@@ -182,6 +183,9 @@ const Settings = () => {
     // Interested Services Master
     interestedServices: [],
 
+    // UPI IDs Master
+    upiIds: [],
+
     // Cloud Master Sync
     dbSyncEnabled: false,
     mongoConnectionString: "",
@@ -212,6 +216,12 @@ const Settings = () => {
     status: "active",
   };
 
+  const DEFAULT_UPI_FORM = {
+    accountName: "",
+    upiId: "",
+    status: "active",
+  };
+
   const BUSINESS_DETAILS_FIELDS = [
     "profilePhotoUrl",
     "logoUrl",
@@ -237,6 +247,7 @@ const Settings = () => {
     "performaInvoiceTermsVersion",
     "creditDebitNoteTermsConditions",
     "creditDebitNoteTermsVersion",
+    "upiIds",
     "cloudflareSettings",
     "whatsappSettings",
   ];
@@ -266,6 +277,12 @@ const Settings = () => {
   const [serviceSearch, setServiceSearch] = useState("");
   const [selectedServices, setSelectedServices] = useState([]);
   const [confirmDeleteServices, setConfirmDeleteServices] = useState([]);
+  const [isUpiModalOpen, setIsUpiModalOpen] = useState(false);
+  const [editingUpiId, setEditingUpiId] = useState(null);
+  const [upiFormData, setUpiFormData] = useState(DEFAULT_UPI_FORM);
+  const [upiSearch, setUpiSearch] = useState("");
+  const [selectedUpiIds, setSelectedUpiIds] = useState([]);
+  const [confirmDeleteUpiIds, setConfirmDeleteUpiIds] = useState([]);
 
   // Interested Services State
   const [isInterestedServiceModalOpen, setIsInterestedServiceModalOpen] =
@@ -1097,6 +1114,18 @@ const Settings = () => {
       normalizedSettings.services = resolvedServices;
     }
 
+    const resolvedUpiIds = Array.isArray(settings.upiIds)
+      ? settings.upiIds
+      : Array.isArray(settings.upiIdMaster)
+        ? settings.upiIdMaster
+        : Array.isArray(settings.upiList)
+          ? settings.upiList
+          : null;
+
+    if (resolvedUpiIds) {
+      normalizedSettings.upiIds = resolvedUpiIds;
+    }
+
     const resolvedBackupSettings =
       settings.backupSettings ||
       settings.driveConfig ||
@@ -1658,6 +1687,7 @@ const Settings = () => {
   };
 
   const getServiceStatus = (service) => service.status || "active";
+  const getUpiStatus = (upi) => upi.status || "active";
 
   const openAddServiceModal = () => {
     if (!ensureSuperAdminAccess("add service")) return;
@@ -1823,6 +1853,214 @@ const Settings = () => {
       await syncServicesToBackend(updatedServices);
       showSuccess(
         `Service marked as ${updatedStatus === "active" ? "Active" : "Inactive"}`,
+      );
+    } catch (error) {
+      showError(error?.response?.data?.error || "Failed to update status");
+    }
+  };
+
+  const syncUpiIdsToBackend = async (nextUpiIds) => {
+    if (!ensureSuperAdminAccess("update UPI IDs")) return null;
+
+    const normalizedUpiIds = nextUpiIds
+      .map((item) => ({
+        id: String(item.id),
+        accountName: item.accountName?.trim() || "",
+        upiId: item.upiId?.trim().toLowerCase() || "",
+        status: getUpiStatus(item),
+        isDeleted: item.isDeleted === true,
+        deletedAt: item.isDeleted
+          ? item.deletedAt || new Date().toISOString()
+          : null,
+      }))
+      .filter((item) => item.accountName && item.upiId);
+
+    const response = await apiPut(API_ENDPOINTS.BUSINESS_SETTINGS.UPDATE, {
+      upiIds: normalizedUpiIds,
+    });
+
+    const remoteUpiIds = response?.data?.settings?.upiIds;
+    if (Array.isArray(remoteUpiIds)) {
+      handleBusinessChange("upiIds", remoteUpiIds);
+      return remoteUpiIds;
+    }
+
+    handleBusinessChange("upiIds", normalizedUpiIds);
+    return normalizedUpiIds;
+  };
+
+  const openAddUpiModal = () => {
+    if (!ensureSuperAdminAccess("add UPI ID")) return;
+
+    setEditingUpiId(null);
+    setUpiFormData(DEFAULT_UPI_FORM);
+    setIsUpiModalOpen(true);
+  };
+
+  const openEditUpiModal = (upi) => {
+    if (!ensureSuperAdminAccess("edit UPI ID")) return;
+
+    setEditingUpiId(upi.id);
+    setUpiFormData({
+      accountName: upi.accountName || "",
+      upiId: upi.upiId || "",
+      status: getUpiStatus(upi),
+    });
+    setIsUpiModalOpen(true);
+  };
+
+  const closeUpiModal = () => {
+    setIsUpiModalOpen(false);
+    setEditingUpiId(null);
+    setUpiFormData(DEFAULT_UPI_FORM);
+  };
+
+  const handleUpiFormChange = (field, value) => {
+    setUpiFormData((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const saveUpi = async () => {
+    if (!ensureSuperAdminAccess("save UPI ID")) return;
+
+    const accountName = upiFormData.accountName.trim();
+    const upiId = upiFormData.upiId.trim().toLowerCase();
+
+    if (!accountName) {
+      showError("Please enter account name");
+      return;
+    }
+
+    if (!upiId) {
+      showError("Please enter UPI ID");
+      return;
+    }
+
+    if (editingUpiId) {
+      const updated = (businessSettings.upiIds || []).map((item) =>
+        item.id === editingUpiId
+          ? {
+              ...item,
+              accountName,
+              upiId,
+              status: upiFormData.status,
+              isDeleted: false,
+              deletedAt: null,
+            }
+          : item,
+      );
+
+      try {
+        await syncUpiIdsToBackend(updated);
+        showSuccess("UPI account updated successfully");
+      } catch (error) {
+        showError(
+          error?.response?.data?.error || "Failed to update UPI account",
+        );
+        return;
+      }
+    } else {
+      const newUpi = {
+        id: Date.now().toString(),
+        accountName,
+        upiId,
+        status: upiFormData.status,
+        isDeleted: false,
+        deletedAt: null,
+      };
+
+      try {
+        await syncUpiIdsToBackend([...(businessSettings.upiIds || []), newUpi]);
+        showSuccess("UPI account added successfully");
+      } catch (error) {
+        showError(error?.response?.data?.error || "Failed to add UPI account");
+        return;
+      }
+    }
+
+    closeUpiModal();
+  };
+
+  const handleBulkDeleteUpiIds = async () => {
+    if (!ensureSuperAdminAccess("remove selected UPI IDs")) return;
+    if (confirmDeleteUpiIds.length === 0) return;
+
+    const updated = (businessSettings.upiIds || []).map((item) =>
+      confirmDeleteUpiIds.includes(item.id)
+        ? {
+            ...item,
+            status: "inactive",
+            isDeleted: true,
+            deletedAt: new Date().toISOString(),
+          }
+        : item,
+    );
+
+    try {
+      await syncUpiIdsToBackend(updated);
+      showSuccess(`${confirmDeleteUpiIds.length} UPI accounts deleted`);
+      setConfirmDeleteUpiIds([]);
+      setSelectedUpiIds([]);
+    } catch (error) {
+      showError(
+        error?.response?.data?.error || "Failed to delete UPI accounts",
+      );
+    }
+  };
+
+  const filteredUpiIds = (businessSettings.upiIds || []).filter((item) => {
+    if (item.isDeleted === true) return false;
+    const query = upiSearch.toLowerCase();
+    return (
+      String(item.accountName || "")
+        .toLowerCase()
+        .includes(query) ||
+      String(item.upiId || "")
+        .toLowerCase()
+        .includes(query)
+    );
+  });
+
+  const toggleSelectAllUpi = () => {
+    if (selectedUpiIds.length === filteredUpiIds.length) {
+      setSelectedUpiIds([]);
+    } else {
+      setSelectedUpiIds(filteredUpiIds.map((item) => item.id));
+    }
+  };
+
+  const toggleSelectUpiRow = (id) => {
+    setSelectedUpiIds((prev) =>
+      prev.includes(id)
+        ? prev.filter((itemId) => itemId !== id)
+        : [...prev, id],
+    );
+  };
+
+  const toggleUpiStatus = async (id) => {
+    if (!ensureSuperAdminAccess("change UPI ID status")) return;
+
+    let updatedStatus = "inactive";
+    const updated = (businessSettings.upiIds || []).map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            status: getUpiStatus(item) === "active" ? "inactive" : "active",
+          }
+        : item,
+    );
+
+    const target = updated.find((item) => item.id === id);
+    if (target) {
+      updatedStatus = getUpiStatus(target);
+    }
+
+    try {
+      await syncUpiIdsToBackend(updated);
+      showSuccess(
+        `UPI account marked as ${updatedStatus === "active" ? "Active" : "Inactive"}`,
       );
     } catch (error) {
       showError(error?.response?.data?.error || "Failed to update status");
@@ -2587,6 +2825,34 @@ const Settings = () => {
           saveService={saveService}
           confirmDeleteServices={confirmDeleteServices}
           handleBulkDeleteServices={handleBulkDeleteServices}
+        />
+      );
+    }
+
+    if (activeTab === "upiId") {
+      return (
+        <UpiIdTab
+          upiIds={businessSettings.upiIds || []}
+          upiSearch={upiSearch}
+          setUpiSearch={setUpiSearch}
+          selectedUpiIds={selectedUpiIds}
+          setConfirmDeleteUpiIds={setConfirmDeleteUpiIds}
+          openAddUpiModal={openAddUpiModal}
+          isSuperAdmin={isSuperAdmin}
+          filteredUpiIds={filteredUpiIds}
+          toggleSelectAllUpi={toggleSelectAllUpi}
+          toggleSelectUpiRow={toggleSelectUpiRow}
+          getUpiStatus={getUpiStatus}
+          toggleUpiStatus={toggleUpiStatus}
+          openEditUpiModal={openEditUpiModal}
+          isUpiModalOpen={isUpiModalOpen}
+          editingUpiId={editingUpiId}
+          closeUpiModal={closeUpiModal}
+          upiFormData={upiFormData}
+          handleUpiFormChange={handleUpiFormChange}
+          saveUpi={saveUpi}
+          confirmDeleteUpiIds={confirmDeleteUpiIds}
+          handleBulkDeleteUpiIds={handleBulkDeleteUpiIds}
         />
       );
     }

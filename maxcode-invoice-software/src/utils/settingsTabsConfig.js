@@ -40,6 +40,11 @@ export const SETTINGS_TABS = [
     icon: "fas fa-tags",
   },
   {
+    key: "upiId",
+    label: "UPI ID",
+    icon: "fas fa-qrcode",
+  },
+  {
     key: "backup",
     label: "Backup & Restore",
     icon: "fas fa-database",

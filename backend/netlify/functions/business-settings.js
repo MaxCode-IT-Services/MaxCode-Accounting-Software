@@ -78,6 +78,7 @@ const ALLOWED_FIELDS = [
   "creditDebitNoteTermsConditions",
   "creditDebitNoteTermsVersion",
   "services",
+  "upiIds",
   "interestedServices",
   "backupSettings",
   "cloudflareSettings",
@@ -388,6 +389,22 @@ const sanitizeSettingsPayload = (payload = {}, existingSettings = {}) => {
             status: item?.status === "inactive" ? "inactive" : "active",
           }))
           .filter((item) => item.name && item.hsnCode);
+      } else if (field === "upiIds" && Array.isArray(value)) {
+        sanitized[field] = value
+          .map((item) => ({
+            id: item?.id ? String(item.id) : Date.now().toString(),
+            accountName: item?.accountName
+              ? String(item.accountName).trim()
+              : "",
+            upiId: item?.upiId ? String(item.upiId).trim() : "",
+            status: item?.status === "inactive" ? "inactive" : "active",
+            isDeleted: item?.isDeleted === true,
+            deletedAt:
+              item?.isDeleted === true && item?.deletedAt
+                ? new Date(item.deletedAt)
+                : null,
+          }))
+          .filter((item) => item.accountName && item.upiId);
       } else if (field === "backupSettings") {
         const sanitizedBackupSettings = sanitizeBackupSettings(
           value,
@@ -458,6 +475,7 @@ const normalizeLegacySettings = (document = {}) => {
       "noteTermsConditions",
     ],
     services: ["services", "serviceMaster", "serviceList"],
+    upiIds: ["upiIds", "upiIdMaster", "upiList", "upiAccounts"],
     backupSettings: ["backupSettings", "driveConfig", "googleDriveConfig"],
     cloudflareSettings: [
       "cloudflareSettings",
@@ -533,6 +551,10 @@ const mapSettingsForClient = (document, event) => {
 
   if (!Array.isArray(response.services)) {
     response.services = [];
+  }
+
+  if (!Array.isArray(response.upiIds)) {
+    response.upiIds = [];
   }
 
   Object.values(TERMS_SETTINGS_CONFIG).forEach((config) => {
