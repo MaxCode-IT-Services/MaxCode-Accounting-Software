@@ -41,6 +41,37 @@ const cleanAlias = (value = "") => {
     .slice(0, 80);
 };
 
+const toIstDateOnlyString = (value) => {
+  if (!value) return null;
+
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsed);
+
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) return null;
+  return `${year}-${month}-${day}`;
+};
+
+const normalizeDateOnly = (value) => {
+  if (!value) return null;
+
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+
+  return toIstDateOnlyString(raw);
+};
+
 const normalizeLinkExpiryToEndOfDay = (value) => {
   if (!value) return null;
 
@@ -65,24 +96,7 @@ const normalizeLinkExpiryToEndOfDay = (value) => {
 
 const normalizePaymentDate = (value) => {
   if (!value) return null;
-
-  const raw = String(value || "").trim();
-  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-
-  if (match) {
-    const startOfDayIst = new Date(`${match[1]}T00:00:00.000+05:30`);
-    return Number.isNaN(startOfDayIst.getTime()) ? null : startOfDayIst;
-  }
-
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return null;
-
-  const year = parsed.getUTCFullYear();
-  const month = String(parsed.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(parsed.getUTCDate()).padStart(2, "0");
-  const startOfDayIst = new Date(`${year}-${month}-${day}T00:00:00.000+05:30`);
-
-  return Number.isNaN(startOfDayIst.getTime()) ? null : startOfDayIst;
+  return normalizeDateOnly(value);
 };
 
 const normalizeDateRangeBoundary = (value, endOfDay = false) => {
@@ -341,10 +355,37 @@ export async function handler(event) {
 
       const paymentDateStart = normalizeDateRangeBoundary(paymentDate_start);
       const paymentDateEnd = normalizeDateRangeBoundary(paymentDate_end, true);
-      if (paymentDateStart || paymentDateEnd) {
-        query.paymentDate = {};
-        if (paymentDateStart) query.paymentDate.$gte = paymentDateStart;
-        if (paymentDateEnd) query.paymentDate.$lte = paymentDateEnd;
+      const paymentDateStartRaw = normalizeDateOnly(paymentDate_start);
+      const paymentDateEndRaw = normalizeDateOnly(paymentDate_end);
+      if (
+        paymentDateStart ||
+        paymentDateEnd ||
+        paymentDateStartRaw ||
+        paymentDateEndRaw
+      ) {
+        const dateRangeFilter = {};
+        if (paymentDateStart) dateRangeFilter.$gte = paymentDateStart;
+        if (paymentDateEnd) dateRangeFilter.$lte = paymentDateEnd;
+
+        const dateOnlyStringFilter = {};
+        if (paymentDateStartRaw)
+          dateOnlyStringFilter.$gte = paymentDateStartRaw;
+        if (paymentDateEndRaw) dateOnlyStringFilter.$lte = paymentDateEndRaw;
+
+        const paymentDateClauses = [];
+        if (Object.keys(dateRangeFilter).length > 0) {
+          paymentDateClauses.push({ paymentDate: dateRangeFilter });
+        }
+        if (Object.keys(dateOnlyStringFilter).length > 0) {
+          paymentDateClauses.push({ paymentDate: dateOnlyStringFilter });
+        }
+
+        if (paymentDateClauses.length === 1) {
+          Object.assign(query, paymentDateClauses[0]);
+        } else if (paymentDateClauses.length > 1) {
+          query.$and = query.$and || [];
+          query.$and.push({ $or: paymentDateClauses });
+        }
       }
 
       const statusCountQueryBase = {
@@ -542,7 +583,7 @@ export async function handler(event) {
             $set: {
               utrNumber: enteredUtr,
               status: "under_verification",
-              paymentDate: verifiedPaymentDate || now,
+              paymentDate: verifiedPaymentDate || toIstDateOnlyString(now),
               updatedAt: now,
             },
           },

@@ -54,15 +54,24 @@ const normalizeAlias = (value = "") =>
 const toDateInputValue = (value) => {
   if (!value) return "";
   const raw = String(value || "").trim();
-  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (match) return match[1];
+  const strictDateOnly = raw.match(/^(\d{4}-\d{2}-\d{2})$/);
+  if (strictDateOnly) return strictDateOnly[1];
 
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
 
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  if (!year || !month || !day) return "";
+
   return `${year}-${month}-${day}`;
 };
 
