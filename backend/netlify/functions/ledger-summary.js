@@ -140,13 +140,7 @@ const calculateLedgerFromTransactions = (
       ) {
         summary.gstInputDebit += debit;
       } else if (accountHead === "Sundry Debtors Account") {
-        summary.sundryDebtorsDebit += debit;
-        if (credit > 0) {
-          summary.sundryDebtorsDebit = Math.max(
-            0,
-            summary.sundryDebtorsDebit - credit,
-          );
-        }
+        summary.sundryDebtorsDebit += debit - credit;
       } else if (accountHead === "Sundry Creditors Account") {
         summary.sundryCreditorsCredit += credit;
       } else if (accountHead === "Advance from Customer") {
@@ -201,12 +195,11 @@ const calculateLedgerFromTransactions = (
       summary.customerAdvanceLiabilityCredit,
   );
 
-  // Calculate net GST
-  const netGstDebit = round2(
-    Math.max(summary.gstInputDebit - summary.gstOutputCredit, 0),
-  );
+  // Calculate net GST after considering output reversals (e.g. credit notes).
+  const netGstOutput = round2(summary.gstOutputCredit - summary.gstOutputDebit);
+  const netGstDebit = round2(Math.max(summary.gstInputDebit - netGstOutput, 0));
   const netGstCredit = round2(
-    Math.max(summary.gstOutputCredit - summary.gstInputDebit, 0),
+    Math.max(netGstOutput - summary.gstInputDebit, 0),
   );
   const netGstBalance = netGstDebit > 0 ? netGstDebit : -netGstCredit;
   const netGstType = netGstDebit > 0 ? "Dr" : "Cr";
@@ -293,9 +286,11 @@ const calculateLedgerFromTransactions = (
         accountName: "GST Output Account",
         debit: summary.gstOutputDebit,
         credit: summary.gstOutputCredit,
-        balance: round2(summary.gstOutputCredit - summary.gstOutputDebit),
+        balance: round2(
+          Math.abs(summary.gstOutputCredit - summary.gstOutputDebit),
+        ),
         balanceType:
-          summary.gstOutputCredit > summary.gstOutputDebit ? "Cr" : "Dr",
+          summary.gstOutputCredit >= summary.gstOutputDebit ? "Cr" : "Dr",
         notes:
           "Credit: sales/debit-note/RCM output GST; Debit: credit-note GST reversal",
       },
@@ -379,7 +374,7 @@ const calculateLedgerFromTransactions = (
         accountName: "GST Payable/(Receivable)",
         debit: netGstDebit,
         credit: netGstCredit,
-        balance: round2(netGstBalance),
+        balance: round2(Math.abs(netGstBalance)),
         balanceType: netGstType,
         notes: "Net GST position after input set-off",
       },

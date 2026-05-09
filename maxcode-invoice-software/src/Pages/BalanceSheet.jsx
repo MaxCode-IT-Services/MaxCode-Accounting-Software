@@ -217,6 +217,8 @@ const BalanceSheet = () => {
   const totalLiabilities = balanceData?.totalLiabilities || 0;
   const equity = balanceData?.equity || 0;
   const openingCapital = balanceData?.openingCapital || 0;
+  const ownerInvestment = balanceData?.ownerInvestment || 0;
+  const retainedEarnings = balanceData?.retainedEarnings || 0;
 
   const rows = useMemo(() => {
     const getDescription = (account, section, isTotal) => {
@@ -259,10 +261,14 @@ const BalanceSheet = () => {
           return "Negative cash/bank closing balance shown as liability";
         case "Owner Funding (Personal Payments)":
           return "Amount paid directly from owner's personal account for business purchases/RCM/developer payouts";
+        case "Owner Investment (Capital Added)":
+          return "Capital introduced by owner into business bank/cash";
         case "Capital (Opening)":
           return "Owner capital brought at year start";
+        case "Retained Earnings / Current Profit (Calculated)":
+          return "Balancing equity after opening capital and owner investments";
         case "Owner's Equity (Calculated)":
-          return "Owner's net investment after assets minus liabilities";
+          return "Total closing equity calculated as Assets minus Liabilities";
         case "Total Liabilities & Equity":
           return "Liabilities plus equity total";
         default:
@@ -373,6 +379,22 @@ const BalanceSheet = () => {
       });
     }
 
+    if (ownerInvestment > 0) {
+      equityRows.push({
+        section: "Liabilities & Equity",
+        account: "Owner Investment (Capital Added)",
+        amount: ownerInvestment,
+      });
+    }
+
+    if (retainedEarnings !== 0) {
+      equityRows.push({
+        section: "Liabilities & Equity",
+        account: "Retained Earnings / Current Profit (Calculated)",
+        amount: retainedEarnings,
+      });
+    }
+
     equityRows.push({
       section: "Liabilities & Equity",
       account: "Owner's Equity (Calculated)",
@@ -400,6 +422,8 @@ const BalanceSheet = () => {
     totalLiabilities,
     equity,
     openingCapital,
+    ownerInvestment,
+    retainedEarnings,
   ]);
 
   const filteredRows = useMemo(() => {

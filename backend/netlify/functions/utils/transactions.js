@@ -108,8 +108,28 @@ const isCashLike = (value) =>
     .toLowerCase()
     .includes("cash");
 
-const getPaymentAccountHead = (paymentMethod, fallback = "Bank Account") =>
-  isCashLike(paymentMethod) ? "Cash Account" : fallback;
+const isBankMethod = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return (
+    normalized.includes("bank") ||
+    normalized.includes("upi") ||
+    normalized.includes("imps") ||
+    normalized.includes("rtgs") ||
+    normalized.includes("neft") ||
+    normalized.includes("transfer") ||
+    normalized.includes("card") ||
+    normalized.includes("cheque") ||
+    normalized.includes("check")
+  );
+};
+
+const getPaymentAccountHead = (paymentMethod, fallback = "Bank Account") => {
+  if (isCashLike(paymentMethod)) return "Cash Account";
+  if (isBankMethod(paymentMethod)) return "Bank Account";
+  return fallback;
+};
 
 const isOwnerPersonal = (record = {}, fallback = "") => {
   const source = String(
@@ -159,6 +179,50 @@ const getTaxComponents = (record = {}) => {
       ? explicit
       : roundAmount(toNumber(taxData.totalTax ?? record?.taxAmount ?? 0));
   return { cgst, sgst, igst, totalTax };
+};
+
+const deriveTaxComponentsFromPlace = (placeOfSupply, totalTax) => {
+  if (totalTax <= 0) return { cgst: 0, sgst: 0, igst: 0 };
+
+  const place = String(placeOfSupply || "").toLowerCase();
+  const isRajasthan =
+    place.includes("rajasthan") ||
+    place.includes("(08)") ||
+    /\b08\b/.test(place);
+
+  if (isRajasthan) {
+    // CGST + SGST split
+    const half = roundAmount(totalTax / 2);
+    return { cgst: half, sgst: half, igst: 0 };
+  } else {
+    // IGST only
+    return { cgst: 0, sgst: 0, igst: totalTax };
+  }
+};
+
+const ensureTaxComponents = (record = {}) => {
+  const { cgst, sgst, igst, totalTax } = getTaxComponents(record);
+
+  // If we have explicit breakdown, use it
+  if (cgst > 0 || sgst > 0 || igst > 0) {
+    return { cgst, sgst, igst, totalTax };
+  }
+
+  // Otherwise, derive from place of supply
+  if (totalTax > 0) {
+    const derived = deriveTaxComponentsFromPlace(
+      record?.placeOfSupply,
+      totalTax,
+    );
+    return {
+      cgst: derived.cgst,
+      sgst: derived.sgst,
+      igst: derived.igst,
+      totalTax,
+    };
+  }
+
+  return { cgst: 0, sgst: 0, igst: 0, totalTax: 0 };
 };
 
 const buildGstInputLines = ({ cgst = 0, sgst = 0, igst = 0 } = {}) => {
@@ -669,7 +733,7 @@ const buildLinesForCreditDebitNote = (record = {}) => {
       ) ?? 0,
     ),
   );
-  const { cgst, sgst, igst, totalTax } = getTaxComponents(record);
+  const { cgst, sgst, igst, totalTax } = ensureTaxComponents(record);
   const fallbackTax = roundAmount(toNumber(record?.taxAmount || 0));
   const taxAmount = totalTax > 0 ? totalTax : fallbackTax;
   const totalAmount = roundAmount(
@@ -687,7 +751,7 @@ const buildLinesForCreditDebitNote = (record = {}) => {
   );
   const paymentAccount = getPaymentAccountHead(
     record?.refundMethod || record?.paymentMethod,
-    "Cash Account",
+    "Bank Account",
   );
 
   if (isCreditNote) {

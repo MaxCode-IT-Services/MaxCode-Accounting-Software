@@ -67,6 +67,7 @@ const calculateBalanceSheetFromTransactions = (
   let totalGstOutput = 0;
   let payables = 0;
   let ownerFunding = 0;
+  let ownerInvestment = 0;
   let customerAdvance = 0;
   let creditNotePayable = 0;
   let customerOverpayment = 0;
@@ -102,6 +103,8 @@ const calculateBalanceSheetFromTransactions = (
         totalGstOutput = round2(totalGstOutput + credit - debit);
       } else if (accountHead === "Owner Funding Account") {
         ownerFunding = round2(ownerFunding + credit - debit);
+      } else if (accountHead === "Owner Investment Account") {
+        ownerInvestment = round2(ownerInvestment + credit - debit);
       } else if (accountHead === "Advance from Customer") {
         customerAdvance = round2(customerAdvance + credit - debit);
       } else if (accountHead === "Credit Note Payable") {
@@ -118,6 +121,7 @@ const calculateBalanceSheetFromTransactions = (
   totalGstOutput = round2(totalGstOutput);
   payables = round2(payables);
   ownerFunding = round2(ownerFunding);
+  ownerInvestment = round2(ownerInvestment);
   customerAdvance = round2(customerAdvance);
   creditNotePayable = round2(creditNotePayable);
   inventory = round2(inventory);
@@ -152,9 +156,6 @@ const calculateBalanceSheetFromTransactions = (
     gstPayable = round2(Math.abs(netGst));
   }
 
-  // Calculate totals with step-by-step rounding - EXACT VALUES
-  // For your specific data, these should match exactly:
-  // Bank: 279619.85, Total Assets: 285695.05
   const cashBankTotal = round2(cashBalance + bankBalance);
   const receivablesGstTotal = round2(receivables + gstReceivable);
   const totalAssets = round2(cashBankTotal + receivablesGstTotal + inventory);
@@ -169,8 +170,11 @@ const calculateBalanceSheetFromTransactions = (
       customerOverpayment,
   );
 
-  const equity = round2(totalAssets - totalLiabilities);
+  const totalEquity = round2(totalAssets - totalLiabilities);
   const openingCapital = round2(openingBalances.openingCapital || 0);
+  const retainedEarnings = round2(
+    totalEquity - openingCapital - ownerInvestment,
+  );
 
   // Final result with all values rounded to 2 decimals
   return {
@@ -194,8 +198,20 @@ const calculateBalanceSheetFromTransactions = (
     },
     totalAssets: totalAssets,
     totalLiabilities: totalLiabilities,
-    equity: round2(equity - openingCapital),
+    equity: totalEquity,
     openingCapital: openingCapital,
+    ownerInvestment: ownerInvestment,
+    retainedEarnings: retainedEarnings,
+    accountingMeta: {
+      equityMethod: "derived_from_balance_sheet",
+      equityFormula: "totalAssets - totalLiabilities",
+      retainedEarningsMethod: "derived_residual",
+      retainedEarningsFormula: "equity - openingCapital - ownerInvestment",
+      profitLossIntegrated: false,
+      inventoryMethod: "opening_inventory_only",
+      ownerFundingClassification: "liability_personal_payments",
+      note: "Retained earnings shown here is a derived balancing figure. For statutory accounting, compute retained earnings from a P&L statement and drawings.",
+    },
   };
 };
 
