@@ -1539,11 +1539,41 @@ const PaymentLinkManagement = () => {
           title="Delete Payment Link"
           message={
             <>
-              Are you sure you want to delete payment link{" "}
+              Are you sure you want to delete payment link for{" "}
               <strong>
-                {recordToDelete?.alias || recordToDelete?.clientName || ""}
+                {recordToDelete?.clientName || recordToDelete?.alias || ""}
               </strong>
-              ? This will mark the record as deleted.
+              {recordToDelete?.amount != null && (
+                <>
+                  {" "}
+                  of{" "}
+                  <strong>
+                    ₹
+                    {Number(recordToDelete.amount).toLocaleString("en-IN", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </strong>
+                </>
+              )}
+              ?
+              {(recordToDelete?.accountName || recordToDelete?.upiId) && (
+                <div
+                  className="mt-2 text-muted"
+                  style={{ fontSize: "0.87rem" }}
+                >
+                  {recordToDelete?.accountName && (
+                    <div>
+                      Account: <strong>{recordToDelete.accountName}</strong>
+                    </div>
+                  )}
+                  {recordToDelete?.upiId && (
+                    <div>
+                      UPI ID: <strong>{recordToDelete.upiId}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           }
           confirmText="Delete"
