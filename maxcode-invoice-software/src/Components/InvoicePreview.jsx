@@ -225,9 +225,20 @@ const InvoicePreview = ({
 
   useEffect(() => {
     let mounted = true;
+    const invoiceTermsSnapshot = invoiceData.invoiceTermsConditionsSnapshot;
     const invoiceTermsVersion = String(
       invoiceData.invoiceTermsVersion || "",
     ).trim();
+
+    if (invoiceTermsSnapshot) {
+      const parsedSnapshot = parseTerms(invoiceTermsSnapshot, []);
+      if (parsedSnapshot.length > 0) {
+        setTermsConditions(parsedSnapshot);
+        return () => {
+          mounted = false;
+        };
+      }
+    }
 
     const applyTerms = (settings) => {
       if (!mounted || !settings || typeof settings !== "object") return;
@@ -285,7 +296,10 @@ const InvoicePreview = ({
     return () => {
       mounted = false;
     };
-  }, [invoiceData.invoiceTermsVersion]);
+  }, [
+    invoiceData.invoiceTermsVersion,
+    invoiceData.invoiceTermsConditionsSnapshot,
+  ]);
 
   // Calculations are done in SalesManagement; use precomputed values here.
   const items = invoiceData.items;

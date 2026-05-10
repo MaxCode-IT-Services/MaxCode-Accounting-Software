@@ -207,9 +207,21 @@ const CreditDebitNotePreview = ({
 
   useEffect(() => {
     let mounted = true;
+    const noteTermsSnapshot =
+      notePreviewData.creditDebitNoteTermsConditionsSnapshot;
     const noteTermsVersion = String(
       notePreviewData.creditDebitNoteTermsVersion || "",
     ).trim();
+
+    if (noteTermsSnapshot) {
+      const parsedSnapshot = parseTerms(noteTermsSnapshot, []);
+      if (parsedSnapshot.length > 0) {
+        setTermsConditions(parsedSnapshot);
+        return () => {
+          mounted = false;
+        };
+      }
+    }
 
     const applyTerms = (settings) => {
       if (!mounted || !settings || typeof settings !== "object") return;
@@ -270,7 +282,10 @@ const CreditDebitNotePreview = ({
     return () => {
       mounted = false;
     };
-  }, [notePreviewData.creditDebitNoteTermsVersion]);
+  }, [
+    notePreviewData.creditDebitNoteTermsVersion,
+    notePreviewData.creditDebitNoteTermsConditionsSnapshot,
+  ]);
 
   const items = notePreviewData.items;
   const toMoney = (value) => Number((Number(value) || 0).toFixed(2));

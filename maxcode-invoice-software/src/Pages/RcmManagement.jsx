@@ -1295,6 +1295,9 @@ const RcmManagement = () => {
       tdsPercent,
       tdsAmount,
       status: getStatusLabel(record.paymentStatus),
+      selfInvoiceTermsVersion: record.selfInvoiceTermsVersion || "",
+      selfInvoiceTermsConditionsSnapshot:
+        record.selfInvoiceTermsConditionsSnapshot || "",
       items: (record.items || []).map((item) => ({
         serviceName: item.itemName || "",
         description: item.itemDescription || "",

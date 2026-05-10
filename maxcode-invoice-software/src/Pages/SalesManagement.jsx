@@ -1378,6 +1378,9 @@ const SalesManagement = () => {
       tdsPercent,
       tdsAmount,
       status: getStatusLabel(record.paymentStatus),
+      invoiceTermsVersion: record.invoiceTermsVersion || "",
+      invoiceTermsConditionsSnapshot:
+        record.invoiceTermsConditionsSnapshot || "",
       items: (record.items || []).map((item) => ({
         serviceName: item.itemName || "",
         description: item.itemDescription || "",

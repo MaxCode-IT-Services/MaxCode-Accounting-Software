@@ -234,9 +234,21 @@ const SelfInvoicePreview = ({
 
   useEffect(() => {
     let mounted = true;
+    const selfInvoiceTermsSnapshot =
+      invoiceData.selfInvoiceTermsConditionsSnapshot;
     const selfInvoiceTermsVersion = String(
       invoiceData.selfInvoiceTermsVersion || "",
     ).trim();
+
+    if (selfInvoiceTermsSnapshot) {
+      const parsedSnapshot = parseTerms(selfInvoiceTermsSnapshot, []);
+      if (parsedSnapshot.length > 0) {
+        setTermsConditions(parsedSnapshot);
+        return () => {
+          mounted = false;
+        };
+      }
+    }
 
     const applyTerms = (settings) => {
       if (!mounted || !settings || typeof settings !== "object") return;
@@ -294,7 +306,10 @@ const SelfInvoicePreview = ({
     return () => {
       mounted = false;
     };
-  }, [invoiceData.selfInvoiceTermsVersion]);
+  }, [
+    invoiceData.selfInvoiceTermsVersion,
+    invoiceData.selfInvoiceTermsConditionsSnapshot,
+  ]);
 
   // Calculations are done in the calling page; use precomputed values here.
   const items = invoiceData.items;
