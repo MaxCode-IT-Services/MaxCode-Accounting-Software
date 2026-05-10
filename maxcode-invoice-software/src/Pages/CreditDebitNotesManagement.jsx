@@ -152,6 +152,37 @@ const CreditDebitNotesManagement = () => {
     }
   };
 
+  const resolveAmountCalculationStatus = (note = {}) => {
+    const noteType = String(note?.noteType || "")
+      .trim()
+      .toLowerCase();
+
+    if (noteType === "credit note") {
+      const explicit = String(note?.refundStatus || "").trim();
+      if (explicit) return explicit;
+
+      const total = Number(note?.totalAmount || note?.amount || 0);
+      const refunded = Number(note?.refundAmount || 0);
+      if (refunded > 0 && total > 0) {
+        return refunded >= total ? "Full Refund" : "Partial Refund";
+      }
+      return "Pending";
+    }
+
+    if (noteType === "debit note") {
+      const explicit = String(note?.paymentStatus || "").trim();
+      if (explicit) return explicit;
+
+      const total = Number(note?.totalAmount || note?.amount || 0);
+      const received = Number(note?.receivedAmount || 0);
+      if (received <= 0) return "Unpaid";
+      if (total > 0 && received >= total) return "Paid";
+      return "Partial";
+    }
+
+    return String(note?.status || "").trim() || "-";
+  };
+
   const fetchNotes = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -264,6 +295,7 @@ const CreditDebitNotesManagement = () => {
         return {
           ...note,
           id: note._id || note.id,
+          amountCalculationStatus: resolveAmountCalculationStatus(note),
           referenceNumber:
             note.referenceNumber ||
             note.referenceInvoiceNo ||
@@ -407,6 +439,9 @@ const CreditDebitNotesManagement = () => {
       return {
         ...record,
         sn: (currentPage - 1) * recordsPerPage + index + 1,
+        amountCalculationStatus:
+          record.amountCalculationStatus ||
+          resolveAmountCalculationStatus(record),
         referenceNumber: refFromRecord || refFromInvoiceMap || "",
         noteDateTime:
           record.noteDateTime || record.noteDate || record.createdAt || "",
@@ -503,13 +538,16 @@ const CreditDebitNotesManagement = () => {
       key: "noteType",
       label: "Note Type",
       width: 130,
-      render: (value) => (
-        <span
-          className={`badge ${value === "Credit Note" ? "bg-success" : "bg-warning"}`}
-        >
-          {value || "-"}
-        </span>
-      ),
+      render: (value) => {
+        const badgeClass =
+          value === "Credit Note"
+            ? "bg-success"
+            : value === "Debit Note"
+              ? "bg-danger"
+              : "bg-secondary";
+
+        return <span className={`badge ${badgeClass}`}>{value || "-"}</span>;
+      },
     },
     { key: "clientName", label: "Client Name", width: 170 },
     { key: "businessName", label: "Business Name", width: 180 },
@@ -522,21 +560,42 @@ const CreditDebitNotesManagement = () => {
       key: "status",
       label: "Status",
       width: 120,
-      render: (value) => {
-        const statusClass =
-          value === "Approved"
-            ? "bg-success"
-            : value === "Rejected"
-              ? "bg-danger"
-              : value === "Pending"
-                ? "bg-warning"
+      render: (_, record) => {
+        const value =
+          record?.amountCalculationStatus ||
+          resolveAmountCalculationStatus(record);
+        const normalized = String(value || "")
+          .trim()
+          .toLowerCase();
+        const statusClass = [
+          "approved",
+          "paid",
+          "full refund",
+          "refunded",
+        ].includes(normalized)
+          ? "bg-success"
+          : ["rejected", "cancelled", "failed"].includes(normalized)
+            ? "bg-danger"
+            : ["pending", "unpaid", "draft", "under verification"].includes(
+                  normalized,
+                )
+              ? "bg-warning"
+              : ["partial", "partial refund", "partial payment"].includes(
+                    normalized,
+                  )
+                ? "bg-info"
                 : "bg-secondary";
 
         return <span className={`badge ${statusClass}`}>{value || "-"}</span>;
       },
     },
     { key: "remarks", label: "Remarks", width: 240 },
-    { key: "createdDateTime", label: "Created Date & Time", width: 200 },
+    {
+      key: "createdDateTime",
+      label: "Created Date & Time",
+      width: 200,
+      render: (value) => formatDateTimeForDisplay(value) || "-",
+    },
     { key: "action", label: "Actions", width: 150 },
   ];
 
@@ -550,14 +609,18 @@ const CreditDebitNotesManagement = () => {
     "status",
     "action",
   ];
-  const columnsWithDropdownFilter = ["noteType", "status"];
+  const columnsWithDropdownFilter = ["noteType"];
 
   const getFilterOptions = () => {
     const uniqueNoteTypes = [
       ...new Set(records.map((item) => item.noteType).filter(Boolean)),
     ].sort();
     const uniqueStatuses = [
-      ...new Set(records.map((item) => item.status).filter(Boolean)),
+      ...new Set(
+        records
+          .map((item) => item.amountCalculationStatus || item.status)
+          .filter(Boolean),
+      ),
     ].sort();
 
     return {

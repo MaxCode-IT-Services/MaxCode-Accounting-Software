@@ -889,23 +889,44 @@ export async function handler(event) {
         totalAmount,
         status: String(noteData.status || "Pending").trim() || "Pending",
         remarks: String(noteData.remarks || "").trim(),
-        // Credit note fields
-        refundStatus: String(noteData.refundStatus || "").trim(),
-        refundDate: noteData.refundDate ? new Date(noteData.refundDate) : null,
-        refundAmount: toNumber(noteData.refundAmount),
-        refundMethod: String(noteData.refundMethod || "").trim(),
-        // Debit note fields
+        // Credit note fields — reset if note is now Debit Note
+        refundStatus:
+          noteType === "Debit Note"
+            ? ""
+            : String(noteData.refundStatus || "").trim(),
+        refundDate:
+          noteType === "Debit Note"
+            ? null
+            : noteData.refundDate
+              ? new Date(noteData.refundDate)
+              : null,
+        refundAmount:
+          noteType === "Debit Note" ? 0 : toNumber(noteData.refundAmount),
+        refundMethod:
+          noteType === "Debit Note"
+            ? ""
+            : String(noteData.refundMethod || "").trim(),
+        // Debit note fields — reset if note is now Credit Note
         paymentStatus:
-          String(noteData.paymentStatus || "").trim() ||
-          getDebitNotePaymentStatus(
-            totalAmount,
-            toNumber(noteData.receivedAmount),
-          ),
-        paymentDate: noteData.paymentDate
-          ? new Date(noteData.paymentDate)
-          : null,
-        receivedAmount: toNumber(noteData.receivedAmount),
-        paymentMethod: String(noteData.paymentMethod || "").trim(),
+          noteType === "Credit Note"
+            ? ""
+            : String(noteData.paymentStatus || "").trim() ||
+              getDebitNotePaymentStatus(
+                totalAmount,
+                toNumber(noteData.receivedAmount),
+              ),
+        paymentDate:
+          noteType === "Credit Note"
+            ? null
+            : noteData.paymentDate
+              ? new Date(noteData.paymentDate)
+              : null,
+        receivedAmount:
+          noteType === "Credit Note" ? 0 : toNumber(noteData.receivedAmount),
+        paymentMethod:
+          noteType === "Credit Note"
+            ? ""
+            : String(noteData.paymentMethod || "").trim(),
         appliedAdvances: normalizedAppliedAdvances,
         _id: noteObjectId,
         updatedAt: new Date(),

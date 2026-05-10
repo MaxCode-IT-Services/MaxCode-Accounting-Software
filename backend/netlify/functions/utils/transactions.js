@@ -159,6 +159,26 @@ const getAppliedAdvanceAmount = (record = {}) => {
   return Math.max(direct, mapped);
 };
 
+const inferCreditDebitNoteType = (record = {}) => {
+  const explicitType = String(record?.noteType || "")
+    .trim()
+    .toLowerCase();
+  if (explicitType === "credit note") return "Credit Note";
+  if (explicitType === "debit note") return "Debit Note";
+
+  const noteToken = String(record?.noteNumber || record?.invoiceNumber || "")
+    .trim()
+    .toUpperCase();
+  if (noteToken.startsWith("CN") || noteToken.includes("/CN/")) {
+    return "Credit Note";
+  }
+  if (noteToken.startsWith("DN") || noteToken.includes("/DN/")) {
+    return "Debit Note";
+  }
+
+  return "Debit Note";
+};
+
 const getExplicitPaidAmount = (record = {}) =>
   Math.max(
     toNumber(record?.amountReceived || 0),
@@ -404,8 +424,10 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
     Object.assign(
       base,
       pickFields(sourceRecord, [
+        "noteNumber",
         "noteType",
         "status",
+        "refundStatus",
         "subtotal",
         "taxAmount",
         "totalAmount",
@@ -739,16 +761,50 @@ const buildLinesForCreditDebitNote = (record = {}) => {
   const totalAmount = roundAmount(
     toNumber(record?.totalAmount || taxableAmount + taxAmount),
   );
-  const isCreditNote =
-    String(record?.noteType || "")
-      .trim()
-      .toLowerCase() === "credit note";
-  const paidAmount = roundAmount(
-    Math.max(
-      toNumber(record?.refundAmount || 0),
-      toNumber(record?.receivedAmount || 0),
-    ),
-  );
+  const noteType = inferCreditDebitNoteType(record);
+  const isCreditNote = noteType === "Credit Note";
+  const normalizedStatus = String(
+    record?.refundStatus || record?.paymentStatus || record?.status || "",
+  )
+    .trim()
+    .toLowerCase();
+
+  // Separate paid-amount by note type to prevent cross-contamination:
+  // Credit Note uses refundAmount; Debit Note uses receivedAmount.
+  let paidAmount;
+  if (isCreditNote) {
+    paidAmount = roundAmount(
+      Math.max(
+        toNumber(record?.refundAmount || 0),
+        toNumber(record?.amountPaid || 0),
+        toNumber(record?.paidAmount || 0),
+      ),
+    );
+  } else {
+    paidAmount = roundAmount(
+      Math.max(
+        toNumber(record?.receivedAmount || 0),
+        toNumber(record?.amountReceived || 0),
+        toNumber(record?.amountPaid || 0),
+        toNumber(record?.paidAmount || 0),
+      ),
+    );
+  }
+
+  if (paidAmount <= 0) {
+    if (
+      isCreditNote &&
+      ["full refund", "refunded", "paid", "settled", "applied"].includes(
+        normalizedStatus,
+      )
+    ) {
+      paidAmount = totalAmount;
+    } else if (!isCreditNote && normalizedStatus === "paid") {
+      paidAmount = totalAmount;
+    }
+  }
+
+  paidAmount = roundAmount(Math.min(Math.max(paidAmount, 0), totalAmount));
   const paymentAccount = getPaymentAccountHead(
     record?.refundMethod || record?.paymentMethod,
     "Bank Account",
@@ -1248,7 +1304,10 @@ export const buildTransactionSnapshot = ({
       sourceRecord?.staffName ||
       sourceRecord?.clientName ||
       "",
-    createdBy: sourceRecord?.createdBy || "",
+    createdBy:
+      String(sourceRecord?.createdBy || "").trim() ||
+      String(sourceRecord?.updatedBy || "").trim() ||
+      "",
     paymentMethod: normalizePaymentMethod(
       sourceRecord?.paymentMethod ||
         sourceRecord?.refundMethod ||
@@ -1334,26 +1393,56 @@ export const normalizeTransactionSnapshot = (transaction = {}) => {
   const normalizedLines = Array.isArray(transaction.lines)
     ? transaction.lines.map(parseTransactionLine)
     : [];
+  const normalizedSourceType = normalizeSourceType(
+    transaction.sourceType || "",
+  );
+  const normalizedSourceRecord =
+    transaction?.sourceRecord && typeof transaction.sourceRecord === "object"
+      ? transaction.sourceRecord
+      : {};
+
+  const canRebuildFromSource =
+    normalizedSourceType === "credit-debit-note" &&
+    Object.keys(normalizedSourceRecord).length > 0;
+
+  const rebuiltLines = canRebuildFromSource
+    ? buildLines(normalizedSourceType, normalizedSourceRecord).map(
+        parseTransactionLine,
+      )
+    : normalizedLines;
+
+  const effectiveLines = rebuiltLines;
+  const effectiveDebitTotal = roundAmount(
+    effectiveLines.reduce((sum, line) => sum + toNumber(line?.debit || 0), 0),
+  );
+  const effectiveCreditTotal = roundAmount(
+    effectiveLines.reduce((sum, line) => sum + toNumber(line?.credit || 0), 0),
+  );
 
   return {
     ...transaction,
     sourceKey: String(transaction.sourceKey || "").trim(),
     sourceCollection: String(transaction.sourceCollection || "").trim(),
-    sourceType: normalizeSourceType(transaction.sourceType || ""),
+    sourceType: normalizedSourceType,
     sourceId: String(transaction.sourceId || "").trim(),
     sourceLabel: String(transaction.sourceLabel || "").trim(),
     transactionDate: getDateOnlyString(transaction.transactionDate),
     financialYear: String(transaction.financialYear || "").trim(),
     paymentMethod: normalizePaymentMethod(transaction.paymentMethod),
-    amount: roundAmount(transaction.amount || 0),
-    debitTotal: roundAmount(transaction.debitTotal || 0),
-    creditTotal: roundAmount(transaction.creditTotal || 0),
-    balanced: Boolean(transaction.balanced),
-    lines: normalizedLines,
-    sourceRecord:
-      transaction?.sourceRecord && typeof transaction.sourceRecord === "object"
-        ? transaction.sourceRecord
-        : {},
+    amount: canRebuildFromSource
+      ? getRecordAmount(normalizedSourceType, normalizedSourceRecord)
+      : roundAmount(transaction.amount || 0),
+    debitTotal: canRebuildFromSource
+      ? effectiveDebitTotal
+      : roundAmount(transaction.debitTotal || 0),
+    creditTotal: canRebuildFromSource
+      ? effectiveCreditTotal
+      : roundAmount(transaction.creditTotal || 0),
+    balanced: canRebuildFromSource
+      ? Math.abs(effectiveDebitTotal - effectiveCreditTotal) < 0.01
+      : Boolean(transaction.balanced),
+    lines: effectiveLines,
+    sourceRecord: normalizedSourceRecord,
     inventoryValue: roundAmount(transaction.inventoryValue || 0),
     isDeleted: transaction.isDeleted === true,
   };

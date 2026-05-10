@@ -553,8 +553,13 @@ const CreateCreditDebitNote = ({
       String(invoice.value) === String(formData.invoiceId) ||
       String(invoice.invoiceNumber || "") === String(formData.invoiceNumber),
   );
-  const reasonOptions =
-    NOTE_TYPE_REASONS[formData.noteType] || NOTE_TYPE_REASONS["Credit Note"];
+  const reasonOptions = [
+    ...new Set([
+      ...(NOTE_TYPE_REASONS[formData.noteType] ||
+        NOTE_TYPE_REASONS["Credit Note"]),
+      ...(formData.reasonAdjustmentType ? [formData.reasonAdjustmentType] : []),
+    ]),
+  ];
   const statusOptions =
     NOTE_TYPE_STATUSES[formData.noteType] || NOTE_TYPE_STATUSES["Credit Note"];
   const selectMenuPortalTarget =
@@ -590,17 +595,12 @@ const CreateCreditDebitNote = ({
   useEffect(() => {
     if (!show) return;
 
-    const allowedReasons =
-      NOTE_TYPE_REASONS[formData.noteType] || NOTE_TYPE_REASONS["Credit Note"];
     const allowedStatuses =
       NOTE_TYPE_STATUSES[formData.noteType] ||
       NOTE_TYPE_STATUSES["Credit Note"];
 
     setFormData((prev) => ({
       ...prev,
-      reasonAdjustmentType: allowedReasons.includes(prev.reasonAdjustmentType)
-        ? prev.reasonAdjustmentType
-        : "",
       status: allowedStatuses.includes(prev.status)
         ? prev.status
         : prev.status || "Draft",
@@ -678,11 +678,21 @@ const CreateCreditDebitNote = ({
     const { name, value } = e.target;
 
     if (name === "noteType") {
-      setFormData((prev) => ({
-        ...prev,
-        noteType: value,
-        noteNumber: value ? prev.noteNumber : "",
-      }));
+      setFormData((prev) => {
+        let nextNoteNumber = prev.noteNumber;
+        if (prev.noteNumber && value) {
+          if (value === "Debit Note") {
+            nextNoteNumber = prev.noteNumber.replace(/\/CN\//i, "/DN/");
+          } else if (value === "Credit Note") {
+            nextNoteNumber = prev.noteNumber.replace(/\/DN\//i, "/CN/");
+          }
+        }
+        return {
+          ...prev,
+          noteType: value,
+          noteNumber: value ? nextNoteNumber : "",
+        };
+      });
       return;
     }
 
@@ -716,6 +726,44 @@ const CreateCreditDebitNote = ({
         ...prev,
         taxRate: nextValue,
       }));
+      return;
+    }
+
+    if (name === "refundStatus") {
+      setFormData((prev) => {
+        const total = String(prev.totalAmount || "");
+        if (value === "Pending") {
+          return {
+            ...prev,
+            refundStatus: value,
+            refundDate: "",
+            refundAmount: "",
+            refundMethod: "",
+          };
+        } else if (value === "Full Refund") {
+          return { ...prev, refundStatus: value, refundAmount: total };
+        }
+        return { ...prev, refundStatus: value };
+      });
+      return;
+    }
+
+    if (name === "paymentStatus") {
+      setFormData((prev) => {
+        const total = String(prev.totalAmount || "");
+        if (value === "Unpaid") {
+          return {
+            ...prev,
+            paymentStatus: value,
+            paymentDate: "",
+            receivedAmount: "",
+            paymentMethod: "",
+          };
+        } else if (value === "Paid") {
+          return { ...prev, paymentStatus: value, receivedAmount: total };
+        }
+        return { ...prev, paymentStatus: value };
+      });
       return;
     }
 
@@ -2017,6 +2065,20 @@ const CreateCreditDebitNote = ({
                                   ))}
                                 </select>
                               </div>
+                            </div>
+                            <div className="col-md-4 mb-3">
+                              <label className="form-label fw-bold">
+                                Reference Number
+                              </label>
+                              <input
+                                type="text"
+                                className="form-control modern-input"
+                                name="referenceNumber"
+                                value={formData.referenceNumber}
+                                onChange={handleInputChange}
+                                readOnly={isViewMode}
+                                placeholder="Transaction reference"
+                              />
                             </div>
                           </>
                         )}

@@ -1,7 +1,10 @@
 import { ObjectId } from "mongodb";
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken } from "./utils/auth.js";
-import { normalizeTransactionSnapshot } from "./utils/transactions.js";
+import {
+  normalizeTransactionSnapshot,
+  syncTransactionSnapshot,
+} from "./utils/transactions.js";
 
 const escapeRegExp = (value) =>
   String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -28,11 +31,74 @@ export async function handler(event) {
     const { db } = await connectToDatabase();
     const transactionsCollection = db.collection("transactions");
 
+    const params = event.queryStringParameters || {};
+
+    if (event.httpMethod === "POST") {
+      const action = String(params.action || "")
+        .trim()
+        .toLowerCase();
+
+      if (action !== "resync-credit-debit-notes") {
+        return createResponse(400, { error: "Invalid action" }, origin);
+      }
+
+      const notesCollection = db.collection("creditDebitNotes");
+      const includeDeleted =
+        String(params.includeDeleted || "false").toLowerCase() === "true";
+      const financialYear = String(params.financialYear || "ALL").trim();
+      const noteId = String(params.noteId || "").trim();
+
+      const noteQuery = {};
+      if (!includeDeleted) {
+        noteQuery.isDeleted = { $ne: true };
+      }
+      if (financialYear && financialYear !== "ALL") {
+        noteQuery.financialYear = financialYear;
+      }
+      if (noteId) {
+        if (!ObjectId.isValid(noteId)) {
+          return createResponse(400, { error: "Invalid noteId" }, origin);
+        }
+        noteQuery._id = new ObjectId(noteId);
+      }
+
+      const notes = await notesCollection.find(noteQuery).toArray();
+      let synced = 0;
+      let deleted = 0;
+
+      for (const note of notes) {
+        await syncTransactionSnapshot({
+          db,
+          sourceCollection: "creditDebitNotes",
+          sourceType: "credit_note",
+          sourceRecord: note,
+          sourceLabel: note.noteNumber || "",
+          deleted: note.isDeleted === true,
+        });
+
+        if (note.isDeleted === true) {
+          deleted += 1;
+        } else {
+          synced += 1;
+        }
+      }
+
+      return createResponse(
+        200,
+        {
+          message: "Credit/Debit Note transactions resynced successfully",
+          totalNotes: notes.length,
+          synced,
+          deleted,
+        },
+        origin,
+      );
+    }
+
     if (event.httpMethod !== "GET") {
       return createResponse(405, { error: "Method not allowed" }, origin);
     }
 
-    const params = event.queryStringParameters || {};
     const {
       id,
       page = 1,

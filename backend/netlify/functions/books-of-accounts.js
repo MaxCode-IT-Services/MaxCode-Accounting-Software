@@ -88,11 +88,27 @@ const getStandardSourceType = (sourceType = "") => {
       return "companyExpense";
     case "rcm":
       return "rcm";
+    case "credit_note":
+    case "debit_note":
+    case "credit-note":
+    case "debit-note":
+    case "credit-debit-note":
+      return "creditDebitNote";
     case "project":
       return "project";
     default:
       return String(sourceType || "").trim();
   }
+};
+
+const inferNoteTypeFromNumber = (value = "") => {
+  const raw = String(value || "")
+    .trim()
+    .toUpperCase();
+  if (!raw) return "";
+  if (raw.startsWith("CN")) return "Credit Note";
+  if (raw.startsWith("DN")) return "Debit Note";
+  return "";
 };
 
 const getRecordType = (sourceType = "") => {
@@ -105,11 +121,138 @@ const getRecordType = (sourceType = "") => {
       return "Company Expense";
     case "rcm":
       return "RCM";
+    case "creditDebitNote":
+      return "Credit / Debit Note";
     case "project":
       return "Developer Payout";
     default:
       return sourceType;
   }
+};
+
+const getCreditDebitRecordType = (sourceRecord = {}) => {
+  const rawNoteType =
+    String(sourceRecord?.noteType || "").trim() ||
+    inferNoteTypeFromNumber(
+      sourceRecord?.noteNumber || sourceRecord?.invoiceNumber,
+    );
+  const normalized = rawNoteType.toLowerCase();
+
+  if (normalized === "credit note") return "Credit Note";
+  if (normalized === "debit note") return "Debit Note";
+  return "Credit / Debit Note";
+};
+
+const resolveCreditDebitTaxPercentage = (
+  sourceRecord = {},
+  sourceTaxData = {},
+) => {
+  const taxRate = toNumber(sourceRecord?.taxRate);
+  if (taxRate > 0) return round2(taxRate);
+
+  const taxPercentage = toNumber(sourceTaxData?.taxPercentage);
+  if (taxPercentage > 0) return round2(taxPercentage);
+
+  const amount = toNumber(sourceRecord?.amount);
+  const taxAmount = toNumber(sourceRecord?.taxAmount);
+  if (amount > 0 && taxAmount > 0) {
+    return round2((taxAmount / amount) * 100);
+  }
+
+  return 0;
+};
+
+const normalizeCreditDebitStatus = (status = "", noteType = "") => {
+  const normalizedStatus = String(status || "")
+    .trim()
+    .toLowerCase();
+  const normalizedType = String(noteType || "")
+    .trim()
+    .toLowerCase();
+
+  if (normalizedType === "credit note") {
+    if (["full refund", "refunded"].includes(normalizedStatus)) {
+      return "Refunded";
+    }
+    if (["partial refund", "partel refund"].includes(normalizedStatus)) {
+      return "Partial Refund";
+    }
+    return "Pending";
+  }
+
+  if (normalizedType === "debit note") {
+    if (normalizedStatus === "paid") return "Paid";
+    if (
+      ["partial", "partial payment", "partal payment"].includes(
+        normalizedStatus,
+      )
+    ) {
+      return "Partial Payment";
+    }
+    return "Pending";
+  }
+
+  return String(status || "").trim() || "Pending";
+};
+
+const getNotePaymentStatus = (sourceRecord = {}) => {
+  const resolvedNoteType =
+    String(sourceRecord?.noteType || "").trim() ||
+    inferNoteTypeFromNumber(
+      sourceRecord?.noteNumber || sourceRecord?.invoiceNumber,
+    );
+  const normalizedNoteType = resolvedNoteType.toLowerCase();
+
+  if (normalizedNoteType === "debit note") {
+    const explicit = String(sourceRecord?.paymentStatus || "").trim();
+    if (explicit) {
+      return normalizeCreditDebitStatus(explicit, resolvedNoteType);
+    }
+
+    const total = round2(
+      sourceRecord?.totalAmount ||
+        sourceRecord?.taxData?.totalAmount ||
+        sourceRecord?.amount ||
+        0,
+    );
+    const received = round2(sourceRecord?.receivedAmount || 0);
+
+    if (received <= 0) return "Pending";
+    if (received >= total && total > 0) return "Paid";
+    return "Partial Payment";
+  }
+
+  if (normalizedNoteType === "credit note") {
+    const refundStatus = String(sourceRecord?.refundStatus || "").trim();
+    if (refundStatus) {
+      return normalizeCreditDebitStatus(refundStatus, resolvedNoteType);
+    }
+
+    const total = round2(
+      sourceRecord?.totalAmount ||
+        sourceRecord?.taxData?.totalAmount ||
+        sourceRecord?.amount ||
+        0,
+    );
+    const refunded = round2(
+      sourceRecord?.refundAmount ||
+        sourceRecord?.amountPaid ||
+        sourceRecord?.paidAmount ||
+        sourceRecord?.amountReceived ||
+        sourceRecord?.receivedAmount ||
+        0,
+    );
+
+    if (refunded > 0 && total > 0) {
+      if (refunded >= total) return "Refunded";
+      return "Partial Refund";
+    }
+  }
+
+  const fallbackStatus =
+    String(sourceRecord?.paymentStatus || "").trim() ||
+    String(sourceRecord?.status || "").trim();
+  return normalizeCreditDebitStatus(fallbackStatus, resolvedNoteType);
 };
 
 const buildBaseRecord = (transaction = {}, overrides = {}) => {
@@ -123,13 +266,30 @@ const buildBaseRecord = (transaction = {}, overrides = {}) => {
       : {};
   const sourceType =
     overrides.sourceType || getStandardSourceType(transaction.sourceType);
+  const notePaymentStatus =
+    sourceType === "creditDebitNote"
+      ? getNotePaymentStatus(sourceRecord)
+      : sourceRecord.paymentStatus;
+  const creditDebitTaxPercentage =
+    sourceType === "creditDebitNote"
+      ? resolveCreditDebitTaxPercentage(sourceRecord, sourceTaxData)
+      : 0;
 
   return {
     id: overrides.id || transaction.sourceId,
     sourceType,
-    recordType: overrides.recordType || getRecordType(sourceType),
+    recordType:
+      overrides.recordType ||
+      (sourceType === "creditDebitNote"
+        ? getCreditDebitRecordType(sourceRecord)
+        : getRecordType(sourceType)),
+    noteType:
+      sourceType === "creditDebitNote"
+        ? getCreditDebitRecordType(sourceRecord)
+        : String(sourceRecord?.noteType || "").trim(),
     invoiceNumber:
       overrides.invoiceNumber ||
+      sourceRecord.noteNumber ||
       sourceRecord.invoiceNumber ||
       sourceRecord.receiptNumber ||
       sourceRecord.projectId ||
@@ -163,8 +323,7 @@ const buildBaseRecord = (transaction = {}, overrides = {}) => {
       sourceRecord.paymentMethod ||
       transaction.paymentMethod ||
       "",
-    paymentStatus:
-      overrides.paymentStatus || sourceRecord.paymentStatus || "Unpaid",
+    paymentStatus: overrides.paymentStatus || notePaymentStatus || "Unpaid",
     invoiceType: overrides.invoiceType || sourceRecord.invoiceType || "-",
     amount:
       overrides.amount !== undefined
@@ -176,6 +335,7 @@ const buildBaseRecord = (transaction = {}, overrides = {}) => {
         : round2(
             sourceRecord.amountPaid ||
               sourceRecord.paidAmount ||
+              sourceRecord.refundAmount ||
               sourceRecord.amountReceived ||
               sourceRecord.receivedAmount ||
               0,
@@ -186,6 +346,7 @@ const buildBaseRecord = (transaction = {}, overrides = {}) => {
         : round2(
             sourceRecord.amountReceived ||
               sourceRecord.receivedAmount ||
+              sourceRecord.refundAmount ||
               sourceRecord.amountPaid ||
               sourceRecord.paidAmount ||
               0,
@@ -193,6 +354,7 @@ const buildBaseRecord = (transaction = {}, overrides = {}) => {
     createdBy:
       overrides.createdBy ||
       sourceRecord.createdBy ||
+      sourceRecord.updatedBy ||
       transaction.createdBy ||
       "",
     taxData: {
@@ -200,17 +362,20 @@ const buildBaseRecord = (transaction = {}, overrides = {}) => {
         overrides.taxableAmount ??
           sourceTaxData.taxableAmount ??
           sourceTaxData.subtotal ??
+          sourceRecord.amount ??
           0,
       ),
       subtotal: round2(
         overrides.subtotal ??
           sourceTaxData.subtotal ??
           sourceTaxData.taxableAmount ??
+          sourceRecord.amount ??
           0,
       ),
       totalAmount: round2(
         overrides.totalAmount ??
           sourceTaxData.totalAmount ??
+          sourceRecord.totalAmount ??
           transaction.amount ??
           0,
       ),
@@ -224,7 +389,11 @@ const buildBaseRecord = (transaction = {}, overrides = {}) => {
         overrides.igst ?? sourceTaxData.igst ?? transaction.taxData?.igst ?? 0,
       ),
       taxPercentage: round2(
-        overrides.taxPercentage ?? sourceTaxData.taxPercentage ?? 0,
+        overrides.taxPercentage ??
+          (sourceType === "creditDebitNote"
+            ? creditDebitTaxPercentage
+            : (sourceTaxData.taxPercentage ?? sourceRecord.taxRate)) ??
+          0,
       ),
     },
   };
@@ -237,7 +406,11 @@ const buildProjectRecords = (transaction = {}) => {
       : {};
   const projectName = sourceRecord.projectName || transaction.partyName || "";
   const projectId = sourceRecord.projectId || transaction.sourceLabel || "";
-  const createdBy = sourceRecord.createdBy || transaction.createdBy || "";
+  const createdBy =
+    sourceRecord.createdBy ||
+    sourceRecord.updatedBy ||
+    transaction.createdBy ||
+    "";
   const developerTransactions = Array.isArray(
     sourceRecord.developerTransactions,
   )
@@ -367,6 +540,23 @@ const getComparableFieldValue = (record, key) => {
   }
 };
 
+const getCreditDebitNoteEffect = (record = {}) => {
+  const normalizedType = String(record?.noteType || record?.recordType || "")
+    .trim()
+    .toLowerCase();
+
+  if (normalizedType === "credit note") return "credit-note";
+  if (normalizedType === "debit note") return "debit-note";
+
+  const inferred = String(record?.invoiceNumber || record?.noteNumber || "")
+    .trim()
+    .toUpperCase();
+  if (inferred.startsWith("CN")) return "credit-note";
+  if (inferred.startsWith("DN")) return "debit-note";
+
+  return "unknown";
+};
+
 const applyPeriodFilter = (records, period) => {
   if (!period || period === "yearly") return records;
 
@@ -474,7 +664,18 @@ export async function handler(event) {
     const query = {
       isDeleted: { $ne: true },
       sourceType: {
-        $in: ["invoice", "purchase", "company-expense", "rcm", "project"],
+        $in: [
+          "invoice",
+          "purchase",
+          "company-expense",
+          "rcm",
+          "credit_note",
+          "debit_note",
+          "credit-note",
+          "debit-note",
+          "credit-debit-note",
+          "project",
+        ],
       },
     };
 
@@ -632,6 +833,13 @@ export async function handler(event) {
         rcmTax = round2(rcmTax + taxAmount);
         inputGst = round2(inputGst + taxAmount);
         outputGst = round2(outputGst + taxAmount);
+      } else if (record.sourceType === "creditDebitNote") {
+        const noteEffect = getCreditDebitNoteEffect(record);
+        if (noteEffect === "credit-note") {
+          outputGst = round2(outputGst - taxAmount);
+        } else if (noteEffect === "debit-note") {
+          outputGst = round2(outputGst + taxAmount);
+        }
       }
     });
 

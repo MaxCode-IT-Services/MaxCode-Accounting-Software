@@ -66,6 +66,7 @@ const BooksOfAccounts = () => {
   const [purchaseRecords, setPurchaseRecords] = useState([]);
   const [companyExpenseRecords, setCompanyExpenseRecords] = useState([]);
   const [rcmRecords, setRcmRecords] = useState([]);
+  const [creditDebitNoteRecords, setCreditDebitNoteRecords] = useState([]);
   const [projectRecords, setProjectRecords] = useState([]);
 
   // Server-side records
@@ -106,6 +107,132 @@ const BooksOfAccounts = () => {
   const toNumber = (value) => {
     const num = parseFloat(value);
     return Number.isNaN(num) ? 0 : num;
+  };
+
+  const getCreditDebitDisplayStatus = (status = "", noteType = "") => {
+    const normalizedStatus = String(status || "")
+      .trim()
+      .toLowerCase();
+    const normalizedType = String(noteType || "")
+      .trim()
+      .toLowerCase();
+
+    if (normalizedType === "credit note") {
+      if (["full refund", "refunded"].includes(normalizedStatus)) {
+        return "Refunded";
+      }
+      if (["partial refund", "partel refund"].includes(normalizedStatus)) {
+        return "Partial Refund";
+      }
+      return "Pending";
+    }
+
+    if (normalizedType === "debit note") {
+      if (normalizedStatus === "paid") return "Paid";
+      if (
+        ["partial", "partial payment", "partal payment"].includes(
+          normalizedStatus,
+        )
+      ) {
+        return "Partial Payment";
+      }
+      if (["unpaid", "pending", "due"].includes(normalizedStatus)) {
+        return "Pending";
+      }
+      return "Pending";
+    }
+
+    return String(status || "").trim() || "-";
+  };
+
+  const inferNoteTypeFromNumber = (value = "") => {
+    const raw = String(value || "")
+      .trim()
+      .toUpperCase();
+    if (!raw) return "";
+    if (raw.startsWith("CN")) return "Credit Note";
+    if (raw.startsWith("DN")) return "Debit Note";
+    return "";
+  };
+
+  const getDisplayGstPercent = (record = {}) => {
+    const taxPercentage = toNumber(
+      record?.taxData?.taxPercentage || record?.taxRate || 0,
+    );
+    if (taxPercentage > 0) return `${taxPercentage}%`;
+
+    const taxableAmount = toNumber(
+      record?.taxData?.taxableAmount || record?.taxData?.subtotal || 0,
+    );
+    const gstAmount = getTaxAmount(record);
+    if (taxableAmount > 0 && gstAmount > 0) {
+      return `${toNumber(((gstAmount / taxableAmount) * 100).toFixed(2))}%`;
+    }
+
+    return "0%";
+  };
+
+  const getDisplayStatus = (record = {}) => {
+    const normalizedNoteType = String(record?.noteType || "")
+      .trim()
+      .toLowerCase();
+    const resolvedDisplayType = getDisplayType(record);
+
+    if (
+      normalizedNoteType === "credit note" ||
+      normalizedNoteType === "debit note" ||
+      resolvedDisplayType === "Credit Note" ||
+      resolvedDisplayType === "Debit Note"
+    ) {
+      return getCreditDebitDisplayStatus(
+        record?.paymentStatus || record?.status,
+        resolvedDisplayType || record?.noteType,
+      );
+    }
+    return String(record?.paymentStatus || "").trim() || "-";
+  };
+
+  const getDisplayType = (record = {}) => {
+    const rawNoteType = String(record?.noteType || "").trim();
+    const normalizedNoteType = rawNoteType.toLowerCase();
+    if (normalizedNoteType === "credit note") {
+      return "Credit Note";
+    }
+    if (normalizedNoteType === "debit note") {
+      return "Debit Note";
+    }
+
+    if (String(record?.sourceType || "") === "creditDebitNote") {
+      const inferred = inferNoteTypeFromNumber(
+        record?.noteNumber || record?.invoiceNumber,
+      );
+      if (inferred) return inferred;
+
+      const normalizedRecordType = String(record?.recordType || "")
+        .trim()
+        .toLowerCase();
+      if (normalizedRecordType === "credit note") return "Credit Note";
+      if (normalizedRecordType === "debit note") return "Debit Note";
+    }
+
+    return record?.recordType || record?.type || "-";
+  };
+
+  const getCreditDebitNoteEffect = (record = {}) => {
+    const normalizedType = String(record?.noteType || record?.recordType || "")
+      .trim()
+      .toLowerCase();
+
+    if (normalizedType === "credit note") return "credit-note";
+    if (normalizedType === "debit note") return "debit-note";
+
+    const inferred = String(record?.noteNumber || record?.invoiceNumber || "")
+      .trim()
+      .toUpperCase();
+    if (inferred.startsWith("CN")) return "credit-note";
+    if (inferred.startsWith("DN")) return "debit-note";
+
+    return "unknown";
   };
 
   const formatCurrency = (value) => {
@@ -244,13 +371,17 @@ const BooksOfAccounts = () => {
       toNumber(record?.amountReceived || 0),
       toNumber(record?.paidAmount || 0),
       toNumber(record?.amountPaid || 0),
+      toNumber(record?.refundAmount || 0),
     );
 
     if (explicitPaid > 0) {
       return Math.min(explicitPaid, totalAmount);
     }
 
-    if (record?.paymentStatus === "Paid") {
+    const normalizedPaymentStatus = String(record?.paymentStatus || "")
+      .trim()
+      .toLowerCase();
+    if (["paid", "refunded"].includes(normalizedPaymentStatus)) {
       return totalAmount;
     }
 
@@ -486,6 +617,7 @@ const BooksOfAccounts = () => {
         purchaseResult,
         companyExpenseResult,
         rcmResult,
+        creditDebitResult,
         projectsResult,
       ] = await Promise.allSettled([
         apiGet(API_ENDPOINTS.YEARS.LIST, { signal }),
@@ -493,6 +625,7 @@ const BooksOfAccounts = () => {
         apiGet(API_ENDPOINTS.PURCHASES.LIST, { signal }),
         apiGet(API_ENDPOINTS.COMPANY_EXPENSES.LIST, { signal }),
         apiGet(API_ENDPOINTS.RCM.LIST, { signal }),
+        apiGet(API_ENDPOINTS.CREDIT_DEBIT_NOTES.LIST, { signal }),
         apiGet(API_ENDPOINTS.PROJECTS.LIST, { signal }),
       ]);
 
@@ -558,6 +691,15 @@ const BooksOfAccounts = () => {
               []
           : [];
 
+      const creditDebitData =
+        creditDebitResult.status === "fulfilled"
+          ? Array.isArray(creditDebitResult.value.data)
+            ? creditDebitResult.value.data
+            : creditDebitResult.value.data?.data ||
+              creditDebitResult.value.data?.notes ||
+              []
+          : [];
+
       setFinancialYears(normalizedYears);
       setSalesRecords(
         invoicesData.map((record) => ({
@@ -583,6 +725,12 @@ const BooksOfAccounts = () => {
           id: record._id || record.id,
         })),
       );
+      setCreditDebitNoteRecords(
+        creditDebitData.map((record) => ({
+          ...record,
+          id: record._id || record.id,
+        })),
+      );
       setProjectRecords(
         projectsData.map((record) => ({
           ...record,
@@ -599,6 +747,7 @@ const BooksOfAccounts = () => {
         purchaseResult.status === "rejected" ||
         companyExpenseResult.status === "rejected" ||
         rcmResult.status === "rejected" ||
+        creditDebitResult.status === "rejected" ||
         projectsResult.status === "rejected"
       ) {
         showInfo(
@@ -624,7 +773,7 @@ const BooksOfAccounts = () => {
 
       return {
         id: item.id || item._id,
-        type: item.recordType || item.type,
+        type: getDisplayType(item),
         createdBy:
           item.createdBy ||
           item.createdByName ||
@@ -636,6 +785,7 @@ const BooksOfAccounts = () => {
         dateTime: formatDateTimeForDisplay(item.invoiceDate),
         invoiceNo:
           item.invoiceNumber ||
+          item.noteNumber ||
           item.expenseNumber ||
           item.selfInvoiceNumber ||
           item.originalRefNo ||
@@ -649,7 +799,7 @@ const BooksOfAccounts = () => {
           item.staffName ||
           "-",
         gstin: item.gstin || "-",
-        gstPercent: `${toNumber(item?.taxData?.taxPercentage || 0)}%`,
+        gstPercent: getDisplayGstPercent(item),
         taxable: taxableAmount,
         gstAmount,
         cgst: toNumber(item?.taxData?.cgst || 0),
@@ -660,7 +810,7 @@ const BooksOfAccounts = () => {
         paymentMode: item.paymentMethod || "-",
         received: receivedAmount,
         pending: pendingAmount,
-        paid: item.paymentStatus || "-",
+        paid: getDisplayStatus(item),
         sourceType: item.sourceType,
         raw: item,
       };
@@ -795,12 +945,83 @@ const BooksOfAccounts = () => {
       });
     });
 
-    return [...sales, ...purchases, ...companyExpenses, ...rcm, ...project];
+    const creditDebitNotes = mapToStandardFormat(
+      creditDebitNoteRecords,
+      "creditDebitNote",
+      "Credit / Debit Note",
+      (r) => {
+        const normalizedNoteType = String(r.noteType || "")
+          .trim()
+          .toLowerCase();
+        const inferredType =
+          normalizedNoteType === "credit note" ||
+          normalizedNoteType === "debit note"
+            ? normalizedNoteType === "debit note"
+              ? "Debit Note"
+              : "Credit Note"
+            : inferNoteTypeFromNumber(r.noteNumber || r.invoiceNumber);
+        const isDebit = inferredType === "Debit Note";
+        const totalAmount = toNumber(r.totalAmount || 0);
+        const receivedAmount = toNumber(r.receivedAmount || 0);
+        const fallbackPaymentStatus = isDebit
+          ? receivedAmount <= 0
+            ? "Unpaid"
+            : receivedAmount >= totalAmount && totalAmount > 0
+              ? "Paid"
+              : "Partial"
+          : "Pending";
+
+        return {
+          invoiceNo: r.noteNumber || "-",
+          partySecondary: r.businessName || r.clientName || "-",
+          raw: {
+            ...r,
+            noteType: inferredType || r.noteType || "",
+            recordType: inferredType || r.noteType || "Credit / Debit Note",
+            invoiceDate: r.noteDate || r.invoiceDate,
+            invoiceNumber: r.noteNumber || r.invoiceNumber,
+            paymentStatus: getCreditDebitDisplayStatus(
+              r.paymentStatus ||
+                r.refundStatus ||
+                r.status ||
+                fallbackPaymentStatus,
+              inferredType || r.noteType,
+            ),
+            paymentMethod: r.paymentMethod || r.refundMethod || "-",
+            amountReceived: isDebit
+              ? receivedAmount
+              : toNumber(r.refundAmount || 0),
+            amountPaid: isDebit
+              ? receivedAmount
+              : toNumber(r.refundAmount || 0),
+            taxData: {
+              taxableAmount: toNumber(r.amount || 0),
+              subtotal: toNumber(r.amount || 0),
+              totalAmount,
+              cgst: 0,
+              sgst: 0,
+              igst: 0,
+              taxPercentage: toNumber(r.taxRate || 0),
+            },
+          },
+        };
+      },
+    );
+
+    return [
+      ...sales,
+      ...purchases,
+      ...companyExpenses,
+      ...rcm,
+      ...creditDebitNotes,
+      ...project,
+    ];
   }, [
     salesRecords,
     purchaseRecords,
     companyExpenseRecords,
     rcmRecords,
+    creditDebitNoteRecords,
     projectRecords,
     serverSide,
   ]);
@@ -870,6 +1091,13 @@ const BooksOfAccounts = () => {
       }
 
       if (recordTypeMode === "rcm" && entry.sourceType !== "rcm") {
+        return false;
+      }
+
+      if (
+        recordTypeMode === "creditDebitNote" &&
+        entry.sourceType !== "creditDebitNote"
+      ) {
         return false;
       }
 
@@ -984,6 +1212,13 @@ const BooksOfAccounts = () => {
         purchaseInput += taxAmount;
       } else if (entry.sourceType === "rcm") {
         rcmTax += taxAmount;
+      } else if (entry.sourceType === "creditDebitNote") {
+        const noteEffect = getCreditDebitNoteEffect(entry.raw);
+        if (noteEffect === "credit-note") {
+          salesOutput -= taxAmount;
+        } else if (noteEffect === "debit-note") {
+          salesOutput += taxAmount;
+        }
       }
     });
 
@@ -1110,6 +1345,7 @@ const BooksOfAccounts = () => {
         "purchase",
         "companyExpense",
         "rcm",
+        "creditDebitNote",
         "project",
         "all",
       ];
@@ -1162,9 +1398,11 @@ const BooksOfAccounts = () => {
               ? "Company Expense"
               : recordTypeMode === "rcm"
                 ? "RCM"
-                : recordTypeMode === "project"
-                  ? "Developer Payout"
-                  : "All",
+                : recordTypeMode === "creditDebitNote"
+                  ? "Credit / Debit Note"
+                  : recordTypeMode === "project"
+                    ? "Developer Payout"
+                    : "All",
       icon: "fa-solid fa-layer-group",
     },
     {
@@ -1182,7 +1420,7 @@ const BooksOfAccounts = () => {
     { key: "type", label: "Type", width: 120 },
     { key: "period", label: "Period", width: 120 },
     { key: "date", label: "Date", width: 120 },
-    { key: "invoiceNo", label: "Invoice No/Payout ID", width: 150 },
+    { key: "invoiceNo", label: "Invoice/Note No/Payout ID", width: 170 },
     { key: "clientSecondary", label: "Client/Vendor Business", width: 220 },
     { key: "gstin", label: "GSTIN", width: 160 },
     { key: "gstPercent", label: "GST %", width: 90 },
@@ -1255,13 +1493,16 @@ const BooksOfAccounts = () => {
     },
     {
       key: "paid",
-      label: "Paid",
+      label: "Status",
       width: 100,
       render: (value) => {
         let badgeClass = "bg-secondary";
         if (value === "Paid") badgeClass = "bg-success";
-        else if (value === "Unpaid") badgeClass = "bg-danger";
-        else if (value === "Partial") badgeClass = "bg-warning";
+        else if (value === "Pending") badgeClass = "bg-danger";
+        else if (value === "Partial" || value === "Partial Payment")
+          badgeClass = "bg-warning";
+        else if (value === "Refunded") badgeClass = "bg-success";
+        else if (value === "Partial Refund") badgeClass = "bg-warning";
         return <span className={`badge ${badgeClass}`}>{value}</span>;
       },
     },
@@ -1355,7 +1596,16 @@ const BooksOfAccounts = () => {
       paymentMode: ["All", ...paymentModes],
       paid: [
         "All",
-        ...(paidStatuses.length ? paidStatuses : ["Paid", "Unpaid", "Partial"]),
+        ...(paidStatuses.length
+          ? paidStatuses
+          : [
+              "Paid",
+              "Pending",
+              "Partial",
+              "Partial Payment",
+              "Refunded",
+              "Partial Refund",
+            ]),
       ],
       gstin: ["All", ...gstins],
     };
