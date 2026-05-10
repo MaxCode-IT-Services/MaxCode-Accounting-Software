@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { Player } from "@lottiefiles/react-lottie-player";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiGet, apiPut } from "../utils/api";
+import { showInfo, showWarning } from "../Components/ToastNotification";
 
 const TOP_STRIP_COLORS = ["#4285f4", "#34a853", "#fbbc05", "#ea4335"];
 
@@ -201,6 +202,27 @@ const PublicPaymentLinkPage = () => {
     () => (record ? buildUpiPayload(record, amountNumber) : ""),
     [amountNumber, record],
   );
+  const hasVerifyUtrInput = String(verifyUtrInput || "").trim().length >= 10;
+
+  const handlePayNowClick = (event) => {
+    if (!canPay) {
+      event.preventDefault();
+      return;
+    }
+
+    const isLaptopOrLargerScreen =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(min-width: 1024px)").matches;
+
+    if (!isLaptopOrLargerScreen) return;
+
+    event.preventDefault();
+    showWarning(
+      "Pay Now button supports mobile UPI apps only. Please scan the QR code using your mobile device to complete the payment.",
+      4800,
+    );
+  };
 
   const handleCopyTransactionId = async () => {
     const transactionId = String(record?.utrNumber || "").trim();
@@ -251,10 +273,25 @@ const PublicPaymentLinkPage = () => {
       );
 
       const nextRecord = verifyResponse?.data?.record;
+      let resolvedRecord = nextRecord || null;
+
       if (nextRecord) {
         setRecord(nextRecord);
       } else {
-        await refreshPublicRecord({ cache: false, forceRefresh: true });
+        resolvedRecord = await refreshPublicRecord({
+          cache: false,
+          forceRefresh: true,
+        });
+      }
+
+      if (
+        String(resolvedRecord?.status || "").toLowerCase() ===
+        "under_verification"
+      ) {
+        showInfo(
+          "Transaction submitted. Your payment is now under verification.",
+          3500,
+        );
       }
 
       setShowVerifyPanel(false);
@@ -617,7 +654,7 @@ const PublicPaymentLinkPage = () => {
                   />
                 </div>
               ) : error ? (
-                <div className="py-3 px-2 text-center">
+                <div className="py-2 text-center">
                   <Player
                     autoplay
                     loop
@@ -660,7 +697,7 @@ const PublicPaymentLinkPage = () => {
                   </div>
                 </div>
               ) : isPaymentSuccess ? (
-                <div className="py-3 px-2 text-center">
+                <div className="py-2 text-center">
                   <Player
                     autoplay
                     loop
@@ -721,7 +758,7 @@ const PublicPaymentLinkPage = () => {
                   </div>
                 </div>
               ) : isPaymentUnderVerification ? (
-                <div className="py-3 px-2 text-center">
+                <div className="py-2 text-center">
                   <div className="verify-animation-wrap">
                     <Player
                       autoplay
@@ -772,7 +809,7 @@ const PublicPaymentLinkPage = () => {
                   ) : null}
                 </div>
               ) : isPaymentFailed ? (
-                <div className="py-3 px-2 text-center">
+                <div className="py-2 text-center">
                   <Player
                     autoplay
                     loop
@@ -808,7 +845,7 @@ const PublicPaymentLinkPage = () => {
                   ) : null}
                 </div>
               ) : isPaymentExpired ? (
-                <div className="py-3 px-2 text-center">
+                <div className="py-2 text-center">
                   <Player
                     autoplay
                     loop
@@ -849,7 +886,8 @@ const PublicPaymentLinkPage = () => {
                         className="text-start mb-2 fw-semibold text-dark"
                         style={{ fontSize: "0.88rem" }}
                       >
-                        Transaction ID / UTR Number
+                        Transaction ID / UTR Number{" "}
+                        <span className="text-danger">*</span>
                       </div>
                       <input
                         type="text"
@@ -861,6 +899,15 @@ const PublicPaymentLinkPage = () => {
                           if (verifyFeedback) setVerifyFeedback("");
                         }}
                       />
+
+                      <div
+                        className="text-start text-muted mt-2"
+                        style={{ fontSize: "0.76rem", lineHeight: 1.45 }}
+                      >
+                        You can find the Transaction ID / UTR Number in your UPI
+                        app (PhonePe, Google Pay, Paytm, BHIM, etc.) under
+                        Payment History or Transaction Details.
+                      </div>
 
                       {verifyFeedback ? (
                         <div
@@ -891,7 +938,12 @@ const PublicPaymentLinkPage = () => {
                           type="button"
                           className="btn btn-primary flex-grow-1"
                           onClick={handleVerifyStatus}
-                          disabled={verifying || loading || !!error}
+                          disabled={
+                            verifying ||
+                            loading ||
+                            !!error ||
+                            !hasVerifyUtrInput
+                          }
                         >
                           <span className="d-inline-flex align-items-center justify-content-center gap-2">
                             <i
@@ -991,9 +1043,7 @@ const PublicPaymentLinkPage = () => {
                             className={`btn flex-grow-1 ${canPay ? "btn-primary" : "btn-secondary"}`}
                             target={canPay ? "_blank" : undefined}
                             rel={canPay ? "noreferrer" : undefined}
-                            onClick={(event) => {
-                              if (!canPay) event.preventDefault();
-                            }}
+                            onClick={handlePayNowClick}
                           >
                             <span className="d-inline-flex align-items-center justify-content-center gap-2">
                               <i

@@ -491,6 +491,26 @@ const Notification = ({ onUnreadCountChange }) => {
   };
 
   const renderNotificationDescription = (notification) => {
+    if (notification?.templateType === "payment-verification") {
+      const details = notification.templateData || {};
+
+      return (
+        <>
+          <strong>Client Name:</strong> {details.clientName || "-"}
+          <br />
+          <strong>Business Name:</strong> {details.businessName || "-"}
+          <br />
+          <strong>Amount:</strong> {details.amount || "-"}
+          <br />
+          <strong>Payment Date:</strong> {details.paymentDate || "-"}
+          <br />
+          <strong>Status:</strong> {details.status || "-"}
+          <br />
+          <strong>Transaction ID / UTR:</strong> {details.utrNumber || "-"}
+        </>
+      );
+    }
+
     if (notification?.templateType !== "service-expiry") {
       return notification.expanded
         ? notification.description

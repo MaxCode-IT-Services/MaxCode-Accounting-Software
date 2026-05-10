@@ -1231,7 +1231,7 @@ const CreatePaymentLink = ({
                 )}
 
                 {formData.status === "failed" && (
-                  <div className="col-md-8 mb-3">
+                  <div className="col-md-4 mb-3">
                     <label className="form-label">
                       <i className="fas fa-exclamation-triangle me-2 text-danger"></i>
                       Failed Reason <span className="text-danger">*</span>

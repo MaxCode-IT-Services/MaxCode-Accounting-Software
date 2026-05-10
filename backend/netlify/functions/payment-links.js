@@ -99,6 +99,84 @@ const normalizePaymentDate = (value) => {
   return normalizeDateOnly(value);
 };
 
+const formatAmountForNotification = (value) => {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return "Rs 0.00";
+
+  return `Rs ${amount.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+};
+
+const formatDateTimeForNotification = (value) => {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+
+  return parsed.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  });
+};
+
+const formatStatusForNotification = (value = "") => {
+  const normalized = normalizeStatus(value);
+  if (normalized === "under_verification") return "Under Verification";
+  if (normalized === "success") return "Success";
+  if (normalized === "failed") return "Failed";
+  if (normalized === "expired") return "Expired";
+  return "Pending";
+};
+
+const buildPaymentVerificationNotification = (record = {}, submittedAt) => {
+  const clientName = String(record.clientName || "-").trim() || "-";
+  const businessName = String(record.businessName || "-").trim() || "-";
+  const amount = formatAmountForNotification(record.amount);
+  const paymentDate = formatDateTimeForNotification(
+    submittedAt || record.paymentDate,
+  );
+  const status = formatStatusForNotification(record.status);
+  const utrNumber = String(record.utrNumber || "-").trim() || "-";
+  const alias = String(record.alias || "").trim();
+
+  return {
+    title: "Payment Verification Request",
+    description:
+      `Client Name: ${clientName}\n` +
+      `Business Name: ${businessName}\n` +
+      `Amount: ${amount}\n` +
+      `Payment Date: ${paymentDate}\n` +
+      `Status: ${status}\n` +
+      `Transaction ID / UTR: ${utrNumber}`,
+    icon: "check-circle",
+    type: "info",
+    image: "https://img.maxcodehub.com/Others/Ex.png",
+    templateType: "payment-verification",
+    templateData: {
+      clientName,
+      businessName,
+      amount,
+      paymentDate,
+      status,
+      utrNumber,
+      alias,
+    },
+    links: [
+      {
+        text: "Open Payment Links",
+        url: "/payment-link-management",
+      },
+    ],
+    readBy: [],
+    isDeleted: false,
+  };
+};
+
 const normalizeDateRangeBoundary = (value, endOfDay = false) => {
   if (!value) return null;
 
@@ -199,6 +277,7 @@ export async function handler(event) {
   try {
     const { db } = await connectToDatabase();
     const collection = db.collection("payment_links");
+    const notificationsCollection = db.collection("notifications");
 
     if (event.httpMethod === "GET") {
       const {
@@ -597,6 +676,28 @@ export async function handler(event) {
             { error: "Payment link not found" },
             origin,
           );
+        }
+
+        const existingUtr = String(existingRecord?.utrNumber || "").trim();
+        const shouldCreateVerificationNotification = existingUtr !== enteredUtr;
+
+        if (shouldCreateVerificationNotification) {
+          try {
+            const notificationDoc = buildPaymentVerificationNotification(
+              updatedRecord,
+              now,
+            );
+            await notificationsCollection.insertOne({
+              ...notificationDoc,
+              createdAt: now,
+              updatedAt: now,
+            });
+          } catch (notificationError) {
+            console.error(
+              "Payment verification in-app notification create failed:",
+              notificationError,
+            );
+          }
         }
 
         let whatsappNotification = { success: false, skipped: true };
