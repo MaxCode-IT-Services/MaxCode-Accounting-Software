@@ -521,7 +521,7 @@ const OtpRequestManagement = () => {
       }
 
       const response = await apiGet(
-        `${API_ENDPOINTS.OTP_ACCESS.LIST}?page=1&limit=1000`,
+        `${API_ENDPOINTS.OTP_ACCESS.LIST}?page=1&limit=${recordsPerPage}`,
       );
       const source = (response?.data?.data || []).map((row) => ({
         ...normalizeOtpRow(row),

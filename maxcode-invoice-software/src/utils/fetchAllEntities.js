@@ -4,6 +4,7 @@ import API_ENDPOINTS from "./apiEndpoints";
 const MAX_PAGES = 500;
 const CACHE_TTL_MS = 20 * 1000;
 const SELECTABLE_LIMIT = 50;
+const FETCH_ALL_CONCURRENCY = 5;
 const entityCache = new Map();
 
 const extractRows = (payload, fallbackKeys = []) => {
@@ -42,10 +43,12 @@ export const fetchAllPaginatedEntities = async ({
   useCache = true,
   forceRefresh = false,
 }) => {
+  const effectivePageSize = fetchAll ? Math.max(pageSize || 0, 100) : pageSize;
+
   const cacheKey = JSON.stringify({
     endpoint,
     fallbackKeys,
-    pageSize,
+    pageSize: effectivePageSize,
     fetchAll,
     queryParams,
   });
@@ -67,11 +70,11 @@ export const fetchAllPaginatedEntities = async ({
   let page = 1;
 
   const fetchPromise = (async () => {
-    for (let attempts = 0; attempts < MAX_PAGES; attempts += 1) {
+    const buildPageUrl = (pageNumber) => {
       const separator = endpoint.includes("?") ? "&" : "?";
       const mergedParams = new URLSearchParams({
-        page: String(page),
-        limit: String(pageSize),
+        page: String(pageNumber),
+        limit: String(effectivePageSize),
       });
 
       Object.entries(queryParams || {}).forEach(([key, value]) => {
@@ -79,36 +82,90 @@ export const fetchAllPaginatedEntities = async ({
         mergedParams.set(key, String(value));
       });
 
-      const fullUrl = `${endpoint}${separator}${mergedParams.toString()}`;
-      const response = await apiGet(fullUrl);
+      return `${endpoint}${separator}${mergedParams.toString()}`;
+    };
+
+    const fetchPage = async (pageNumber) => {
+      const response = await apiGet(buildPageUrl(pageNumber));
       const payload = response?.data;
-      const rows = extractRows(payload, fallbackKeys);
-      allRows.push(...rows);
+      return {
+        payload,
+        rows: extractRows(payload, fallbackKeys),
+      };
+    };
 
-      const totalPages = Number(payload?.pagination?.totalPages || 0);
-      const totalRecords = Number(payload?.pagination?.totalRecords || 0);
+    const firstResult = await fetchPage(page);
+    allRows.push(...firstResult.rows);
 
-      if (!fetchAll) {
-        break;
+    const totalPages = Number(firstResult.payload?.pagination?.totalPages || 0);
+    const totalRecords = Number(
+      firstResult.payload?.pagination?.totalRecords || 0,
+    );
+
+    if (!fetchAll) {
+      return uniqueById(allRows);
+    }
+
+    if (totalPages > 0) {
+      if (page >= totalPages) {
+        return uniqueById(allRows);
       }
 
-      if (totalPages > 0) {
-        if (page >= totalPages) break;
+      for (
+        let startPage = page + 1;
+        startPage <= totalPages;
+        startPage += FETCH_ALL_CONCURRENCY
+      ) {
+        const pageBatch = [];
+        for (
+          let nextPage = startPage;
+          nextPage < startPage + FETCH_ALL_CONCURRENCY &&
+          nextPage <= totalPages;
+          nextPage += 1
+        ) {
+          pageBatch.push(nextPage);
+        }
+
+        const results = await Promise.all(
+          pageBatch.map((pageNumber) => fetchPage(pageNumber)),
+        );
+        results.forEach((result) => {
+          allRows.push(...result.rows);
+        });
+      }
+
+      return uniqueById(allRows);
+    }
+
+    if (totalRecords > 0) {
+      if (allRows.length >= totalRecords) {
+        return uniqueById(allRows);
+      }
+
+      for (let attempts = 0; attempts < MAX_PAGES; attempts += 1) {
         page += 1;
-        continue;
+        const nextResult = await fetchPage(page);
+        allRows.push(...nextResult.rows);
+
+        if (
+          allRows.length >= totalRecords ||
+          nextResult.rows.length < effectivePageSize
+        ) {
+          break;
+        }
       }
 
-      if (totalRecords > 0) {
-        if (allRows.length >= totalRecords) break;
-        page += 1;
-        continue;
-      }
+      return uniqueById(allRows);
+    }
 
-      if (rows.length < pageSize) {
-        break;
-      }
-
+    for (let attempts = 0; attempts < MAX_PAGES; attempts += 1) {
       page += 1;
+      const nextResult = await fetchPage(page);
+      allRows.push(...nextResult.rows);
+
+      if (nextResult.rows.length < effectivePageSize) {
+        break;
+      }
     }
 
     return uniqueById(allRows);
