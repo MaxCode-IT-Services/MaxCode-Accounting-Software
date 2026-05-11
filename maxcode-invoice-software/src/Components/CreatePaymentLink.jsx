@@ -25,6 +25,11 @@ const STATUS_OPTIONS = [
   { value: "expired", label: "Expired" },
 ];
 
+const LINK_STATUS_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
+
 const EMPTY_FORM = {
   clientRefId: "",
   clientName: "",
@@ -38,6 +43,7 @@ const EMPTY_FORM = {
   alias: "",
   linkExpiry: "",
   status: "pending",
+  linkStatus: "active",
   paymentDate: "",
   utrNumber: "",
   failedReason: "",
@@ -313,6 +319,7 @@ const CreatePaymentLink = ({
         alias: editingRecord.alias || "",
         linkExpiry: toDateInputValue(editingRecord.linkExpiry),
         status: String(editingRecord.status || "pending").toLowerCase(),
+        linkStatus: String(editingRecord.linkStatus || "active").toLowerCase(),
         paymentDate: toDateInputValue(editingRecord.paymentDate),
         utrNumber: editingRecord.utrNumber || "",
         failedReason: editingRecord.failedReason || "",
@@ -1163,7 +1170,7 @@ const CreatePaymentLink = ({
                 <div className="col-md-4 mb-3">
                   <label className="form-label">
                     <i className="fas fa-info-circle me-2 text-primary"></i>
-                    Status
+                    Payment Status
                   </label>
                   <Select
                     classNamePrefix="react-select"
@@ -1178,6 +1185,30 @@ const CreatePaymentLink = ({
                       setFormData((prev) => ({
                         ...prev,
                         status: option?.value || "pending",
+                      }))
+                    }
+                    styles={getPaymentLinkSelectStyles()}
+                  />
+                </div>
+
+                <div className="col-md-4 mb-3">
+                  <label className="form-label">
+                    <i className="fas fa-toggle-on me-2 text-primary"></i>
+                    Link Status
+                  </label>
+                  <Select
+                    classNamePrefix="react-select"
+                    isDisabled={isViewMode}
+                    options={LINK_STATUS_OPTIONS}
+                    value={
+                      LINK_STATUS_OPTIONS.find(
+                        (item) => item.value === formData.linkStatus,
+                      ) || LINK_STATUS_OPTIONS[0]
+                    }
+                    onChange={(option) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        linkStatus: option?.value || "active",
                       }))
                     }
                     styles={getPaymentLinkSelectStyles()}

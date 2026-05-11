@@ -474,6 +474,9 @@ const waitForUiPaint = async () => {
 const FileManagement = () => {
   const moduleKey = "fileManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
+  const canDelete = hasActionPermission(moduleKey, "delete");
+  const canUpdate = hasActionPermission(moduleKey, "update");
+  const canRead = hasActionPermission(moduleKey, "read");
 
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -935,6 +938,11 @@ const FileManagement = () => {
     const stateKey = String(folderKey || "");
     if (!stateKey) return;
 
+    if (!canRead) {
+      showError("You don't have permission to view folders");
+      return;
+    }
+
     setExpandedFolderKeys((prev) => {
       const nextValue = !prev[stateKey];
       return {
@@ -1219,9 +1227,23 @@ const FileManagement = () => {
 
             {canExpand && (
               <span
-                onClick={() => toggleFolder(stateKey)}
-                title={isExpanded ? "Collapse" : "Expand"}
-                style={{ cursor: "pointer" }}
+                onClick={() => {
+                  if (!canRead) return;
+                  toggleFolder(stateKey);
+                }}
+                title={
+                  isExpanded
+                    ? canRead
+                      ? "Collapse"
+                      : "No permission to view"
+                    : canRead
+                      ? "Expand"
+                      : "No permission to view"
+                }
+                style={{
+                  cursor: canRead ? "pointer" : "not-allowed",
+                  opacity: canRead ? undefined : 0.6,
+                }}
               >
                 <i
                   className={`fa-solid ${
@@ -1308,30 +1330,70 @@ const FileManagement = () => {
         return (
           <div className="d-flex">
             <button
-              className="btn btn-sm btn-outline-info me-1"
+              className={`btn btn-sm ${
+                isFile
+                  ? canRead
+                    ? "btn-outline-info"
+                    : "btn-outline-secondary"
+                  : "btn-outline-info"
+              } me-1`}
               onClick={() => {
-                if (isFile && sourceRecord) {
-                  handleOpenFile(sourceRecord);
+                if (isFile) {
+                  if (!canRead) {
+                    showError("You don't have permission to view files");
+                    return;
+                  }
+                  if (sourceRecord) {
+                    handleOpenFile(sourceRecord);
+                  }
                 } else {
                   toggleFolder(record.expandKey || record.key);
                 }
               }}
-              title={isFile ? "View" : "Expand / Collapse"}
-              disabled={isFile ? !record.fileUrl : false}
+              title={
+                isFile
+                  ? canRead
+                    ? "View"
+                    : "No permission to view"
+                  : "Expand / Collapse"
+              }
+              disabled={isFile ? !record.fileUrl || !canRead : false}
+              style={{
+                opacity: isFile && !canRead ? 0.6 : undefined,
+                cursor: isFile && !canRead ? "not-allowed" : undefined,
+              }}
             >
               <i className="fa-solid fa-eye"></i>
             </button>
             <button
-              className="btn btn-sm btn-outline-success me-1"
+              className={`btn btn-sm ${isFile ? (canRead ? "btn-outline-success" : "btn-outline-secondary") : "btn-outline-success"} me-1`}
               onClick={() => {
-                if (isFile && sourceRecord) {
-                  handleFileDownload(sourceRecord);
+                if (isFile) {
+                  if (!canRead) {
+                    showError("You don't have permission to download files");
+                    return;
+                  }
+                  if (sourceRecord) {
+                    handleFileDownload(sourceRecord);
+                  }
                 } else {
                   handleFolderDownloadZip(record);
                 }
               }}
-              title={isFile ? "Download File" : "Download Folder Zip"}
-              disabled={isFile ? isDownloadingFile : isDownloadingFolder}
+              title={
+                isFile
+                  ? canRead
+                    ? "Download File"
+                    : "No permission to download"
+                  : "Download Folder Zip"
+              }
+              disabled={
+                isFile ? isDownloadingFile || !canRead : isDownloadingFolder
+              }
+              style={{
+                opacity: isFile && !canRead ? 0.6 : undefined,
+                cursor: isFile && !canRead ? "not-allowed" : undefined,
+              }}
             >
               {isFile ? (
                 isDownloadingFile ? (
@@ -1354,21 +1416,33 @@ const FileManagement = () => {
               )}
             </button>
             <button
-              className="btn btn-sm btn-outline-primary me-1"
+              className={`btn btn-sm ${canUpdate ? "btn-outline-primary" : "btn-outline-secondary"} me-1`}
               onClick={() => {
+                if (!canUpdate) {
+                  showError("You don't have permission to edit files");
+                  return;
+                }
                 if (isFile && sourceRecord) {
                   handleEditOpen(sourceRecord);
                 } else {
                   handleFolderEdit();
                 }
               }}
-              title="Edit"
+              title={canUpdate ? "Edit" : "No permission to edit"}
+              disabled={!canUpdate}
+              style={{
+                opacity: canUpdate ? undefined : 0.6,
+                cursor: canUpdate ? undefined : "not-allowed",
+              }}
             >
               <i className="fas fa-edit"></i>
             </button>
             <button
-              className="btn btn-sm btn-outline-danger"
+              className={`btn btn-sm ${
+                canDelete ? "btn-outline-danger" : "btn-outline-secondary"
+              }`}
               onClick={() => {
+                if (!canDelete) return;
                 if (isFile && sourceRecord) {
                   handleDelete(sourceRecord.id || sourceRecord._id, {
                     name:
@@ -1384,7 +1458,12 @@ const FileManagement = () => {
                   setShowDeleteConfirm(true);
                 }
               }}
-              title="Delete"
+              title={canDelete ? "Delete" : "No permission to delete"}
+              disabled={!canDelete}
+              style={{
+                opacity: canDelete ? undefined : 0.6,
+                cursor: canDelete ? undefined : "not-allowed",
+              }}
             >
               <i className="fas fa-trash"></i>
             </button>
@@ -1732,6 +1811,7 @@ const FileManagement = () => {
           setEditingRecord(null);
         }}
         cloudflareSettings={cloudflareSettings}
+        canCreate={canCreate}
         mode={formMode}
         initialData={editingRecord}
       />

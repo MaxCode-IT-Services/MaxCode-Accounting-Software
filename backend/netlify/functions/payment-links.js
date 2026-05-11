@@ -22,6 +22,14 @@ const normalizeStatus = (value = "") => {
   return "pending";
 };
 
+const normalizeLinkStatus = (value = "active") => {
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  return raw === "inactive" ? "inactive" : "active";
+};
+
 const normalizeDomain = (value = "") => {
   const allowed = [
     "https://billing.maxcode.in",
@@ -239,6 +247,7 @@ const sanitizePayload = (payload = {}) => {
     utrNumber: String(payload.utrNumber || "").trim(),
     failedReason: String(payload.failedReason || "").trim(),
     linkExpiry,
+    linkStatus: normalizeLinkStatus(payload.linkStatus),
     note: String(payload.note || "").trim(),
     temporaryClient: payload.temporaryClient === true,
   };
@@ -261,6 +270,7 @@ const projectRecord = (record = {}) => {
     ...record,
     id: String(record._id || record.id || ""),
     status: resolvedStatus,
+    linkStatus: normalizeLinkStatus(record.linkStatus),
     shareUrl:
       record.shareUrl ||
       (record.domain && record.alias ? `${record.domain}/${record.alias}` : ""),
@@ -634,6 +644,17 @@ export async function handler(event) {
           return createResponse(
             404,
             { error: "Payment link not found" },
+            origin,
+          );
+        }
+
+        if (normalizeLinkStatus(existingRecord.linkStatus) === "inactive") {
+          return createResponse(
+            409,
+            {
+              error: "Payment link is disabled",
+              record: projectRecord(existingRecord),
+            },
             origin,
           );
         }

@@ -9,7 +9,7 @@ import {
   showSuccess,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiDelete, apiGet, apiPost } from "../utils/api";
+import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
 const PAYMENT_APP_LABELS = ["Paytm", "GPay", "PhonePe", "BHIM", "UPI"];
@@ -23,6 +23,14 @@ const getStatusBadgeClass = (status = "") => {
   if (normalized === "under_verification") return "bg-warning text-dark";
   if (normalized === "expired") return "bg-warning text-dark";
   return "bg-secondary";
+};
+
+const getLinkStatusBadgeClass = (status = "") => {
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "inactive") return "bg-danger";
+  return "bg-success";
 };
 
 const formatDateTimeForDisplay = (value) => {
@@ -711,6 +719,23 @@ const PaymentLinkManagement = () => {
     { key: "utrNumber", label: "Transaction ID / UTR Number", width: 220 },
     { key: "amountDisplay", label: "Amount", width: 130 },
     {
+      key: "status",
+      label: "Payment Status",
+      width: 120,
+      render: (value) => {
+        const normalized = String(value || "pending")
+          .replace(/_/g, " ")
+          .toLowerCase();
+        const displayText =
+          normalized.charAt(0).toUpperCase() + normalized.slice(1);
+        return (
+          <span className={`badge ${getStatusBadgeClass(value)}`}>
+            {displayText}
+          </span>
+        );
+      },
+    },
+    {
       key: "paymentDate",
       label: "Payment Date",
       width: 190,
@@ -729,16 +754,27 @@ const PaymentLinkManagement = () => {
       render: (value) => formatDateTimeForDisplay(value),
     },
     {
-      key: "status",
+      key: "linkStatus",
       label: "Status",
-      width: 120,
-      render: (value) => (
-        <span className={`badge ${getStatusBadgeClass(value)}`}>
-          {String(value || "pending")
-            .replace(/_/g, " ")
-            .toUpperCase()}
-        </span>
-      ),
+      width: 110,
+      render: (value, record) => {
+        const status = String(value || "active")
+          .trim()
+          .toLowerCase();
+        const displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
+        return (
+          <div className="form-check form-switch">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={status === "active"}
+              onChange={() => handleLinkStatusToggle(record._id || record.id)}
+              style={{ cursor: "pointer" }}
+            />
+            <label className="form-check-label">{displayStatus}</label>
+          </div>
+        );
+      },
     },
     { key: "action", label: "Actions", width: 230 },
   ];
@@ -753,16 +789,19 @@ const PaymentLinkManagement = () => {
     "action",
   ];
 
-  const columnsWithDropdownFilter = ["status", "domain", "accountName"];
+  const columnsWithDropdownFilter = [
+    "status",
+    "linkStatus",
+    "domain",
+    "accountName",
+  ];
 
   const getFilterOptions = () => {
     const statuses = [
       "All",
-      "pending",
-      "under_verification",
-      "success",
-      "failed",
-      "expired",
+      ...Array.from(
+        new Set(records.map((item) => item.status).filter(Boolean)),
+      ).sort(),
     ];
     const domains = [
       "All",
@@ -776,9 +815,16 @@ const PaymentLinkManagement = () => {
         new Set(records.map((item) => item.accountName).filter(Boolean)),
       ).sort(),
     ];
+    const linkStatuses = [
+      "All",
+      ...Array.from(
+        new Set(records.map((item) => item.linkStatus).filter(Boolean)),
+      ).sort(),
+    ];
 
     return {
       status: statuses,
+      linkStatus: linkStatuses,
       domain: domains,
       accountName: accounts,
     };
@@ -1063,6 +1109,31 @@ const PaymentLinkManagement = () => {
         cloned.parentNode.removeChild(cloned);
       }
       setQrDownloading(false);
+    }
+  };
+
+  const handleLinkStatusToggle = async (id) => {
+    const record = records.find((r) => r.id === id || r._id === id);
+    if (!record) return;
+
+    const newStatus =
+      String(record.linkStatus || "active").toLowerCase() === "active"
+        ? "inactive"
+        : "active";
+    try {
+      await apiPut(`${API_ENDPOINTS.PAYMENT_LINKS.LIST}/${id}`, {
+        ...record,
+        linkStatus: newStatus,
+      });
+      showSuccess("Link status updated successfully!");
+      await fetchRecords();
+    } catch (error) {
+      console.error("Error updating link status:", error);
+      showError(
+        error.response?.data?.message ||
+          error.response?.data?.error ||
+          "Failed to update link status",
+      );
     }
   };
 

@@ -146,6 +146,7 @@ const Createfile = ({
   folderOptionsFromRecords = [],
   mode = "create",
   initialData = null,
+  canCreate = true,
 }) => {
   const isEditMode = mode === "edit";
 
@@ -387,6 +388,12 @@ const Createfile = ({
 
   useEffect(() => {
     if (!show) return;
+
+    if (mode === "create" && !canCreate) {
+      showError("You don't have permission to upload files");
+      if (typeof onClose === "function") onClose();
+      return;
+    }
 
     // Prevent stale progress from appearing when reopening modal.
     resetModalState();

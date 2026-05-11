@@ -17,6 +17,20 @@ const UPI_APPS = [
 const DOWNLOAD_CARD_WIDTH = 650;
 const DOWNLOAD_CARD_HEIGHT = 775;
 
+const formatDisplayLabel = (value = "") => {
+  const normalized = String(value || "")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) return "-";
+
+  return normalized
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+};
+
 const buildUpiPayload = (record = {}, amount = 0) =>
   `upi://pay?pa=${encodeURIComponent(record.upiId || "")}&pn=${encodeURIComponent(record.accountName || record.clientName || "")}&am=${Number(amount || 0).toFixed(2)}&cu=INR&tn=${encodeURIComponent(record.note || `Payment Link ${record.alias || ""}`)}`;
 
@@ -108,11 +122,15 @@ const PublicPaymentLinkPage = () => {
     return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0;
   }, [record?.amount]);
 
+  const normalizedLinkStatus = String(
+    record?.linkStatus || "active",
+  ).toLowerCase();
   const normalizedStatus = String(record?.status || "pending").toLowerCase();
   const isManuallyResolvedStatus =
     normalizedStatus === "success" ||
     normalizedStatus === "failed" ||
     normalizedStatus === "under_verification";
+  const isLinkInactive = normalizedLinkStatus === "inactive";
 
   const isExpiredByDate = useMemo(() => {
     if (!record?.linkExpiry) return false;
@@ -128,7 +146,7 @@ const PublicPaymentLinkPage = () => {
   const isPaymentSuccess = effectiveStatus === "success";
   const isPaymentFailed = effectiveStatus === "failed";
   const isPaymentUnderVerification = effectiveStatus === "under_verification";
-  const canPay = effectiveStatus === "pending";
+  const canPay = effectiveStatus === "pending" && !isLinkInactive;
   const isPaymentExpired = effectiveStatus === "expired";
 
   useEffect(() => {
@@ -153,6 +171,11 @@ const PublicPaymentLinkPage = () => {
       return;
     }
 
+    if (isLinkInactive) {
+      document.title = `Payment Link Disabled | ${companyName}`;
+      return;
+    }
+
     if (effectiveStatus === "success") {
       document.title = `${amtFormatted} Payment Successful | ${companyName}`;
       return;
@@ -169,7 +192,14 @@ const PublicPaymentLinkPage = () => {
     }
 
     document.title = `Pay ${amtFormatted} | ${companyName}`;
-  }, [branding.companyName, effectiveStatus, error, loading, record?.amount]);
+  }, [
+    branding.companyName,
+    effectiveStatus,
+    error,
+    isLinkInactive,
+    loading,
+    record?.amount,
+  ]);
 
   const paymentDateDisplay = useMemo(() => {
     if (!record?.paymentDate) return "-";
@@ -696,6 +726,48 @@ const PublicPaymentLinkPage = () => {
                     </a>
                   </div>
                 </div>
+              ) : isLinkInactive ? (
+                <div className="py-2 text-center">
+                  <Player
+                    autoplay
+                    loop
+                    src="/Json/Inactive.json"
+                    style={{
+                      height: "170px",
+                      width: "170px",
+                      margin: "0 auto",
+                    }}
+                  />
+
+                  <div
+                    className="fw-bold text-danger mt-2"
+                    style={{ fontSize: "1.2rem", letterSpacing: "0.2px" }}
+                  >
+                    Payment Link Disabled!
+                  </div>
+
+                  <div
+                    className="text-muted mt-1"
+                    style={{ fontSize: "0.92rem", lineHeight: 1.55 }}
+                  >
+                    Sorry, this payment link is currently inactive and
+                    unavailable for payments. Please contact our support team
+                    for assistance.
+                  </div>
+
+                  <div
+                    className="mt-3 text-dark fw-semibold"
+                    style={{ fontSize: "0.92rem" }}
+                  >
+                    📞 Contact Now:&nbsp;
+                    <a
+                      href="tel:+916377241446"
+                      className="text-decoration-none text-danger fw-bold"
+                    >
+                      +916377241446
+                    </a>
+                  </div>
+                </div>
               ) : isPaymentSuccess ? (
                 <div className="py-2 text-center">
                   <Player
@@ -840,7 +912,7 @@ const PublicPaymentLinkPage = () => {
                       className="mt-2 fw-semibold"
                       style={{ fontSize: "0.9rem", color: "#842029" }}
                     >
-                      Reason: {record.failedReason}
+                      Reason: {formatDisplayLabel(record.failedReason)}
                     </div>
                   ) : null}
                 </div>
@@ -1127,7 +1199,21 @@ const PublicPaymentLinkPage = () => {
           padding: "0 10px 8px",
         }}
       >
-        Powered by MaxCode IT Services
+        Powered by{" "}
+        <a
+          href="https://www.maxcode.in"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            color: "#ff0000",
+            textDecoration: "none",
+            fontWeight: 600,
+          }}
+          onMouseEnter={(e) => (e.target.style.textDecoration = "underline")}
+          onMouseLeave={(e) => (e.target.style.textDecoration = "none")}
+        >
+          MaxCode IT Services
+        </a>
       </div>
 
       <style>{`
