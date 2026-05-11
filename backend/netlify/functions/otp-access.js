@@ -515,10 +515,22 @@ const formatDisplayName = (value = "") => {
   return text.replace(/\b\w/g, (match) => match.toUpperCase());
 };
 
-const buildSentToLabel = (recipients = []) =>
+const buildSentToLabel = (recipients = [], requestedByName = "") =>
   Array.isArray(recipients)
     ? recipients
-        .map((item) => String(item?.recipientLabel || "").trim())
+        .map((item) => {
+          if (item?.recipientType === "founder") {
+            return (
+              stripPhoneFromDisplayName(requestedByName) ||
+              String(item?.recipientLabel || "").trim()
+            );
+          }
+
+          return String(item?.recipientLabel || "")
+            .split(" - ")
+            .shift()
+            .trim();
+        })
         .filter(Boolean)
         .join(", ")
     : "";
@@ -548,7 +560,7 @@ const shapeRequestRow = (row = {}) => ({
   operation: formatOperationLabel(row.operation || ""),
   purpose: row.purpose || "",
   attempt: Number(row.sendCount || 0),
-  sentTo: buildSentToLabel(row.recipients),
+  sentTo: buildSentToLabel(row.recipients, row.requestedByName),
   otpVerifiedDateTime: toIso(row.verifiedAt),
   status: normalizeStatusCode(row.status) || "pending",
   statusLabel: formatStatusLabel(row.status),
@@ -952,7 +964,9 @@ export async function handler(event) {
         sentTo: [
           "All",
           ...uniqSorted(
-            filterRows.map((row) => buildSentToLabel(row?.recipients)),
+            filterRows.map((row) =>
+              buildSentToLabel(row?.recipients, row?.requestedByName),
+            ),
           ).filter((item) => item !== "All"),
         ],
       };

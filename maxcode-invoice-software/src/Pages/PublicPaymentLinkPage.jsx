@@ -1061,7 +1061,7 @@ const PublicPaymentLinkPage = () => {
 
                         <div
                           className="mt-2 fw-bold text-dark"
-                          style={{ fontSize: "0.8rem" }}
+                          style={{ fontSize: "0.9rem", letterSpacing: "0.5px" }}
                         >
                           {record?.accountName || "MaxCode IT Services"} |{" "}
                           {record?.upiId || "UPI ID"}

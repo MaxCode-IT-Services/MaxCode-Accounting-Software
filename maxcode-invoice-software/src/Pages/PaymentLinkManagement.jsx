@@ -1492,7 +1492,7 @@ const PaymentLinkManagement = () => {
 
                     <div
                       className="mt-2 fw-bold text-dark"
-                      style={{ fontSize: "0.8rem" }}
+                      style={{ fontSize: "0.9rem", letterSpacing: "0.5px" }}
                     >
                       {qrRecord?.accountName || "MaxCode IT Services"} |{" "}
                       {qrRecord?.upiId || "UPI ID"}
