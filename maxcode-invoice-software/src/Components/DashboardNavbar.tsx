@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet, apiPost, clearAuth } from "../utils/api";
+import { apiGet, apiPost, apiPut, clearAuth } from "../utils/api";
 import {
   hasModuleAccess,
   getStoredUserInfo,
@@ -60,6 +60,10 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     useState(false);
   const [preserveExportTextColorMode, setPreserveExportTextColorMode] =
     useState(false);
+  const [projectCredentialsAccessControl, setProjectCredentialsAccessControl] =
+    useState(true);
+  const [publicPaymentWhatsappEnabled, setPublicPaymentWhatsappEnabled] =
+    useState(true);
   const [user, setUser] = useState({
     name: "Guest User",
     email: "guest@example.com",
@@ -158,6 +162,35 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
         localStorage.getItem(EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY) || "",
       ).toLowerCase() === "true";
     setPreserveExportTextColorMode(preserveExportTextColor);
+  }, []);
+
+  // Fetch business settings feature toggles
+  useEffect(() => {
+    const fetchFeatureToggles = async () => {
+      try {
+        const res = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
+        const settings = res?.data?.settings || res?.data || {};
+        const toggles = settings.featureToggles || {};
+
+        // Default to true if not explicitly set to false
+        const projCredAccess =
+          toggles.projectCredentialsAccessControl !== false;
+        const pubPaymentWhatsapp = toggles.publicPaymentWhatsapp !== false;
+
+        setProjectCredentialsAccessControl(projCredAccess);
+        setPublicPaymentWhatsappEnabled(pubPaymentWhatsapp);
+        window.dispatchEvent(
+          new CustomEvent("business-settings-updated", {
+            detail: { featureToggles: toggles },
+          }),
+        );
+      } catch (err) {
+        console.error("Failed to fetch feature toggles:", err);
+        // keep defaults as true
+      }
+    };
+
+    fetchFeatureToggles();
   }, []);
 
   // Load financial years and set default selection
@@ -287,7 +320,6 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     );
     setFinancialYearDropdownOpen(false);
     // You can add additional logic here like fetching data for selected year
-    console.log("Selected Financial Year:", year);
   };
 
   // Get initials from name
@@ -371,6 +403,80 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY,
       enabled ? "true" : "false",
     );
+  };
+
+  const saveFeatureToggles = async (nextToggles: any) => {
+    try {
+      const payload = { featureToggles: nextToggles };
+
+      const response = await apiPut(
+        API_ENDPOINTS.BUSINESS_SETTINGS.UPDATE,
+        payload,
+      );
+
+      const returned = response?.data?.settings || {};
+      const toggles = returned.featureToggles || nextToggles || {};
+
+      // Use same logic as fetch: anything other than false = true
+      setProjectCredentialsAccessControl(
+        toggles.projectCredentialsAccessControl !== false,
+      );
+      setPublicPaymentWhatsappEnabled(toggles.publicPaymentWhatsapp !== false);
+
+      window.dispatchEvent(
+        new CustomEvent("business-settings-updated", {
+          detail: { featureToggles: toggles },
+        }),
+      );
+
+      // Force refresh from server after a short delay to ensure DB is updated
+      setTimeout(() => {
+        apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET, { forceRefresh: true })
+          .then((res: any) => {
+            const settings = res?.data?.settings || res?.data || {};
+            const freshToggles = settings.featureToggles || {};
+            setProjectCredentialsAccessControl(
+              freshToggles.projectCredentialsAccessControl !== false,
+            );
+            setPublicPaymentWhatsappEnabled(
+              freshToggles.publicPaymentWhatsapp !== false,
+            );
+            window.dispatchEvent(
+              new CustomEvent("business-settings-updated", {
+                detail: { featureToggles: freshToggles },
+              }),
+            );
+          })
+          .catch((err: any) =>
+            console.error("Failed to refresh toggles:", err),
+          );
+      }, 300);
+    } catch (error) {
+      console.error("Failed to save feature toggles", error);
+      // Reset to previous values on error
+    }
+  };
+
+  const handleToggleProjectCredentialsAccessControl = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const enabled = event.target.checked;
+    setProjectCredentialsAccessControl(enabled);
+    saveFeatureToggles({
+      projectCredentialsAccessControl: enabled,
+      publicPaymentWhatsapp: publicPaymentWhatsappEnabled,
+    });
+  };
+
+  const handleTogglePublicPaymentWhatsapp = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const enabled = event.target.checked;
+    setPublicPaymentWhatsappEnabled(enabled);
+    saveFeatureToggles({
+      projectCredentialsAccessControl,
+      publicPaymentWhatsapp: enabled,
+    });
   };
 
   // Logout function - Clear localStorage and redirect
@@ -975,8 +1081,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                               className="text-muted"
                               style={{ fontSize: "11px" }}
                             >
-                              On: single-page columns mode, Off: current default
-                              mode
+                              Export Table with Adjustable Column Views
                             </small>
                           </div>
                           <div
@@ -1006,8 +1111,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                               className="text-muted"
                               style={{ fontSize: "11px" }}
                             >
-                              On: export keeps table text colors, Off: default
-                              export colors
+                              Export Tables with Applied Text Colors
                             </small>
                           </div>
                           <div
@@ -1024,6 +1128,79 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                         </div>
                       </div>
 
+                      {/* Public Payment Link WhatsApp toggle - only Super Admin */}
+                      {String(user.role || "")
+                        .toLowerCase()
+                        .includes("super") && (
+                        <div className="dropdown-item px-3 py-2 border-bottom">
+                          <div className="d-flex align-items-center justify-content-between gap-2">
+                            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+                              <div
+                                className="fw-semibold"
+                                style={{ fontSize: "13px" }}
+                              >
+                                Public Payment Link WhatsApp
+                              </div>
+                              <small
+                                className="text-muted"
+                                style={{ fontSize: "11px" }}
+                              >
+                                Transaction Verification Notification Control.
+                              </small>
+                            </div>
+                            <div
+                              className="form-check form-switch "
+                              style={{ flex: "0 0 auto", marginRight: "-10px" }}
+                            >
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                checked={publicPaymentWhatsappEnabled}
+                                onChange={handleTogglePublicPaymentWhatsapp}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Project Credentials Access Control - only Super Admin */}
+                      {String(user.role || "")
+                        .toLowerCase()
+                        .includes("super") && (
+                        <div className="dropdown-item px-3 py-2 border-bottom">
+                          <div className="d-flex align-items-center justify-content-between gap-2">
+                            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+                              <div
+                                className="fw-semibold"
+                                style={{ fontSize: "13px" }}
+                              >
+                                Project Credentials Access Control
+                              </div>
+                              <small
+                                className="text-muted"
+                                style={{ fontSize: "11px" }}
+                              >
+                                Super Admin view & edit Credentials Access
+                                Control.
+                              </small>
+                            </div>
+                            <div
+                              className="form-check form-switch"
+                              style={{ flex: "0 0 auto", marginRight: "-10px" }}
+                            >
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                checked={projectCredentialsAccessControl}
+                                onChange={
+                                  handleToggleProjectCredentialsAccessControl
+                                }
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="dropdown-divider m-0"></div>
 
                       <a
@@ -1033,7 +1210,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                         onClick={requestLogout}
                       >
                         <i className="fa-solid fa-right-from-bracket me-2 fs-16 align-middle text-danger"></i>
-                        <span>Logout</span>
+                        <span className="fw-bold">Logout</span>
                       </a>
                     </div>
                   )}

@@ -151,6 +151,9 @@ const buildPaymentVerificationNotification = (record = {}, submittedAt) => {
   const status = formatStatusForNotification(record.status);
   const utrNumber = String(record.utrNumber || "-").trim() || "-";
   const alias = String(record.alias || "").trim();
+  const shareUrl =
+    String(record.shareUrl || "").trim() ||
+    (record.domain && alias ? `${record.domain}/${alias}` : "");
 
   return {
     title: "Payment Verification Request",
@@ -173,11 +176,13 @@ const buildPaymentVerificationNotification = (record = {}, submittedAt) => {
       status,
       utrNumber,
       alias,
+      domain: String(record.domain || "").trim(),
+      shareUrl,
     },
     links: [
       {
-        text: "Open Payment Links",
-        url: "/payment-link-management",
+        text: "Open Payment Link",
+        url: shareUrl || "/payment-link-management",
       },
     ],
     readBy: [],
@@ -723,10 +728,30 @@ export async function handler(event) {
 
         let whatsappNotification = { success: false, skipped: true };
         try {
-          whatsappNotification = await sendPaymentVerificationNotification({
-            db,
-            record: updatedRecord,
-          });
+          const settingsCollection = db.collection("business_settings");
+          const globalSettings =
+            (await settingsCollection.findOne({ scope: "global" })) ||
+            (await settingsCollection.findOne(
+              {},
+              { sort: { updatedAt: -1, createdAt: -1, _id: -1 } },
+            ));
+
+          const toggles =
+            (globalSettings && globalSettings.featureToggles) || {};
+          const sendWhatsapp = Boolean(toggles.publicPaymentWhatsapp);
+
+          if (sendWhatsapp) {
+            whatsappNotification = await sendPaymentVerificationNotification({
+              db,
+              record: updatedRecord,
+            });
+          } else {
+            whatsappNotification = {
+              success: false,
+              skipped: true,
+              reason: "feature-disabled",
+            };
+          }
         } catch (notificationError) {
           console.error(
             "Payment verification WhatsApp send failed:",

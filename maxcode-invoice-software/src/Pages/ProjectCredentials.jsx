@@ -121,11 +121,38 @@ const ProjectCredentials = () => {
     fetchBusinessSettings();
   }, []);
 
+  useEffect(() => {
+    const handleBusinessSettingsUpdated = (event) => {
+      const featureToggles = event?.detail?.featureToggles || {};
+      setBusinessSettings((prev) => ({
+        ...prev,
+        featureToggles: {
+          ...(prev?.featureToggles || {}),
+          ...featureToggles,
+        },
+      }));
+    };
+
+    window.addEventListener(
+      "business-settings-updated",
+      handleBusinessSettingsUpdated,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "business-settings-updated",
+        handleBusinessSettingsUpdated,
+      );
+    };
+  }, []);
+
   const fetchBusinessSettings = async () => {
     try {
-      const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
+      const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET, {
+        forceRefresh: true,
+      });
       if (response?.data) {
-        setBusinessSettings(response.data);
+        setBusinessSettings(response.data.settings || response.data || {});
       }
     } catch (error) {
       // keep default empty state
@@ -574,8 +601,11 @@ const ProjectCredentials = () => {
         record?.clientPhoneNumber || matchedClient?.phoneNumber || "",
     };
 
-    // Check if OTP is disabled
-    if (businessSettings?.whatsappSettings?.disableOtpForCredentials === true) {
+    // Check if OTP is disabled via feature toggles
+    const requireOtp =
+      businessSettings?.featureToggles?.projectCredentialsAccessControl !==
+      false;
+    if (requireOtp === false) {
       setEditingRecord(otpRecord);
       setShowCreateForm(true);
       showInfo(`Editing credentials: ${record.projectName}`);
@@ -614,8 +644,11 @@ const ProjectCredentials = () => {
         record?.clientPhoneNumber || matchedClient?.phoneNumber || "",
     };
 
-    // Check if OTP is disabled
-    if (businessSettings?.whatsappSettings?.disableOtpForCredentials === true) {
+    // Check if OTP is disabled via feature toggles
+    const requireOtp =
+      businessSettings?.featureToggles?.projectCredentialsAccessControl !==
+      false;
+    if (requireOtp === false) {
       setEditingRecord({
         ...otpRecord,
         isViewMode: true,

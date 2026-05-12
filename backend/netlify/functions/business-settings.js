@@ -83,6 +83,7 @@ const ALLOWED_FIELDS = [
   "backupSettings",
   "cloudflareSettings",
   "whatsappSettings",
+  "featureToggles",
 ];
 
 const isMaskedSecretValue = (value = "") =>
@@ -336,6 +337,18 @@ const isManagedBusinessAssetUrl = (value) =>
   value.includes("/api/business-settings") &&
   !value.startsWith("data:image/");
 
+const sanitizeFeatureToggles = (value = {}) => {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  return {
+    projectCredentialsAccessControl:
+      value.projectCredentialsAccessControl !== false,
+    publicPaymentWhatsapp: value.publicPaymentWhatsapp !== false,
+  };
+};
+
 const sanitizeSettingsPayload = (payload = {}, existingSettings = {}) => {
   const normalizedPayload = { ...payload };
 
@@ -429,6 +442,9 @@ const sanitizeSettingsPayload = (payload = {}, existingSettings = {}) => {
         if (sanitizedWhatsAppSettings) {
           sanitized[field] = sanitizedWhatsAppSettings;
         }
+      } else if (field === "featureToggles") {
+        const sanitizedFeatureToggles = sanitizeFeatureToggles(value);
+        sanitized[field] = sanitizedFeatureToggles;
       } else {
         sanitized[field] = value;
       }
@@ -685,6 +701,15 @@ const mapSettingsForClient = (document, event) => {
       hasPhoneNumberId: secretExists(phoneNumberId),
       hasBusinessAccountId: secretExists(businessAccountId),
     };
+  }
+
+  if (!response.featureToggles || typeof response.featureToggles !== "object") {
+    response.featureToggles = {
+      projectCredentialsAccessControl: true,
+      publicPaymentWhatsapp: true,
+    };
+  } else {
+    response.featureToggles = sanitizeFeatureToggles(response.featureToggles);
   }
 
   return response;
@@ -1031,6 +1056,11 @@ export async function handler(event) {
 
       const payload = event.body ? JSON.parse(event.body) : {};
 
+      console.log(
+        "[BUSINESS-SETTINGS PUT] Received payload:",
+        JSON.stringify(payload),
+      );
+
       const existingSharedSettings = await getSharedSettings(
         settingsCollection,
         user.userId,
@@ -1039,6 +1069,11 @@ export async function handler(event) {
       const sanitizedPayload = sanitizeSettingsPayload(
         payload,
         existingSharedSettings || {},
+      );
+
+      console.log(
+        "[BUSINESS-SETTINGS PUT] Sanitized payload featureToggles:",
+        sanitizedPayload.featureToggles,
       );
 
       Object.entries(TERMS_SETTINGS_CONFIG).forEach(([, config]) => {
@@ -1116,6 +1151,11 @@ export async function handler(event) {
         updatedAt: new Date(),
       };
 
+      console.log(
+        "[BUSINESS-SETTINGS PUT] baseUpdate featureToggles:",
+        baseUpdate.featureToggles,
+      );
+
       let updated = null;
 
       if (existingSharedSettings?._id) {
@@ -1145,11 +1185,22 @@ export async function handler(event) {
         });
       }
 
+      console.log(
+        "[BUSINESS-SETTINGS PUT] Updated document featureToggles:",
+        updated?.featureToggles,
+      );
+
+      const clientSettings = mapSettingsForClient(updated, event);
+      console.log(
+        "[BUSINESS-SETTINGS PUT] Response featureToggles:",
+        clientSettings.featureToggles,
+      );
+
       return createResponse(
         200,
         {
           message: "Business settings saved successfully",
-          settings: mapSettingsForClient(updated, event),
+          settings: clientSettings,
         },
         origin,
       );

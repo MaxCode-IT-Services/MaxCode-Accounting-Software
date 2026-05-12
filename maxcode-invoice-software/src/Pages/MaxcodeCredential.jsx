@@ -118,11 +118,38 @@ const MaxcodeCredential = () => {
     fetchBusinessSettings();
   }, []);
 
+  useEffect(() => {
+    const handleBusinessSettingsUpdated = (event) => {
+      const featureToggles = event?.detail?.featureToggles || {};
+      setBusinessSettings((prev) => ({
+        ...prev,
+        featureToggles: {
+          ...(prev?.featureToggles || {}),
+          ...featureToggles,
+        },
+      }));
+    };
+
+    window.addEventListener(
+      "business-settings-updated",
+      handleBusinessSettingsUpdated,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "business-settings-updated",
+        handleBusinessSettingsUpdated,
+      );
+    };
+  }, []);
+
   const fetchBusinessSettings = async () => {
     try {
-      const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
+      const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET, {
+        forceRefresh: true,
+      });
       if (response?.data) {
-        setBusinessSettings(response.data);
+        setBusinessSettings(response.data.settings || response.data || {});
       }
     } catch (error) {
       // keep default empty state
@@ -526,8 +553,12 @@ const MaxcodeCredential = () => {
   };
 
   const handleEdit = (record) => {
+    const requireOtp =
+      businessSettings?.featureToggles?.projectCredentialsAccessControl !==
+      false;
+
     // Check if OTP is disabled
-    if (businessSettings?.whatsappSettings?.disableOtpForCredentials === true) {
+    if (requireOtp === false) {
       setEditingRecord(record);
       setShowCreateForm(true);
       showInfo(`Editing credentials: ${record.projectName}`);
@@ -556,8 +587,12 @@ const MaxcodeCredential = () => {
   };
 
   const handleView = (record) => {
+    const requireOtp =
+      businessSettings?.featureToggles?.projectCredentialsAccessControl !==
+      false;
+
     // Check if OTP is disabled
-    if (businessSettings?.whatsappSettings?.disableOtpForCredentials === true) {
+    if (requireOtp === false) {
       setEditingRecord({
         ...record,
         isViewMode: true,

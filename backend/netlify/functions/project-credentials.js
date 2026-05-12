@@ -460,13 +460,29 @@ export async function handler(event) {
         }
 
         try {
-          await validateOtpAccessGrant({
-            db,
-            token: otpAccessToken,
-            actorId,
-            operation,
-            credentialId: normalizedId,
-          });
+          // Check global business settings - if project credentials access control
+          // is disabled, bypass OTP validation for reveal-secret.
+          const settingsCollection = db.collection("business_settings");
+          const globalSettings =
+            (await settingsCollection.findOne({ scope: "global" })) ||
+            (await settingsCollection.findOne(
+              {},
+              { sort: { updatedAt: -1, createdAt: -1, _id: -1 } },
+            ));
+
+          const toggles =
+            (globalSettings && globalSettings.featureToggles) || {};
+          const requireOtp = Boolean(toggles.projectCredentialsAccessControl);
+
+          if (requireOtp) {
+            await validateOtpAccessGrant({
+              db,
+              token: otpAccessToken,
+              actorId,
+              operation,
+              credentialId: normalizedId,
+            });
+          }
         } catch (error) {
           return createResponse(
             403,

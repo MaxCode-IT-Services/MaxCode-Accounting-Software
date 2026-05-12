@@ -13,6 +13,7 @@ const NOTIFICATION_POLL_INTERVAL_MS = 30000;
 const MIN_FETCH_GAP_MS = 10000;
 
 const ALERT_DAYS = [15, 10, 7, 3, 2, 1];
+const LEGACY_PAYMENT_LINK_URL = "/payment-link-management";
 
 const toNumber = (value) => {
   if (value === null || value === undefined) return 0;
@@ -539,9 +540,67 @@ const Notification = ({ onUnreadCountChange }) => {
     );
   };
 
-  const handleLinkClick = (e, url) => {
+  const isAbsoluteHttpUrl = (value = "") => /^https?:\/\//i.test(value);
+
+  const resolvePaymentVerificationLink = async (notification, fallbackUrl) => {
+    const details = notification?.templateData || {};
+    const directUrl = String(details.shareUrl || "").trim();
+    if (isAbsoluteHttpUrl(directUrl)) {
+      return directUrl;
+    }
+
+    const alias = String(details.alias || "").trim();
+    if (alias) {
+      try {
+        const response = await apiGet(
+          API_ENDPOINTS.PAYMENT_LINKS.PUBLIC_BY_ALIAS(alias),
+          { forceRefresh: true, cache: false },
+        );
+        const resolvedUrl = String(response?.data?.record?.shareUrl || "").trim();
+        if (isAbsoluteHttpUrl(resolvedUrl)) {
+          return resolvedUrl;
+        }
+      } catch (error) {
+        console.error("Failed to resolve public payment link from notification:", error);
+      }
+    }
+
+    const domain = String(details.domain || "").trim().replace(/\/+$/, "");
+    if (domain && alias) {
+      return `${domain}/${alias}`;
+    }
+
+    return fallbackUrl;
+  };
+
+  const handleLinkClick = async (e, notification, link) => {
     e.stopPropagation();
-    console.log("Navigating to:", url);
+    const rawUrl = String(link?.url || "").trim();
+    const isPaymentVerification =
+      notification?.templateType === "payment-verification";
+
+    if (!isPaymentVerification) {
+      return;
+    }
+
+    e.preventDefault();
+
+    const resolvedUrl = await resolvePaymentVerificationLink(
+      notification,
+      rawUrl,
+    );
+
+    if (isAbsoluteHttpUrl(resolvedUrl)) {
+      window.open(resolvedUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    if (resolvedUrl && resolvedUrl !== LEGACY_PAYMENT_LINK_URL) {
+      window.location.assign(resolvedUrl);
+      return;
+    }
+
+    window.location.assign(rawUrl || LEGACY_PAYMENT_LINK_URL);
   };
 
   return (
@@ -744,7 +803,7 @@ const Notification = ({ onUnreadCountChange }) => {
                                       key={idx}
                                       to={link.url}
                                       onClick={(e) =>
-                                        handleLinkClick(e, link.url)
+                                        handleLinkClick(e, notification, link)
                                       }
                                       className={`btn btn-sm btn-outline-primary ${notification.links.length === 1 ? "w-100" : "flex-grow-1"}`}
                                     >
