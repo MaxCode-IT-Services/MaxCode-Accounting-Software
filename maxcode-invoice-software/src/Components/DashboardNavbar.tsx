@@ -300,6 +300,51 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       .toUpperCase()}`;
   };
 
+  const getRoleLabel = () => {
+    const normalizedRole = String(user.role || "User")
+      .trim()
+      .toLowerCase();
+
+    if (normalizedRole.includes("super")) return "Super Admin";
+    if (normalizedRole.includes("admin")) return "Admin";
+    return "User";
+  };
+
+  const getRoleDescription = () => {
+    const normalizedRole = String(user.role || "User")
+      .trim()
+      .toLowerCase();
+
+    if (normalizedRole.includes("super")) {
+      return "Full access enabled for system-wide management.";
+    }
+
+    if (normalizedRole.includes("admin")) {
+      return "Administrative access enabled for workspace management.";
+    }
+
+    return "Standard user access enabled for assigned features.";
+  };
+
+  const getAccessSummary = () => {
+    const accessibleModules = adminMenuItems.filter((item: any) => {
+      if (!item.permissionKey) return true;
+      return hasModuleAccess(item.permissionKey);
+    }).length;
+
+    const totalModules = adminMenuItems.length;
+
+    if (accessibleModules >= totalModules) {
+      return "Full access enabled for system-wide management.";
+    }
+
+    if (accessibleModules >= Math.ceil(totalModules / 2)) {
+      return "Partial access enabled for selected management areas.";
+    }
+
+    return "Partial access enabled for limited management areas.";
+  };
+
   const requestLogout = (event?: React.MouseEvent<HTMLElement>) => {
     event?.preventDefault();
     setDropdownOpen(false);
@@ -568,7 +613,8 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   // Styles
   const dropdownStyle: Record<string, React.CSSProperties> = {
     profile: {
-      minWidth: "200px",
+      minWidth: "320px",
+      maxWidth: "360px",
       padding: "0",
       border: "none",
       boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
@@ -828,28 +874,35 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                       style={dropdownStyle.profile}
                     >
                       <div className="dropdown-header noti-title px-3 pt-3 pb-2 border-bottom">
-                        <h6
-                          className="text-overflow"
-                          style={{
-                            fontSize: "16px",
-                            fontWeight: "700",
-                            marginBottom: "5px",
-                          }}
-                        >
-                          Welcome, {user.name}!
-                        </h6>
-                        <small
-                          className="text-muted"
-                          style={{ fontSize: "12px", fontWeight: "700" }}
-                        >
-                          {user.email}
-                        </small>
-                        <small
-                          className="text-primary d-block mt-1"
-                          style={{ fontSize: "11px" }}
-                        >
-                          Role: {user.role || "User"}
-                        </small>
+                        <div className="d-flex align-items-center flex-nowrap gap-2">
+                          <div
+                            className="profile-dropdown-avatar"
+                            style={{
+                              backgroundColor: circleColor,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {getInitials(user.name)}
+                          </div>
+
+                          <div className="flex-grow-1 min-w-0">
+                            <h6
+                              className="text-overflow mb-1"
+                              style={{
+                                fontSize: "16px",
+                                fontWeight: "700",
+                              }}
+                            >
+                              Welcome, {user.name}!
+                            </h6>
+                            <small
+                              className="text-muted d-block"
+                              style={{ fontSize: "12px", fontWeight: "700" }}
+                            >
+                              {user.email}
+                            </small>
+                          </div>
+                        </div>
 
                         <div className="d-lg-none mt-2">
                           <small
@@ -880,10 +933,38 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                       </div>
 
                       <div className="dropdown-divider m-0"></div>
-
                       <div className="dropdown-item px-3 py-2 border-bottom">
                         <div className="d-flex align-items-center justify-content-between gap-2">
-                          <div>
+                          <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+                            <div
+                              className="fw-semibold"
+                              style={{ fontSize: "13px" }}
+                            >
+                              Role: {getRoleLabel()}
+                            </div>
+                            <small
+                              className="text-muted d-block mt-1"
+                              style={{ fontSize: "11px" }}
+                            >
+                              {getAccessSummary()}
+                            </small>
+                          </div>
+                          <div
+                            className="form-check form-switch"
+                            style={{ flex: "0 0 auto", marginRight: "-10px" }}
+                          >
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              checked={true}
+                              readOnly
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="dropdown-item px-3 py-2 border-bottom">
+                        <div className="d-flex align-items-center justify-content-between gap-2">
+                          <div style={{ flex: "1 1 auto", minWidth: 0 }}>
                             <div
                               className="fw-semibold"
                               style={{ fontSize: "13px" }}
@@ -898,7 +979,10 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                               mode
                             </small>
                           </div>
-                          <div className="form-check form-switch m-0">
+                          <div
+                            className="form-check form-switch"
+                            style={{ flex: "0 0 auto", marginRight: "-10px" }}
+                          >
                             <input
                               className="form-check-input"
                               type="checkbox"
@@ -911,7 +995,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
 
                       <div className="dropdown-item px-3 py-2 border-bottom">
                         <div className="d-flex align-items-center justify-content-between gap-2">
-                          <div>
+                          <div style={{ flex: "1 1 auto", minWidth: 0 }}>
                             <div
                               className="fw-semibold"
                               style={{ fontSize: "13px" }}
@@ -926,7 +1010,10 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                               export colors
                             </small>
                           </div>
-                          <div className="form-check form-switch m-0">
+                          <div
+                            className="form-check form-switch "
+                            style={{ flex: "0 0 auto", marginRight: "-10px" }}
+                          >
                             <input
                               className="form-check-input"
                               type="checkbox"
@@ -1077,7 +1164,20 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
           justify-content: center;
           width: 40px;
           height: 40px;
-          border-radius: 50%;
+          border-radius: 12px;
+          color: white;
+          font-weight: bold;
+          font-size: 18px;
+        }
+
+        .profile-dropdown-avatar {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex: 0 0 44px;
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
           color: white;
           font-weight: bold;
           font-size: 18px;
