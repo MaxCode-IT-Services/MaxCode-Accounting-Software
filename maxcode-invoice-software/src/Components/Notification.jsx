@@ -556,16 +556,23 @@ const Notification = ({ onUnreadCountChange }) => {
           API_ENDPOINTS.PAYMENT_LINKS.PUBLIC_BY_ALIAS(alias),
           { forceRefresh: true, cache: false },
         );
-        const resolvedUrl = String(response?.data?.record?.shareUrl || "").trim();
+        const resolvedUrl = String(
+          response?.data?.record?.shareUrl || "",
+        ).trim();
         if (isAbsoluteHttpUrl(resolvedUrl)) {
           return resolvedUrl;
         }
       } catch (error) {
-        console.error("Failed to resolve public payment link from notification:", error);
+        console.error(
+          "Failed to resolve public payment link from notification:",
+          error,
+        );
       }
     }
 
-    const domain = String(details.domain || "").trim().replace(/\/+$/, "");
+    const domain = String(details.domain || "")
+      .trim()
+      .replace(/\/+$/, "");
     if (domain && alias) {
       return `${domain}/${alias}`;
     }
