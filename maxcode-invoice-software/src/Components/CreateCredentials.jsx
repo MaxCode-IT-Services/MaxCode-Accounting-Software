@@ -10,6 +10,7 @@ import {
   filterRowsBySearch,
 } from "../utils/fetchAllEntities";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
+import useColumnResize from "../hooks/useColumnResize";
 
 const INITIAL_FORM = {
   clientRefId: "",
@@ -419,6 +420,12 @@ const CreateCredentials = ({
       IndicatorSeparator: null,
     }),
     [],
+  );
+
+  // Column resize for Custom Fields table
+  const customFieldColumnWidths = [50, 150, 220, 240, 220, 90, 80];
+  const { columnWidths, getResizeHandleProps } = useColumnResize(
+    customFieldColumnWidths,
   );
 
   const selectValue =
@@ -1444,22 +1451,70 @@ const CreateCredentials = ({
                         <table className="table table-bordered table-hover">
                           <thead className="table-success">
                             <tr>
-                              <th style={{ width: "50px" }}>S.N</th>
-                              <th style={{ width: "150px" }}>Field Type</th>
-                              <th style={{ width: "220px" }}>Field Name</th>
-                              <th style={{ width: "240px" }}>Field Value</th>
-                              <th style={{ width: "220px" }}>Options</th>
                               <th
-                                style={{ width: "90px" }}
+                                style={{
+                                  width: `${columnWidths[0]}px`,
+                                  position: "relative",
+                                }}
+                              >
+                                S.N
+                                <div {...getResizeHandleProps(0)} />
+                              </th>
+                              <th
+                                style={{
+                                  width: `${columnWidths[1]}px`,
+                                  position: "relative",
+                                }}
+                              >
+                                Field Type
+                                <div {...getResizeHandleProps(1)} />
+                              </th>
+                              <th
+                                style={{
+                                  width: `${columnWidths[2]}px`,
+                                  position: "relative",
+                                }}
+                              >
+                                Field Name
+                                <div {...getResizeHandleProps(2)} />
+                              </th>
+                              <th
+                                style={{
+                                  width: `${columnWidths[3]}px`,
+                                  position: "relative",
+                                }}
+                              >
+                                Field Value
+                                <div {...getResizeHandleProps(3)} />
+                              </th>
+                              <th
+                                style={{
+                                  width: `${columnWidths[4]}px`,
+                                  position: "relative",
+                                }}
+                              >
+                                Options
+                                <div {...getResizeHandleProps(4)} />
+                              </th>
+                              <th
+                                style={{
+                                  width: `${columnWidths[5]}px`,
+                                  position: "relative",
+                                }}
                                 className="text-center"
                               >
                                 Required
+                                <div {...getResizeHandleProps(5)} />
                               </th>
                               <th
-                                style={{ width: "80px" }}
+                                style={{
+                                  width: `${columnWidths[6]}px`,
+                                  position: "relative",
+                                }}
                                 className="text-center"
                               >
                                 Action
+                                <div {...getResizeHandleProps(6)} />
                               </th>
                             </tr>
                           </thead>

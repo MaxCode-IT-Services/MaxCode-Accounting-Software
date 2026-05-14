@@ -3524,11 +3524,11 @@ const ReusableTable = ({
                               right: 0,
                               top: 0,
                               bottom: 0,
-                              width: "4px",
+                              width: "3px",
                               cursor: "col-resize",
                               backgroundColor:
                                 resizing.columnKey === column.key
-                                  ? "#0d6efd"
+                                  ? "#ff0000"
                                   : "transparent",
                               zIndex: 3,
                             }}
