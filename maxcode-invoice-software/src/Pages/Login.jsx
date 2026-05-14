@@ -710,7 +710,7 @@ const Login = ({ settings, onAuthSuccess }) => {
       ></div>
 
       <div
-        className="card road-board-card border-0 shadow-2xl rounded-4 overflow-hidden animate__animated animate__fadeInUp"
+        className="card road-board-card border-0 shadow-2xl rounded-4 overflow-hidden"
         style={{
           maxWidth: "1100px",
           width: "100%",
@@ -1454,6 +1454,11 @@ const Login = ({ settings, onAuthSuccess }) => {
           --error: #dc3545;
         }
 
+        /* Provide 3D perspective for card flip */
+        .login-shell {
+          perspective: 1200px;
+        }
+
         .login-left-cockpit {
           min-height: 440px;
           background:
@@ -1478,6 +1483,9 @@ const Login = ({ settings, onAuthSuccess }) => {
               rgba(255, 255, 255, 0.03) 12px,
               rgba(255, 255, 255, 0.03) 24px
             );
+          /* Flip animation (card entrance) */
+          transform-style: preserve-3d;
+          animation: cardFlip 1.2s cubic-bezier(0.68, -0.55, 0.265, 1.55);
         }
 
         .road-board-card::before,
@@ -1596,6 +1604,35 @@ const Login = ({ settings, onAuthSuccess }) => {
           background: #c8ffe4;
           box-shadow: 0 0 0 0 rgba(200, 255, 228, 0.5);
           animation: cockpitPing 2.2s ease-out infinite;
+        }
+
+        /* Strengthen 3D rendering and prevent flicker */
+        .road-board-card {
+          transform-origin: center center;
+          backface-visibility: hidden;
+          -webkit-backface-visibility: hidden;
+          will-change: transform, opacity;
+        }
+
+        .road-board-card * {
+          backface-visibility: hidden;
+          -webkit-backface-visibility: hidden;
+        }
+
+        /* Card flip keyframes reused from minimalist variant */
+        @keyframes cardFlip {
+          0% {
+            opacity: 0;
+            transform: rotateY(90deg) rotateX(15deg) scale(0.8);
+          }
+          50% {
+            opacity: 0.8;
+            transform: rotateY(45deg) rotateX(8deg) scale(0.95);
+          }
+          100% {
+            opacity: 1;
+            transform: rotateY(0) rotateX(0) scale(1);
+          }
         }
 
         .cockpit-dot:nth-child(2) {
