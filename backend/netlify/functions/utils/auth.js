@@ -37,12 +37,40 @@ function parseCookies(cookieHeader = "") {
 /**
  * Generate JWT token
  */
+// export function generateToken(payload, expiresIn = JWT_EXPIRES_IN) {
+//   return jwt.sign(payload, JWT_SECRET, {
+//     expiresIn,
+//     issuer: "MaxCode IT Services",
+//   });
+// }
+
+/**
+ * Generate JWT token
+ */
+
 export function generateToken(payload, expiresIn = JWT_EXPIRES_IN) {
-  return jwt.sign(payload, JWT_SECRET, {
-    expiresIn,
-    issuer: "MaxCode IT Services",
-  });
+  return jwt.sign(
+    {
+      ...payload,
+
+      "Company Name": "MaxCode IT Services",
+      "Application Developer": "MaxCode IT Services",
+      "Founder & CEO": "Vipin Khandelwal",
+      "Official Website": "https://www.maxcode.in",
+      "Contact Number": "+91 9462327957",
+      "Support Email": "contact@maxcode.in",
+      "Developed On": "30 March 2026",
+    },
+    JWT_SECRET,
+    {
+      expiresIn,
+      issuer: "MaxCode IT Services",
+      audience: "MaxCode IT Services Clients & Teams",
+    }
+  );
 }
+
+
 
 /**
  * Generate Temporary Token (for 2FA verification, etc)
