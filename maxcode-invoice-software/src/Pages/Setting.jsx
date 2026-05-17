@@ -196,6 +196,8 @@ const Settings = () => {
       storeUrl: "",
       publicDomain: "",
       password: "",
+      turnstileSiteKey: "",
+      turnstileSecretKey: "",
       defaultFolder: "",
       folderOptions: "",
     },
@@ -349,6 +351,8 @@ const Settings = () => {
     storeUrl: false,
     publicDomain: false,
     password: false,
+    turnstileSiteKey: false,
+    turnstileSecretKey: false,
   });
   const [showWhatsAppSecret, setShowWhatsAppSecret] = useState({
     accessToken: false,
@@ -1156,11 +1160,21 @@ const Settings = () => {
           resolvedCloudflareSettings.password,
           resolvedCloudflareSettings.hasPassword === true,
         ),
+        turnstileSiteKey:
+          resolvedCloudflareSettings.turnstileSiteKey || "",
+        turnstileSecretKey: toMaskedSecret(
+          resolvedCloudflareSettings.turnstileSecretKey,
+          resolvedCloudflareSettings.hasTurnstileSecretKey === true,
+        ),
         defaultFolder: resolvedCloudflareSettings.defaultFolder || "",
         folderOptions: resolvedCloudflareSettings.folderOptions || "",
         hasStoreUrl: resolvedCloudflareSettings.hasStoreUrl === true,
         hasPublicDomain: resolvedCloudflareSettings.hasPublicDomain === true,
         hasPassword: resolvedCloudflareSettings.hasPassword === true,
+        hasTurnstileSiteKey:
+          resolvedCloudflareSettings.hasTurnstileSiteKey === true,
+        hasTurnstileSecretKey:
+          resolvedCloudflareSettings.hasTurnstileSecretKey === true,
       };
     }
 

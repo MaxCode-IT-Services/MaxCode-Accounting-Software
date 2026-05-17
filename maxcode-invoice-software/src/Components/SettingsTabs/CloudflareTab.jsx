@@ -177,6 +177,8 @@ const CloudflareTab = ({
             </div>
           </div>
 
+          {/* Turnstile fields will be rendered after Default Folder & Folder Options */}
+
           <div className="col-md-6">
             <label className="form-label fw-bold">Default Folder</label>
             <input
@@ -189,6 +191,91 @@ const CloudflareTab = ({
               placeholder="MaxCode"
               disabled={!isSuperAdmin}
             />
+          </div>
+
+          
+          <div className="col-md-6">
+            <label className="form-label fw-bold">Turnstile Site Key</label>
+            <div className="input-group">
+              <input
+                type="text"
+                className="form-control modern-input"
+                value={businessSettings.cloudflareSettings?.turnstileSiteKey || ""}
+                onChange={(e) =>
+                  handleCloudflareSecretInputChange(
+                    "turnstileSiteKey",
+                    e.target.value,
+                  )
+                }
+                placeholder="0x4AAAAAAA..."
+                disabled={!isSuperAdmin}
+                style={
+                  showCloudflareSecret?.turnstileSiteKey
+                    ? undefined
+                    : getHiddenSecretInputStyle(
+                        businessSettings.cloudflareSettings?.turnstileSiteKey,
+                      )
+                }
+              />
+              <button
+                className="btn btn-outline-secondary"
+                type="button"
+                onClick={() => handleCloudflareRevealToggle("turnstileSiteKey")}
+              >
+                <i
+                  className={`fas fa-eye${showCloudflareSecret?.turnstileSiteKey ? "-slash" : ""}`}
+                ></i>
+              </button>
+              <button
+                className="btn btn-outline-primary rounded-end-3"
+                type="button"
+                onClick={() => copyCloudflareFieldValue("turnstileSiteKey")}
+              >
+                <i className="fas fa-copy"></i>
+              </button>
+            </div>
+          </div>
+
+          <div className="col-md-6">
+            <label className="form-label fw-bold">Turnstile Secret Key</label>
+            <div className="input-group">
+              <input
+                type="text"
+                className="form-control modern-input"
+                value={businessSettings.cloudflareSettings?.turnstileSecretKey || ""}
+                onChange={(e) =>
+                  handleCloudflareSecretInputChange(
+                    "turnstileSecretKey",
+                    e.target.value,
+                  )
+                }
+                placeholder="1x0000000000000000000000000000000AA"
+                disabled={!isSuperAdmin}
+                style={
+                  showCloudflareSecret?.turnstileSecretKey
+                    ? undefined
+                    : getHiddenSecretInputStyle(
+                        businessSettings.cloudflareSettings?.turnstileSecretKey,
+                      )
+                }
+              />
+              <button
+                className="btn btn-outline-secondary"
+                type="button"
+                onClick={() => handleCloudflareRevealToggle("turnstileSecretKey")}
+              >
+                <i
+                  className={`fas fa-eye${showCloudflareSecret?.turnstileSecretKey ? "-slash" : ""}`}
+                ></i>
+              </button>
+              <button
+                className="btn btn-outline-primary rounded-end-3"
+                type="button"
+                onClick={() => copyCloudflareFieldValue("turnstileSecretKey")}
+              >
+                <i className="fas fa-copy"></i>
+              </button>
+            </div>
           </div>
 
           <div className="col-12">

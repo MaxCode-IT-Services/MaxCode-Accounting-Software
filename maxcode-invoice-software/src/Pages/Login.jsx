@@ -1,7 +1,7 @@
 // Login.jsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiPost, markSessionAuthenticated } from "../utils/api";
+import { apiGet, apiPost, markSessionAuthenticated } from "../utils/api";
 import API_ENPOINTS from "../utils/apiEndpoints";
 import { getFirstAllowedRoute } from "../utils/permissions";
 import {
@@ -22,6 +22,10 @@ const Login = ({ settings, onAuthSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
   const [errors, setErrors] = useState({});
+  const [captchaEnabled, setCaptchaEnabled] = useState(false);
+  const [captchaSiteKey, setCaptchaSiteKey] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaError, setCaptchaError] = useState("");
 
   // Two-Factor Authentication state
   const [needs2FA, setNeeds2FA] = useState(false);
@@ -52,11 +56,183 @@ const Login = ({ settings, onAuthSuccess }) => {
   const twoFACodeRefs = useRef([]);
   const backupCodeRefs = useRef([]);
   const usbFileInputRef = useRef(null);
+  const captchaContainerRef = useRef(null);
+  const captchaWidgetIdRef = useRef(null);
+
+  const TURNSTILE_SCRIPT_SRC =
+    "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+
+  const clearCaptchaWidget = useCallback(() => {
+    if (typeof window !== "undefined" && window.turnstile) {
+      try {
+        if (captchaWidgetIdRef.current !== null) {
+          window.turnstile.remove(captchaWidgetIdRef.current);
+        }
+      } catch {
+        // ignore widget cleanup errors
+      }
+    }
+
+    captchaWidgetIdRef.current = null;
+
+    if (captchaContainerRef.current) {
+      captchaContainerRef.current.innerHTML = "";
+    }
+  }, []);
+
+  const loadTurnstileScript = useCallback(
+    () =>
+      new Promise((resolve, reject) => {
+      if (typeof window === "undefined") {
+        reject(new Error("Browser environment unavailable"));
+        return;
+      }
+
+      if (window.turnstile) {
+        resolve();
+        return;
+      }
+
+      const existingScript = document.querySelector(
+        'script[data-turnstile-script="true"]',
+      );
+
+      if (existingScript) {
+        existingScript.addEventListener("load", () => resolve(), {
+          once: true,
+        });
+        existingScript.addEventListener("error", () => {
+          reject(new Error("Unable to load Cloudflare Turnstile script"));
+        }, { once: true });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = TURNSTILE_SCRIPT_SRC;
+      script.async = true;
+      script.defer = true;
+      script.dataset.turnstileScript = "true";
+      script.onload = () => resolve();
+      script.onerror = () => {
+        reject(new Error("Unable to load Cloudflare Turnstile script"));
+      };
+      document.head.appendChild(script);
+      }),
+    [],
+  );
 
   // Remove auto-focus completely - user must click to focus
   useEffect(() => {
     // Intentionally empty - no auto-focus on any field
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCaptchaSettings = async () => {
+      try {
+        const response = await apiGet(
+          API_ENPOINTS.BUSINESS_SETTINGS.LOGIN_CONFIG,
+        );
+        const businessSettings = response?.data?.settings || response?.data || {};
+        const toggles = businessSettings.featureToggles || {};
+        const cloudflareSettings = businessSettings.cloudflareSettings || {};
+
+        if (cancelled) return;
+
+        setCaptchaEnabled(toggles.cloudflareLoginCaptcha === true);
+        setCaptchaSiteKey(
+          String(cloudflareSettings.turnstileSiteKey || "").trim(),
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load captcha settings:", error);
+          setCaptchaEnabled(false);
+          setCaptchaSiteKey("");
+        }
+      }
+    };
+
+    loadCaptchaSettings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    clearCaptchaWidget();
+    setCaptchaToken("");
+    setCaptchaError("");
+
+    if (!captchaEnabled) {
+      return () => {
+        cancelled = true;
+        clearCaptchaWidget();
+      };
+    }
+
+    if (!captchaSiteKey) {
+      setCaptchaError("Captcha is enabled but not configured.");
+      return () => {
+        cancelled = true;
+        clearCaptchaWidget();
+      };
+    }
+
+    const renderWidget = async () => {
+      try {
+        await loadTurnstileScript();
+
+        if (
+          cancelled ||
+          !captchaContainerRef.current ||
+          !window.turnstile
+        ) {
+          return;
+        }
+
+        clearCaptchaWidget();
+
+        captchaWidgetIdRef.current = window.turnstile.render(
+          captchaContainerRef.current,
+          {
+            sitekey: captchaSiteKey,
+            theme: "light",
+            callback: (token) => {
+              if (cancelled) return;
+              setCaptchaToken(token || "");
+              setCaptchaError("");
+            },
+            "expired-callback": () => {
+              if (cancelled) return;
+              setCaptchaToken("");
+            },
+            "error-callback": () => {
+              if (cancelled) return;
+              setCaptchaToken("");
+              setCaptchaError("Cloudflare verification could not load.");
+            },
+          },
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to render Turnstile:", error);
+          setCaptchaToken("");
+          setCaptchaError("Cloudflare verification could not load.");
+        }
+      }
+    };
+
+    renderWidget();
+
+    return () => {
+      cancelled = true;
+      clearCaptchaWidget();
+    };
+  }, [captchaEnabled, captchaSiteKey]);
 
   const handlePinChange = (index, value) => {
     if (value.length > 1) value = value[value.length - 1];
@@ -532,6 +708,14 @@ const Login = ({ settings, onAuthSuccess }) => {
       return;
     }
 
+    if (captchaEnabled && !captchaToken) {
+      const captchaMessage =
+        captchaError || "Please complete the Cloudflare security check";
+      setErrors((prev) => ({ ...prev, captcha: captchaMessage }));
+      showError(captchaMessage);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -540,6 +724,7 @@ const Login = ({ settings, onAuthSuccess }) => {
         action: "login",
         phone: mobile,
         pin: enteredPin,
+        turnstileToken: captchaEnabled ? captchaToken : undefined,
       });
 
       const fingerprintLoginEnabled =
@@ -836,7 +1021,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                 {!needs2FA && !needsFingerprint && !needsUsbKey ? (
                   <>
                     {/* Mobile Number Field */}
-                    <div className="mb-4">
+                    <div className="mb-3">
                       <label className="form-label fw-semibold text-secondary mb-2">
                         <i
                           className="fas fa-phone-alt me-2"
@@ -887,7 +1072,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                     </div>
 
                     {/* PIN Field */}
-                    <div className="mb-4">
+                    <div className="mb-3">
                       <div className="d-flex justify-content-between align-items-center mb-2">
                         <label className="form-label fw-semibold text-secondary mb-0">
                           <i
@@ -958,17 +1143,58 @@ const Login = ({ settings, onAuthSuccess }) => {
                           {errors.pin}
                         </div>
                       )}
+
+                      {captchaEnabled && (
+                        <div className="mt-1 mb-2 d-flex justify-content-center">
+                          <div
+                            className="px-3 py-2 rounded-4 border bg-light d-flex justify-content-center align-items-center"
+                            style={{ minHeight: 80, width: "100%", maxWidth: 380 }}
+                          >
+                            <div
+                              ref={captchaContainerRef}
+                              className="d-flex justify-content-center align-items-center"
+                              style={{ minHeight: 45 }}
+                            />
+                          </div>
+                          {!captchaSiteKey && !captchaError && (
+                            <div className="text-danger small mt-2 text-center">
+                              Captcha is enabled but not configured.
+                            </div>
+                          )}
+                          {captchaError && (
+                            <div className="error-message mt-2 text-center">
+                              <i className="fas fa-exclamation-circle me-1"></i>
+                              {captchaError}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Submit Button */}
                     <button
                       type="submit"
-                      disabled={loading || !mobile || !isPinComplete}
+                      disabled={
+                        loading ||
+                        !mobile ||
+                        !isPinComplete ||
+                        (captchaEnabled && !captchaToken)
+                      }
                       className="btn btn-lg w-100 py-3 rounded-3 fw-semibold text-white position-relative overflow-hidden"
                       style={{
-                        background: "var(--header-gradient)",
                         border: "none",
-                        opacity: loading || !mobile || !isPinComplete ? 0.8 : 1,
+                        background: "var(--header-gradient)",
+                        cursor:
+                          loading || !mobile || !isPinComplete || (captchaEnabled && !captchaToken)
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity:
+                          loading ||
+                          !mobile ||
+                          !isPinComplete ||
+                          (captchaEnabled && !captchaToken)
+                            ? 0.8
+                            : 1,
                         transition: "all 0.3s ease",
                       }}
                     >

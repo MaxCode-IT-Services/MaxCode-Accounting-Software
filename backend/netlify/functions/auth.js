@@ -13,6 +13,7 @@ import {
   validateRequiredFields,
   sanitizeUser,
 } from "./utils/auth.js";
+import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
 import speakeasy from "speakeasy";
 import {
   getClientIp,
@@ -50,6 +51,112 @@ const normalizeCredentialIds = (ids = [], singleId = null) => {
   return [
     ...new Set(merged.filter((id) => typeof id === "string" && id.trim())),
   ];
+};
+
+const TURNSTILE_VERIFY_URL =
+  "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+
+const getEnvBoolean = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return ["1", "true", "yes", "on"].includes(normalized);
+};
+
+const getSharedBusinessSettings = async (db) => {
+  const settingsCollection = db.collection("business_settings");
+  const globalSettings = await settingsCollection.findOne({ scope: "global" });
+
+  if (globalSettings) {
+    return globalSettings;
+  }
+
+  return settingsCollection.findOne(
+    {},
+    {
+      sort: {
+        updatedAt: -1,
+        createdAt: -1,
+        _id: -1,
+      },
+    },
+  );
+};
+
+const getTurnstileSecretKey = (settings = {}) => {
+  const envSecretKey = String(
+    process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY ||
+      process.env.TURNSTILE_SECRET_KEY ||
+      "",
+  ).trim();
+
+  if (envSecretKey) {
+    return envSecretKey;
+  }
+
+  const encryptedSecret = String(
+    settings?.cloudflareSettings?.turnstileSecretKey || "",
+  ).trim();
+
+  let storedSecret = "";
+
+  if (encryptedSecret) {
+    try {
+      storedSecret = decryptSecretFromStorage(encryptedSecret);
+    } catch {
+      storedSecret = encryptedSecret;
+    }
+  }
+
+  return (
+    String(storedSecret || "").trim() ||
+    String(process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY || "").trim() ||
+    String(process.env.TURNSTILE_SECRET_KEY || "").trim()
+  );
+};
+
+const verifyTurnstileToken = async ({ token, secret, remoteIp }) => {
+  if (!token || !String(token).trim()) {
+    return { success: false, error: "Captcha token is required" };
+  }
+
+  if (!secret) {
+    return {
+      success: false,
+      error: "Captcha secret is missing on the server",
+    };
+  }
+
+  const payload = new URLSearchParams({
+    secret,
+    response: String(token).trim(),
+  });
+
+  if (remoteIp) {
+    payload.set("remoteip", remoteIp);
+  }
+
+  const response = await fetch(TURNSTILE_VERIFY_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: payload.toString(),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || data?.success !== true) {
+    const errorCodes = Array.isArray(data?.["error-codes"])
+      ? data["error-codes"].join(", ")
+      : "";
+
+    return {
+      success: false,
+      error: errorCodes || "Captcha verification failed",
+    };
+  }
+
+  return { success: true };
 };
 
 /**
@@ -215,9 +322,8 @@ export async function handler(event) {
           );
         }
 
-        const { phone, pin } = body;
+        const { phone, pin, turnstileToken } = body;
 
-        // Validate required fields (either email or phone, and password or pin)
         if (!phone || !pin) {
           return createResponse(
             400,
@@ -226,6 +332,53 @@ export async function handler(event) {
             },
             origin,
           );
+        }
+
+        const sharedSettings = await getSharedBusinessSettings(db);
+        const captchaEnabled =
+          getEnvBoolean(process.env.CLOUDFLARE_LOGIN_CAPTCHA_ENABLED) ??
+          sharedSettings?.featureToggles?.cloudflareLoginCaptcha === true;
+
+        if (captchaEnabled) {
+          const turnstileSecretKey = getTurnstileSecretKey(sharedSettings);
+          const turnstileSiteKey = String(
+            process.env.CLOUDFLARE_TURNSTILE_SITE_KEY ||
+              process.env.TURNSTILE_SITE_KEY ||
+              sharedSettings?.cloudflareSettings?.turnstileSiteKey ||
+              "",
+          ).trim();
+
+          if (!turnstileSecretKey || !turnstileSiteKey) {
+            return createResponse(
+              500,
+              {
+                error:
+                  "Cloudflare login captcha is enabled but not configured.",
+              },
+              origin,
+            );
+          }
+        }
+
+        if (captchaEnabled) {
+          const turnstileSecretKey = getTurnstileSecretKey(sharedSettings);
+          const captchaResult = await verifyTurnstileToken({
+            token: turnstileToken,
+            secret: turnstileSecretKey,
+            remoteIp: ip,
+          });
+
+          if (!captchaResult.success) {
+            return createResponse(
+              401,
+              {
+                error:
+                  captchaResult.error ||
+                  "Cloudflare verification failed. Please try again.",
+              },
+              origin,
+            );
+          }
         }
 
         // Find user by email or phone

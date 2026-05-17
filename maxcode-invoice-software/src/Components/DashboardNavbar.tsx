@@ -64,6 +64,8 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     useState(true);
   const [publicPaymentWhatsappEnabled, setPublicPaymentWhatsappEnabled] =
     useState(true);
+  const [cloudflareLoginCaptchaEnabled, setCloudflareLoginCaptchaEnabled] =
+    useState(false);
   const [showCompanyTooltip, setShowCompanyTooltip] = useState(false);
   const [user, setUser] = useState({
     name: "Guest User",
@@ -178,9 +180,11 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
         const projCredAccess =
           toggles.projectCredentialsAccessControl !== false;
         const pubPaymentWhatsapp = toggles.publicPaymentWhatsapp !== false;
+        const cloudflareLoginCaptcha = toggles.cloudflareLoginCaptcha === true;
 
         setProjectCredentialsAccessControl(projCredAccess);
         setPublicPaymentWhatsappEnabled(pubPaymentWhatsapp);
+        setCloudflareLoginCaptchaEnabled(cloudflareLoginCaptcha);
         window.dispatchEvent(
           new CustomEvent("business-settings-updated", {
             detail: { featureToggles: toggles },
@@ -455,6 +459,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
         toggles.projectCredentialsAccessControl !== false,
       );
       setPublicPaymentWhatsappEnabled(toggles.publicPaymentWhatsapp !== false);
+      setCloudflareLoginCaptchaEnabled(toggles.cloudflareLoginCaptcha === true);
 
       window.dispatchEvent(
         new CustomEvent("business-settings-updated", {
@@ -473,6 +478,9 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
             );
             setPublicPaymentWhatsappEnabled(
               freshToggles.publicPaymentWhatsapp !== false,
+            );
+            setCloudflareLoginCaptchaEnabled(
+              freshToggles.cloudflareLoginCaptcha === true,
             );
             window.dispatchEvent(
               new CustomEvent("business-settings-updated", {
@@ -509,6 +517,19 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     saveFeatureToggles({
       projectCredentialsAccessControl,
       publicPaymentWhatsapp: enabled,
+      cloudflareLoginCaptcha: cloudflareLoginCaptchaEnabled,
+    });
+  };
+
+  const handleToggleCloudflareLoginCaptcha = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const enabled = event.target.checked;
+    setCloudflareLoginCaptchaEnabled(enabled);
+    saveFeatureToggles({
+      projectCredentialsAccessControl,
+      publicPaymentWhatsapp: publicPaymentWhatsappEnabled,
+      cloudflareLoginCaptcha: enabled,
     });
   };
 
@@ -1228,6 +1249,41 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                                 onChange={
                                   handleToggleProjectCredentialsAccessControl
                                 }
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Cloudflare Login Captcha - only Super Admin */}
+                      {String(user.role || "")
+                        .toLowerCase()
+                        .includes("super") && (
+                        <div className="dropdown-item px-3 py-2 border-bottom">
+                          <div className="d-flex align-items-center justify-content-between gap-2">
+                            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+                              <div
+                                className="fw-semibold"
+                                style={{ fontSize: "13px" }}
+                              >
+                                Cloudflare Login Captcha
+                              </div>
+                              <small
+                                className="text-muted"
+                                style={{ fontSize: "11px" }}
+                              >
+                                Require Turnstile verification before login.
+                              </small>
+                            </div>
+                            <div
+                              className="form-check form-switch"
+                              style={{ flex: "0 0 auto", marginRight: "-10px" }}
+                            >
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                checked={cloudflareLoginCaptchaEnabled}
+                                onChange={handleToggleCloudflareLoginCaptcha}
                               />
                             </div>
                           </div>

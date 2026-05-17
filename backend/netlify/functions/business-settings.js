@@ -20,7 +20,14 @@ const SETTINGS_COLLECTION = "business_settings";
 const ASSETS_COLLECTION = "business_assets";
 const GLOBAL_SETTINGS_SCOPE = "global";
 const SECRET_MASK = "********";
-const CLOUDFLARE_SECRET_FIELDS = ["storeUrl", "publicDomain", "password"];
+const LOGIN_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
+const CLOUDFLARE_SECRET_FIELDS = [
+  "storeUrl",
+  "publicDomain",
+  "password",
+  "turnstileSiteKey",
+  "turnstileSecretKey",
+];
 const WHATSAPP_SECRET_FIELDS = [
   "accessToken",
   "appId",
@@ -34,6 +41,37 @@ const BACKUP_SECRET_FIELDS = [
   "backupApiKey",
   "folderId",
 ];
+
+let loginConfigCache = null;
+let loginConfigCacheExpiresAt = 0;
+
+const getEnvBoolean = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return ["1", "true", "yes", "on"].includes(normalized);
+};
+
+const getTurnstileConfigFromEnv = () => {
+  const siteKey = String(
+    process.env.CLOUDFLARE_TURNSTILE_SITE_KEY ||
+      process.env.TURNSTILE_SITE_KEY ||
+      "",
+  ).trim();
+  const secretKey = String(
+    process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY ||
+      process.env.TURNSTILE_SECRET_KEY ||
+      "",
+  ).trim();
+  const loginCaptchaEnabled = getEnvBoolean(
+    process.env.CLOUDFLARE_LOGIN_CAPTCHA_ENABLED,
+  );
+
+  return {
+    siteKey,
+    secretKey,
+    loginCaptchaEnabled,
+  };
+};
 
 const IMAGE_FIELDS = [
   "profilePhotoUrl",
@@ -265,6 +303,14 @@ const sanitizeCloudflareSettings = (
       value.password,
       existingCloudflareSettings?.password,
     ),
+    turnstileSiteKey: resolveSecretForStorage(
+      value.turnstileSiteKey,
+      existingCloudflareSettings?.turnstileSiteKey,
+    ),
+    turnstileSecretKey: resolveSecretForStorage(
+      value.turnstileSecretKey,
+      existingCloudflareSettings?.turnstileSecretKey,
+    ),
     defaultFolder:
       typeof value.defaultFolder === "string" && value.defaultFolder.trim()
         ? value.defaultFolder.trim()
@@ -346,6 +392,7 @@ const sanitizeFeatureToggles = (value = {}) => {
     projectCredentialsAccessControl:
       value.projectCredentialsAccessControl !== false,
     publicPaymentWhatsapp: value.publicPaymentWhatsapp !== false,
+    cloudflareLoginCaptcha: value.cloudflareLoginCaptcha === true,
   };
 };
 
@@ -636,11 +683,15 @@ const mapSettingsForClient = (document, event) => {
       storeUrl: "",
       publicDomain: "",
       password: "",
+      turnstileSiteKey: "",
+      turnstileSecretKey: "",
       defaultFolder: "",
       folderOptions: "",
       hasStoreUrl: false,
       hasPublicDomain: false,
       hasPassword: false,
+      hasTurnstileSiteKey: false,
+      hasTurnstileSecretKey: false,
     };
   } else {
     const cloudflareSettings = response.cloudflareSettings || {};
@@ -649,14 +700,24 @@ const mapSettingsForClient = (document, event) => {
       cloudflareSettings.publicDomain || "",
     ).trim();
     const cloudPassword = String(cloudflareSettings.password || "").trim();
+    const cloudTurnstileSiteKey = String(
+      cloudflareSettings.turnstileSiteKey || "",
+    ).trim();
+    const cloudTurnstileSecretKey = String(
+      cloudflareSettings.turnstileSecretKey || "",
+    ).trim();
     response.cloudflareSettings = {
       ...cloudflareSettings,
       storeUrl: maskSecretValue(cloudStoreUrl),
       publicDomain: maskSecretValue(cloudPublicDomain),
       password: maskSecretValue(cloudPassword),
+      turnstileSiteKey: maskSecretValue(cloudTurnstileSiteKey),
+      turnstileSecretKey: maskSecretValue(cloudTurnstileSecretKey),
       hasStoreUrl: secretExists(cloudStoreUrl),
       hasPublicDomain: secretExists(cloudPublicDomain),
       hasPassword: secretExists(cloudPassword),
+      hasTurnstileSiteKey: secretExists(cloudTurnstileSiteKey),
+      hasTurnstileSecretKey: secretExists(cloudTurnstileSecretKey),
     };
   }
 
@@ -955,6 +1016,90 @@ export async function handler(event) {
       return await handleAssetRequest(event, origin);
     }
 
+    if (event.httpMethod === "GET") {
+      const query = event.queryStringParameters || {};
+      const action = String(query.action || "")
+        .trim()
+        .toLowerCase();
+
+      if (action === "login-config") {
+        if (
+          loginConfigCache &&
+          loginConfigCacheExpiresAt > Date.now()
+        ) {
+          return createResponse(
+            200,
+            loginConfigCache,
+            origin,
+            {
+              "Cache-Control": `public, max-age=${Math.floor(
+                LOGIN_CONFIG_CACHE_TTL_MS / 1000,
+              )}`,
+            },
+          );
+        }
+
+        const envTurnstileConfig = getTurnstileConfigFromEnv();
+        if (
+          envTurnstileConfig.siteKey &&
+          envTurnstileConfig.secretKey &&
+          envTurnstileConfig.loginCaptchaEnabled !== null
+        ) {
+          const loginConfig = {
+            featureToggles: {
+              cloudflareLoginCaptcha: envTurnstileConfig.loginCaptchaEnabled,
+            },
+            cloudflareSettings: {
+              turnstileSiteKey: envTurnstileConfig.siteKey,
+            },
+          };
+
+          loginConfigCache = loginConfig;
+          loginConfigCacheExpiresAt = Date.now() + LOGIN_CONFIG_CACHE_TTL_MS;
+
+          return createResponse(200, loginConfig, origin, {
+            "Cache-Control": `public, max-age=${Math.floor(
+              LOGIN_CONFIG_CACHE_TTL_MS / 1000,
+            )}`,
+          });
+        }
+
+        const { db } = await connectToDatabase();
+        const settingsCollection = db.collection(SETTINGS_COLLECTION);
+        const settings = await getSharedSettings(settingsCollection, null);
+        const featureToggles = sanitizeFeatureToggles(
+          settings?.featureToggles || {},
+        );
+        const cloudflareSettings = settings?.cloudflareSettings || {};
+        const turnstileSiteKey =
+          envTurnstileConfig.siteKey ||
+          decryptSecretFromStorage(
+            String(cloudflareSettings.turnstileSiteKey || "").trim(),
+          );
+        const loginCaptchaEnabled =
+          envTurnstileConfig.loginCaptchaEnabled ??
+          featureToggles.cloudflareLoginCaptcha === true;
+
+        const loginConfig = {
+          featureToggles: {
+            cloudflareLoginCaptcha: loginCaptchaEnabled,
+          },
+          cloudflareSettings: {
+            turnstileSiteKey: String(turnstileSiteKey || "").trim(),
+          },
+        };
+
+        loginConfigCache = loginConfig;
+        loginConfigCacheExpiresAt = Date.now() + LOGIN_CONFIG_CACHE_TTL_MS;
+
+        return createResponse(200, loginConfig, origin, {
+          "Cache-Control": `public, max-age=${Math.floor(
+            LOGIN_CONFIG_CACHE_TTL_MS / 1000,
+          )}`,
+        });
+      }
+    }
+
     const user = verifyRequestToken(event);
 
     const { db } = await connectToDatabase();
@@ -1184,6 +1329,9 @@ export async function handler(event) {
           _id: insertResult.insertedId,
         });
       }
+
+      loginConfigCache = null;
+      loginConfigCacheExpiresAt = 0;
 
       console.log(
         "[BUSINESS-SETTINGS PUT] Updated document featureToggles:",

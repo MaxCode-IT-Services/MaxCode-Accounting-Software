@@ -100,6 +100,7 @@ const API_ENDPOINTS = {
   // Business Settings endpoints
   BUSINESS_SETTINGS: {
     GET: "/business-settings",
+    LOGIN_CONFIG: "/business-settings?action=login-config",
     UPDATE: "/business-settings",
     TERMS_BY_VERSION: (termsKind, version) =>
       `/business-settings?action=terms-by-version&termsKind=${encodeURIComponent(termsKind || "")}&version=${encodeURIComponent(version || "")}`,
