@@ -158,6 +158,8 @@ const Home = () => {
     generateOverviewData(),
   );
   const [isLiveUpdating, setIsLiveUpdating] = useState(false);
+  const [showCompanyTooltip, setShowCompanyTooltip] = useState(false);
+  const companyTooltipRef = React.useRef(null);
   const weekLabels = ["M", "T", "W", "T", "F", "S", "S"];
   const trendCoordinates = overviewData.bars.map((value, index) => {
     const x = (index / (overviewData.bars.length - 1)) * 100;
@@ -263,6 +265,46 @@ const Home = () => {
       window.removeEventListener("focus", syncAuthState);
     };
   }, []);
+
+  // Close tooltip when clicking outside or moving cursor far away
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      const target = event.target;
+      if (
+        companyTooltipRef.current &&
+        !companyTooltipRef.current.contains(target) &&
+        !event.target.closest("a[href*='maxcode']")
+      ) {
+        setShowCompanyTooltip(false);
+      }
+    };
+
+    const handleMouseMove = (event) => {
+      if (!showCompanyTooltip || !companyTooltipRef.current) return;
+
+      const rect = companyTooltipRef.current.getBoundingClientRect();
+      const distance = calculateDistanceToElement(event.clientX, event.clientY, rect);
+
+      if (distance > 100) {
+        setShowCompanyTooltip(false);
+      }
+    };
+
+    const calculateDistanceToElement = (x, y, rect) => {
+      const closestX = Math.max(rect.left, Math.min(x, rect.right));
+      const closestY = Math.max(rect.top, Math.min(y, rect.bottom));
+      const dx = x - closestX;
+      const dy = y - closestY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousemove", handleMouseMove);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [showCompanyTooltip]);
 
   useEffect(() => {
     const observedElements = pageSections
@@ -820,13 +862,263 @@ const Home = () => {
             </div>
           </div>
 
-          <div className="footer-bottom d-flex flex-column flex-md-row justify-content-between gap-2">
-            <p className="mb-0">
-              © {new Date().getFullYear()} MaxCode IT Services. All rights
-              reserved.
-            </p>
-            <p className="mb-0">
-              Built for business billing and accounting workflows.
+          <div className="footer-bottom d-flex justify-content-center">
+            <p className="mb-0 text-center">
+              © {new Date().getFullYear()}
+              {" "}
+              <span
+                style={{
+                  position: "relative",
+                  display: "inline-block",
+                  cursor: "pointer",
+                }}
+              >
+                <span
+                  onClick={() => setShowCompanyTooltip(!showCompanyTooltip)}
+                  onMouseEnter={() => setShowCompanyTooltip(true)}
+                  style={{
+                    color: "#FF0000",
+                    textDecoration: "underline",
+                    textDecorationColor: "#ffffff",
+                    textUnderlineOffset: "4px",
+                    fontWeight: "700",
+                    letterSpacing: "0.5px",
+                    cursor: "pointer",
+                  }}
+                >
+                  MaxCode IT Services
+                </span>
+                
+                {/* Company Info Tooltip */}
+                {showCompanyTooltip && (
+                  <div
+                    ref={companyTooltipRef}
+                    style={{
+                      position: "fixed",
+                      bottom: "70px",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      backgroundColor: "#ffffff",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "12px",
+                      padding: "20px",
+                      boxShadow: "0 12px 40px rgba(0, 0, 0, 0.15)",
+                      zIndex: 9999,
+                      minWidth: "320px",
+                      maxWidth: "400px",
+                      animation: "tooltipSlideUp 0.3s ease-out",
+                      textAlign: "left",
+                    }}
+                    className="company-tooltip"
+                  >
+                    {/* Header */}
+                    <div style={{
+                      marginBottom: "18px",
+                      paddingBottom: "12px",
+                      borderBottom: "2px solid #1a7a5c",
+                    }}>
+                      <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                        <div style={{
+                          width: "36px",
+                          height: "36px",
+                          minWidth: "36px",
+                          backgroundColor: "#def9e7",
+                          borderRadius: "8px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}>
+                          <i className="fa-solid fa-building" style={{ color: "#1a7a5c", fontSize: "16px" }}></i>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <h4 style={{
+                            margin: "0 0 4px 0",
+                            color: "#1a1a1a",
+                            fontSize: "16px",
+                            fontWeight: "700",
+                            lineHeight: "1.3",
+                          }}>
+                            MaxCode IT Services
+                          </h4>
+                          <p style={{
+                            margin: "0",
+                            color: "#666",
+                            fontSize: "12px",
+                            fontWeight: "500",
+                          }}>
+                            Website, Software & Digital Solutions Provider
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Information Items */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                      {/* Founder & CEO */}
+                      <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                        <div style={{
+                          width: "36px",
+                          height: "36px",
+                          minWidth: "36px",
+                          backgroundColor: "#def9e7",
+                          borderRadius: "8px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}>
+                          <i className="fa-solid fa-user-tie" style={{ color: "#1a7a5c", fontSize: "16px" }}></i>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{
+                            margin: "0 0 4px 0",
+                            color: "#666",
+                            fontSize: "12px",
+                            fontWeight: "500",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
+                          }}>
+                            Founder & CEO
+                          </p>
+                          <p style={{
+                            margin: "0",
+                            color: "#1a1a1a",
+                            fontSize: "14px",
+                            fontWeight: "600",
+                          }}>
+                            Mr. Vipin Khandelwal
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Contact Number */}
+                      <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                        <div style={{
+                          width: "36px",
+                          height: "36px",
+                          minWidth: "36px",
+                          backgroundColor: "#def9e7",
+                          borderRadius: "8px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}>
+                          <i className="fa-solid fa-phone" style={{ color: "#1a7a5c", fontSize: "16px" }}></i>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{
+                            margin: "0 0 4px 0",
+                            color: "#666",
+                            fontSize: "12px",
+                            fontWeight: "500",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
+                          }}>
+                            Contact Number
+                          </p>
+                          <a href="tel:+916377241446" style={{
+                            margin: "0",
+                            color: "#1a1a1a",
+                            fontSize: "14px",
+                            fontWeight: "600",
+                            textDecoration: "none",
+                          }}>
+                            +91 6377241446
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* Website */}
+                      <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                        <div style={{
+                          width: "36px",
+                          height: "36px",
+                          minWidth: "36px",
+                          backgroundColor: "#def9e7",
+                          borderRadius: "8px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}>
+                          <i className="fa-solid fa-globe" style={{ color: "#1a7a5c", fontSize: "16px" }}></i>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{
+                            margin: "0 0 4px 0",
+                            color: "#666",
+                            fontSize: "12px",
+                            fontWeight: "500",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
+                          }}>
+                            Website
+                          </p>
+                          <a href="https://www.maxcode.in" target="_blank" rel="noopener noreferrer" style={{
+                            margin: "0",
+                            color: "#1a1a1a",
+                            fontSize: "14px",
+                            fontWeight: "600",
+                            textDecoration: "none",
+                          }}>
+                            www.maxcode.in
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* Office Address */}
+                      <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                        <div style={{
+                          width: "36px",
+                          height: "36px",
+                          minWidth: "36px",
+                          backgroundColor: "#def9e7",
+                          borderRadius: "8px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}>
+                          <i className="fa-solid fa-map-pin" style={{ color: "#1a7a5c", fontSize: "16px" }}></i>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{
+                            margin: "0 0 4px 0",
+                            color: "#666",
+                            fontSize: "12px",
+                            fontWeight: "500",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
+                          }}>
+                            Office Address
+                          </p>
+                          <p style={{
+                            margin: "0",
+                            color: "#1a1a1a",
+                            fontSize: "14px",
+                            fontWeight: "600",
+                            lineHeight: "1.5",
+                          }}>
+                            New Mandi Road, Dausa (Raj.) - 303303
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Arrow indicator */}
+                    <div style={{
+                      position: "absolute",
+                      bottom: "-8px",
+                      left: "50%",
+                      width: "16px",
+                      height: "16px",
+                      backgroundColor: "#ffffff",
+                      border: "1px solid #e5e7eb",
+                      borderTop: "none",
+                      borderLeft: "none",
+                      transform: "translateX(-50%) rotate(45deg)",
+                    }}></div>
+                  </div>
+                )}
+              </span>
+              . All rights reserved.
             </p>
           </div>
         </div>
@@ -1469,6 +1761,17 @@ const Home = () => {
           }
           50% {
             opacity: 0.78;
+          }
+        }
+
+        @keyframes tooltipSlideUp {
+          from {
+            opacity: 0;
+            transform: translateX(-50%) translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
           }
         }
 
