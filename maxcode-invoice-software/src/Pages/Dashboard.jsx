@@ -711,7 +711,7 @@ const Dashboard = () => {
         <div className="col-lg-8 mb-4">
           <div className="card border-0 h-100 modern-card hover-elevate dashboard-snapshot-card">
             <div className="card-body">
-              <div className="d-flex justify-content-between align-items-center mb-3 snapshot-title-wrap">
+              <div className="d-flex justify-content-between align-items-center mb-4 snapshot-title-wrap">
                 <h5 className="fw-semibold mb-0 d-flex align-items-center gap-2">
                   <span className="snapshot-title-icon">
                     <i className="fa-solid fa-chart-line" />
@@ -847,7 +847,7 @@ const Dashboard = () => {
 
       <style>{`
         .dashboard-snapshot-card {
-          background: linear-gradient(160deg, #ffffff 0%, #f8fff9 58%, #eefaf0 100%);
+          background: #ffffff
           border: 1px solid rgba(0, 112, 38, 0.14);
           box-shadow: 0 16px 40px rgba(0, 64, 28, 0.08);
         }
