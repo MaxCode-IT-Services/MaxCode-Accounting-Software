@@ -11,6 +11,7 @@ const UPI_APPS = [
   { name: "PhonePe", src: "/UPI-app/PhonePe.png" },
   { name: "Paytm", src: "/UPI-app/Paytm.png" },
   { name: "GPay", src: "/UPI-app/GooglePay.png" },
+  { name: "Navi", src: "/UPI-app/Navi.png" },
   { name: "BHIM", src: "/UPI-app/bhim-upi.png" },
 ];
 

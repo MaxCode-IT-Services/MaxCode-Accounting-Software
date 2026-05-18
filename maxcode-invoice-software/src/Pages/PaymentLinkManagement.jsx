@@ -1383,7 +1383,7 @@ const PaymentLinkManagement = () => {
               alignItems: "center",
               justifyContent: "center",
               zIndex: 1200,
-              padding: "24px",
+              padding: "0px",
             }}
             onClick={closeQrModal}
           >
@@ -1504,6 +1504,7 @@ const PaymentLinkManagement = () => {
                         { name: "PhonePe", src: "/UPI-app/PhonePe.png" },
                         { name: "Paytm", src: "/UPI-app/Paytm.png" },
                         { name: "GPay", src: "/UPI-app/GooglePay.png" },
+                        { name: "Navi", src: "/UPI-app/Navi.png" },
                         { name: "BHIM", src: "/UPI-app/bhim-upi.png" },
                       ].map((app) => (
                         <img
