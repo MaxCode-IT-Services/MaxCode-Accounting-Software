@@ -455,31 +455,81 @@ const Dashboard = () => {
       label: "Ledger",
       icon: "fa-solid fa-book",
       route: "/admin/ledger-management",
+      color: "#007026",
     },
     {
       label: "Books of Accounts",
       icon: "fa-solid fa-table-list",
       route: "/admin/books-of-accounts",
+      color: "#1d8f45",
     },
     {
       label: "Balance Sheet",
       icon: "fa-solid fa-scale-unbalanced-flip",
       route: "/admin/balance-sheet",
+      color: "#0b7a3a",
     },
     {
       label: "Services Management",
       icon: "fa-solid fa-globe",
       route: "/admin/services-management",
+      color: "#0f6a83",
     },
     {
       label: "Financial Years",
       icon: "fa-regular fa-calendar-days",
       route: "/admin/financial-year-management",
+      color: "#b65a18",
     },
   ];
 
   const inputGstTotal = summary.purchaseTotals.tax + summary.rcmTotals.tax;
   const netGstLiability = summary.salesTotals.tax - inputGstTotal;
+  const snapshotRows = [
+    {
+      label: "Total Sales Value",
+      value: formatCurrency(summary.salesTotals.total),
+      icon: "fa-solid fa-file-invoice-dollar",
+    },
+    {
+      label: "Total Purchase + RCM Value",
+      value: formatCurrency(summary.purchaseTotals.total + summary.rcmTotals.total),
+      icon: "fa-solid fa-cart-shopping",
+    },
+    {
+      label: "Receivable from Customers",
+      value: formatCurrency(summary.salesTotals.pending),
+      icon: "fa-solid fa-wallet",
+    },
+    {
+      label: "Payable to Suppliers",
+      value: formatCurrency(summary.purchaseTotals.pending + summary.rcmTotals.pending),
+      icon: "fa-solid fa-hand-holding-dollar",
+    },
+  ];
+
+  const gstRows = [
+    {
+      label: "Output GST",
+      value: formatCurrency(summary.salesTotals.tax),
+      icon: "fa-solid fa-arrow-trend-up",
+    },
+    {
+      label: "Input GST",
+      value: formatCurrency(inputGstTotal),
+      icon: "fa-solid fa-arrow-trend-down",
+    },
+    {
+      label: "GST on Purchases",
+      value: formatCurrency(summary.purchaseTotals.tax),
+      icon: "fa-solid fa-receipt",
+    },
+    {
+      label: "GST on RCM",
+      value: formatCurrency(summary.rcmTotals.tax),
+      icon: "fa-solid fa-building-columns",
+    },
+  ];
 
   return (
     <div className="container-fluid">
@@ -590,100 +640,70 @@ const Dashboard = () => {
 
       <div className="row">
         <div className="col-lg-8 mb-4">
-          <div className="card border-0 h-100 modern-card hover-elevate">
+          <div className="card border-0 h-100 modern-card hover-elevate dashboard-snapshot-card">
             <div className="card-body">
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <h5 className="fw-semibold mb-0">Financial Snapshot</h5>
-                <span className="badge bg-light text-dark border">
+              <div className="d-flex justify-content-between align-items-center mb-3 snapshot-title-wrap">
+                <h5 className="fw-semibold mb-0 d-flex align-items-center gap-2">
+                  <span className="snapshot-title-icon">
+                    <i className="fa-solid fa-chart-line" />
+                  </span>
+                  Financial Snapshot
+                </h5>
+                <span className="badge bg-light text-dark border snapshot-fy-badge">
                   FY:{" "}
                   {selectedFinancialYear === "ALL"
                     ? "All Year"
                     : selectedFinancialYear}
                 </span>
               </div>
-              <div className="row g-3">
-                <div className="col-md-6">
-                  <div className="list-group list-group-flush border rounded h-100">
-                    <div className="list-group-item d-flex justify-content-between align-items-center">
-                      <span className="text-muted">Total Sales Value</span>
-                      <span className="fw-semibold">
-                        {formatCurrency(summary.salesTotals.total)}
+              <div className="snapshot-grid">
+                <div className="snapshot-panel">
+                  {snapshotRows.map((row) => (
+                    <div key={row.label} className="snapshot-row">
+                      <span className="snapshot-row-label-wrap">
+                        <span className="snapshot-row-icon">
+                          <i className={row.icon} />
+                        </span>
+                        <span className="snapshot-row-label">{row.label}</span>
                       </span>
+                      <span className="snapshot-row-value">{row.value}</span>
                     </div>
-                    <div className="list-group-item d-flex justify-content-between align-items-center">
-                      <span className="text-muted">
-                        Total Purchase + RCM Value
-                      </span>
-                      <span className="fw-semibold">
-                        {formatCurrency(
-                          summary.purchaseTotals.total +
-                            summary.rcmTotals.total,
-                        )}
-                      </span>
-                    </div>
-                    <div className="list-group-item d-flex justify-content-between align-items-center">
-                      <span className="text-muted">
-                        Receivable from Customers
-                      </span>
-                      <span className="fw-semibold">
-                        {formatCurrency(summary.salesTotals.pending)}
-                      </span>
-                    </div>
-                    <div className="list-group-item d-flex justify-content-between align-items-center">
-                      <span className="text-muted">Payable to Suppliers</span>
-                      <span className="fw-semibold">
-                        {formatCurrency(
-                          summary.purchaseTotals.pending +
-                            summary.rcmTotals.pending,
-                        )}
-                      </span>
-                    </div>
-                  </div>
+                  ))}
                 </div>
 
-                <div className="col-md-6">
-                  <div className="list-group list-group-flush border rounded h-100">
-                    <div className="list-group-item d-flex justify-content-between align-items-center">
-                      <span className="text-muted">Output GST</span>
-                      <span className="fw-semibold">
-                        {formatCurrency(summary.salesTotals.tax)}
+                <div className="snapshot-panel snapshot-panel-tax">
+                  {gstRows.map((row) => (
+                    <div key={row.label} className="snapshot-row">
+                      <span className="snapshot-row-label-wrap">
+                        <span className="snapshot-row-icon snapshot-row-icon-tax">
+                          <i className={row.icon} />
+                        </span>
+                        <span className="snapshot-row-label">{row.label}</span>
                       </span>
+                      <span className="snapshot-row-value">{row.value}</span>
                     </div>
-                    <div className="list-group-item d-flex justify-content-between align-items-center">
-                      <span className="text-muted">Input GST</span>
-                      <span className="fw-semibold">
-                        {formatCurrency(inputGstTotal)}
-                      </span>
-                    </div>
-                    <div className="list-group-item d-flex justify-content-between align-items-center">
-                      <span className="text-muted">GST on Purchases</span>
-                      <span className="fw-semibold">
-                        {formatCurrency(summary.purchaseTotals.tax)}
-                      </span>
-                    </div>
-                    <div className="list-group-item d-flex justify-content-between align-items-center">
-                      <span className="text-muted">GST on RCM</span>
-                      <span className="fw-semibold">
-                        {formatCurrency(summary.rcmTotals.tax)}
-                      </span>
-                    </div>
-                    <div className="list-group-item d-flex justify-content-between align-items-center">
-                      <span className="text-muted">Net GST</span>
-                      <span
-                        className={`fw-bold ${netGstLiability >= 0 ? "text-danger" : "text-success"}`}
-                      >
-                        {formatCurrency(Math.abs(netGstLiability))}
-                      </span>
-                    </div>
-                    <div className="list-group-item d-flex justify-content-between align-items-center">
-                      <span className="text-muted">Status</span>
-                      <span
-                        className={`badge ${netGstLiability >= 0 ? "bg-danger-subtle text-danger" : "bg-success-subtle text-success"}`}
-                      >
-                        {netGstLiability >= 0 ? "GST Payable" : "GST Refund"}
-                      </span>
-                    </div>
-                  </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="snapshot-highlight-grid mt-3">
+                <div className="snapshot-highlight-card">
+                  <span className="snapshot-highlight-label">Net GST</span>
+                  <span className={`snapshot-highlight-value ${netGstLiability >= 0 ? "text-danger" : "text-success"}`}>
+                    {formatCurrency(Math.abs(netGstLiability))}
+                  </span>
+                </div>
+                <div className="snapshot-highlight-card">
+                  <span className="snapshot-highlight-label">GST Status</span>
+                  <span className={`snapshot-status-chip ${netGstLiability >= 0 ? "snapshot-status-danger" : "snapshot-status-success"}`}>
+                    {netGstLiability >= 0 ? "GST Payable" : "GST Refund"}
+                  </span>
+                </div>
+                <div className="snapshot-highlight-card">
+                  <span className="snapshot-highlight-label">Estimated Profit</span>
+                  <span className="snapshot-highlight-value">
+                    {formatCurrency(summary.estimatedProfit)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -691,24 +711,32 @@ const Dashboard = () => {
         </div>
 
         <div className="col-lg-4 mb-4">
-          <div className="card border-0 h-100 modern-card hover-elevate">
+          <div className="card border-0 h-100 modern-card hover-elevate dashboard-quick-card">
             <div className="card-body">
-              <h5 className="fw-semibold mb-3">Quick Access</h5>
-              <div className="list-group list-group-flush">
+              <h5 className="fw-semibold mb-3 d-flex align-items-center gap-2">
+                <span className="snapshot-title-icon quick-title-icon">
+                  <i className="fa-solid fa-bolt" />
+                </span>
+                Quick Access
+              </h5>
+              <div className="quick-access-modern-grid">
                 {quickActions.map((item) => (
                   <button
                     key={item.label}
                     type="button"
-                    className="list-group-item list-group-item-action border rounded-3 mb-2 d-flex align-items-center justify-content-between"
+                    className="quick-access-modern-item"
                     onClick={() => navigate(item.route)}
+                    style={{ "--quick-accent": item.color }}
                   >
-                    <span className="d-flex align-items-center">
-                      <span className="avatar-xs rounded-circle bg-light text-primary d-inline-flex justify-content-center align-items-center me-2">
+                    <span className="quick-access-main">
+                      <span className="quick-access-icon-modern">
                         <i className={item.icon} />
                       </span>
-                      {item.label}
+                      <span className="quick-access-label-modern">{item.label}</span>
                     </span>
-                    <i className="fa-solid fa-chevron-right text-muted" />
+                    <span className="quick-access-arrow-modern">
+                      <i className="fa-solid fa-arrow-right" />
+                    </span>
                   </button>
                 ))}
               </div>
@@ -716,6 +744,282 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      <style>{`
+        .dashboard-snapshot-card {
+          background: linear-gradient(160deg, #ffffff 0%, #f8fff9 58%, #eefaf0 100%);
+          border: 1px solid rgba(0, 112, 38, 0.14);
+          box-shadow: 0 16px 40px rgba(0, 64, 28, 0.08);
+        }
+
+        .snapshot-title-wrap {
+          gap: 10px;
+        }
+
+        .snapshot-title-icon {
+          width: 32px;
+          height: 32px;
+          border-radius: 10px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(145deg, #007026, #1d8f45);
+          color: #fff;
+          font-size: 14px;
+          box-shadow: 0 8px 18px rgba(0, 112, 38, 0.24);
+        }
+
+        .snapshot-fy-badge {
+          border-radius: 999px;
+          padding: 8px 12px;
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        .snapshot-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+        }
+
+        .snapshot-panel {
+          border-radius: 14px;
+          border: 1px solid rgba(0, 112, 38, 0.12);
+          background: rgba(255, 255, 255, 0.82);
+          backdrop-filter: blur(4px);
+          overflow: hidden;
+        }
+
+        .snapshot-panel-tax {
+          border-color: rgba(15, 106, 131, 0.2);
+        }
+
+        .snapshot-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+          padding: 11px 12px;
+          border-bottom: 1px dashed rgba(0, 0, 0, 0.08);
+        }
+
+        .snapshot-row:last-child {
+          border-bottom: 0;
+        }
+
+        .snapshot-row-label-wrap {
+          display: inline-flex;
+          align-items: center;
+          min-width: 0;
+          gap: 8px;
+        }
+
+        .snapshot-row-icon {
+          width: 28px;
+          height: 28px;
+          border-radius: 8px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(0, 112, 38, 0.12);
+          color: #007026;
+          font-size: 12px;
+        }
+
+        .snapshot-row-icon-tax {
+          background: rgba(15, 106, 131, 0.14);
+          color: #0f6a83;
+        }
+
+        .snapshot-row-label {
+          font-size: 13px;
+          color: #4a5568;
+          font-weight: 500;
+        }
+
+        .snapshot-row-value {
+          font-size: 13px;
+          color: #1d2939;
+          font-weight: 700;
+          text-align: right;
+        }
+
+        .snapshot-highlight-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .snapshot-highlight-card {
+          border-radius: 12px;
+          border: 1px solid rgba(0, 112, 38, 0.12);
+          background: linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(239, 250, 242, 0.9));
+          padding: 10px 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          min-height: 76px;
+        }
+
+        .snapshot-highlight-label {
+          font-size: 11px;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          color: #667085;
+          font-weight: 700;
+        }
+
+        .snapshot-highlight-value {
+          font-size: 14px;
+          color: #101828;
+          font-weight: 700;
+        }
+
+        .snapshot-status-chip {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          padding: 5px 10px;
+          font-size: 12px;
+          font-weight: 700;
+          width: fit-content;
+        }
+
+        .snapshot-status-danger {
+          background: rgba(220, 38, 38, 0.12);
+          color: #b42318;
+        }
+
+        .snapshot-status-success {
+          background: rgba(2, 122, 72, 0.14);
+          color: #027a48;
+        }
+
+        .dashboard-quick-card {
+          background: linear-gradient(180deg, #ffffff 0%, #f9fcff 100%);
+          border: 1px solid rgba(15, 106, 131, 0.14);
+          box-shadow: 0 14px 34px rgba(9, 30, 66, 0.08);
+        }
+
+        .quick-title-icon {
+          background: linear-gradient(145deg, #0f6a83, #0f8ba4);
+          box-shadow: 0 8px 18px rgba(15, 106, 131, 0.24);
+        }
+
+        .quick-access-modern-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+
+        .quick-access-modern-item {
+          --quick-accent: #007026;
+          width: 100%;
+          border: 1px solid rgba(12, 74, 110, 0.12);
+          border-radius: 14px;
+          background: linear-gradient(110deg, #ffffff, #f7fbff);
+          padding: 11px 12px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .quick-access-modern-item::before {
+          content: "";
+          position: absolute;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 3px;
+          background: var(--quick-accent);
+          opacity: 0.65;
+        }
+
+        .quick-access-modern-item:hover {
+          transform: translateY(-2px);
+          border-color: color-mix(in srgb, var(--quick-accent) 44%, #c7d7e2 56%);
+          box-shadow: 0 10px 20px rgba(13, 37, 62, 0.11);
+        }
+
+        .quick-access-main {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .quick-access-icon-modern {
+          width: 36px;
+          height: 36px;
+          min-width: 36px;
+          border-radius: 10px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: color-mix(in srgb, var(--quick-accent) 16%, #ffffff 84%);
+          color: var(--quick-accent);
+          font-size: 15px;
+        }
+
+        .quick-access-label-modern {
+          font-size: 13px;
+          font-weight: 700;
+          color: #0f172a;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .quick-access-arrow-modern {
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #5d6b82;
+          background: #edf2f8;
+          transition: all 0.22s ease;
+          font-size: 11px;
+        }
+
+        .quick-access-modern-item:hover .quick-access-arrow-modern {
+          background: var(--quick-accent);
+          color: #fff;
+          transform: translateX(2px);
+        }
+
+        @media (max-width: 991px) {
+          .snapshot-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .snapshot-highlight-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+
+        @media (max-width: 575px) {
+          .snapshot-highlight-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .snapshot-row {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+
+          .snapshot-row-value {
+            text-align: left;
+            padding-left: 36px;
+          }
+        }
+      `}</style>
 
       <div className="alert bg-success text-white mb-4" role="alert">
         <div>
