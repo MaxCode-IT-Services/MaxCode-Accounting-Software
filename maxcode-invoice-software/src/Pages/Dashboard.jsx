@@ -450,12 +450,9 @@ const Dashboard = () => {
       >
         <div>
           <h4 className="fs-18 fw-semibold m-0">Dashboard</h4>
-          <small className="text-muted">
-            Unified overview across sales, purchases, projects, ledger and team
-          </small>
         </div>
 
-        <div className="d-flex gap-2 mt-2 mt-sm-0">
+        <div className="d-flex gap-2 mt-sm-0">
           <span className="badge bg-light text-dark border d-inline-flex align-items-center">
             FY:{" "}
             {selectedFinancialYear === "ALL"
