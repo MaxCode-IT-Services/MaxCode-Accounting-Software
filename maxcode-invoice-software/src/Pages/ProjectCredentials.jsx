@@ -831,52 +831,29 @@ const ProjectCredentials = () => {
             return (
               <div key={card.key} className="col-md-6 col-xl-2 mb-4">
                 <div
-                  className={`card border-0 shadow-sm overflow-hidden ${cardClass} ${isActive ? "border-primary" : ""}`}
+                  className={`card border-0 overflow-hidden ${cardClass} modern-card hover-elevate`}
                   style={{
-                    transition: "all 0.3s ease",
                     cursor: isAddNewDisabled ? "not-allowed" : "pointer",
                     opacity: isAddNewDisabled ? 0.6 : 1,
-                    height: "100%",
                     borderRadius: "12px",
+                    height: "100%",
                     border: isActive
                       ? "2px solid #0d6efd"
-                      : "1px solid #dee2e6",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (
-                      card.key === "addNew" ||
-                      card.key === activeCardFilter
-                    ) {
-                      e.currentTarget.style.transform = "translateY(-5px)";
-                      e.currentTarget.style.boxShadow =
-                        "0 10px 20px rgba(0,0,0,0.1)";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.boxShadow =
-                      "0 2px 4px rgba(0,0,0,0.1)";
+                      : undefined,
                   }}
                   onClick={() => !isAddNewDisabled && handleCardClick(card.key)}
                 >
                   <div className="card-body text-center p-2">
                     <div className="mb-3 mt-2 d-flex justify-content-center">
                       <span
-                        className={`avatar-md rounded-circle ${cardIconBgClass} d-inline-flex justify-content-center align-items-center`}
-                        style={{
-                          boxShadow: "0 4px 8px rgba(0,0,0,0.1)",
-                          width: "60px",
-                          height: "60px",
-                        }}
+                        className={`avatar-md rounded-circle ${cardIconBgClass} d-inline-flex justify-content-center align-items-center kpi-icon`}
+                        style={{ width: "56px", height: "56px" }}
                       >
-                        <i className={`${card.icon} fs-3 text-white`}></i>
+                        <i className={`${card.icon} fs-4 text-white`} />
                       </span>
                     </div>
                     <h5 className="mb-2 fw-bold">{card.title}</h5>
-                    <h6
-                      className="mb-0 text-muted fs-6 fw-bold"
-                      style={{ marginBottom: "-10px" }}
-                    >
+                    <h6 className="mb-0 text-muted fw-bold">
                       {card.key === "addNew" ? "+ Add New" : card.count}
                     </h6>
                   </div>

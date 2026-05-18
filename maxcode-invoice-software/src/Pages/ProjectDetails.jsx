@@ -670,38 +670,27 @@ const ProjectDetails = () => {
           return (
             <div key={card.key} className="col-md-6 col-xl-2 mb-4">
               <div
-                className={`card border-0 shadow-sm overflow-hidden ${cardClass}`}
+                className={`card border-0 overflow-hidden ${cardClass} modern-card hover-elevate`}
                 style={{
-                  transition: "all 0.3s ease",
                   cursor: card.key === "period" ? "pointer" : "default",
-                  height: "100%",
                   borderRadius: "12px",
-                  border: "1px solid #dee2e6",
+                  height: "100%",
                 }}
                 onClick={() => handleCardClick(card.key)}
               >
                 <div className="card-body text-center p-2">
                   <div className="mb-3 mt-2 d-flex justify-content-center">
                     <span
-                      className={`avatar-md rounded-circle ${cardIconBgClass} d-inline-flex justify-content-center align-items-center`}
-                      style={{
-                        boxShadow: "0 4px 8px rgba(0,0,0,0.1)",
-                        width: "60px",
-                        height: "60px",
-                      }}
+                      className={`avatar-md rounded-circle ${cardIconBgClass} d-inline-flex justify-content-center align-items-center kpi-icon`}
+                      style={{ width: "56px", height: "56px" }}
                     >
-                      <i className={`${card.icon} fs-3 text-white`}></i>
+                      <i className={`${card.icon} fs-4 text-white`} />
                     </span>
                   </div>
-                  <div>
-                    <h5 className="mb-2 fw-bold">{card.title}</h5>
-                    <h6
-                      className="mb-0 text-muted fs-6 fw-bold"
-                      style={{ marginBottom: "-10px" }}
-                    >
-                      {card.value}
-                    </h6>
-                  </div>
+                  <h5 className="mb-2 fw-bold">{card.title}</h5>
+                  <h6 className="mb-0 text-muted fw-bold">
+                    {card.value}
+                  </h6>
                 </div>
               </div>
             </div>
