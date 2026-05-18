@@ -13934,13 +13934,32 @@ li.menuitem-active > a:not(.collapsed) > span.menu-arrow {
 @media (max-width: 991.98px) {
   body {
     overflow-x: hidden;
-    padding-bottom: 80px;
+    padding-bottom: 0;
+  }
+  body.sidebar-enable {
+    overflow: hidden;
+  }
+  body.sidebar-enable .topbar-custom,
+  body.sidebar-enable .content-page,
+  body.sidebar-enable .footer {
+    visibility: hidden;
+    pointer-events: none;
   }
   .app-sidebar-menu {
-    z-index: 10 !important;
+    z-index: 1050 !important;
+    left: 0;
+    top: 0;
+    width: 100vw;
+    height: 100vh;
+    padding-top: 0;
+    padding-bottom: 0;
+    overflow: hidden;
   }
   .sidebar-enable .app-sidebar-menu {
     display: block;
+    transform: translateX(0) !important;
+    visibility: visible !important;
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.28);
   }
   .logo-box {
     display: none !important;

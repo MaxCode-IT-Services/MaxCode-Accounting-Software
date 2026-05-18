@@ -43,6 +43,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   const location = useLocation();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [greeting, setGreeting] = useState("Good Morning");
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1040);
@@ -300,11 +301,15 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       setIsMobile(mobile);
 
       if (mobile) {
-        document.body.setAttribute("data-sidebar", "hidden");
-        document.body.classList.add("sidebar-collapsed");
+        document.body.setAttribute("data-sidebar", "default");
+        document.body.classList.remove("sidebar-collapsed");
+        document.body.classList.remove("sidebar-enable");
+        setMobileSidebarOpen(false);
       } else {
         document.body.setAttribute("data-sidebar", "default");
         document.body.classList.remove("sidebar-collapsed");
+        document.body.classList.remove("sidebar-enable");
+        setMobileSidebarOpen(false);
       }
     };
 
@@ -333,7 +338,26 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   };
 
   // Sidebar toggle
+  const closeMobileSidebar = () => {
+    setMobileSidebarOpen(false);
+    document.body.classList.remove("sidebar-enable");
+  };
+
   const toggleSidebar = () => {
+    if (isMobile) {
+      const nextEnabled = !mobileSidebarOpen;
+      setMobileSidebarOpen(nextEnabled);
+
+      if (nextEnabled) {
+        document.body.classList.add("sidebar-enable");
+        document.body.setAttribute("data-sidebar", "default");
+      } else {
+        document.body.classList.remove("sidebar-enable");
+      }
+
+      return;
+    }
+
     const newCollapsed = !sidebarCollapsed;
     setSidebarCollapsed(newCollapsed);
 
@@ -1310,61 +1334,183 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
         </div>
 
         {/* Sidebar */}
+        {isMobile && mobileSidebarOpen && (
+          <div
+            aria-hidden="true"
+            onClick={closeMobileSidebar}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.45)",
+              zIndex: 1040,
+            }}
+          />
+        )}
+
         <div
           className={`app-sidebar-menu ${sidebarCollapsed ? "collapsed" : ""}`}
+          style={
+            isMobile
+              ? {
+                  position: "fixed",
+                  top: 0,
+                  left: 0,
+                  width: "100vw",
+                  height: "100vh",
+                  zIndex: 1050,
+                  transform: mobileSidebarOpen
+                    ? "translateX(0)"
+                    : "translateX(-100%)",
+                  visibility: mobileSidebarOpen ? "visible" : "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                  paddingTop: 0,
+                  paddingBottom: 0,
+                  background: "var(--bs-sidebar-bg)",
+                  boxShadow: "0 20px 45px rgba(0,0,0,0.28)",
+                  transition: "transform 0.25s ease, visibility 0.25s ease",
+                }
+              : undefined
+          }
         >
-          <div className="h-100" data-simplebar>
-            <div id="sidebar-menu">
-              <div className="logo-box">
+          <div className="h-100 d-flex flex-column" style={{ minHeight: 0 }}>
+            {isMobile && (
+              <div
+                style={{
+                  flex: "0 0 auto",
+                  minHeight: 72,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0 18px",
+                  borderBottom: "3px solid rgba(0,0,0,0.18)",
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 2,
+                  background: "var(--bs-sidebar-bg)",
+                  boxShadow: "0 1px 0 rgba(255,255,255,0.12)",
+                }}
+              >
                 <NavLink to={getDashboardLink()} className="logo logo-dark">
-                  <span className="logo-sm">
-                    <img
-                      src="/Logo.png"
-                      alt=""
-                      style={{ width: "200px", height: "50px" }}
-                    />
-                  </span>
-                  <span className="logo-lg">
-                    <img
-                      src="/Logo.png"
-                      alt=""
-                      style={{ width: "200px", height: "50px" }}
-                    />
-                  </span>
+                  <img
+                    src="/Logo.png"
+                    alt=""
+                    style={{ width: "180px", height: "48px" }}
+                  />
                 </NavLink>
+                <button
+                  type="button"
+                  className="btn btn-link p-0"
+                  onClick={closeMobileSidebar}
+                  aria-label="Close menu"
+                  style={{ color: "inherit" }}
+                >
+                  <i className="far fa-times-circle fs-1"></i>
+                </button>
               </div>
+            )}
 
-              <ul id="side-menu">
-                {/* Dynamic Menu Items based on Role */}
-                {currentMenuItems.map((item, index) => (
-                  <li key={index}>
-                    <NavLink
-                      to={item.to}
-                      style={({ isActive }) =>
-                        isActive
-                          ? activeLinkStyle
-                          : { padding: "10px", display: "block" }
-                      }
-                    >
-                      <i className={item.icon}></i>
-                      <span> {item.label} </span>
+            <div
+              className="h-100"
+              data-simplebar
+              style={{ minHeight: 0, overflowY: "auto", flex: "1 1 auto" }}
+            >
+              <div id="sidebar-menu">
+                {!isMobile && (
+                  <div className="logo-box">
+                    <NavLink to={getDashboardLink()} className="logo logo-dark">
+                      <span className="logo-sm">
+                        <img
+                          src="/Logo.png"
+                          alt=""
+                          style={{ width: "200px", height: "50px" }}
+                        />
+                      </span>
+                      <span className="logo-lg">
+                        <img
+                          src="/Logo.png"
+                          alt=""
+                          style={{ width: "200px", height: "50px" }}
+                        />
+                      </span>
                     </NavLink>
-                  </li>
-                ))}
+                  </div>
+                )}
 
-                <li>
-                  <a
-                    href="#"
-                    style={{ padding: "10px", display: "block" }}
-                    onClick={requestLogout}
-                  >
-                    <i className="fa-solid fa-right-from-bracket"></i>
-                    <span> Logout </span>
-                  </a>
-                </li>
-              </ul>
+                <ul id="side-menu">
+                  {/* Dynamic Menu Items based on Role */}
+                  {currentMenuItems.map((item, index) => (
+                    <li key={index}>
+                      <NavLink
+                        to={item.to}
+                        onClick={isMobile ? closeMobileSidebar : undefined}
+                        style={({ isActive }) =>
+                          isActive
+                            ? activeLinkStyle
+                            : { padding: "10px", display: "block" }
+                        }
+                      >
+                        <i className={item.icon}></i>
+                        <span> {item.label} </span>
+                      </NavLink>
+                    </li>
+                  ))}
+
+                  {!isMobile && (
+                    <li>
+                      <a
+                        href="#"
+                        style={{ padding: "10px", display: "block" }}
+                        onClick={requestLogout}
+                      >
+                        <i className="fa-solid fa-right-from-bracket"></i>
+                        <span> Logout </span>
+                      </a>
+                    </li>
+                  )}
+                </ul>
+              </div>
+              <div className="clearfix" />
             </div>
-            <div className="clearfix" />
+
+            {isMobile && (
+              <div
+                style={{
+                  flex: "0 0 auto",
+                  position: "sticky",
+                  bottom: 0,
+                  zIndex: 2,
+                  padding: "14px 18px 18px",
+                  borderTop: "1px solid rgba(255,255,255,0.08)",
+                  background: "inherit",
+                }}
+              >
+                <a
+                  href="#"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    width: "100%",
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    textDecoration: "none",
+                    color: "#d9534f",
+                    fontWeight: 700,
+                    background: "rgba(217, 83, 79, 0.08)",
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    closeMobileSidebar();
+                    requestLogout();
+                  }}
+                >
+                  <i className="fa-solid fa-right-from-bracket"></i>
+                  <span> Logout </span>
+                </a>
+              </div>
+            )}
           </div>
         </div>
 
