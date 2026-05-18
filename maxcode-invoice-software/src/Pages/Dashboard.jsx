@@ -15,6 +15,16 @@ const formatCurrency = (value) =>
     maximumFractionDigits: 2,
   })}`;
 
+const hexToRgba = (hex, alpha) => {
+  const normalized = (hex || "").replace("#", "");
+  if (normalized.length !== 6) return `rgba(0, 112, 38, ${alpha})`;
+  const bigint = Number.parseInt(normalized, 16);
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 const getDateOnly = (value) => {
   if (!value) return null;
   const date = new Date(value);
@@ -456,30 +466,35 @@ const Dashboard = () => {
       icon: "fa-solid fa-book",
       route: "/admin/ledger-management",
       color: "#007026",
+      colorTo: "#1f9d50",
     },
     {
       label: "Books of Accounts",
       icon: "fa-solid fa-table-list",
       route: "/admin/books-of-accounts",
-      color: "#1d8f45",
+      color: "#0e8f7b",
+      colorTo: "#12a594",
     },
     {
       label: "Balance Sheet",
       icon: "fa-solid fa-scale-unbalanced-flip",
       route: "/admin/balance-sheet",
-      color: "#0b7a3a",
+      color: "#c62828",
+      colorTo: "#e53935",
     },
     {
       label: "Services Management",
       icon: "fa-solid fa-globe",
       route: "/admin/services-management",
-      color: "#0f6a83",
+      color: "#ff0000",
+      colorTo: "#ff4d4d",
     },
     {
       label: "Financial Years",
       icon: "fa-regular fa-calendar-days",
       route: "/admin/financial-year-management",
-      color: "#b65a18",
+      color: "#d81b60",
+      colorTo: "#ec407a",
     },
   ];
 
@@ -726,7 +741,13 @@ const Dashboard = () => {
                     type="button"
                     className="quick-access-modern-item"
                     onClick={() => navigate(item.route)}
-                    style={{ "--quick-accent": item.color }}
+                    style={{
+                      "--quick-accent": item.color,
+                      "--quick-accent-to": item.colorTo,
+                      "--quick-accent-soft": hexToRgba(item.color, 0.12),
+                      "--quick-accent-border": hexToRgba(item.color, 0.34),
+                      "--quick-accent-glow": hexToRgba(item.color, 0.22),
+                    }}
                   >
                     <span className="quick-access-main">
                       <span className="quick-access-icon-modern">
@@ -915,10 +936,14 @@ const Dashboard = () => {
 
         .quick-access-modern-item {
           --quick-accent: #007026;
+          --quick-accent-to: #1f9d50;
+          --quick-accent-soft: rgba(0, 112, 38, 0.12);
+          --quick-accent-border: rgba(0, 112, 38, 0.34);
+          --quick-accent-glow: rgba(0, 112, 38, 0.22);
           width: 100%;
-          border: 1px solid rgba(12, 74, 110, 0.12);
+          border: 1px solid var(--quick-accent-border);
           border-radius: 14px;
-          background: linear-gradient(110deg, #ffffff, #f7fbff);
+          background: linear-gradient(130deg, var(--quick-accent-soft) 0%, #ffffff 56%, rgba(255, 255, 255, 0.96) 100%);
           padding: 11px 12px;
           display: flex;
           align-items: center;
@@ -935,15 +960,26 @@ const Dashboard = () => {
           left: 0;
           top: 0;
           bottom: 0;
-          width: 3px;
-          background: var(--quick-accent);
-          opacity: 0.65;
+          width: 4px;
+          background: linear-gradient(180deg, var(--quick-accent), var(--quick-accent-to));
+        }
+
+        .quick-access-modern-item::after {
+          content: "";
+          position: absolute;
+          right: -30px;
+          top: -30px;
+          width: 88px;
+          height: 88px;
+          border-radius: 50%;
+          background: radial-gradient(circle, var(--quick-accent-glow) 0%, rgba(255, 255, 255, 0) 70%);
+          pointer-events: none;
         }
 
         .quick-access-modern-item:hover {
-          transform: translateY(-2px);
-          border-color: color-mix(in srgb, var(--quick-accent) 44%, #c7d7e2 56%);
-          box-shadow: 0 10px 20px rgba(13, 37, 62, 0.11);
+          transform: translateY(-3px) scale(1.01);
+          border-color: var(--quick-accent);
+          box-shadow: 0 12px 24px var(--quick-accent-glow);
         }
 
         .quick-access-main {
@@ -961,9 +997,10 @@ const Dashboard = () => {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          background: color-mix(in srgb, var(--quick-accent) 16%, #ffffff 84%);
-          color: var(--quick-accent);
+          background: linear-gradient(145deg, var(--quick-accent), var(--quick-accent-to));
+          color: #ffffff;
           font-size: 15px;
+          box-shadow: 0 8px 16px var(--quick-accent-glow);
         }
 
         .quick-access-label-modern {
@@ -982,8 +1019,9 @@ const Dashboard = () => {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          color: #5d6b82;
-          background: #edf2f8;
+          color: var(--quick-accent);
+          background: #ffffff;
+          border: 1px solid var(--quick-accent-border);
           transition: all 0.22s ease;
           font-size: 11px;
         }
