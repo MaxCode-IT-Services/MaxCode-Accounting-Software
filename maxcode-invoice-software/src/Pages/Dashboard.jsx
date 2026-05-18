@@ -75,6 +75,41 @@ const getPaidAmount = (record, totalAmount) => {
 const Dashboard = () => {
   const navigate = useNavigate();
 
+  // Animated counter component (smoothly animates numeric values)
+  const Counter = ({ value = 0, format = "currency", duration = 900 }) => {
+    const [display, setDisplay] = useState(0);
+
+    useEffect(() => {
+      let start = null;
+      const from = Number(display) || 0;
+      const to = Number(value) || 0;
+      if (from === to) return setDisplay(to);
+
+      const step = (timestamp) => {
+        if (!start) start = timestamp;
+        const progress = Math.min((timestamp - start) / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const current = from + (to - from) * eased;
+        setDisplay(current);
+        if (progress < 1) {
+          requestAnimationFrame(step);
+        }
+      };
+
+      const raf = requestAnimationFrame(step);
+      return () => cancelAnimationFrame(raf);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [value]);
+
+    if (format === "int") return <span>{Math.round(display).toLocaleString("en-IN")}</span>;
+    if (format === "currency") return (
+      <span>
+        {`₹ ${Math.max(0, Math.round(display)).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`}
+      </span>
+    );
+    return <span>{display}</span>;
+  };
+
   useEffect(() => {
     document.title = "Dashboard | MaxCode IT Services";
   }, []);
@@ -323,44 +358,48 @@ const Dashboard = () => {
     {
       key: "sales-total",
       title: "Total Sales Value",
-      value: formatCurrency(summary.salesTotals.total),
+      rawValue: summary.salesTotals.total,
+      format: "currency",
       icon: "fa-solid fa-file-invoice-dollar",
       route: "/admin/sales-management",
     },
     {
       key: "sales-received",
       title: "Payment Received",
-      value: formatCurrency(summary.salesTotals.received),
+      rawValue: summary.salesTotals.received,
+      format: "currency",
       icon: "fa-solid fa-money-bill-trend-up",
       route: "/admin/sales-management",
     },
     {
       key: "purchase-paid",
       title: "Supplier Payment Paid",
-      value: formatCurrency(
-        summary.purchaseTotals.paid + summary.rcmTotals.paid,
-      ),
+      rawValue: summary.purchaseTotals.paid + summary.rcmTotals.paid,
+      format: "currency",
       icon: "fa-solid fa-cart-shopping",
       route: "/admin/purchase-management",
     },
     {
       key: "project-payout",
       title: "Developer Payout",
-      value: formatCurrency(summary.projectSummary.payoutTotal),
+      rawValue: summary.projectSummary.payoutTotal,
+      format: "currency",
       icon: "fa-solid fa-money-check-dollar",
       route: "/admin/project-details",
     },
     {
       key: "net-cashflow",
       title: "Net Cash In Hand",
-      value: formatCurrency(summary.netCashflow),
+      rawValue: summary.netCashflow,
+      format: "currency",
       icon: "fa-solid fa-scale-balanced",
       route: "/admin/ledger-management",
     },
     {
       key: "estimated-profit",
       title: "Estimated Profit",
-      value: formatCurrency(summary.estimatedProfit),
+      rawValue: summary.estimatedProfit,
+      format: "currency",
       icon: "fa-solid fa-sack-dollar",
       route: "/admin/balance-sheet",
     },
@@ -484,7 +523,7 @@ const Dashboard = () => {
           return (
             <div key={card.key} className="col-md-6 col-xl-2 mb-4">
               <div
-                className={`card border-0 shadow-sm overflow-hidden ${cardClass}`}
+                className={`card border-0 overflow-hidden ${cardClass} modern-card hover-elevate`}
                 style={{
                   cursor: "pointer",
                   borderRadius: "12px",
@@ -495,14 +534,16 @@ const Dashboard = () => {
                 <div className="card-body text-center p-2">
                   <div className="mb-3 mt-2 d-flex justify-content-center">
                     <span
-                      className={`avatar-md rounded-circle ${iconClass} d-inline-flex justify-content-center align-items-center`}
+                      className={`avatar-md rounded-circle ${iconClass} d-inline-flex justify-content-center align-items-center kpi-icon`}
                       style={{ width: "56px", height: "56px" }}
                     >
                       <i className={`${card.icon} fs-4 text-white`} />
                     </span>
                   </div>
                   <h6 className="mb-2 fw-bold">{card.title}</h6>
-                  <p className="mb-0 text-muted fw-semibold">{card.value}</p>
+                  <p className="mb-0 text-muted fw-semibold kpi-value">
+                    <Counter value={card.rawValue ?? card.value ?? 0} format={card.format ?? "currency"} />
+                  </p>
                 </div>
               </div>
             </div>
@@ -519,7 +560,7 @@ const Dashboard = () => {
           return (
             <div key={card.key} className="col-md-6 col-xl-2 mb-4">
               <div
-                className={`card border-0 shadow-sm overflow-hidden ${cardClass}`}
+                className={`card border-0 overflow-hidden ${cardClass} modern-card hover-elevate`}
                 style={{
                   cursor: "pointer",
                   borderRadius: "12px",
@@ -537,8 +578,8 @@ const Dashboard = () => {
                     </span>
                   </div>
                   <h6 className="mb-2 fw-bold">{card.title}</h6>
-                  <p className="mb-0 text-muted fw-semibold">
-                    {toNumber(card.value).toLocaleString("en-IN")}
+                  <p className="mb-0 text-muted fw-semibold kpi-value">
+                    <Counter value={card.value} format="int" />
                   </p>
                 </div>
               </div>
@@ -549,7 +590,7 @@ const Dashboard = () => {
 
       <div className="row">
         <div className="col-lg-8 mb-4">
-          <div className="card border-0 shadow-sm h-100">
+          <div className="card border-0 h-100 modern-card hover-elevate">
             <div className="card-body">
               <div className="d-flex justify-content-between align-items-center mb-3">
                 <h5 className="fw-semibold mb-0">Financial Snapshot</h5>
@@ -650,7 +691,7 @@ const Dashboard = () => {
         </div>
 
         <div className="col-lg-4 mb-4">
-          <div className="card border-0 shadow-sm h-100">
+          <div className="card border-0 h-100 modern-card hover-elevate">
             <div className="card-body">
               <h5 className="fw-semibold mb-3">Quick Access</h5>
               <div className="list-group list-group-flush">
