@@ -1147,7 +1147,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                       {captchaEnabled && (
                         <div className="mt-1 mb-2 d-flex justify-content-center">
                           <div
-                            className="px-3 py-2 rounded-4 border bg-light d-flex justify-content-center align-items-center"
+                            className="captcha-shell px-3 py-2 rounded-4 border bg-light d-flex justify-content-center align-items-center"
                             style={{ minHeight: 80, width: "100%", maxWidth: 380 }}
                           >
                             <div
@@ -2245,6 +2245,10 @@ const Login = ({ settings, onAuthSuccess }) => {
           margin-top: 4px;
         }
 
+        .captcha-shell {
+          width: 100%;
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
           .road-board-card {
@@ -2290,6 +2294,20 @@ const Login = ({ settings, onAuthSuccess }) => {
           }
           .backup-pin-input {
             font-size: 1rem;
+          }
+
+          .captcha-shell {
+            width: fit-content;
+            max-width: 100% !important;
+            padding: 0 !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            background: transparent !important;
+            min-height: auto !important;
+          }
+
+          .captcha-shell > div {
+            min-height: 0 !important;
           }
         }
       `}</style>
