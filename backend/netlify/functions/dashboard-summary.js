@@ -46,6 +46,19 @@ export async function handler(event) {
       taxData: 1,
       isDeleted: 1,
     };
+    const receiptProjection = {
+      _id: 1,
+      id: 1,
+      receiptDate: 1,
+      createdAt: 1,
+      createdDate: 1,
+      date: 1,
+      paymentType: 1,
+      amount: 1,
+      adjustedAmount: 1,
+      paymentMethod: 1,
+      isDeleted: 1,
+    };
 
     const [
       years,
@@ -56,6 +69,7 @@ export async function handler(event) {
       invoices,
       purchases,
       rcm,
+      paymentReceipts,
       projects,
     ] = await Promise.all([
       db.collection("financialYears").find(notDeletedQuery).toArray(),
@@ -98,6 +112,10 @@ export async function handler(event) {
         .find(notDeletedQuery, { projection: monetaryProjection })
         .toArray(),
       db
+        .collection("payment_receipts")
+        .find(notDeletedQuery, { projection: receiptProjection })
+        .toArray(),
+      db
         .collection("projects")
         .find(notDeletedQuery, {
           projection: {
@@ -126,6 +144,7 @@ export async function handler(event) {
         invoices,
         purchases,
         rcm,
+        paymentReceipts,
         projects,
       },
       origin,

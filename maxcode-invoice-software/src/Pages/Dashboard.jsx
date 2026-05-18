@@ -137,6 +137,7 @@ const Dashboard = () => {
   const [sales, setSales] = useState([]);
   const [purchases, setPurchases] = useState([]);
   const [rcm, setRcm] = useState([]);
+  const [paymentReceipts, setPaymentReceipts] = useState([]);
   const [projects, setProjects] = useState([]);
 
   const getSelectedYearRange = () => {
@@ -189,6 +190,9 @@ const Dashboard = () => {
         ? payload.purchases
         : [];
       const rcmData = Array.isArray(payload.rcm) ? payload.rcm : [];
+      const paymentReceiptsData = Array.isArray(payload.paymentReceipts)
+        ? payload.paymentReceipts
+        : [];
       const projectsData = Array.isArray(payload.projects)
         ? payload.projects
         : [];
@@ -218,6 +222,10 @@ const Dashboard = () => {
       );
 
       setRcm(rcmData.filter((record) => record?.isDeleted !== true));
+
+      setPaymentReceipts(
+        paymentReceiptsData.filter((record) => record?.isDeleted !== true),
+      );
 
       setProjects(projectsData.filter((record) => record?.isDeleted !== true));
     } catch (error) {
@@ -256,8 +264,25 @@ const Dashboard = () => {
     const filteredSales = filterByFinancialYear(sales);
     const filteredPurchases = filterByFinancialYear(purchases);
     const filteredRcm = filterByFinancialYear(rcm);
+    const filteredPaymentReceipts = filterByFinancialYear(paymentReceipts);
     const filteredProjects = filterByFinancialYear(projects);
     const filteredServices = filterByFinancialYear(services);
+
+    const advanceTotals = filteredPaymentReceipts.reduce(
+      (acc, record) => {
+        if (String(record?.paymentType || "").toLowerCase() !== "advance") {
+          return acc;
+        }
+
+        const amount = toNumber(record.amount || 0);
+        const adjustedAmount = toNumber(record.adjustedAmount || 0);
+        acc.total += amount;
+        acc.adjusted += adjustedAmount;
+        acc.balance += Math.max(amount - adjustedAmount, 0);
+        return acc;
+      },
+      { total: 0, adjusted: 0, balance: 0 },
+    );
 
     const salesTotals = filteredSales.reduce(
       (acc, record) => {
@@ -347,6 +372,7 @@ const Dashboard = () => {
       salesTotals,
       purchaseTotals,
       rcmTotals,
+      advanceTotals,
       projectSummary,
       netCashflow,
       estimatedProfit,
@@ -355,6 +381,7 @@ const Dashboard = () => {
     sales,
     purchases,
     rcm,
+    paymentReceipts,
     projects,
     services,
     clients,
@@ -479,15 +506,15 @@ const Dashboard = () => {
       label: "Balance Sheet",
       icon: "fa-solid fa-scale-unbalanced-flip",
       route: "/admin/balance-sheet",
-      color: "#c62828",
-      colorTo: "#e53935",
+      color: "#ff0000",
+      colorTo: "#ff4d4d",
     },
     {
       label: "Services Management",
       icon: "fa-solid fa-globe",
       route: "/admin/services-management",
-      color: "#ff0000",
-      colorTo: "#ff4d4d",
+      color: "#fd4c00",
+      colorTo: "#fb6400",
     },
     {
       label: "Financial Years",
@@ -495,6 +522,13 @@ const Dashboard = () => {
       route: "/admin/financial-year-management",
       color: "#d81b60",
       colorTo: "#ec407a",
+    },
+    {
+      label: "Sales Management",
+      icon: "fa-solid fa-file-invoice-dollar",
+      route: "/admin/sales-management",
+      color: "#007026",
+      colorTo: "#1f9d50",
     },
   ];
 
@@ -521,6 +555,16 @@ const Dashboard = () => {
       value: formatCurrency(summary.purchaseTotals.pending + summary.rcmTotals.pending),
       icon: "fa-solid fa-hand-holding-dollar",
     },
+    {
+      label: "Net Cash In Hand",
+      value: formatCurrency(summary.netCashflow),
+      icon: "fa-solid fa-scale-balanced",
+    },
+    {
+      label: "Advance Amount",
+      value: formatCurrency(summary.advanceTotals.total),
+      icon: "fa-solid fa-hand-holding-dollar",
+    },
   ];
 
   const gstRows = [
@@ -543,6 +587,16 @@ const Dashboard = () => {
       label: "GST on RCM",
       value: formatCurrency(summary.rcmTotals.tax),
       icon: "fa-solid fa-building-columns",
+    },
+    {
+      label: "Net GST",
+      value: formatCurrency(Math.abs(netGstLiability)),
+      icon: "fa-solid fa-indian-rupee-sign",
+    },
+    {
+      label: "Estimated Profit",
+      value: formatCurrency(summary.estimatedProfit),
+      icon: "fa-solid fa-sack-dollar",
     },
   ];
 
@@ -671,54 +725,79 @@ const Dashboard = () => {
                     : selectedFinancialYear}
                 </span>
               </div>
-              <div className="snapshot-grid">
-                <div className="snapshot-panel">
-                  {snapshotRows.map((row) => (
-                    <div key={row.label} className="snapshot-row">
-                      <span className="snapshot-row-label-wrap">
-                        <span className="snapshot-row-icon">
-                          <i className={row.icon} />
-                        </span>
-                        <span className="snapshot-row-label">{row.label}</span>
-                      </span>
-                      <span className="snapshot-row-value">{row.value}</span>
-                    </div>
-                  ))}
-                </div>
+              <div className="snapshot-quick-wrap">
+                <div className="snapshot-quick-columns">
+                  <div className="snapshot-quick-column">
+                    {snapshotRows.map((row, i) => {
+                      const colors = [
+                        { c: '#007026', t: '#1f9d50' },
+                        { c: '#0e8f7b', t: '#12a594' },
+                        { c: '#ff0000', t: '#ff4d4d' },
+                        { c: '#fd4c00', t: '#fb6400' },
+                        { c: '#d81b60', t: '#ec407a' },
+                      ];
+                      const col = colors[i % colors.length];
+                      return (
+                        <button
+                          key={row.label}
+                          type="button"
+                          className="quick-access-modern-item snapshot-quick-item"
+                          onClick={() => {}}
+                          style={{
+                            "--quick-accent": col.c,
+                            "--quick-accent-to": col.t,
+                            "--quick-accent-soft": hexToRgba(col.c, 0.12),
+                            "--quick-accent-border": hexToRgba(col.c, 0.34),
+                            "--quick-accent-glow": hexToRgba(col.c, 0.18),
+                          }}
+                        >
+                          <span className="quick-access-main">
+                            <span className="quick-access-icon-modern">
+                              <i className={row.icon} />
+                            </span>
+                            <span className="quick-access-label-modern">{row.label}</span>
+                          </span>
+                          <span className="quick-access-arrow-modern">{row.value}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
 
-                <div className="snapshot-panel snapshot-panel-tax">
-                  {gstRows.map((row) => (
-                    <div key={row.label} className="snapshot-row">
-                      <span className="snapshot-row-label-wrap">
-                        <span className="snapshot-row-icon snapshot-row-icon-tax">
-                          <i className={row.icon} />
-                        </span>
-                        <span className="snapshot-row-label">{row.label}</span>
-                      </span>
-                      <span className="snapshot-row-value">{row.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="snapshot-highlight-grid mt-3">
-                <div className="snapshot-highlight-card">
-                  <span className="snapshot-highlight-label">Net GST</span>
-                  <span className={`snapshot-highlight-value ${netGstLiability >= 0 ? "text-danger" : "text-success"}`}>
-                    {formatCurrency(Math.abs(netGstLiability))}
-                  </span>
-                </div>
-                <div className="snapshot-highlight-card">
-                  <span className="snapshot-highlight-label">GST Status</span>
-                  <span className={`snapshot-status-chip ${netGstLiability >= 0 ? "snapshot-status-danger" : "snapshot-status-success"}`}>
-                    {netGstLiability >= 0 ? "GST Payable" : "GST Refund"}
-                  </span>
-                </div>
-                <div className="snapshot-highlight-card">
-                  <span className="snapshot-highlight-label">Estimated Profit</span>
-                  <span className="snapshot-highlight-value">
-                    {formatCurrency(summary.estimatedProfit)}
-                  </span>
+                  <div className="snapshot-quick-column">
+                    {gstRows.map((row, i) => {
+                      const colors = [
+                        { c: '#007026', t: '#1f9d50' },
+                        { c: '#0e8f7b', t: '#12a594' },
+                        { c: '#ff0000', t: '#ff4d4d' },
+                        { c: '#fd4c00', t: '#fb6400' },
+                        { c: '#d81b60', t: '#ec407a' },
+                      ];
+                      const col = colors[i % colors.length];
+                      return (
+                        <button
+                          key={row.label}
+                          type="button"
+                          className="quick-access-modern-item snapshot-quick-item"
+                          onClick={() => {}}
+                          style={{
+                            "--quick-accent": col.c,
+                            "--quick-accent-to": col.t,
+                            "--quick-accent-soft": hexToRgba(col.c, 0.12),
+                            "--quick-accent-border": hexToRgba(col.c, 0.34),
+                            "--quick-accent-glow": hexToRgba(col.c, 0.18),
+                          }}
+                        >
+                          <span className="quick-access-main">
+                            <span className="quick-access-icon-modern">
+                              <i className={row.icon} />
+                            </span>
+                            <span className="quick-access-label-modern">{row.label}</span>
+                          </span>
+                          <span className="quick-access-arrow-modern">{row.value}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1013,23 +1092,62 @@ const Dashboard = () => {
         }
 
         .quick-access-arrow-modern {
-          width: 28px;
-          height: 28px;
-          border-radius: 50%;
           display: inline-flex;
           align-items: center;
           justify-content: center;
           color: var(--quick-accent);
-          background: #ffffff;
-          border: 1px solid var(--quick-accent-border);
-          transition: all 0.22s ease;
-          font-size: 11px;
+          background: transparent;
+          border: none;
+          padding: 0;
+          min-width: 0;
+          font-size: 1rem;
+          font-weight: 700;
+          transition: transform 0.22s ease, color 0.22s ease;
         }
 
         .quick-access-modern-item:hover .quick-access-arrow-modern {
-          background: var(--quick-accent);
-          color: #fff;
           transform: translateX(2px);
+        }
+
+        /* Snapshot quick grid styles */
+        .snapshot-quick-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .snapshot-quick-columns {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .snapshot-quick-column {
+          display: grid;
+          gap: 10px;
+          grid-auto-rows: 58px;
+        }
+
+        .snapshot-quick-item {
+          padding: 11px 12px;
+          min-height: 58px;
+          height: 58px;
+        }
+
+        .snapshot-quick-item .quick-access-label-modern {
+          max-width: 150px;
+        }
+
+        .snapshot-quick-highlights {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 12px;
+        }
+
+        @media (max-width: 991px) {
+          .snapshot-quick-columns { grid-template-columns: 1fr; }
+          .snapshot-quick-highlights { grid-template-columns: repeat(2, minmax(0,1fr)); }
         }
 
         @media (max-width: 991px) {
