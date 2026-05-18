@@ -1145,7 +1145,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                       )}
 
                       {captchaEnabled && (
-                        <div className="mt-1 mb-2 d-flex justify-content-center">
+                        <div className="mt-3 mb-2 d-flex justify-content-center">
                           <div
                             className="captcha-shell px-3 py-2 rounded-4 border bg-light d-flex justify-content-center align-items-center"
                             style={{ minHeight: 80, width: "100%", maxWidth: 380 }}
@@ -2297,13 +2297,16 @@ const Login = ({ settings, onAuthSuccess }) => {
           }
 
           .captcha-shell {
-            width: fit-content;
+            width: auto !important;
             max-width: 100% !important;
+            display: inline-flex;
             padding: 0 !important;
             border: 0 !important;
             border-radius: 0 !important;
             background: transparent !important;
             min-height: auto !important;
+            transform: scale(0.95);
+            transform-origin: center top;
           }
 
           .captcha-shell > div {
