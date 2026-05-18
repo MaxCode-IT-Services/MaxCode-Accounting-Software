@@ -26,6 +26,7 @@ const Login = ({ settings, onAuthSuccess }) => {
   const [captchaSiteKey, setCaptchaSiteKey] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaError, setCaptchaError] = useState("");
+  const [isDesktopCaptcha, setIsDesktopCaptcha] = useState(false);
 
   // Two-Factor Authentication state
   const [needs2FA, setNeeds2FA] = useState(false);
@@ -124,6 +125,27 @@ const Login = ({ settings, onAuthSuccess }) => {
   // Remove auto-focus completely - user must click to focus
   useEffect(() => {
     // Intentionally empty - no auto-focus on any field
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia("(min-width: 992px)");
+    const updateScreenMode = () => {
+      setIsDesktopCaptcha(mediaQuery.matches);
+    };
+
+    updateScreenMode();
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", updateScreenMode);
+      return () => mediaQuery.removeEventListener("change", updateScreenMode);
+    }
+
+    mediaQuery.addListener(updateScreenMode);
+    return () => mediaQuery.removeListener(updateScreenMode);
   }, []);
 
   useEffect(() => {
@@ -928,10 +950,16 @@ const Login = ({ settings, onAuthSuccess }) => {
                   </span>
                 </h1>
 
-                <p className="text-white mb-4 fs-5 cockpit-subtitle">
-                  Your complete business ecosystem. Manage invoices, inventory,
-                  and analytics in one secure, encrypted platform.
-                </p>
+                {captchaEnabled && isDesktopCaptcha && (
+                  <div className="mt-4 d-flex justify-content-start">
+                    <div
+                      className="captcha-shell captcha-desktop-shell"
+                      style={{ width: "fit-content", maxWidth: 420, minHeight: 80 }}
+                    >
+                      <div ref={captchaContainerRef} />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="cockpit-metrics-wrap">
@@ -1052,7 +1080,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                           onChange={handleMobileChange}
                           minLength="10"
                           maxLength="10"
-                          placeholder="10-digit mobile number"
+                          placeholder="9876543210"
                           onFocus={() => setFocusedField("mobile")}
                           onBlur={() => setFocusedField(null)}
                           style={{
@@ -1144,17 +1172,10 @@ const Login = ({ settings, onAuthSuccess }) => {
                         </div>
                       )}
 
-                      {captchaEnabled && (
+                      {captchaEnabled && !isDesktopCaptcha && (
                         <div className="mt-3 mb-2 d-flex justify-content-center">
-                          <div
-                            className="captcha-shell px-3 py-2 rounded-4 border bg-light d-flex justify-content-center align-items-center"
-                            style={{ minHeight: 80, width: "100%", maxWidth: 380 }}
-                          >
-                            <div
-                              ref={captchaContainerRef}
-                              className="d-flex justify-content-center align-items-center"
-                              style={{ minHeight: 45 }}
-                            />
+                          <div className="captcha-shell" style={{ width: "100%", minHeight: 80 }}>
+                            <div ref={captchaContainerRef} />
                           </div>
                           {!captchaSiteKey && !captchaError && (
                             <div className="text-danger small mt-2 text-center">
@@ -2244,9 +2265,20 @@ const Login = ({ settings, onAuthSuccess }) => {
           font-size: 0.75rem;
           margin-top: 4px;
         }
-
+        
         .captcha-shell {
           width: 100%;
+          max-width: 100%;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          box-sizing: border-box;
+        }
+
+        .captcha-desktop-shell {
+          width: fit-content;
+          justify-content: flex-start;
+          align-items: flex-start;
         }
 
         /* Responsive */
@@ -2307,10 +2339,6 @@ const Login = ({ settings, onAuthSuccess }) => {
             min-height: auto !important;
             transform: scale(0.95);
             transform-origin: center top;
-          }
-
-          .captcha-shell > div {
-            min-height: 0 !important;
           }
         }
       `}</style>
