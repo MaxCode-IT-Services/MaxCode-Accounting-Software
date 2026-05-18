@@ -533,9 +533,6 @@ const BalanceSheet = () => {
       >
         <div>
           <h4 className="fs-18 fw-semibold m-0">Balance Sheet</h4>
-          <small className="text-muted">
-            Assets, liabilities, and equity as of selected financial year
-          </small>
         </div>
 
         <div className="d-flex flex-wrap gap-2 mt-2 mt-sm-0 justify-content-end">

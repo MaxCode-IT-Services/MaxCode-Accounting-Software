@@ -1630,10 +1630,6 @@ const BooksOfAccounts = () => {
         {/* Left Side - Heading */}
         <div className="flex-grow-1">
           <h4 className="fs-18 fw-semibold m-0">Books of Accounts Register</h4>
-          <small className="text-muted">
-            Combined Sales, Purchase, Company Expense, RCM and Developer payout
-            ledger records
-          </small>
         </div>
 
         {/* Right Side - Toggle */}

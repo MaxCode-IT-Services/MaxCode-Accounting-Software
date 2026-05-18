@@ -630,9 +630,6 @@ const ProjectDetails = () => {
       >
         <div>
           <h4 className="fs-18 fw-semibold m-0">Project Details</h4>
-          <small className="text-muted">
-            Project-wise payable, payout and tax details
-          </small>
         </div>
 
         <div className="d-flex align-items-center gap-3 flex-wrap">
