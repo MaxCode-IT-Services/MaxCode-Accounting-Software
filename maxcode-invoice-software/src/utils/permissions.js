@@ -160,6 +160,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "ownerWithdrawal",
+    label: "Owner Withdrawal",
+    description: "Track owner withdrawals from business to personal or family account",
+    icon: "fa-solid fa-money-bill-transfer",
+    route: "/admin/owner-withdrawal",
+    detailed: true,
+  },
+  {
     key: "projectCredentials",
     label: "Project Credentials",
     description: "Manage project credentials",

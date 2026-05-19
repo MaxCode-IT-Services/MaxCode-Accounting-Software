@@ -1,0 +1,511 @@
+import { connectToDatabase, createResponse } from "./utils/mongodb.js";
+import { ObjectId } from "mongodb";
+import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
+import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
+import { syncTransactionSnapshot } from "./utils/transactions.js";
+
+/**
+ * Owner Withdrawals API
+ * Tracks money withdrawn from business to owner's personal/family accounts
+ * Requires JWT authentication
+ */
+export async function handler(event) {
+  const origin = event.headers.origin || event.headers.Origin;
+
+  if (event.httpMethod === "OPTIONS") {
+    return createResponse(200, {}, origin);
+  }
+
+  try {
+    const user = verifyRequestToken(event);
+
+    const { db } = await connectToDatabase();
+    const withdrawalsCollection = db.collection("ownerWithdrawals");
+    const yearsCollection = db.collection("financialYears");
+
+    const getDateOnly = (value) => {
+      if (!value) return null;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return null;
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    };
+
+    const isDateWithinRange = (value, startDate, endDate) => {
+      const targetDate = getDateOnly(value);
+      const start = getDateOnly(startDate);
+      const end = getDateOnly(endDate);
+
+      if (!targetDate || !start || !end) return false;
+      return targetDate >= start && targetDate <= end;
+    };
+
+    const resolveFinancialYearRecord = async (financialYear, withdrawalDate) => {
+      const normalizedYear = String(financialYear || "").trim();
+
+      if (normalizedYear && normalizedYear !== "ALL") {
+        return yearsCollection.findOne({
+          isDeleted: { $ne: true },
+          $or: [{ financialYear: normalizedYear }, { year: normalizedYear }],
+        });
+      }
+
+      const targetDate = getDateOnly(withdrawalDate);
+      if (!targetDate) return null;
+
+      const yearRecords = await yearsCollection
+        .find({
+          isDeleted: { $ne: true },
+          startDate: { $exists: true, $ne: null },
+          endDate: { $exists: true, $ne: null },
+        })
+        .toArray();
+
+      return (
+        yearRecords.find((yearRecord) =>
+          isDateWithinRange(withdrawalDate, yearRecord.startDate, yearRecord.endDate),
+        ) || null
+      );
+    };
+
+    const validateWithdrawalDateAgainstFinancialYear = async (withdrawalData) => {
+      const withdrawalDate = String(withdrawalData?.withdrawalDate || "").trim();
+      if (!withdrawalDate) {
+        return "Withdrawal Date is required";
+      }
+
+      const normalizedYear = String(withdrawalData?.financialYear || "").trim();
+      if (normalizedYear === "ALL") {
+        return "Please select a specific Financial Year before saving withdrawal";
+      }
+
+      const yearRecord = await resolveFinancialYearRecord(
+        normalizedYear,
+        withdrawalDate,
+      );
+
+      if (!yearRecord?.startDate || !yearRecord?.endDate) {
+        return normalizedYear
+          ? `Financial Year range not found for ${normalizedYear}`
+          : "Could not determine Financial Year for selected Withdrawal Date";
+      }
+
+      if (
+        !isDateWithinRange(withdrawalDate, yearRecord.startDate, yearRecord.endDate)
+      ) {
+        const yearLabel =
+          yearRecord.financialYear || yearRecord.year || normalizedYear;
+        return `Withdrawal Date must be within the selected Financial Year (${yearLabel})`;
+      }
+
+      return null;
+    };
+
+    // GET - Fetch all owner withdrawals or single by ID
+    if (event.httpMethod === "GET") {
+      const {
+        id,
+        page = 1,
+        limit = 10,
+        search,
+        withdrawnTo,
+        withdrawnFrom,
+        paymentMethod,
+        withdrawalDate_start,
+        withdrawalDate_end,
+        sortBy = "withdrawalDate",
+        sortOrder = "desc",
+        filter,
+      } = event.queryStringParameters || {};
+
+      if (id) {
+        const withdrawal = await withdrawalsCollection.findOne({
+          _id: new ObjectId(id),
+          isDeleted: { $ne: true },
+        });
+        if (!withdrawal) {
+          return createResponse(
+            404,
+            { error: "Owner withdrawal not found" },
+            origin,
+          );
+        }
+        return createResponse(200, withdrawal, origin);
+      }
+
+      const pageNum = parseInt(page, 10) || 1;
+      const limitNum = parseInt(limit, 10) || 10;
+      const skip = (pageNum - 1) * limitNum;
+
+      const filterQuery = { isDeleted: { $ne: true } };
+      const params = event.queryStringParameters || {};
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value || value === "" || value === "All") return;
+        if (
+          [
+            "id",
+            "page",
+            "limit",
+            "search",
+            "sortBy",
+            "sortOrder",
+            "filter",
+          ].includes(key)
+        )
+          return;
+        if (key.endsWith("_start") || key.endsWith("_end")) return;
+
+        if (["withdrawnTo", "withdrawnFrom", "paymentMethod"].includes(key)) {
+          filterQuery[key] = value.trim();
+          return;
+        }
+
+        if (typeof value === "string" && value.includes(",")) {
+          filterQuery[key] = {
+            $in: value.split(",").map((item) => item.trim()),
+          };
+          return;
+        }
+
+        filterQuery[key] = { $regex: value.trim(), $options: "i" };
+      });
+
+      const dateRanges = {};
+
+      Object.entries(params).forEach(([key, value]) => {
+        if (!value) return;
+
+        if (key.endsWith("_start")) {
+          const baseKey = key.replace(/_start$/, "");
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = value.split("-");
+          if (dateParts.length === 3) {
+            const year = parseInt(dateParts[0], 10);
+            const month = parseInt(dateParts[1], 10) - 1;
+            const day = parseInt(dateParts[2], 10);
+            dateRanges[baseKey].$gte = new Date(
+              Date.UTC(year, month, day, 0, 0, 0, 0),
+            );
+          }
+        }
+
+        if (key.endsWith("_end")) {
+          const baseKey = key.replace(/_end$/, "");
+          if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
+
+          const dateParts = value.split("-");
+          if (dateParts.length === 3) {
+            const year = parseInt(dateParts[0], 10);
+            const month = parseInt(dateParts[1], 10) - 1;
+            const day = parseInt(dateParts[2], 10);
+            dateRanges[baseKey].$lte = new Date(
+              Date.UTC(year, month, day, 23, 59, 59, 999),
+            );
+          }
+        }
+      });
+
+      Object.entries(dateRanges).forEach(([key, range]) => {
+        filterQuery[key] = range;
+      });
+
+      if (filter) {
+        switch (filter) {
+          case "currentAccount":
+            filterQuery.withdrawnFrom = "Current Account";
+            break;
+          case "cashBox":
+            filterQuery.withdrawnFrom = "Cash Box";
+            break;
+          case "bankTransfer":
+            filterQuery.paymentMethod = "Bank Transfer";
+            break;
+          default:
+            break;
+        }
+      }
+
+      if (search && search.trim()) {
+        const searchRegex = { $regex: search.trim(), $options: "i" };
+        filterQuery.$or = [
+          { description: searchRegex },
+          { withdrawnTo: searchRegex },
+          { withdrawnFrom: searchRegex },
+          { paymentMethod: searchRegex },
+          { referenceNumber: searchRegex },
+        ];
+      }
+
+      const sortObject = {};
+      sortObject[sortBy] = sortOrder === "asc" ? 1 : -1;
+
+      const totalRecords = await withdrawalsCollection.countDocuments(filterQuery);
+      const withdrawals = await withdrawalsCollection
+        .find(filterQuery)
+        .sort(sortObject)
+        .skip(skip)
+        .limit(limitNum)
+        .toArray();
+
+      const withdrawnToValues = await withdrawalsCollection.distinct("withdrawnTo", {
+        isDeleted: { $ne: true },
+        withdrawnTo: { $exists: true, $ne: "" },
+      });
+
+      const withdrawnFromValues = await withdrawalsCollection.distinct(
+        "withdrawnFrom",
+        {
+          isDeleted: { $ne: true },
+          withdrawnFrom: { $exists: true, $ne: "" },
+        },
+      );
+
+      const paymentMethodValues = await withdrawalsCollection.distinct(
+        "paymentMethod",
+        {
+          isDeleted: { $ne: true },
+          paymentMethod: { $exists: true, $ne: "" },
+        },
+      );
+
+      const totalAmount = await withdrawalsCollection
+        .aggregate([
+          { $match: { isDeleted: { $ne: true } } },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ])
+        .toArray();
+
+      const totalCurrentAccount = await withdrawalsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        withdrawnFrom: "Current Account",
+      });
+
+      const totalCashBox = await withdrawalsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        withdrawnFrom: "Cash Box",
+      });
+
+      const totalBankTransfer = await withdrawalsCollection.countDocuments({
+        isDeleted: { $ne: true },
+        paymentMethod: "Bank Transfer",
+      });
+
+      return createResponse(
+        200,
+        {
+          data: withdrawals,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            totalRecords,
+            totalPages: Math.ceil(totalRecords / limitNum),
+          },
+          statistics: {
+            total: totalRecords,
+            totalAmount: totalAmount[0]?.total || 0,
+            currentAccount: totalCurrentAccount,
+            cashBox: totalCashBox,
+            bankTransfer: totalBankTransfer,
+          },
+          filterOptions: {
+            withdrawnTo: ["All", ...withdrawnToValues.sort()],
+            withdrawnFrom: ["All", ...withdrawnFromValues.sort()],
+            paymentMethod: ["All", ...paymentMethodValues.sort()],
+          },
+        },
+        origin,
+      );
+    }
+
+    // POST - Create new owner withdrawal record
+    if (event.httpMethod === "POST") {
+      const withdrawalData = normalizePaymentMethodsInRecord(JSON.parse(event.body));
+
+      const validationError =
+        await validateWithdrawalDateAgainstFinancialYear(withdrawalData);
+      if (validationError) {
+        return createResponse(400, { error: validationError }, origin);
+      }
+
+      const newWithdrawal = {
+        _id: new ObjectId(),
+        ...withdrawalData,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "create"),
+      };
+
+      const result = await withdrawalsCollection.insertOne(newWithdrawal);
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "ownerWithdrawals",
+        sourceType: "owner_withdrawal",
+        sourceRecord: newWithdrawal,
+        sourceLabel: newWithdrawal.entryNumber || "",
+      });
+
+      return createResponse(
+        201,
+        {
+          message: "Owner withdrawal created successfully",
+          id: result.insertedId,
+          ...withdrawalData,
+        },
+        origin,
+      );
+    }
+
+    // PUT - Update owner withdrawal record
+    if (event.httpMethod === "PUT") {
+      const { id } = event.queryStringParameters || {};
+      if (!id) {
+        return createResponse(
+          400,
+          { error: "Owner withdrawal ID is required" },
+          origin,
+        );
+      }
+
+      const withdrawalData = normalizePaymentMethodsInRecord(JSON.parse(event.body));
+      const { _id, id: withdrawalId, ...updateData } = withdrawalData;
+
+      const existingRecord = await withdrawalsCollection.findOne({
+        _id: new ObjectId(id),
+        isDeleted: { $ne: true },
+      });
+
+      if (!existingRecord) {
+        return createResponse(
+          404,
+          { error: "Owner withdrawal not found" },
+          origin,
+        );
+      }
+
+      const mergedData = {
+        ...existingRecord,
+        ...updateData,
+      };
+
+      const validationError =
+        await validateWithdrawalDateAgainstFinancialYear(mergedData);
+      if (validationError) {
+        return createResponse(400, { error: validationError }, origin);
+      }
+
+      const updatedRecord = {
+        ...mergedData,
+        updatedAt: new Date(),
+        ...getAuditFieldsFromEvent(event, "update"),
+      };
+
+      const result = await withdrawalsCollection.updateOne(
+        { _id: new ObjectId(id), isDeleted: { $ne: true } },
+        { $set: updatedRecord },
+      );
+
+      if (result.matchedCount === 0) {
+        return createResponse(
+          404,
+          { error: "Owner withdrawal not found" },
+          origin,
+        );
+      }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "ownerWithdrawals",
+        sourceType: "owner_withdrawal",
+        sourceRecord: updatedRecord,
+        sourceLabel: updatedRecord.entryNumber || "",
+      });
+
+      return createResponse(
+        200,
+        { message: "Owner withdrawal updated successfully" },
+        origin,
+      );
+    }
+
+    // DELETE - Soft delete
+    if (event.httpMethod === "DELETE") {
+      const { id } = event.queryStringParameters || {};
+      if (!id) {
+        return createResponse(
+          400,
+          { error: "Owner withdrawal ID is required" },
+          origin,
+        );
+      }
+
+      const existingRecord = await withdrawalsCollection.findOne({
+        _id: new ObjectId(id),
+        isDeleted: { $ne: true },
+      });
+
+      if (!existingRecord) {
+        return createResponse(
+          404,
+          { error: "Owner withdrawal not found" },
+          origin,
+        );
+      }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "ownerWithdrawals",
+        sourceType: "owner_withdrawal",
+        sourceRecord: existingRecord,
+        sourceLabel: existingRecord.entryNumber || "",
+        deleted: true,
+      });
+
+      const result = await withdrawalsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: new Date(),
+            updatedAt: new Date(),
+            ...getAuditFieldsFromEvent(event, "delete"),
+          },
+        },
+      );
+
+      if (result.matchedCount === 0) {
+        return createResponse(
+          404,
+          { error: "Owner withdrawal not found" },
+          origin,
+        );
+      }
+
+      return createResponse(
+        200,
+        { message: "Owner withdrawal deleted successfully" },
+        origin,
+      );
+    }
+
+    return createResponse(405, { error: "Method not allowed" }, origin);
+  } catch (error) {
+    if (
+      error.message?.includes("Invalid token") ||
+      error.message?.includes("jwt")
+    ) {
+      return createResponse(
+        401,
+        { error: "Authentication failed", message: error.message },
+        origin,
+      );
+    }
+
+    return createResponse(
+      500,
+      { error: "Internal server error", message: error.message },
+      origin,
+    );
+  }
+}

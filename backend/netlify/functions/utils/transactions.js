@@ -94,6 +94,8 @@ const normalizeSourceType = (sourceType = "") => {
       return "payment-receipt";
     case "owner-investment":
       return "owner-investment";
+    case "owner-withdrawal":
+      return "owner-withdrawal";
     case "credit-note":
     case "debit-note":
       return "credit-debit-note";
@@ -456,6 +458,18 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
     );
   }
 
+  if (type === "owner-withdrawal") {
+    Object.assign(
+      base,
+      pickFields(sourceRecord, [
+        "withdrawalDate",
+        "withdrawnTo",
+        "withdrawnFrom",
+        "withdrawalNumber",
+      ]),
+    );
+  }
+
   if (type === "project") {
     Object.assign(
       base,
@@ -496,6 +510,8 @@ const getSourceDate = (sourceRecord = {}, sourceType = "") => {
       return sourceRecord.invoiceDate || sourceRecord.createdAt;
     case "owner-investment":
       return sourceRecord.fundDate || sourceRecord.createdAt;
+    case "owner-withdrawal":
+      return sourceRecord.withdrawalDate || sourceRecord.createdAt;
     case "project":
       return sourceRecord.projectDate || sourceRecord.createdAt;
     default:
@@ -1066,6 +1082,36 @@ const buildLinesForOwnerInvestment = (record = {}) => {
   ]);
 };
 
+const buildLinesForOwnerWithdrawal = (record = {}) => {
+  const amount = roundAmount(
+    toNumber(record?.amount || record?.withdrawalAmount || 0),
+  );
+  const paidAmount = roundAmount(
+    toNumber(record?.amountPaid || amount || 0),
+  );
+  const accountHead = getPaymentAccountHead(
+    record?.withdrawnFrom || record?.paymentMethod,
+    "Bank Account",
+  );
+
+  // Owner Withdrawal: Debit Equity (Owner Investment Account), Credit Asset (Bank/Cash)
+  // Money going OUT of business to owner
+  return balanceLines([
+    {
+      accountHead: "Owner Investment Account",
+      accountType: "Equity",
+      debit: paidAmount,
+      credit: 0,
+    },
+    {
+      accountHead,
+      accountType: "Asset",
+      debit: 0,
+      credit: paidAmount,
+    },
+  ]);
+};
+
 const buildLinesForProject = (record = {}) => {
   const transactions = Array.isArray(record?.developerTransactions)
     ? record.developerTransactions
@@ -1134,6 +1180,8 @@ const buildLines = (sourceType, sourceRecord) => {
       return buildLinesForRcm(sourceRecord);
     case "owner-investment":
       return buildLinesForOwnerInvestment(sourceRecord);
+    case "owner-withdrawal":
+      return buildLinesForOwnerWithdrawal(sourceRecord);
     case "project":
       return buildLinesForProject(sourceRecord);
     default:
@@ -1175,6 +1223,10 @@ const getRecordAmount = (sourceType, sourceRecord) => {
     case "owner-investment":
       return roundAmount(
         toNumber(sourceRecord?.amount || sourceRecord?.investmentAmount || 0),
+      );
+    case "owner-withdrawal":
+      return roundAmount(
+        toNumber(sourceRecord?.amount || sourceRecord?.withdrawalAmount || 0),
       );
     case "project":
       return Array.isArray(sourceRecord?.developerTransactions)

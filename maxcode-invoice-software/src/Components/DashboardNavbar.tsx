@@ -721,6 +721,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "ownerInvestment",
     },
     {
+      to: "/admin/owner-withdrawal",
+      icon: "fa-solid fa-money-bill-transfer",
+      label: "Owner Withdrawal",
+      permissionKey: "ownerWithdrawal",
+    },
+    {
       to: "/admin/project-credentials",
       icon: "fa-solid fa-key",
       label: "Project Credentials",

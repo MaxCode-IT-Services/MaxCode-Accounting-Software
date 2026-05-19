@@ -6,6 +6,7 @@ export const TRANSACTION_SOURCE_TYPES = {
   PAYMENT_RECEIPT: "payment-receipt",
   RCM: "rcm",
   OWNER_INVESTMENT: "owner-investment",
+  OWNER_WITHDRAWAL: "owner-withdrawal",
   PROJECT: "project",
 };
 

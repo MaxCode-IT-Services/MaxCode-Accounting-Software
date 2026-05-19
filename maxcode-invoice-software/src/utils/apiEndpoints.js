@@ -255,6 +255,15 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/owner-investments?id=${id}`,
   },
 
+  // Owner Withdrawals endpoints
+  OWNER_WITHDRAWALS: {
+    LIST: "/owner-withdrawals",
+    CREATE: "/owner-withdrawals",
+    GET: (id) => `/owner-withdrawals?id=${id}`,
+    UPDATE: (id) => `/owner-withdrawals?id=${id}`,
+    DELETE: (id) => `/owner-withdrawals?id=${id}`,
+  },
+
   // Payment Receipts endpoints
   PAYMENT_RECEIPTS: {
     LIST: "/payment-receipts",
