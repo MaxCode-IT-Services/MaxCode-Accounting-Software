@@ -55,9 +55,10 @@ export function generateToken(payload, expiresIn = JWT_EXPIRES_IN) {
 
       "Company Name": "MaxCode IT Services",
       "Application Developer": "MaxCode IT Services",
-      "Founder & CEO": "Vipin Khandelwal",
+      "Founder & CEO": "Mr. Vipin Khandelwal",
       "Official Website": "https://www.maxcode.in",
-      "Contact Number": "+91 9462327957",
+      "Contact Number": "+91 6377241446",
+      "WhatsApp Number": "+91 9462327957",
       "Support Email": "contact@maxcode.in",
       "Developed On": "30 March 2026",
     },
