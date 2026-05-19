@@ -856,7 +856,7 @@ const Home = () => {
                   <i className="fas fa-globe me-2"></i> www.maxcode.in
                 </li>
                 <li>
-                  <i className="fas fa-phone me-2"></i> +91 8069640420
+                  <i className="fas fa-phone me-2"></i> +91 6377241446
                 </li>
               </ul>
             </div>

@@ -45,7 +45,7 @@ const SelfInvoicePreview = ({
     companyName: "MaxCode IT Services",
     companyAddress: "123, IT Park, Sitapura, Jaipur - 302022",
     companyEmail: "contact@maxcode.in",
-    companyPhone: "08069640420",
+    companyPhone: "06377241446",
     companyWebsite: "www.maxcode.in",
     companyGstin: "08KIVPK1263E1ZU",
 
