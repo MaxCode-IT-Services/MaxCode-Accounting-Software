@@ -3123,7 +3123,7 @@ const ReusableTable = ({
 
   return (
     <>
-      <div className="card">
+      <div className="card reusable-table-container">
         <div className="card-header">
           <div className="row align-items-center">
             <div className="col-md-3">
@@ -4121,5 +4121,34 @@ const ReusableTable = ({
     </>
   );
 };
+
+const reusableTableStyles = `
+  .reusable-table-container .form-control:focus {
+    border: 2px solid rgb(0, 112, 38) !important;
+    outline: none;
+    box-shadow: none !important;
+  }
+
+  .reusable-table-container .form-control:hover {
+    border: 2px solid rgb(0, 112, 38) !important;
+  }
+
+  .reusable-table-container .form-select:focus {
+    border: 2px solid rgb(0, 112, 38) !important;
+    outline: none;
+    box-shadow: none !important;
+  }
+
+  .reusable-table-container .form-select:hover {
+    border: 2px solid rgb(0, 112, 38) !important;
+  }
+`;
+
+if (typeof document !== 'undefined' && !document.getElementById('reusable-table-styles')) {
+  const styleElement = document.createElement('style');
+  styleElement.id = 'reusable-table-styles';
+  styleElement.textContent = reusableTableStyles;
+  document.head.appendChild(styleElement);
+}
 
 export default ReusableTable;

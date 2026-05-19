@@ -194,7 +194,16 @@ const MaxcodeCredential = () => {
   });
 
   const buildLocalFilterOptions = (source = []) => {
-    return {};
+    const createdBySet = new Set();
+    source.forEach((record) => {
+      if (record.createdByDisplay || record.createdBy) {
+        createdBySet.add(record.createdByDisplay || record.createdBy);
+      }
+    });
+    
+    return {
+      createdBy: Array.from(createdBySet).filter(Boolean).sort(),
+    };
   };
 
   const applyClientSideQuery = (source) => {
@@ -509,6 +518,7 @@ const MaxcodeCredential = () => {
     },
     { key: "appUsername", label: "App User Name", width: 150 },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
+    { key: "createdBy", label: "Created By", width: 150 },
     { key: "action", label: "Actions", width: 140 },
   ];
 
@@ -827,14 +837,14 @@ const MaxcodeCredential = () => {
             "projectName",
             "websiteGithubRepoName",
             "serverName",
-            "createdDateTime",
+            "createdBy",
             "action",
           ]}
-          columnsWithDropdownFilter={[]}
+          columnsWithDropdownFilter={["createdBy"]}
           filterOptions={dynamicFilterOptions}
           activeCardFilter={activeCardFilter}
           cards={cards}
-          tableTitle="My Software Credential Record"
+          tableTitle="My Software Credential"
           showColumnSelector={true}
           showExport={true}
           showRefresh={true}

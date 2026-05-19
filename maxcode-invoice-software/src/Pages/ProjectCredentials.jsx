@@ -885,7 +885,6 @@ const ProjectCredentials = () => {
             "projectName",
             "websiteGithubRepoName",
             "serverName",
-            "createdDateTime",
             "action",
           ]}
           columnsWithDropdownFilter={["clientName"]}

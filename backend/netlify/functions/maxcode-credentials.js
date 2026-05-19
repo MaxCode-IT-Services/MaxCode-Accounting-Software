@@ -227,6 +227,7 @@ const sanitizeRecordForResponse = (record) => {
     databaseRootPassword:
       record.databaseRootPassword ||
       String(record.databasePassword || "").trim(),
+    createdByDisplay: record.createdBy || record.createdById || "",
   };
 
   delete sanitized.serverUsername;
@@ -717,6 +718,16 @@ export async function handler(event) {
         ],
       });
 
+      // Get distinct createdBy values for filter options
+      const createdByOptions = await collection
+        .distinct("createdBy", { isDeleted: { $ne: true } })
+        .then((values) =>
+          values
+            .filter((v) => v && String(v).trim())
+            .map((v) => String(v).trim())
+            .sort(),
+        );
+
       return createResponse(
         200,
         {
@@ -734,7 +745,9 @@ export async function handler(event) {
             withServer,
             withDatabase,
           },
-          filterOptions: {},
+          filterOptions: {
+            createdBy: createdByOptions,
+          },
         },
         origin,
       );
