@@ -667,6 +667,18 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "companyExpenseManagement",
     },
     {
+      to: "/admin/owner-investment",
+      icon: "fa-solid fa-sack-dollar",
+      label: "Owner Investment",
+      permissionKey: "ownerInvestment",
+    },
+    {
+      to: "/admin/owner-withdrawal",
+      icon: "fa-solid fa-money-bill-transfer",
+      label: "Owner Withdrawal",
+      permissionKey: "ownerWithdrawal",
+    },
+    {
       to: "/admin/ledger-management",
       icon: "fa-solid fa-book",
       label: "Ledger Management",
@@ -713,18 +725,6 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       icon: "fa-solid fa-hand-holding-dollar",
       label: "Developer Payout",
       permissionKey: "developerPayoutManagement",
-    },
-    {
-      to: "/admin/owner-investment",
-      icon: "fa-solid fa-sack-dollar",
-      label: "Owner Investment",
-      permissionKey: "ownerInvestment",
-    },
-    {
-      to: "/admin/owner-withdrawal",
-      icon: "fa-solid fa-money-bill-transfer",
-      label: "Owner Withdrawal",
-      permissionKey: "ownerWithdrawal",
     },
     {
       to: "/admin/project-credentials",
