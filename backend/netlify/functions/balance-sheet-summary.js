@@ -68,6 +68,7 @@ const calculateBalanceSheetFromTransactions = (
   let payables = 0;
   let ownerFunding = 0;
   let ownerInvestment = 0;
+  let ownerWithdrawal = 0;
   let customerAdvance = 0;
   let creditNotePayable = 0;
   let customerOverpayment = 0;
@@ -104,7 +105,8 @@ const calculateBalanceSheetFromTransactions = (
       } else if (accountHead === "Owner Funding Account") {
         ownerFunding = round2(ownerFunding + credit - debit);
       } else if (accountHead === "Owner Investment Account") {
-        ownerInvestment = round2(ownerInvestment + credit - debit);
+        ownerInvestment = round2(ownerInvestment + credit);
+        ownerWithdrawal = round2(ownerWithdrawal + debit);
       } else if (accountHead === "Advance from Customer") {
         customerAdvance = round2(customerAdvance + credit - debit);
       } else if (accountHead === "Credit Note Payable") {
@@ -122,6 +124,7 @@ const calculateBalanceSheetFromTransactions = (
   payables = round2(payables);
   ownerFunding = round2(ownerFunding);
   ownerInvestment = round2(ownerInvestment);
+  ownerWithdrawal = round2(ownerWithdrawal);
   customerAdvance = round2(customerAdvance);
   creditNotePayable = round2(creditNotePayable);
   inventory = round2(inventory);
@@ -173,7 +176,7 @@ const calculateBalanceSheetFromTransactions = (
   const totalEquity = round2(totalAssets - totalLiabilities);
   const openingCapital = round2(openingBalances.openingCapital || 0);
   const retainedEarnings = round2(
-    totalEquity - openingCapital - ownerInvestment,
+    totalEquity - openingCapital - ownerInvestment + ownerWithdrawal,
   );
 
   // Final result with all values rounded to 2 decimals
@@ -201,16 +204,18 @@ const calculateBalanceSheetFromTransactions = (
     equity: totalEquity,
     openingCapital: openingCapital,
     ownerInvestment: ownerInvestment,
+    ownerWithdrawal: ownerWithdrawal,
     retainedEarnings: retainedEarnings,
     accountingMeta: {
       equityMethod: "derived_from_balance_sheet",
       equityFormula: "totalAssets - totalLiabilities",
       retainedEarningsMethod: "derived_residual",
-      retainedEarningsFormula: "equity - openingCapital - ownerInvestment",
+      retainedEarningsFormula:
+        "equity - openingCapital - ownerInvestment + ownerWithdrawal",
       profitLossIntegrated: false,
       inventoryMethod: "opening_inventory_only",
       ownerFundingClassification: "liability_personal_payments",
-      note: "Retained earnings shown here is a derived balancing figure. For statutory accounting, compute retained earnings from a P&L statement and drawings.",
+      note: "Retained earnings shown here is a derived balancing figure. Owner withdrawals are treated separately from capital introduced.",
     },
   };
 };

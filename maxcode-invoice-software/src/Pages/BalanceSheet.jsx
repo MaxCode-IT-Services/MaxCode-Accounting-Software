@@ -218,6 +218,7 @@ const BalanceSheet = () => {
   const equity = balanceData?.equity || 0;
   const openingCapital = balanceData?.openingCapital || 0;
   const ownerInvestment = balanceData?.ownerInvestment || 0;
+  const ownerWithdrawal = balanceData?.ownerWithdrawal || 0;
   const retainedEarnings = balanceData?.retainedEarnings || 0;
 
   const rows = useMemo(() => {
@@ -263,6 +264,8 @@ const BalanceSheet = () => {
           return "Amount paid directly from owner's personal account for business purchases/RCM/developer payouts";
         case "Owner Investment (Capital Added)":
           return "Capital introduced by owner into business bank/cash";
+        case "Owner Withdrawal / Drawings":
+          return "Amount withdrawn by the owner from business cash/bank";
         case "Capital (Opening)":
           return "Owner capital brought at year start";
         case "Retained Earnings / Current Profit (Calculated)":
@@ -387,6 +390,14 @@ const BalanceSheet = () => {
       });
     }
 
+    if (ownerWithdrawal > 0) {
+      equityRows.push({
+        section: "Liabilities & Equity",
+        account: "Owner Withdrawal / Drawings",
+        amount: -ownerWithdrawal,
+      });
+    }
+
     if (retainedEarnings !== 0) {
       equityRows.push({
         section: "Liabilities & Equity",
@@ -423,6 +434,7 @@ const BalanceSheet = () => {
     equity,
     openingCapital,
     ownerInvestment,
+    ownerWithdrawal,
     retainedEarnings,
   ]);
 

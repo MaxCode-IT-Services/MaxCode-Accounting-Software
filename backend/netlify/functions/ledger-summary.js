@@ -100,7 +100,8 @@ const calculateLedgerFromTransactions = (
     creditNotePayableCredit: 0,
     customerOverpaymentCredit: 0,
     ownerFundingCredit: 0,
-    personalFundCredit: 0,
+    ownerInvestmentDebit: 0,
+    ownerInvestmentCredit: 0,
   };
 
   // Process all transactions
@@ -150,7 +151,8 @@ const calculateLedgerFromTransactions = (
       } else if (accountHead === "Owner Funding Account") {
         summary.ownerFundingCredit += credit;
       } else if (accountHead === "Owner Investment Account") {
-        summary.personalFundCredit += credit;
+        summary.ownerInvestmentDebit += debit;
+        summary.ownerInvestmentCredit += credit;
       }
     }
   }
@@ -179,7 +181,8 @@ const calculateLedgerFromTransactions = (
       summary.salesReturnDebit +
       summary.gstOutputDebit +
       summary.gstInputDebit +
-      summary.sundryDebtorsDebit,
+        summary.sundryDebtorsDebit +
+        summary.ownerInvestmentDebit,
   );
 
   const totalCredit = round2(
@@ -191,7 +194,7 @@ const calculateLedgerFromTransactions = (
       summary.sundryCreditorsCredit +
       summary.customerOverpaymentCredit +
       summary.ownerFundingCredit +
-      summary.personalFundCredit +
+        summary.ownerInvestmentCredit +
       summary.customerAdvanceLiabilityCredit,
   );
 
@@ -363,11 +366,13 @@ const calculateLedgerFromTransactions = (
       {
         sn: 16,
         accountName: "Owner Investment Account",
-        debit: 0,
-        credit: summary.personalFundCredit,
-        balance: summary.personalFundCredit,
-        balanceType: "Cr",
-        notes: "Owner capital transferred to business bank/cash",
+        debit: summary.ownerInvestmentDebit,
+        credit: summary.ownerInvestmentCredit,
+        balance: round2(summary.ownerInvestmentCredit - summary.ownerInvestmentDebit),
+        balanceType:
+          summary.ownerInvestmentCredit >= summary.ownerInvestmentDebit ? "Cr" : "Dr",
+        notes:
+          "Owner capital transferred to business bank/cash; debits represent owner withdrawals",
       },
       {
         sn: 17,
