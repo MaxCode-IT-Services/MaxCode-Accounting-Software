@@ -102,6 +102,8 @@ const calculateLedgerFromTransactions = (
     ownerFundingCredit: 0,
     ownerInvestmentDebit: 0,
     ownerInvestmentCredit: 0,
+    ownerWithdrawalDebit: 0,
+    ownerWithdrawalCredit: 0,
   };
 
   // Process all transactions
@@ -153,6 +155,9 @@ const calculateLedgerFromTransactions = (
       } else if (accountHead === "Owner Investment Account") {
         summary.ownerInvestmentDebit += debit;
         summary.ownerInvestmentCredit += credit;
+      } else if (accountHead === "Owner Withdrawal Account") {
+        summary.ownerWithdrawalDebit += debit;
+        summary.ownerWithdrawalCredit += credit;
       }
     }
   }
@@ -182,7 +187,8 @@ const calculateLedgerFromTransactions = (
       summary.gstOutputDebit +
       summary.gstInputDebit +
         summary.sundryDebtorsDebit +
-        summary.ownerInvestmentDebit,
+        summary.ownerInvestmentDebit +
+        summary.ownerWithdrawalDebit,
   );
 
   const totalCredit = round2(
@@ -195,6 +201,7 @@ const calculateLedgerFromTransactions = (
       summary.customerOverpaymentCredit +
       summary.ownerFundingCredit +
         summary.ownerInvestmentCredit +
+        summary.ownerWithdrawalCredit +
       summary.customerAdvanceLiabilityCredit,
   );
 
@@ -371,11 +378,20 @@ const calculateLedgerFromTransactions = (
         balance: round2(summary.ownerInvestmentCredit - summary.ownerInvestmentDebit),
         balanceType:
           summary.ownerInvestmentCredit >= summary.ownerInvestmentDebit ? "Cr" : "Dr",
-        notes:
-          "Owner capital transferred to business bank/cash; debits represent owner withdrawals",
+        notes: "Owner capital transferred to business bank/cash (credit only)",
       },
       {
         sn: 17,
+        accountName: "Owner Withdrawal Account",
+        debit: summary.ownerWithdrawalDebit,
+        credit: summary.ownerWithdrawalCredit,
+        balance: round2(summary.ownerWithdrawalDebit - summary.ownerWithdrawalCredit),
+        balanceType:
+          summary.ownerWithdrawalDebit >= summary.ownerWithdrawalCredit ? "Dr" : "Cr",
+        notes: "Owner drawings/withdrawals from business bank/cash (debit only)",
+      },
+      {
+        sn: 18,
         accountName: "GST Payable/(Receivable)",
         debit: netGstDebit,
         credit: netGstCredit,

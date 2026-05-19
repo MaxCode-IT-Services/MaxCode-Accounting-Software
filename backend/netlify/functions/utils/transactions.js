@@ -1094,11 +1094,11 @@ const buildLinesForOwnerWithdrawal = (record = {}) => {
     "Bank Account",
   );
 
-  // Owner Withdrawal: Debit Equity (Owner Investment Account), Credit Asset (Bank/Cash)
+  // Owner Withdrawal: Debit Owner Withdrawal Account, Credit Asset (Bank/Cash)
   // Money going OUT of business to owner
   return balanceLines([
     {
-      accountHead: "Owner Investment Account",
+      accountHead: "Owner Withdrawal Account",
       accountType: "Equity",
       debit: paidAmount,
       credit: 0,

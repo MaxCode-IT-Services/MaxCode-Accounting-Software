@@ -105,8 +105,9 @@ const calculateBalanceSheetFromTransactions = (
       } else if (accountHead === "Owner Funding Account") {
         ownerFunding = round2(ownerFunding + credit - debit);
       } else if (accountHead === "Owner Investment Account") {
-        ownerInvestment = round2(ownerInvestment + credit);
-        ownerWithdrawal = round2(ownerWithdrawal + debit);
+        ownerInvestment = round2(ownerInvestment + credit - debit);
+      } else if (accountHead === "Owner Withdrawal Account") {
+        ownerWithdrawal = round2(ownerWithdrawal + debit - credit);
       } else if (accountHead === "Advance from Customer") {
         customerAdvance = round2(customerAdvance + credit - debit);
       } else if (accountHead === "Credit Note Payable") {
