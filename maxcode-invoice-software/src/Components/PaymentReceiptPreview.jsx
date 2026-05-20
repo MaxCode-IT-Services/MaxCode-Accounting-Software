@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { showError, showSuccess } from "./ToastNotification";
+import { apiGet } from "../utils/api";
+import API_ENDPOINTS from "../utils/apiEndpoints";
 
 const PaymentReceiptPreview = ({
   id,
@@ -8,7 +10,9 @@ const PaymentReceiptPreview = ({
   onClose = () => {},
   renderMode = "modal",
 }) => {
-  const [loading, setLoading] = useState({ pdf: false, image: false });
+  const [loading, setLoading] = useState({ pdf: false, image: false, imageSeparate: false });
+  const [termsConditions, setTermsConditions] = useState([]);
+  const [termsLoading, setTermsLoading] = useState(true);
   const isPrintMode = renderMode === "print";
 
   useEffect(() => {
@@ -51,6 +55,25 @@ const PaymentReceiptPreview = ({
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
+  };
+
+  const parseTerms = (value, fallback = []) => {
+    if (Array.isArray(value)) {
+      const terms = value
+        .map((item) => String(item || "").trim())
+        .filter(Boolean);
+      return terms.length ? terms : fallback;
+    }
+
+    if (typeof value === "string") {
+      const terms = value
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      return terms.length ? terms : fallback;
+    }
+
+    return fallback;
   };
 
   const safeFileToken = String(
@@ -108,6 +131,7 @@ const PaymentReceiptPreview = ({
   const companyEmailDisplay = data.companyEmail || data.email || "-";
   const companyAddressDisplay = data.companyAddress || "-";
   const amountText = formatCurrency(data.amount);
+  const invoiceTermsVersion = String(data.invoiceTermsVersion || "").trim();
 
   const dotBackgroundImage = useMemo(() => {
     const svg =
@@ -129,16 +153,111 @@ const PaymentReceiptPreview = ({
     return <span>A</span>;
   };
 
+  useEffect(() => {
+    let mounted = true;
+    setTermsLoading(true);
+
+    const snapshotTerms = parseTerms(
+      data.invoiceTermsConditionsSnapshot,
+      [],
+    );
+
+    if (snapshotTerms.length > 0) {
+      setTermsConditions(snapshotTerms);
+      setTermsLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
+
+    const applyBusinessSettingsTerms = (settings) => {
+      if (!mounted || !settings || typeof settings !== "object") return false;
+
+      const parsed = parseTerms(settings.invoiceTermsConditions, []);
+      if (parsed.length > 0) {
+        setTermsConditions(parsed);
+        return true;
+      }
+
+      return false;
+    };
+
+    const loadTerms = async () => {
+      if (/^V\d+\.\d+\.\d+$/i.test(invoiceTermsVersion)) {
+        try {
+          const versionResponse = await apiGet(
+            API_ENDPOINTS.BUSINESS_SETTINGS.TERMS_BY_VERSION(
+              "invoice",
+              invoiceTermsVersion,
+            ),
+          );
+          const versionTerms = parseTerms(versionResponse?.data?.terms, []);
+          if (versionTerms.length > 0 && mounted) {
+            setTermsConditions(versionTerms);
+            return;
+          }
+        } catch {
+          // Fallback to current business settings below.
+        }
+      }
+
+      const cached = localStorage.getItem("business_settings");
+      if (cached) {
+        try {
+          const cachedSettings = JSON.parse(cached);
+          if (applyBusinessSettingsTerms(cachedSettings)) {
+            return;
+          }
+        } catch {
+          // Ignore cache parse errors and fall through to remote fetch.
+        }
+      }
+
+      try {
+        const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
+        const remoteSettings = response?.data?.settings;
+        if (remoteSettings && applyBusinessSettingsTerms(remoteSettings)) {
+          localStorage.removeItem("business_settings");
+          return;
+        }
+      } catch {
+        // Keep empty terms list if nothing can be loaded.
+      }
+
+      if (mounted) {
+        setTermsConditions([]);
+      }
+    };
+
+    loadTerms().finally(() => {
+      if (mounted) {
+        setTermsLoading(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [data.invoiceTermsVersion, data.invoiceTermsConditionsSnapshot]);
+
   const getElement = () =>
     document.getElementById(id || "payment-receipt-preview");
 
   const captureReceipt = async () => {
+    if (termsLoading) {
+      showError("Invoice terms are still loading. Please try again in a moment.");
+      return null;
+    }
+
     const element = getElement();
     if (!element) {
       showError("Payment receipt element not found.");
       return null;
     }
 
+    const html2canvas = (await import("html2canvas")).default;
+
+    // Capture a single element (kept for backward compatibility)
     const images = Array.from(element.querySelectorAll("img"));
     await Promise.all(
       images.map(async (img) => {
@@ -161,9 +280,8 @@ const PaymentReceiptPreview = ({
       }),
     );
 
-    const html2canvas = (await import("html2canvas")).default;
     return html2canvas(element, {
-      scale: 4,
+      scale: 5,
       useCORS: true,
       allowTaint: true,
       width: element.scrollWidth,
@@ -175,35 +293,101 @@ const PaymentReceiptPreview = ({
     });
   };
 
+  const capturePages = async () => {
+    if (termsLoading) {
+      showError("Invoice terms are still loading. Please try again in a moment.");
+      return null;
+    }
+
+    const element = getElement();
+    if (!element) {
+      showError("Payment receipt element not found.");
+      return null;
+    }
+
+    // Find the containing wrapper that holds pages
+    const container = element.closest(".money-receipt-wrap") || element.parentElement || element;
+    const pageEls = Array.from(container.querySelectorAll(".money-receipt-page"));
+    if (!pageEls.length) {
+      // fallback to single element
+      const canvas = await captureReceipt();
+      return canvas ? [canvas] : [];
+    }
+
+    const html2canvas = (await import("html2canvas")).default;
+    const canvases = [];
+
+    for (const el of pageEls) {
+      const images = Array.from(el.querySelectorAll("img"));
+      await Promise.all(
+        images.map(async (img) => {
+          if (img.complete && img.naturalWidth > 0) {
+            if (typeof img.decode === "function") {
+              try {
+                await img.decode();
+              } catch {
+                // Ignore
+              }
+            }
+            return;
+          }
+
+          await new Promise((resolve) => {
+            const done = () => resolve();
+            img.addEventListener("load", done, { once: true });
+            img.addEventListener("error", done, { once: true });
+          });
+        }),
+      );
+
+      const canvas = await html2canvas(el, {
+        scale: 5,
+        useCORS: true,
+        allowTaint: true,
+        width: el.scrollWidth,
+        height: el.scrollHeight,
+        windowWidth: el.scrollWidth,
+        windowHeight: el.scrollHeight,
+        logging: false,
+        backgroundColor: "#ffffff",
+      });
+
+      canvases.push(canvas);
+    }
+
+    return canvases;
+  };
+
   const exportPDF = async () => {
     setLoading((prev) => ({ ...prev, pdf: true }));
     try {
-      const canvas = await captureReceipt();
-      if (!canvas) return;
+      const canvases = await capturePages();
+      if (!canvases || canvases.length === 0) return;
 
       const jsPDF = (await import("jspdf")).default;
-      const imageWidth = canvas.width;
-      const imageHeight = canvas.height;
+
+      // Create PDF with the first page size, then add subsequent pages
+      const first = canvases[0];
+      const imageWidth = first.width;
+      const imageHeight = first.height;
       const pageWidthMm = 297;
       const pageHeightMm = (imageHeight / imageWidth) * pageWidthMm;
 
-      const pdf = new jsPDF({
-        orientation: "l",
-        unit: "mm",
-        format: [pageWidthMm, pageHeightMm],
-        compress: true,
-      });
+      const pdf = new jsPDF({ orientation: "l", unit: "mm", format: [pageWidthMm, pageHeightMm], compress: true });
 
-      pdf.addImage(
-        canvas.toDataURL("image/png"),
-        "PNG",
-        0,
-        0,
-        pageWidthMm,
-        pageHeightMm,
-        undefined,
-        "FAST",
-      );
+      for (let i = 0; i < canvases.length; i++) {
+        const c = canvases[i];
+        const imgW = c.width;
+        const imgH = c.height;
+        const hMm = (imgH / imgW) * pageWidthMm;
+
+        if (i > 0) {
+          pdf.addPage([pageWidthMm, hMm]);
+        }
+
+        pdf.addImage(c.toDataURL("image/png"), "PNG", 0, 0, pageWidthMm, hMm, undefined, "FAST");
+      }
+
       pdf.save(`${exportFileBaseName}.pdf`);
       showSuccess("Payment receipt PDF downloaded successfully!");
     } catch (error) {
@@ -217,19 +401,64 @@ const PaymentReceiptPreview = ({
   const exportImage = async () => {
     setLoading((prev) => ({ ...prev, image: true }));
     try {
-      const canvas = await captureReceipt();
-      if (!canvas) return;
+      const canvases = await capturePages();
+      if (!canvases || canvases.length === 0) return;
 
-      const link = document.createElement("a");
-      link.download = `${exportFileBaseName}.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-      showSuccess("Payment receipt image downloaded successfully!");
+      if (canvases.length === 1) {
+        const link = document.createElement("a");
+        link.download = `${exportFileBaseName}.png`;
+        link.href = canvases[0].toDataURL("image/png");
+        link.click();
+        showSuccess("Payment receipt image downloaded successfully!");
+      } else {
+        // Combine canvases vertically into one image
+        const totalWidth = Math.max(...canvases.map((c) => c.width));
+        const totalHeight = canvases.reduce((s, c) => s + c.height, 0);
+        const out = document.createElement("canvas");
+        out.width = totalWidth;
+        out.height = totalHeight;
+        const ctx = out.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, totalWidth, totalHeight);
+        let offsetY = 0;
+        canvases.forEach((c) => {
+          ctx.drawImage(c, 0, offsetY, c.width, c.height);
+          offsetY += c.height;
+        });
+
+        const link = document.createElement("a");
+        link.download = `${exportFileBaseName}.png`;
+        link.href = out.toDataURL("image/png");
+        link.click();
+        showSuccess("Payment receipt image downloaded successfully!");
+      }
     } catch (error) {
       console.error("Payment receipt image export error:", error);
       showError("Payment receipt image export failed.");
     } finally {
       setLoading((prev) => ({ ...prev, image: false }));
+    }
+  };
+
+  const exportImageSeparate = async () => {
+    setLoading((prev) => ({ ...prev, imageSeparate: true }));
+    try {
+      const canvases = await capturePages();
+      if (!canvases || canvases.length === 0) return;
+
+      // Trigger download for each page as a separate PNG (one click per page)
+      canvases.forEach((c, idx) => {
+        const link = document.createElement("a");
+        link.download = `${exportFileBaseName}_page${idx + 1}.png`;
+        link.href = c.toDataURL("image/png");
+        link.click();
+      });
+      showSuccess("Payment receipt images downloaded successfully!");
+    } catch (error) {
+      console.error("Payment receipt image export error:", error);
+      showError("Payment receipt image export failed.");
+    } finally {
+      setLoading((prev) => ({ ...prev, imageSeparate: false }));
     }
   };
 
@@ -330,6 +559,14 @@ const PaymentReceiptPreview = ({
           border: 1px solid #b9ccb8;
           box-shadow: 0 16px 38px rgba(15, 23, 42, 0.2);
           overflow: hidden;
+        }
+
+        .money-receipt-terms-page {
+          margin-top: 18px;
+          min-height: 420px;
+          background: #f1f6e0;
+          break-before: page;
+          page-break-before: always;
         }
 
         .money-receipt-dot-layer {
@@ -538,7 +775,8 @@ const PaymentReceiptPreview = ({
 
         .amount-note {
           margin-top: 4px;
-          font-size: 11px;
+          font-size: 12px;
+          font-weight:600;
           color: #586a5b;
           line-height: 1.3;
           max-width: 500px;
@@ -560,7 +798,7 @@ const PaymentReceiptPreview = ({
           min-width: 185px;
           padding: 0 10px;
           background: rgba(255,255,255,0.9);
-          color: #19452f;
+          color: #000;
           font-size: 13px;
           font-weight: 700;
         }
@@ -635,6 +873,119 @@ const PaymentReceiptPreview = ({
           font-size: 11px;
           color: #586a5b;
           line-height: 1.35;
+        }
+
+        .money-receipt-terms-inner {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-height: calc(420px - 57px);
+        }
+
+        .money-receipt-terms-heading {
+          padding: 0 0px 10px;
+        }
+
+        .money-receipt-terms-heading-text {
+          color: #111;
+          font-size: 14px;
+          font-weight: 700;
+          line-height: 1.45;
+          margin: 0;
+          text-align: left;
+        }
+
+        .money-receipt-terms-list {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 6px 25px;
+          align-content: start;
+          padding: 0 0px 8px;
+        }
+
+        .money-receipt-terms-item {
+          display: flex;
+          gap: 8px;
+          align-items: flex-start;
+          font-size: 14px;
+          line-height: 1.3;
+        }
+
+        .money-receipt-terms-index {
+          width: 22px;
+          height: 22px;
+          border-radius: 999px;
+          border: 2px solid #d9d9d9;
+          background: #f6f6f6;
+          color: #111111;
+          font-size: 11px;
+          font-weight: 700;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          margin-top: 0;
+          flex: 0 0 auto;
+          line-height: 1;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .money-receipt-terms-text {
+          color: #6c757d;
+          font-size: 14px;
+          line-height: 1.45;
+          font-weight: 500;
+          word-break: break-word;
+        }
+
+        .money-receipt-terms-empty {
+          border: 1px dashed #a7b8a6;
+          background: rgba(255, 255, 255, 0.7);
+          border-radius: 10px;
+          padding: 18px;
+          color: #586a5b;
+          font-size: 14px;
+          font-weight: 600;
+          text-align: center;
+        }
+
+        .money-receipt-terms-footer {
+          margin-top: auto;
+          padding: 0px 0px 0;
+          color: #111;
+          font-size: 14px;
+          font-weight: 700;
+          text-align: left;
+        }
+
+        .money-receipt-terms-page .money-receipt-head {
+          margin-bottom: 8px;
+        }
+
+        .money-receipt-terms-body {
+          display: flex;
+          flex-direction: column;
+          gap: 0;
+        }
+
+        .money-receipt-terms-body .money-receipt-terms-line {
+          padding: 0 12px;
+        }
+
+        .money-receipt-terms-body .money-receipt-terms-line span {
+          font-size: 14px;
+        }
+
+        .money-receipt-terms-body .money-receipt-terms-line .fw-bold {
+          color: #111;
+          font-weight: 800;
+        }
+
+        .money-receipt-terms-page .receipt-contact-footer {
+          margin-top: 8px;
+        }
+
+        .money-receipt-terms-page .money-receipt-company p {
+          margin-top: 6px;
         }
 
         .receipt-contact-footer {
@@ -750,16 +1101,35 @@ const PaymentReceiptPreview = ({
                   <button
                     className="mr-btn mr-btn-pdf"
                     onClick={exportPDF}
-                    disabled={loading.pdf || loading.image}
+                    disabled={loading.pdf || loading.image || termsLoading}
                   >
-                    {loading.pdf ? "Generating..." : "Export PDF"}
+                    {termsLoading
+                      ? "Loading Terms..."
+                      : loading.pdf
+                        ? "Generating..."
+                        : "Export PDF"}
                   </button>
                   <button
-                    className="mr-btn mr-btn-image"
+                    className="mr-btn mr-btn-pdf"
                     onClick={exportImage}
-                    disabled={loading.pdf || loading.image}
+                    disabled={loading.pdf || loading.image || termsLoading}
                   >
-                    {loading.image ? "Generating..." : "Export Image"}
+                    {termsLoading
+                      ? "Loading Terms..."
+                      : loading.image
+                        ? "Generating..."
+                        : "Export Image"}
+                  </button>
+                  <button
+                    className="mr-btn mr-btn-pdf"
+                    onClick={exportImageSeparate}
+                    disabled={loading.pdf || loading.imageSeparate || termsLoading}
+                  >
+                    {termsLoading
+                      ? "Loading Terms..."
+                      : loading.imageSeparate
+                        ? "Generating..."
+                        : "Export Image (Pages)"}
                   </button>
                   <button className="mr-btn mr-btn-light" onClick={onClose}>
                     Close
@@ -887,8 +1257,8 @@ const PaymentReceiptPreview = ({
                       <div className="amount-box">Rs {amountText}</div>
                       <div className="amount-note">
                         This receipt confirms that the above payment has been
-                        successfully received. This is a computer-generated
-                        receipt for accounting purposes.
+                        successfully received. Please read the Terms &
+                        Conditions given on Page 2 carefully.
                       </div>
                     </div>
 
@@ -907,6 +1277,133 @@ const PaymentReceiptPreview = ({
                         <p className="signature-role">Founder & CEO</p>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="receipt-contact-footer">
+                    <div className="receipt-contact-grid">
+                      <div className="receipt-contact-item">
+                        <span className="receipt-contact-icon">
+                          {renderContactIcon("phone")}
+                        </span>
+                        <div className="receipt-contact-text">
+                          <span className="receipt-contact-label">
+                            Phone Number
+                          </span>
+                          <span className="receipt-contact-value">
+                            {companyPhoneDisplay}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="receipt-contact-item">
+                        <span className="receipt-contact-icon">
+                          {renderContactIcon("web")}
+                        </span>
+                        <div className="receipt-contact-text">
+                          <span className="receipt-contact-label">
+                            More Information
+                          </span>
+                          <span className="receipt-contact-value">
+                            {companyWebsiteDisplay}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="receipt-contact-item">
+                        <span className="receipt-contact-icon">
+                          {renderContactIcon("email")}
+                        </span>
+                        <div className="receipt-contact-text">
+                          <span className="receipt-contact-label">
+                            Send Requirement To
+                          </span>
+                          <span className="receipt-contact-value">
+                            {companyEmailDisplay}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="receipt-contact-item">
+                        <span className="receipt-contact-icon">
+                          {renderContactIcon("address")}
+                        </span>
+                        <div className="receipt-contact-text">
+                          <span className="receipt-contact-label">
+                            Office Address
+                          </span>
+                          <span className="receipt-contact-value">
+                            {companyAddressDisplay}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="money-receipt-page money-receipt-terms-page">
+                <div className="money-receipt-topbar" aria-hidden="true" />
+                <div className="money-receipt-bottombar" aria-hidden="true" />
+                <div
+                  className="money-receipt-dot-layer"
+                  aria-hidden="true"
+                  style={{ "--money-receipt-dot-image": dotBackgroundImage }}
+                />
+
+                <div className="money-receipt-inner money-receipt-terms-inner">
+                  <div className="money-receipt-head">
+                    <div>
+                      <img
+                        src="/Logo.png"
+                        alt="Logo"
+                        className="money-receipt-logo"
+                      />
+                    </div>
+
+                    <div className="money-receipt-title-wrap">
+                      <div className="money-receipt-title">Terms & Conditions</div>
+                    </div>
+
+                    <div className="money-receipt-company">
+                      <h3>{data.companyName}</h3>
+                      <p>{data.companyAddress}</p>
+                    </div>
+                  </div>
+
+                  <div className="money-receipt-terms-body">
+                    <div className="money-receipt-terms-heading">
+                      <div className="money-receipt-terms-heading-text">
+                        Terms & Conditions (Full Terms & Conditions are
+                        available on our website:
+                        https://www.maxcode.in/terms-conditions) :
+                      </div>
+                    </div>
+
+                    {termsConditions.length > 0 ? (
+                      <div className="money-receipt-terms-list">
+                        {termsConditions.map((term, index) => (
+                          <div
+                            key={`${index}-${term}`}
+                            className="money-receipt-terms-item"
+                          >
+                            <span className="money-receipt-terms-index">
+                              {index + 1}
+                            </span>
+                            <span className="money-receipt-terms-text">
+                              {term}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="money-receipt-terms-empty">
+                        No invoice terms were configured for this receipt.
+                      </div>
+                    )}
+
+                    <div className="money-receipt-terms-footer">
+                      By continuing the services or project with MaxCode IT
+                      Services, the client agrees to these Terms & Conditions
+                      and full terms available on our website.
+                    </div>
+                    <div class="amount-note mt-1"><strong className="text-danger">Note: </strong>Payments received for services or any project work through MaxCode IT Services are non-refundable. This is a computer-generated receipt for accounting purposes.</div>
                   </div>
 
                   <div className="receipt-contact-footer">

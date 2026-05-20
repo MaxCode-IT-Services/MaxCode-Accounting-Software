@@ -449,6 +449,12 @@ const AdvancePaymentManagement = () => {
     invoiceNumber: "Advance Payment",
     note: record.note || "",
     receivedBy: businessSettings.companyName || "MaxCode IT Services",
+    invoiceTermsVersion:
+      record.invoiceTermsVersion || businessSettings.invoiceTermsVersion || "",
+    invoiceTermsConditionsSnapshot:
+      record.invoiceTermsConditionsSnapshot ||
+      businessSettings.invoiceTermsConditions ||
+      [],
   });
 
   const preparedData = useMemo(() => records, [records]);

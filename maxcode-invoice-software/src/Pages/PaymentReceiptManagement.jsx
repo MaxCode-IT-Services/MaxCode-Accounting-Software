@@ -667,6 +667,10 @@ const PaymentReceiptManagement = () => {
     const receiptNumber = record.receiptNumber || "0001";
     const formattedDate = formatDateDDMMYYYY(record.receiptDate);
     const signatureDateTime = formatDateTime(record.createdAt);
+    const invoiceTermsSnapshot =
+      record.invoiceTermsConditionsSnapshot ||
+      businessSettings.invoiceTermsConditions ||
+      [];
 
     // Multiple sources se invoice numbers collect karna
     const invoiceNumbersList = [];
@@ -769,6 +773,9 @@ const PaymentReceiptManagement = () => {
       note: record.note || "",
       receivedBy: businessSettings.companyName || "MaxCode IT Services",
       signatureDateTime: signatureDateTime,
+      invoiceTermsVersion:
+        record.invoiceTermsVersion || businessSettings.invoiceTermsVersion || "",
+      invoiceTermsConditionsSnapshot: invoiceTermsSnapshot,
     };
   };
 

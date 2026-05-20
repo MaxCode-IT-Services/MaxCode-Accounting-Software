@@ -299,6 +299,11 @@ const API_ENDPOINTS = {
     SUMMARY: (financialYear = "ALL") =>
       `/balance-sheet-summary?financialYear=${financialYear}`,
   },
+
+  PROFIT_LOSS: {
+    SUMMARY: (financialYear = "ALL") =>
+      `/profit-loss-summary?financialYear=${financialYear}`,
+  },
 };
 
 export default API_ENDPOINTS;

@@ -697,6 +697,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "balanceSheet",
     },
     {
+      to: "/admin/profit-loss",
+      icon: "fa-solid fa-chart-pie",
+      label: "Profit & Loss",
+      permissionKey: "profitLoss",
+    },
+    {
       to: "/admin/qutation-management",
       icon: "fa-solid fa-file-signature",
       label: "Qutation Management",

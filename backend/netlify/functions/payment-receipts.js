@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
 import { syncTransactionSnapshot } from "./utils/transactions.js";
+import { getTermsBindingFromDatabase } from "./utils/terms-versioning.js";
 
 const RECEIPT_META_CACHE_TTL_MS = 30 * 1000;
 const receiptMetaCache = { value: null, expiresAt: 0 };
@@ -889,6 +890,11 @@ export async function handler(event) {
         suppliedReceiptNumber ||
         (await getNextReceiptNumber(col, receiptNumberPrefix));
 
+      const invoiceTermsBinding = await getTermsBindingFromDatabase(
+        db,
+        "invoice",
+      );
+
       let auditFields = getAuditFieldsFromEvent(event, "create");
       const now = new Date();
 
@@ -1102,6 +1108,10 @@ export async function handler(event) {
         ...auditFields,
       };
 
+      if (invoiceTermsBinding) {
+        regularDoc.invoiceTermsVersion = invoiceTermsBinding.version;
+      }
+
       const insertResult = await col.insertOne(regularDoc);
       const createdDocs = [
         {
@@ -1151,6 +1161,10 @@ export async function handler(event) {
           updatedAt: now,
           ...auditFields,
         };
+
+        if (regularDoc.invoiceTermsVersion) {
+          advanceDoc.invoiceTermsVersion = regularDoc.invoiceTermsVersion;
+        }
 
         const advanceInsertResult = await col.insertOne(advanceDoc);
         createdDocs.push({

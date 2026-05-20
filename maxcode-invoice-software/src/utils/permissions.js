@@ -128,6 +128,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "profitLoss",
+    label: "Profit & Loss",
+    description: "Profit and loss statement access",
+    icon: "fa-solid fa-chart-pie",
+    route: "/admin/profit-loss",
+    detailed: true,
+  },
+  {
     key: "qutationManagement",
     label: "Qutation Management",
     description: "Manage qutations",

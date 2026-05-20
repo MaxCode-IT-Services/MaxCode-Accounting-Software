@@ -70,6 +70,7 @@ const PublicPaymentLinkPage = lazy(
   () => import("../src/Pages/PublicPaymentLinkPage"),
 );
 const BalanceSheet = lazy(() => import("../src/Pages/BalanceSheet"));
+const ProfitLoss = lazy(() => import("../src/Pages/ProfitLoss"));
 const FinancialYearManagement = lazy(
   () => import("../src/Pages/FinancialYearManagement"),
 );
@@ -528,6 +529,17 @@ const dashboardChildRoutes = (
         <PermissionRoute moduleKey="balanceSheet">
           <Suspense fallback={<Loading />}>
             <BalanceSheet />
+          </Suspense>
+        </PermissionRoute>
+      }
+    />
+
+    <Route
+      path="profit-loss"
+      element={
+        <PermissionRoute moduleKey="profitLoss">
+          <Suspense fallback={<Loading />}>
+            <ProfitLoss />
           </Suspense>
         </PermissionRoute>
       }
