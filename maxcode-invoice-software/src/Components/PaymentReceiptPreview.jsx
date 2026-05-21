@@ -1414,7 +1414,7 @@ const PaymentReceiptPreview = ({
                       Services, the client agrees to these Terms & Conditions
                       and full terms available on our website.
                     </div>
-                    <div class="amount-note mt-1"><strong className="text-danger">Note: </strong>Payments received for services or any project work through MaxCode IT Services are non-refundable. This is a computer-generated receipt for accounting purposes.</div>
+                    <div class="amount-note mt-1"><strong className="text-danger">Note: </strong>Payments made to MaxCode IT Services for any services or any project work are non-refundable. This is a computer-generated receipt for accounting purposes.</div>
                   </div>
 
                   <div className="receipt-contact-footer">

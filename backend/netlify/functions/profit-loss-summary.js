@@ -37,6 +37,14 @@ const getOpeningBalances = async (db, financialYear) => {
     openingStock: round2(
       toNumber(yearRecord.openingInventory || yearRecord.closingStock || 0),
     ),
+    openingCash: round2(toNumber(yearRecord.openingCash || 0)),
+    openingBank: round2(toNumber(yearRecord.openingBank || 0)),
+    openingGstInput: round2(
+      toNumber(yearRecord.openingCgstItc || yearRecord.openingItcCgst || 0) +
+        toNumber(yearRecord.openingSgstItc || yearRecord.openingItcSgst || 0) +
+        toNumber(yearRecord.openingIgstItc || yearRecord.openingItcIgst || 0) +
+        toNumber(yearRecord.openingItc || yearRecord.openingGstInput || 0),
+    ),
     openingCapital: round2(
       toNumber(
         yearRecord.openingCapital ||
@@ -69,6 +77,16 @@ const calculateProfitLossFromTransactions = (
   // GST adjustments
   let gstOutputTotal = 0;
   let gstInputTotal = 0;
+
+  // Cash / bank / equity movement tracking for a Tally-style position snapshot
+  let cashDebit = 0;
+  let cashCredit = 0;
+  let bankDebit = 0;
+  let bankCredit = 0;
+  let ownerInvestmentDebit = 0;
+  let ownerInvestmentCredit = 0;
+  let ownerWithdrawalDebit = 0;
+  let ownerWithdrawalCredit = 0;
 
   // Opening stock
   let openingStock = round2(openingBalances.openingStock || 0);
@@ -155,6 +173,18 @@ const calculateProfitLossFromTransactions = (
         accountHead === "GST Input IGST"
       ) {
         gstInputTotal = round2(gstInputTotal + debit - credit);
+      } else if (accountHead === "Cash Account") {
+        cashDebit = round2(cashDebit + debit);
+        cashCredit = round2(cashCredit + credit);
+      } else if (accountHead === "Bank Account") {
+        bankDebit = round2(bankDebit + debit);
+        bankCredit = round2(bankCredit + credit);
+      } else if (accountHead === "Owner Investment Account") {
+        ownerInvestmentDebit = round2(ownerInvestmentDebit + debit);
+        ownerInvestmentCredit = round2(ownerInvestmentCredit + credit);
+      } else if (accountHead === "Owner Withdrawal Account") {
+        ownerWithdrawalDebit = round2(ownerWithdrawalDebit + debit);
+        ownerWithdrawalCredit = round2(ownerWithdrawalCredit + credit);
       }
 
       // === INVENTORY / STOCK ===
@@ -185,6 +215,14 @@ const calculateProfitLossFromTransactions = (
   gstOutputTotal = round2(gstOutputTotal);
   gstInputTotal = round2(gstInputTotal);
   closingStock = round2(closingStock);
+  cashDebit = round2(cashDebit);
+  cashCredit = round2(cashCredit);
+  bankDebit = round2(bankDebit);
+  bankCredit = round2(bankCredit);
+  ownerInvestmentDebit = round2(ownerInvestmentDebit);
+  ownerInvestmentCredit = round2(ownerInvestmentCredit);
+  ownerWithdrawalDebit = round2(ownerWithdrawalDebit);
+  ownerWithdrawalCredit = round2(ownerWithdrawalCredit);
 
   // Calculate totals
   const totalRevenue = round2(
@@ -220,6 +258,27 @@ const calculateProfitLossFromTransactions = (
 
   // Net GST position
   const netGst = round2(gstOutputTotal - gstInputTotal);
+  const openingCash = round2(openingBalances.openingCash || 0);
+  const openingBank = round2(openingBalances.openingBank || 0);
+  const openingGstInput = round2(openingBalances.openingGstInput || 0);
+
+  const closingCash = round2(openingCash + cashDebit - cashCredit);
+  const closingBank = round2(openingBank + bankDebit - bankCredit);
+
+  const gstNetWithOpeningItc = round2(
+    openingGstInput + gstInputTotal - gstOutputTotal,
+  );
+  const gstItcAvailable = gstNetWithOpeningItc > 0 ? gstNetWithOpeningItc : 0;
+  const gstPayable = gstNetWithOpeningItc < 0 ? Math.abs(gstNetWithOpeningItc) : 0;
+
+  const ownerInvestmentNet = round2(ownerInvestmentCredit - ownerInvestmentDebit);
+  const ownerWithdrawalNet = round2(ownerWithdrawalDebit - ownerWithdrawalCredit);
+  const closingOwnerEquity = round2(
+    (openingBalances.openingCapital || 0) +
+      ownerInvestmentNet +
+      netProfit -
+      ownerWithdrawalNet,
+  );
 
   return {
     income: {
@@ -252,6 +311,28 @@ const calculateProfitLossFromTransactions = (
       gstInputTotal,
       netGst,
     },
+    position: {
+      openingCash,
+      openingBank,
+      closingCash,
+      closingBank,
+      cashDebit,
+      cashCredit,
+      bankDebit,
+      bankCredit,
+      openingGstInput,
+      gstInputTotal,
+      gstOutputTotal,
+      gstNetWithOpeningItc,
+      gstItcAvailable,
+      gstPayable,
+      ownerInvestmentNet,
+      ownerWithdrawalNet,
+      closingOwnerEquity,
+      openingCapital: round2(openingBalances.openingCapital || 0),
+      openingStock,
+      closingStock,
+    },
     accountingMeta: {
       method: "transaction_based_accrual",
       revenueRecognition: "credit_minus_debit_on_revenue_accounts",
@@ -259,7 +340,7 @@ const calculateProfitLossFromTransactions = (
       cogsFormula: "openingStock + purchases - closingStock",
       grossProfitFormula: "totalRevenue - cogs",
       netProfitFormula: "grossProfit - otherExpensesTotal",
-      note: "Profit & Loss calculated from transaction journal entries. GST is tracked separately and not included in revenue/expense figures.",
+      note: "Profit & Loss is calculated from transaction journal entries. Cash/bank, GST ITC/payable, and owner equity are returned separately in position for a Tally-style reconciliation view.",
     },
   };
 };

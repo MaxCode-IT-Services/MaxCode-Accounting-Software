@@ -238,7 +238,36 @@ const ProfitLoss = () => {
     netGst: 0,
   };
 
+  const position = plData?.position || {
+    openingCash: 0,
+    openingBank: 0,
+    closingCash: 0,
+    closingBank: 0,
+    openingGstInput: 0,
+    gstInputTotal: 0,
+    gstOutputTotal: 0,
+    gstNetWithOpeningItc: 0,
+    gstItcAvailable: 0,
+    gstPayable: 0,
+    ownerInvestmentNet: 0,
+    ownerWithdrawalNet: 0,
+    closingOwnerEquity: 0,
+    openingCapital: 0,
+  };
+
   const isProfit = summary.netProfit >= 0;
+  const gstPositionLabel =
+    position.gstItcAvailable > 0
+      ? "ITC Available"
+      : position.gstPayable > 0
+        ? "GST Payable"
+        : "GST Settled";
+  const gstPositionAmount =
+    position.gstItcAvailable > 0
+      ? position.gstItcAvailable
+      : position.gstPayable > 0
+        ? position.gstPayable
+        : 0;
 
   const rows = useMemo(() => {
     const getDescription = (account, section, isTotal) => {
@@ -511,6 +540,51 @@ const ProfitLoss = () => {
     },
   ];
 
+  const positionCards = [
+    {
+      key: "bankBalance",
+      title: "Bank Balance",
+      value: formatCurrency(position.closingBank),
+      caption: `Opening: ${formatCurrency(position.openingBank)}`,
+      icon: "fa-solid fa-building-columns",
+    },
+    {
+      key: "cashBalance",
+      title: "Cash Balance",
+      value: formatCurrency(position.closingCash),
+      caption: `Opening: ${formatCurrency(position.openingCash)}`,
+      icon: "fa-solid fa-sack-dollar",
+    },
+    {
+      key: "cashBankTotal",
+      title: "Cash + Bank",
+      value: formatCurrency((position.closingCash || 0) + (position.closingBank || 0)),
+      caption: `Liquid Funds`,
+      icon: "fa-solid fa-wallet",
+    },
+    {
+      key: "gstPosition",
+      title: gstPositionLabel,
+      value: formatCurrency(gstPositionAmount),
+      caption: `Opening ITC: ${formatCurrency(position.openingGstInput)}`,
+      icon: "fa-solid fa-receipt",
+    },
+    {
+      key: "ownerEquity",
+      title: "Owner Equity",
+      value: formatCurrency(position.closingOwnerEquity),
+      caption: `Capital + Profit - Drawings`,
+      icon: "fa-solid fa-user-tie",
+    },
+    {
+      key: "ownerInvestment",
+      title: "Owner Investment",
+      value: formatCurrency(position.ownerInvestmentNet),
+      caption: `Withdrawals: ${formatCurrency(position.ownerWithdrawalNet)}`,
+      icon: "fa-solid fa-arrow-trend-up",
+    },
+  ];
+
   const getCardNumber = (index) => (index % 8) + 1;
 
   const columns = [
@@ -644,6 +718,36 @@ const ProfitLoss = () => {
                   </div>
                   <h5 className="mb-2 fw-bold">{card.title}</h5>
                   <h6 className="mb-0 text-muted fw-bold">{card.value}</h6>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      
+
+      <div className="row">
+        {positionCards.map((card, index) => {
+          const cardNumber = getCardNumber(index);
+          const cardClass = `card${cardNumber}`;
+          const cardIconBgClass = `card-icon-bg${cardNumber}`;
+
+          return (
+            <div key={card.key} className="col-md-6 col-xl mb-4">
+              <div className={`card border-0 overflow-hidden ${cardClass} modern-card hover-elevate`} style={{ borderRadius: "12px", height: "100%" }}>
+                <div className="card-body text-center p-2">
+                  <div className="mb-3 mt-2 d-flex justify-content-center">
+                    <span
+                      className={`avatar-md rounded-circle ${cardIconBgClass} d-inline-flex justify-content-center align-items-center kpi-icon`}
+                      style={{ width: "56px", height: "56px" }}
+                    >
+                      <i className={`${card.icon} fs-4 text-white`} />
+                    </span>
+                  </div>
+                  <h5 className="mb-2 fw-bold">{card.title}</h5>
+                  <h6 className="mb-1 text-muted fw-bold">{card.value}</h6>
+                  {card.caption && <div className="text-muted small">{card.caption}</div>}
                 </div>
               </div>
             </div>
