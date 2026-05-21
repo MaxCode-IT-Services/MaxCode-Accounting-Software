@@ -3,6 +3,9 @@ import { showError, showSuccess } from "./ToastNotification";
 import { apiGet } from "../utils/api";
 import API_ENDPOINTS from "../utils/apiEndpoints";
 
+const ADVANCE_REFERENCE_INVOICE_NUMBER =
+  "Advance Payment (Final Invoice Not Generated)";
+
 const PaymentReceiptPreview = ({
   id,
   receiptData,
@@ -13,6 +16,7 @@ const PaymentReceiptPreview = ({
   const [loading, setLoading] = useState({ pdf: false, image: false, imageSeparate: false });
   const [termsConditions, setTermsConditions] = useState([]);
   const [termsLoading, setTermsLoading] = useState(true);
+  const [businessSettings, setBusinessSettings] = useState({});
   const isPrintMode = renderMode === "print";
 
   useEffect(() => {
@@ -90,8 +94,12 @@ const PaymentReceiptPreview = ({
   const signatureDateTimeText = data.signatureDateTime || "-";
   const receiptRefNumber = data.receiptNo || "-";
 
+  const storedReferenceInvoiceNumber = String(
+    data.referenceInvoiceNumber || "",
+  ).trim();
+
   // Build reference invoice numbers from allocations
-  let referenceInvoiceNumber = "-";
+  let referenceInvoiceNumber = storedReferenceInvoiceNumber || "-";
 
   if (
     Array.isArray(data.invoiceAllocations) &&
@@ -123,6 +131,10 @@ const PaymentReceiptPreview = ({
     referenceInvoiceNumber = data.invoiceNumber;
   } else if (data.appliedInvoiceNumber) {
     referenceInvoiceNumber = data.appliedInvoiceNumber;
+  } else if (storedReferenceInvoiceNumber) {
+    referenceInvoiceNumber = storedReferenceInvoiceNumber;
+  } else if (String(data.paymentType || "").toLowerCase() === "advance") {
+    referenceInvoiceNumber = ADVANCE_REFERENCE_INVOICE_NUMBER;
   }
 
   const companyPhoneDisplay = data.companyPhone || data.phone || "-";
@@ -132,6 +144,7 @@ const PaymentReceiptPreview = ({
   const companyAddressDisplay = data.companyAddress || "-";
   const amountText = formatCurrency(data.amount);
   const invoiceTermsVersion = String(data.invoiceTermsVersion || "").trim();
+  const invoiceTermsSnapshot = data.invoiceTermsConditionsSnapshot;
 
   const dotBackgroundImage = useMemo(() => {
     const svg =
@@ -157,10 +170,7 @@ const PaymentReceiptPreview = ({
     let mounted = true;
     setTermsLoading(true);
 
-    const snapshotTerms = parseTerms(
-      data.invoiceTermsConditionsSnapshot,
-      [],
-    );
+    const snapshotTerms = parseTerms(invoiceTermsSnapshot, []);
 
     if (snapshotTerms.length > 0) {
       setTermsConditions(snapshotTerms);
@@ -173,6 +183,7 @@ const PaymentReceiptPreview = ({
     const applyBusinessSettingsTerms = (settings) => {
       if (!mounted || !settings || typeof settings !== "object") return false;
 
+      setBusinessSettings(settings);
       const parsed = parseTerms(settings.invoiceTermsConditions, []);
       if (parsed.length > 0) {
         setTermsConditions(parsed);
@@ -238,7 +249,7 @@ const PaymentReceiptPreview = ({
     return () => {
       mounted = false;
     };
-  }, [data.invoiceTermsVersion, data.invoiceTermsConditionsSnapshot]);
+  }, [invoiceTermsVersion, invoiceTermsSnapshot]);
 
   const getElement = () =>
     document.getElementById(id || "payment-receipt-preview");

@@ -69,6 +69,47 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const ADVANCE_REFERENCE_INVOICE_NUMBER =
+  "Advance Payment (Final Invoice Not Generated)";
+
+const buildReferenceInvoiceNumber = (record = {}) => {
+  const storedReferenceInvoiceNumber = String(
+    record.referenceInvoiceNumber || "",
+  ).trim();
+
+  const invoiceAllocations = Array.isArray(record.invoiceAllocations)
+    ? record.invoiceAllocations
+    : [];
+  const invoiceNumbers = Array.isArray(record.invoiceNumbers)
+    ? record.invoiceNumbers
+    : [];
+  const paymentType = String(record.paymentType || "").toLowerCase();
+
+  const allocationNumbers = invoiceAllocations
+    .map((alloc) =>
+      alloc.invoiceNumber ||
+      alloc.invoice_no ||
+      alloc.invoiceNo ||
+      alloc.referenceNumber,
+    )
+    .filter(Boolean);
+
+  if (allocationNumbers.length > 0) {
+    return allocationNumbers.join(", ");
+  }
+
+  const validNumbers = invoiceNumbers.filter(Boolean);
+  if (validNumbers.length > 0) {
+    return validNumbers.join(", ");
+  }
+
+  if (record.invoiceNumber) return String(record.invoiceNumber);
+  if (record.appliedInvoiceNumber) return String(record.appliedInvoiceNumber);
+  if (storedReferenceInvoiceNumber) return storedReferenceInvoiceNumber;
+  if (paymentType === "advance") return ADVANCE_REFERENCE_INVOICE_NUMBER;
+  return "-";
+};
+
 const derivePaymentStatus = (totalAmount, receivedAmount) => {
   const total = toNumber(totalAmount);
   const received = toNumber(receivedAmount);
@@ -1108,6 +1149,10 @@ export async function handler(event) {
         ...auditFields,
       };
 
+      regularDoc.referenceInvoiceNumber = buildReferenceInvoiceNumber(
+        regularDoc,
+      );
+
       if (invoiceTermsBinding) {
         regularDoc.invoiceTermsVersion = invoiceTermsBinding.version;
       }
@@ -1161,6 +1206,10 @@ export async function handler(event) {
           updatedAt: now,
           ...auditFields,
         };
+
+        advanceDoc.referenceInvoiceNumber = buildReferenceInvoiceNumber(
+          advanceDoc,
+        );
 
         if (regularDoc.invoiceTermsVersion) {
           advanceDoc.invoiceTermsVersion = regularDoc.invoiceTermsVersion;
@@ -1377,6 +1426,16 @@ export async function handler(event) {
           invoiceAllocationsToUpdate === undefined && {
             invoiceAllocations: body.invoiceAllocations,
           }),
+        referenceInvoiceNumber: buildReferenceInvoiceNumber({
+          ...existing,
+          ...body,
+          invoiceAllocations:
+            invoiceAllocationsToUpdate !== undefined
+              ? invoiceAllocationsToUpdate
+              : body.invoiceAllocations !== undefined
+                ? body.invoiceAllocations
+                : existing.invoiceAllocations,
+        }),
         updatedAt: new Date(),
         ...auditFields,
       };

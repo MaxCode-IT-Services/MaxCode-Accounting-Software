@@ -9,6 +9,9 @@ import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiGet, apiDelete, apiPost } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
+const ADVANCE_REFERENCE_INVOICE_NUMBER =
+  "Advance Payment (Final Invoice Not Generated)";
+
 const PaymentReceiptManagement = () => {
   const moduleKey = "paymentReceiptManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
@@ -667,10 +670,7 @@ const PaymentReceiptManagement = () => {
     const receiptNumber = record.receiptNumber || "0001";
     const formattedDate = formatDateDDMMYYYY(record.receiptDate);
     const signatureDateTime = formatDateTime(record.createdAt);
-    const invoiceTermsSnapshot =
-      record.invoiceTermsConditionsSnapshot ||
-      businessSettings.invoiceTermsConditions ||
-      [];
+    const invoiceTermsSnapshot = record.invoiceTermsConditionsSnapshot || null;
 
     // Multiple sources se invoice numbers collect karna
     const invoiceNumbersList = [];
@@ -728,15 +728,20 @@ const PaymentReceiptManagement = () => {
       }
     }
 
+    const storedReferenceInvoiceNumber = String(
+      record.referenceInvoiceNumber || "",
+    ).trim();
+
     // Build reference invoice number string
-    let referenceInvoiceNumber = "-";
+    let referenceInvoiceNumber = storedReferenceInvoiceNumber || "-";
     if (invoiceNumbersList.length > 0) {
       referenceInvoiceNumber = invoiceNumbersList.join(", ");
     }
 
     // Agar advance payment hai aur koi invoice nahi mila toh
     if (record.paymentType === "advance" && invoiceNumbersList.length === 0) {
-      referenceInvoiceNumber = "Advance Payment (Invoice Pending)";
+      referenceInvoiceNumber =
+        storedReferenceInvoiceNumber || ADVANCE_REFERENCE_INVOICE_NUMBER;
     }
 
     return {

@@ -13,6 +13,9 @@ import {
 } from "../utils/fetchAllEntities";
 import { normalizePaymentMethodOptions } from "../utils/paymentMethods";
 
+const ADVANCE_REFERENCE_INVOICE_NUMBER =
+  "Advance Payment (Final Invoice Not Generated)";
+
 const emptyForm = {
   receiptNumber: "",
   receiptDate: "",
@@ -782,6 +785,13 @@ const CreatePaymentReceipt = ({
           ? [formData.invoiceNumber]
           : [];
 
+      const computedReferenceInvoiceNumber =
+        normalizedInvoiceNumbers.length > 0
+          ? normalizedInvoiceNumbers.join(", ")
+          : formData.paymentType === "advance"
+            ? ADVANCE_REFERENCE_INVOICE_NUMBER
+            : formData.referenceInvoiceNumber || "";
+
       const payload = {
         ...formData,
         amount: Number(formData.amount),
@@ -789,6 +799,7 @@ const CreatePaymentReceipt = ({
         invoiceNumbers: normalizedInvoiceNumbers,
         invoiceId: normalizedInvoiceIds[0] || "",
         invoiceNumber: normalizedInvoiceNumbers[0] || "",
+        referenceInvoiceNumber: computedReferenceInvoiceNumber,
         againstType: formData.againstType || "",
         debitNoteId: formData.debitNoteId || "",
         debitNoteNumber: formData.debitNoteNumber || "",
