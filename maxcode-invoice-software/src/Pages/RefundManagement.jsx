@@ -1121,16 +1121,7 @@ const RefundManagement = () => {
       const data = Array.isArray(payload.records) ? payload.records : [];
       const total = payload.total || data.length;
 
-      if (payload.meta?.refundMethods) {
-        setDynamicFilterOptions({
-          refundMethod: ["All", ...payload.meta.refundMethods],
-        });
-      } else {
-        const refundMethods = Array.from(
-          new Set(data.map((record) => String(record.refundMethod || "").trim()).filter(Boolean)),
-        ).sort((a, b) => a.localeCompare(b));
-        setDynamicFilterOptions({ refundMethod: ["All", ...refundMethods] });
-      }
+      // Build dynamic filter options (refund methods and createdBy)
 
       const mapped = data.map((record, index) => {
         const amount = Number(record.amount || 0);
@@ -1162,6 +1153,26 @@ const RefundManagement = () => {
           statusBadge: status,
           refundMethodBadge: record.refundMethod || "-",
         };
+      });
+
+      // Prepare dynamic filter options for refundMethod and createdBy
+      const refundMethods = payload.meta?.refundMethods
+        ? Array.isArray(payload.meta.refundMethods)
+          ? payload.meta.refundMethods
+          : []
+        : Array.from(
+            new Set(data.map((record) => String(record.refundMethod || "").trim()).filter(Boolean)),
+          ).sort((a, b) => a.localeCompare(b));
+
+      const createdByList = payload.meta?.createdBy
+        ? Array.isArray(payload.meta.createdBy)
+          ? payload.meta.createdBy
+          : []
+        : Array.from(new Set(mapped.map((r) => String(r.createdBy || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+
+      setDynamicFilterOptions({
+        refundMethod: ["All", ...refundMethods],
+        createdBy: ["All", ...createdByList],
       });
 
       const totals = serverSide && payload.statistics
@@ -1340,8 +1351,13 @@ const RefundManagement = () => {
         a.localeCompare(b),
       ),
     ];
+    const createdByOptions = dynamicFilterOptions.createdBy || [
+      "All",
+      ...Array.from(new Set(records.map((record) => record.createdBy).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    ];
     return {
       refundMethod: methods,
+      createdBy: createdByOptions,
     };
   }, [dynamicFilterOptions, records]);
 
@@ -1706,7 +1722,7 @@ const RefundManagement = () => {
           setCurrentPage(1);
         }}
         columnsWithDateFilter={REFUND_DATE_FILTER_KEYS}
-        columnsWithDropdownFilter={["refundMethodBadge"]}
+        columnsWithDropdownFilter={["refundMethodBadge", "createdBy"]}
         filterOptions={filterOptions}
         ensureCreatedByColumn={true}
         createdByLabel="Created By"
