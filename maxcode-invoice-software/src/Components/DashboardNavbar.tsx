@@ -655,6 +655,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "paymentReceiptManagement",
     },
     {
+      to: "/admin/refund-management",
+      icon: "fa-solid fa-rotate-left",
+      label: "Refund Management",
+      permissionKey: "refundManagement",
+    },
+    {
       to: "/admin/credit-debit-notes-management",
       icon: "fas fa-envelope-open-text",
       label: "Credit/Debit Notes",

@@ -527,7 +527,17 @@ export async function handler(event) {
             $or: clientMatch,
             paymentType: "advance",
             isDeleted: { $ne: true },
-            $expr: { $gt: ["$amount", { $ifNull: ["$adjustedAmount", 0] }] },
+            $expr: {
+              $gt: [
+                "$amount",
+                {
+                  $add: [
+                    { $ifNull: ["$adjustedAmount", 0] },
+                    { $ifNull: ["$refundedAmount", 0] },
+                  ],
+                },
+              ],
+            },
           })
           .sort({ receiptDate: 1 })
           .toArray();
@@ -538,8 +548,19 @@ export async function handler(event) {
           receiptDate: a.receiptDate,
           amount: Number(a.amount || 0),
           adjustedAmount: Number(a.adjustedAmount || 0),
+          refundedAmount: Number(a.refundedAmount || 0),
           availableAmount:
-            Number(a.amount || 0) - Number(a.adjustedAmount || 0),
+            Number(a.amount || 0) -
+            Number(a.adjustedAmount || 0) -
+            Number(a.refundedAmount || 0),
+          clientRefId: String(a.clientRefId || a.clientId || "").trim(),
+          clientId: String(a.clientId || a.clientRefId || "").trim(),
+          clientName: String(a.clientName || "").trim(),
+          businessName: String(a.businessName || "").trim(),
+          gstin: String(a.gstin || "").trim(),
+          phoneNumber: String(a.phoneNumber || "").trim(),
+          email: String(a.email || "").trim(),
+          address: String(a.address || "").trim(),
           paymentMethod: a.paymentMethod,
           financialYear: a.financialYear || "",
           note: a.note || "",
@@ -1491,13 +1512,13 @@ export async function handler(event) {
       // Prevent deletion of advance receipts that have already been applied to invoices
       if (
         existing.paymentType === "advance" &&
-        Number(existing.adjustedAmount || 0) > 0
+        Number(existing.adjustedAmount || 0) + Number(existing.refundedAmount || 0) > 0
       ) {
         return createResponse(
           400,
           {
             error:
-              "Cannot delete an advance payment that has already been applied to an invoice. Please reverse the adjustment first.",
+              "Cannot delete an advance payment that has already been applied to an invoice or refunded. Please reverse the adjustment or refund first.",
           },
           origin,
         );

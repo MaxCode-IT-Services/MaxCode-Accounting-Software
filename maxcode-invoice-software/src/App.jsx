@@ -63,6 +63,7 @@ const OwnerWithdrawal = lazy(() => import("../src/Pages/OwnerWithdrawal"));
 const PaymentReceiptManagement = lazy(
   () => import("../src/Pages/PaymentReceiptManagement"),
 );
+const RefundManagement = lazy(() => import("../src/Pages/RefundManagement"));
 const PaymentLinkManagement = lazy(
   () => import("../src/Pages/PaymentLinkManagement"),
 );
@@ -497,6 +498,17 @@ const dashboardChildRoutes = (
         <PermissionRoute moduleKey="paymentReceiptManagement">
           <Suspense fallback={<Loading />}>
             <PaymentReceiptManagement />
+          </Suspense>
+        </PermissionRoute>
+      }
+    />
+
+    <Route
+      path="refund-management"
+      element={
+        <PermissionRoute moduleKey="refundManagement">
+          <Suspense fallback={<Loading />}>
+            <RefundManagement />
           </Suspense>
         </PermissionRoute>
       }

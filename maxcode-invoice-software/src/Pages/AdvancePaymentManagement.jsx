@@ -207,7 +207,8 @@ const AdvancePaymentManagement = () => {
       const mapped = data.map((r, idx) => {
         const amt = Number(r.amount || 0);
         const adjusted = Number(r.adjustedAmount || 0);
-        const available = amt - adjusted;
+        const refunded = Number(r.refundedAmount || 0);
+        const available = Math.max(0, amt - adjusted - refunded);
         let status;
         if (adjusted >= amt) {
           status = "Fully Applied";
@@ -229,6 +230,7 @@ const AdvancePaymentManagement = () => {
           receiptDateFormatted: r.receiptDate || "",
           amountFormatted: `₹${amt.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
           adjustedAmountFormatted: `₹${adjusted.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+          refundedAmountFormatted: `₹${refunded.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
           availableAmountFormatted: `₹${available.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
           adjustmentStatus: status,
           linkedInvoiceDisplay:

@@ -59,6 +59,7 @@ export async function handler(event) {
       "purchaseManagementServerSide",
       "rcmManagementServerSide",
       "creditDebitNotesManagementServerSide",
+      "refundManagementServerSide",
       "salesManagementServerSide",
       "servicesManagementServerSide",
       "staffManagementServerSide",

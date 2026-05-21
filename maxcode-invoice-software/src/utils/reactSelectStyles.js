@@ -3,6 +3,8 @@ export const getUnifiedSelectStyles = ({
   compact = false,
 } = {}) => {
   const minHeight = compact ? "34px" : "48px";
+  const focusBorderColor = "#198754";
+  const baseBorderColor = "#ced4da";
 
   return {
     control: (base, state) => ({
@@ -11,13 +13,19 @@ export const getUnifiedSelectStyles = ({
       border: hasError
         ? "2px solid #dc3545"
         : state.isFocused
-          ? "2px solid #667eea"
-          : "2px solid #e9ecef",
-      borderColor: state.isHovered && !hasError ? "#d6dbe1" : undefined,
+          ? `2px solid ${focusBorderColor}`
+          : `2px solid ${baseBorderColor}`,
+      borderColor: hasError
+        ? "#dc3545"
+        : state.isFocused || state.isHovered
+          ? focusBorderColor
+          : baseBorderColor,
+      "&:hover": {
+        borderColor: hasError ? "#dc3545" : focusBorderColor,
+      },
       borderRadius: "10px",
-      boxShadow: state.isFocused
-        ? "0 0 0 .25rem rgba(102, 126, 234, 0.15)"
-        : "none",
+      boxShadow: "none",
+      outline: "none",
       backgroundColor: "#ffffff",
       transition: "all 0.3s ease",
       fontSize: compact ? "0.875rem" : base.fontSize,
@@ -34,6 +42,17 @@ export const getUnifiedSelectStyles = ({
     indicatorsContainer: (base) => ({
       ...base,
       paddingRight: compact ? "4px" : "8px",
+    }),
+    clearIndicator: () => ({
+      display: "none",
+    }),
+    dropdownIndicator: (base) => ({
+      ...base,
+      color: "#6c757d",
+      padding: compact ? "4px" : "8px",
+      "&:hover": {
+        color: "#198754",
+      },
     }),
     menu: (base) => ({
       ...base,

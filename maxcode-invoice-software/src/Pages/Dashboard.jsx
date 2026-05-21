@@ -276,12 +276,18 @@ const Dashboard = () => {
 
         const amount = toNumber(record.amount || 0);
         const adjustedAmount = toNumber(record.adjustedAmount || 0);
+        const refundedAmount = toNumber(record.refundedAmount || 0);
+        const remainingAmount = Math.max(
+          amount - adjustedAmount - refundedAmount,
+          0,
+        );
         acc.total += amount;
         acc.adjusted += adjustedAmount;
-        acc.balance += Math.max(amount - adjustedAmount, 0);
+        acc.refunded += refundedAmount;
+        acc.balance += remainingAmount;
         return acc;
       },
-      { total: 0, adjusted: 0, balance: 0 },
+      { total: 0, adjusted: 0, refunded: 0, balance: 0 },
     );
 
     const salesTotals = filteredSales.reduce(

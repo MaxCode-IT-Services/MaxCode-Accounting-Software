@@ -401,7 +401,7 @@ const CreateSales = ({
   }, [editingRecord, show]);
 
   useEffect(() => {
-    if (!show || !editingRecord) return;
+    if (!show) return;
 
     const totalAmount = toNumber(taxData.totalAmount);
     const totalAdvanceAmount = (appliedAdvances || []).reduce(
@@ -446,7 +446,7 @@ const CreateSales = ({
         paymentMethod: nextPaymentMethod,
       };
     });
-  }, [show, editingRecord, taxData.totalAmount, appliedAdvances]);
+    }, [show, editingRecord, taxData.totalAmount, appliedAdvances]);
 
   useEffect(() => {
     if (!show || editingRecord || !defaultFinancialYear) return;

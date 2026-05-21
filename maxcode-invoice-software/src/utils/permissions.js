@@ -72,6 +72,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "refundManagement",
+    label: "Refund Management",
+    description: "Manage customer advance refunds",
+    icon: "fa-solid fa-rotate-left",
+    route: "/admin/refund-management",
+    detailed: true,
+  },
+  {
     key: "creditDebitNotesManagement",
     label: "Credit/Debit Notes",
     description: "Manage credit and debit notes",

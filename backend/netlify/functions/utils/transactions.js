@@ -92,6 +92,9 @@ const normalizeSourceType = (sourceType = "") => {
       return "company-expense";
     case "payment-receipts":
       return "payment-receipt";
+    case "payment-refund":
+    case "payment-refunds":
+      return "payment-refund";
     case "owner-investment":
       return "owner-investment";
     case "owner-withdrawal":
@@ -451,6 +454,19 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
     );
   }
 
+  if (type === "payment-refund") {
+    Object.assign(
+      base,
+      pickFields(sourceRecord, [
+        "refundDate",
+        "refundNumber",
+        "amount",
+        "refundMethod",
+        "advanceReceiptNumber",
+      ]),
+    );
+  }
+
   if (type === "owner-investment") {
     Object.assign(
       base,
@@ -506,6 +522,8 @@ const getSourceDate = (sourceRecord = {}, sourceType = "") => {
       );
     case "payment-receipt":
       return sourceRecord.receiptDate || sourceRecord.createdAt;
+    case "payment-refund":
+      return sourceRecord.refundDate || sourceRecord.createdAt;
     case "rcm":
       return sourceRecord.invoiceDate || sourceRecord.createdAt;
     case "owner-investment":
@@ -758,6 +776,34 @@ const buildLinesForReceipt = (record = {}) => {
     "Advance from Customer",
     "Sundry Debtors Account",
   ]);
+};
+
+const buildLinesForPaymentRefund = (record = {}) => {
+  const refundAmount = roundAmount(toNumber(record?.amount || 0));
+  if (refundAmount <= 0) return [];
+
+  const paymentAccount = getPaymentAccountHead(
+    record?.refundMethod || record?.paymentMethod,
+    "Bank Account",
+  );
+
+  return balanceLines(
+    [
+      {
+        accountHead: "Advance from Customer",
+        accountType: "Liability",
+        debit: refundAmount,
+        credit: 0,
+      },
+      {
+        accountHead: paymentAccount,
+        accountType: "Asset",
+        debit: 0,
+        credit: refundAmount,
+      },
+    ],
+    ["Advance from Customer"],
+  );
 };
 
 const buildLinesForCreditDebitNote = (record = {}) => {
@@ -1174,6 +1220,8 @@ const buildLines = (sourceType, sourceRecord) => {
       return buildLinesForExpense(sourceRecord);
     case "payment-receipt":
       return buildLinesForReceipt(sourceRecord);
+    case "payment-refund":
+      return buildLinesForPaymentRefund(sourceRecord);
     case "credit-debit-note":
       return buildLinesForCreditDebitNote(sourceRecord);
     case "rcm":
@@ -1215,6 +1263,8 @@ const getRecordAmount = (sourceType, sourceRecord) => {
         ),
       );
     case "payment-receipt":
+      return roundAmount(toNumber(sourceRecord?.amount || 0));
+    case "payment-refund":
       return roundAmount(toNumber(sourceRecord?.amount || 0));
     case "credit-debit-note":
       return roundAmount(

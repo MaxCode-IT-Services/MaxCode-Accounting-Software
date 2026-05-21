@@ -305,7 +305,12 @@ const PaymentReceiptManagement = () => {
           amountFormatted: `₹${Number(r.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
           availableAmountFormatted:
             r.paymentType === "advance"
-              ? `₹${Number(r.availableAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`
+              ? `₹${Math.max(
+                  0,
+                  Number(r.amount || 0) -
+                    Number(r.adjustedAmount || 0) -
+                    Number(r.refundedAmount || 0),
+                ).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`
               : "—",
           invoiceNumber,
           appliedInvoiceNumber,

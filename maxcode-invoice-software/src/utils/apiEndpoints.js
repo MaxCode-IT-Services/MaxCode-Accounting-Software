@@ -276,6 +276,17 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/payment-receipts?id=${id}`,
   },
 
+  // Payment Refund endpoints
+  PAYMENT_REFUNDS: {
+    LIST: "/payment-refunds",
+    CREATE: "/payment-refunds",
+    NEXT_NUMBER: (financialYear = "") =>
+      `/payment-refunds?action=next-number${financialYear ? `&financialYear=${encodeURIComponent(financialYear)}` : ""}`,
+    GET: (id) => `/payment-refunds?id=${id}`,
+    UPDATE: (id) => `/payment-refunds?id=${id}`,
+    DELETE: (id) => `/payment-refunds?id=${id}`,
+  },
+
   PAYMENT_LINKS: {
     LIST: "/payment-links",
     CREATE: "/payment-links",
