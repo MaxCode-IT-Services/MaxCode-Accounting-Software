@@ -165,6 +165,21 @@ const calculateLedgerFromTransactions = (
   // Add opening GST input balance (rounded at source)
   summary.gstInputDebit += toNumber(openingBalances.openingGstInput || 0);
 
+  // Add opening cash/bank in the correct Dr/Cr side so table rows and cards stay aligned.
+  const openingCash = toNumber(openingBalances.cashOpening || 0);
+  if (openingCash >= 0) {
+    summary.cashDebit += openingCash;
+  } else {
+    summary.cashCredit += Math.abs(openingCash);
+  }
+
+  const openingBank = toNumber(openingBalances.bankOpening || 0);
+  if (openingBank >= 0) {
+    summary.bankDebit += openingBank;
+  } else {
+    summary.bankCredit += Math.abs(openingBank);
+  }
+
   // Handle customer overpayment
   if (summary.sundryDebtorsDebit < 0) {
     summary.customerOverpaymentCredit = Math.abs(summary.sundryDebtorsDebit);
