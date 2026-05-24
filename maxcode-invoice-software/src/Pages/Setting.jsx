@@ -27,12 +27,26 @@ import {
 } from "../utils/biometricAuth";
 import { createUsbKeyFileForUser } from "../utils/usbKeyAuth";
 import {
+  ensureFaceModelsLoaded,
+  estimateFacePose,
+  extractFaceDescriptorFromVideo,
+  isFaceAuthSupported,
+} from "../utils/faceAuth";
+import {
   canAccessSettingsTab,
   getAccessibleSettingsTabs,
 } from "../utils/permissions";
 
 const SECRET_MASK = "********";
 const SECRET_AUTO_HIDE_MS = 45 * 1000;
+const FACE_SETUP_REQUIRED_STEPS = [
+  { key: "front", label: "Front Face" },
+  { key: "smile", label: "Smile" },
+  { key: "left", label: "Turn Left" },
+  { key: "right", label: "Turn Right" },
+  { key: "up", label: "Look Up" },
+  { key: "down", label: "Look Down" },
+];
 
 const toMaskedSecret = (value = "", hasValue = false) => {
   if (hasValue) return SECRET_MASK;
@@ -126,6 +140,25 @@ const Settings = () => {
     configured: false,
   });
   const [isUsbKeyLoading, setIsUsbKeyLoading] = useState(false);
+  const [faceAuth, setFaceAuth] = useState({
+    enabled: false,
+    configured: false,
+    supported: false,
+    stepsDone: [],
+  });
+  const [isFaceAuthLoading, setIsFaceAuthLoading] = useState(false);
+  const [showFaceSetupModal, setShowFaceSetupModal] = useState(false);
+  const [faceSetupProgress, setFaceSetupProgress] = useState(0);
+  const [faceSetupStatusText, setFaceSetupStatusText] = useState(
+    "Initializing camera...",
+  );
+  const [faceSetupStepsDone, setFaceSetupStepsDone] = useState([]);
+  const [isFaceSetupSubmitting, setIsFaceSetupSubmitting] = useState(false);
+  const faceSetupVideoRef = useRef(null);
+  const faceSetupStreamRef = useRef(null);
+  const faceSetupLoopRef = useRef(null);
+  const faceSetupSamplesRef = useRef({});
+  const faceSetupCooldownRef = useRef({});
 
   // Business Details State
   const [businessSettings, setBusinessSettings] = useState({
@@ -447,8 +480,51 @@ const Settings = () => {
       clearAllSecretTimers(driveSecretTimersRef);
       clearAllSecretTimers(cloudflareSecretTimersRef);
       clearAllSecretTimers(whatsappSecretTimersRef);
+      stopFaceSetupCamera();
     };
   }, []);
+
+  // Start camera and models after modal is rendered so video ref exists.
+  useEffect(() => {
+    let prevOverflow = null;
+
+    if (showFaceSetupModal) {
+      prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+
+      const init = async () => {
+        try {
+          setIsFaceAuthLoading(true);
+
+          // ensure models are ready and then start camera
+          await ensureFaceModelsLoaded();
+
+          // The modal is already rendered at this point, so a single frame is enough.
+          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+          await startFaceSetupCamera();
+        } catch (err) {
+          setShowFaceSetupModal(false);
+          stopFaceSetupCamera();
+          showError(
+            err?.message || "Unable to start camera for face authentication",
+          );
+        } finally {
+          setIsFaceAuthLoading(false);
+        }
+      };
+
+      init();
+    } else {
+      // restore body scroll when modal closes
+      document.body.style.overflow = prevOverflow || "";
+      stopFaceSetupCamera();
+    }
+
+    return () => {
+      document.body.style.overflow = prevOverflow || "";
+    };
+  }, [showFaceSetupModal]);
 
   const resolveCurrentUserPhone = () => {
     if (formData?.phone) return String(formData.phone);
@@ -478,6 +554,7 @@ const Settings = () => {
   const loadBiometricLoginStatus = async () => {
     const phone = resolveCurrentUserPhone();
     const localCredential = getStoredBiometricConfig(phone);
+    const faceSupported = isFaceAuthSupported();
 
     setBiometricLogin((prev) => ({
       ...prev,
@@ -490,6 +567,11 @@ const Settings = () => {
       const enabled = response?.data?.fingerprintLoginEnabled === true;
       const usbEnabled = response?.data?.usbKeyLoginEnabled === true;
       const usbConfigured = Boolean(response?.data?.usbKeyTokenHash);
+      const faceEnabled = response?.data?.faceAuthEnabled === true;
+      const faceConfigured = response?.data?.faceAuthConfigured === true;
+      const stepsDone = Array.isArray(response?.data?.faceAuthSteps)
+        ? response.data.faceAuthSteps
+        : [];
 
       setBiometricLogin((prev) => ({
         ...prev,
@@ -501,6 +583,13 @@ const Settings = () => {
       setUsbKeyLogin({
         enabled: usbEnabled,
         configured: usbConfigured,
+      });
+
+      setFaceAuth({
+        enabled: faceEnabled,
+        configured: faceConfigured,
+        supported: faceSupported,
+        stepsDone,
       });
     } catch {
       // Keep local state as fallback when preference API is unavailable
@@ -514,6 +603,13 @@ const Settings = () => {
       setUsbKeyLogin({
         enabled: false,
         configured: false,
+      });
+
+      setFaceAuth({
+        enabled: false,
+        configured: false,
+        supported: faceSupported,
+        stepsDone: [],
       });
     }
   };
@@ -1012,6 +1108,251 @@ const Settings = () => {
     } finally {
       setIsUsbKeyLoading(false);
     }
+  };
+
+  const stopFaceSetupCamera = () => {
+    if (faceSetupLoopRef.current) {
+      cancelAnimationFrame(faceSetupLoopRef.current);
+      faceSetupLoopRef.current = null;
+    }
+
+    if (faceSetupStreamRef.current) {
+      faceSetupStreamRef.current.getTracks().forEach((track) => {
+        track.stop();
+      });
+      faceSetupStreamRef.current = null;
+    }
+
+    if (faceSetupVideoRef.current) {
+      faceSetupVideoRef.current.srcObject = null;
+    }
+  };
+
+  const resetFaceSetupSession = () => {
+    faceSetupSamplesRef.current = {};
+    faceSetupCooldownRef.current = {};
+    setFaceSetupStepsDone([]);
+    setFaceSetupProgress(0);
+    setFaceSetupStatusText("Initializing camera...");
+  };
+
+  const isStepMatched = (stepKey, signals = {}) => {
+    const { yaw = 0, pitch = 0, smileScore = 0, detectionScore = 0 } = signals;
+
+    if (detectionScore < 0.65) return false;
+
+    if (stepKey === "front") {
+      return Math.abs(yaw) <= 0.2 && pitch >= 0.18 && pitch <= 0.55;
+    }
+
+    if (stepKey === "smile") {
+      return smileScore >= 0.72 && Math.abs(yaw) <= 0.25;
+    }
+
+    if (stepKey === "left") {
+      return yaw <= -0.28;
+    }
+
+    if (stepKey === "right") {
+      return yaw >= 0.28;
+    }
+
+    if (stepKey === "up") {
+      return pitch <= 0.28 && Math.abs(yaw) <= 0.3;
+    }
+
+    if (stepKey === "down") {
+      return pitch >= 0.52;
+    }
+
+    return false;
+  };
+
+  const completeFaceSetupAndEnable = async () => {
+    const descriptors = Object.values(faceSetupSamplesRef.current || {});
+
+    if (descriptors.length < FACE_SETUP_REQUIRED_STEPS.length) {
+      showError("Face setup is incomplete. Please capture all required angles.");
+      return;
+    }
+
+    setIsFaceSetupSubmitting(true);
+    setFaceSetupStatusText("Finalizing face profile...");
+
+    try {
+      await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+        faceAuthEnabled: true,
+        faceAuthProfile: {
+          model: "face-api.js-0.22.2",
+          version: 1,
+          steps: FACE_SETUP_REQUIRED_STEPS.map((item) => item.key),
+          descriptors,
+        },
+      });
+
+      setFaceAuth({
+        enabled: true,
+        configured: true,
+        supported: isFaceAuthSupported(),
+        stepsDone: FACE_SETUP_REQUIRED_STEPS.map((item) => item.key),
+      });
+
+      setShowFaceSetupModal(false);
+      showSuccess("Face Authentication enabled successfully.");
+      showInfo("Face Authentication enabled successfully.");
+    } catch (error) {
+      showError(
+        error?.response?.data?.error ||
+          "Unable to enable face authentication right now",
+      );
+    } finally {
+      setIsFaceSetupSubmitting(false);
+      stopFaceSetupCamera();
+    }
+  };
+
+  const startFaceSetupCaptureLoop = () => {
+    const run = async () => {
+      const video = faceSetupVideoRef.current;
+      if (!video || !showFaceSetupModal || isFaceSetupSubmitting) {
+        return;
+      }
+
+      try {
+          const result = await extractFaceDescriptorFromVideo(video, {
+            inputSize: 160,
+          });
+        const pose = estimateFacePose(result.landmarks);
+        const smileScore = Number(result?.expressions?.happy || 0);
+        const currentDone = new Set(
+          Object.keys(faceSetupSamplesRef.current || {}),
+        );
+
+        FACE_SETUP_REQUIRED_STEPS.forEach((step) => {
+          if (currentDone.has(step.key)) {
+            return;
+          }
+
+          const now = Date.now();
+          const cooldownUntil = faceSetupCooldownRef.current[step.key] || 0;
+          if (now < cooldownUntil) {
+            return;
+          }
+
+          const matched = isStepMatched(step.key, {
+            yaw: pose.yaw,
+            pitch: pose.pitch,
+            smileScore,
+            detectionScore: result.detectionScore,
+          });
+
+          if (matched) {
+            faceSetupSamplesRef.current[step.key] = result.descriptor;
+            faceSetupCooldownRef.current[step.key] = now + 1200;
+            currentDone.add(step.key);
+            const nextDone = Array.from(currentDone);
+            setFaceSetupStepsDone(nextDone);
+            setFaceSetupProgress(
+              Math.round(
+                (nextDone.length / FACE_SETUP_REQUIRED_STEPS.length) * 100,
+              ),
+            );
+            setFaceSetupStatusText(`${step.label} captured successfully`);
+          }
+        });
+
+        if (currentDone.size >= FACE_SETUP_REQUIRED_STEPS.length) {
+          setFaceSetupProgress(100);
+          setFaceSetupStatusText(
+            "All angles captured. Saving face profile securely...",
+          );
+          await completeFaceSetupAndEnable();
+          return;
+        }
+      } catch {
+        setFaceSetupStatusText(
+          "Face not detected clearly. Keep your face in center and adjust lighting.",
+        );
+      }
+
+      faceSetupLoopRef.current = requestAnimationFrame(run);
+    };
+
+    faceSetupLoopRef.current = requestAnimationFrame(run);
+  };
+
+  const startFaceSetupCamera = async () => {
+    if (!isFaceAuthSupported()) {
+      throw new Error(
+        "Face authentication is not supported on this browser/device",
+      );
+    }
+
+    await ensureFaceModelsLoaded();
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        frameRate: { ideal: 24, max: 30 },
+      },
+      audio: false,
+    });
+
+    faceSetupStreamRef.current = stream;
+
+    if (faceSetupVideoRef.current) {
+      faceSetupVideoRef.current.srcObject = stream;
+      await faceSetupVideoRef.current.play();
+    }
+
+    setFaceSetupStatusText("Follow instructions and move your face slowly");
+    startFaceSetupCaptureLoop();
+  };
+
+  const handleFaceAuthToggle = async (enabled) => {
+    if (!enabled) {
+      setIsFaceAuthLoading(true);
+
+      try {
+        await apiPost(API_ENDPOINTS.USER_PREFERENCES.UPDATE, {
+          faceAuthEnabled: false,
+          faceAuthProfile: null,
+        });
+
+        setFaceAuth((prev) => ({
+          ...prev,
+          enabled: false,
+          configured: false,
+          stepsDone: [],
+        }));
+        showInfo("Face Authentication disabled");
+      } catch (error) {
+        showError(
+          error?.response?.data?.error ||
+            "Unable to disable face authentication",
+        );
+        await loadBiometricLoginStatus();
+      } finally {
+        setIsFaceAuthLoading(false);
+      }
+
+      return;
+    }
+
+    if (!isFaceAuthSupported()) {
+      showError("Camera access is required but not supported on this browser");
+      return;
+    }
+
+    setIsFaceAuthLoading(true);
+    resetFaceSetupSession();
+    setShowFaceSetupModal(true);
+
+    // Camera and model startup will be performed by an effect
+    // after the modal has rendered so the video ref is available.
+    setIsFaceAuthLoading(false);
   };
 
   const handleCopyBackupCodes = () => {
@@ -2735,6 +3076,9 @@ const Settings = () => {
           usbKeyLogin={usbKeyLogin}
           handleUsbKeyToggle={handleUsbKeyToggle}
           isUsbKeyLoading={isUsbKeyLoading}
+          faceAuth={faceAuth}
+          handleFaceAuthToggle={handleFaceAuthToggle}
+          isFaceAuthLoading={isFaceAuthLoading}
           showBackupCodes={showBackupCodes}
           backupCodes={backupCodes}
           handleCopyBackupCodes={handleCopyBackupCodes}
@@ -3086,6 +3430,178 @@ const Settings = () => {
                     <>
                       <i className="fas fa-check me-2"></i>
                       Enable 2FA
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showFaceSetupModal && (
+        <div
+          className="modal d-block"
+          style={{
+            backgroundColor: "rgba(12, 34, 41, 0.58)",
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 1060,
+            backdropFilter: "blur(4px)",
+          }}
+        >
+          <div className="modal-dialog modal-xl modal-dialog-centered">
+            <div className="modal-content border-0 shadow-lg overflow-hidden">
+              <div
+                className="modal-header text-white bg-success" 
+              >
+                <h5 className="modal-title d-flex align-items-center gap-2">
+                  <i className="fas fa-camera"></i>
+                  Setup Face Authentication
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() => {
+                    setShowFaceSetupModal(false);
+                    stopFaceSetupCamera();
+                    setFaceSetupStatusText("Face setup cancelled");
+                  }}
+                  disabled={isFaceSetupSubmitting}
+                ></button>
+              </div>
+
+              <div className="modal-body p-4">
+                <div className="row g-4 align-items-stretch">
+                  <div className="col-lg-7">
+                    <div
+                      className="rounded-4 p-2 h-100"
+                      style={{
+                        background:
+                          "linear-gradient(165deg, rgba(9,104,95,0.12), rgba(24,98,163,0.14))",
+                        border: "1px solid rgba(20, 112, 140, 0.2)",
+                      }}
+                    >
+                      <div
+                        className="position-relative rounded-4 overflow-hidden"
+                        style={{
+                          background: "#021d2a",
+                          minHeight: "380px",
+                        }}
+                      >
+                        <video
+                          ref={faceSetupVideoRef}
+                          autoPlay
+                          muted
+                          playsInline
+                          className="w-100 h-100"
+                          style={{
+                            objectFit: "cover",
+                            minHeight: "380px",
+                          }}
+                        />
+                        <div
+                          className="position-absolute top-0 start-0 end-0 p-3 text-center text-white"
+                          style={{
+                            background:
+                              "linear-gradient(to bottom, rgba(3,20,31,0.78), rgba(3,20,31,0))",
+                          }}
+                        >
+                          <strong>Keep your face inside camera frame</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="col-lg-5">
+                    <div className="card border-0 bg-light h-100">
+                      <div className="card-body">
+                        <h6 className="mb-2 d-flex align-items-center gap-2">
+                          <i className="fas fa-shield-check text-success"></i>
+                          Enrollment Progress: {faceSetupProgress}%
+                        </h6>
+
+                        <div
+                          className="progress mb-3"
+                          style={{ height: "12px", borderRadius: "999px" }}
+                        >
+                          <div
+                            className="progress-bar progress-bar-striped progress-bar-animated"
+                            role="progressbar"
+                            style={{ width: `${faceSetupProgress}%` }}
+                          ></div>
+                        </div>
+
+                        <div className="alert alert-info py-2 small mb-3">
+                          <i className="fas fa-info-circle me-2"></i>
+                          {faceSetupStatusText}
+                        </div>
+
+                        <div className="list-group list-group-flush">
+                          {FACE_SETUP_REQUIRED_STEPS.map((step) => {
+                            const done = faceSetupStepsDone.includes(step.key);
+                            return (
+                              <div
+                                key={step.key}
+                                className="list-group-item d-flex align-items-center justify-content-between px-0 bg-transparent"
+                              >
+                                <span className="fw-semibold small">
+                                  {step.label}
+                                </span>
+                                <span
+                                  className={`badge ${done ? "bg-success" : "bg-secondary"}`}
+                                >
+                                  {done ? "Captured" : "Pending"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={() => {
+                    setShowFaceSetupModal(false);
+                    stopFaceSetupCamera();
+                    setFaceSetupStatusText("Face setup cancelled");
+                  }}
+                  disabled={isFaceSetupSubmitting}
+                >
+                  Cancel Setup
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={
+                    isFaceSetupSubmitting ||
+                    faceSetupStepsDone.length < FACE_SETUP_REQUIRED_STEPS.length
+                  }
+                  onClick={completeFaceSetupAndEnable}
+                >
+                  {isFaceSetupSubmitting ? (
+                    <>
+                      <span
+                        className="spinner-border spinner-border-sm me-2"
+                        role="status"
+                        aria-hidden="true"
+                      ></span>
+                      Saving Face Profile...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-check-circle me-2"></i>
+                      Enable Face Authentication
                     </>
                   )}
                 </button>

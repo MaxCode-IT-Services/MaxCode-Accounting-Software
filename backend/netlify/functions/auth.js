@@ -24,6 +24,73 @@ import {
 import crypto from "crypto";
 
 const DEFAULT_JWT_EXPIRY_DAYS = 1;
+const FACE_AUTH_ENCRYPTION_CONTEXT = "maxcode-face-auth-v1";
+const FACE_AUTH_DISTANCE_THRESHOLD = 0.32;
+const FACE_AUTH_AVERAGE_DISTANCE_THRESHOLD = 0.38;
+
+const getFaceAuthEncryptionKey = () => {
+  const baseSecret = String(process.env.JWT_SECRET || "").trim();
+
+  if (!baseSecret) {
+    throw new Error("JWT_SECRET is required for face auth encryption");
+  }
+
+  return crypto
+    .createHash("sha256")
+    .update(`${FACE_AUTH_ENCRYPTION_CONTEXT}:${baseSecret}`)
+    .digest();
+};
+
+const decryptFaceDescriptors = (profile = {}) => {
+  const payload = profile?.encryptedDescriptors || {};
+  const iv = Buffer.from(String(payload?.iv || ""), "base64");
+  const tag = Buffer.from(String(payload?.tag || ""), "base64");
+  const encrypted = Buffer.from(String(payload?.data || ""), "base64");
+
+  if (!iv.length || !tag.length || !encrypted.length) {
+    return [];
+  }
+
+  const decipher = crypto.createDecipheriv(
+    "aes-256-gcm",
+    getFaceAuthEncryptionKey(),
+    iv,
+  );
+  decipher.setAuthTag(tag);
+
+  const decrypted = Buffer.concat([
+    decipher.update(encrypted),
+    decipher.final(),
+  ]).toString("utf8");
+
+  const parsed = JSON.parse(decrypted);
+  return Array.isArray(parsed) ? parsed : [];
+};
+
+const normalizeDescriptor = (descriptor = []) => {
+  if (!Array.isArray(descriptor)) return [];
+
+  return descriptor
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .slice(0, 128);
+};
+
+const computeFaceDistance = (first = [], second = []) => {
+  if (!Array.isArray(first) || !Array.isArray(second)) return Number.POSITIVE_INFINITY;
+
+  if (first.length === 0 || second.length === 0 || first.length !== second.length) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  let sum = 0;
+  for (let i = 0; i < first.length; i += 1) {
+    const delta = Number(first[i]) - Number(second[i]);
+    sum += delta * delta;
+  }
+
+  return Math.sqrt(sum);
+};
 
 const getTokenExpiryDays = (user = {}) => {
   const parsed = Number.parseInt(user?.jwtTokenExpiryDays, 10);
@@ -189,7 +256,8 @@ export async function handler(event) {
           b.action !== "register" &&
           b.action !== "verify-2fa" &&
           b.action !== "verify-fingerprint" &&
-          b.action !== "verify-usb-key"
+          b.action !== "verify-usb-key" &&
+          b.action !== "verify-face-auth"
         );
       } catch {
         return false;
@@ -415,13 +483,17 @@ export async function handler(event) {
         let biometricCredentialId = biometricCredentialIds[0] || null;
         let usbKeyLoginEnabled = user?.usbKeyLoginEnabled === true;
         let usbKeyTokenHash = user?.usbKeyTokenHash || "";
+        let faceAuthEnabled = user?.faceAuthEnabled === true;
+        let faceAuthProfile = user?.faceAuthProfile || null;
 
         // Backward compatibility: fallback to legacy userPreferences document.
         if (
           user?.fingerprintLoginEnabled === undefined ||
           biometricCredentialIds.length === 0 ||
           user?.usbKeyLoginEnabled === undefined ||
-          !usbKeyTokenHash
+          !usbKeyTokenHash ||
+          user?.faceAuthEnabled === undefined ||
+          !faceAuthProfile
         ) {
           const legacyPreferences = await preferencesCollection.findOne({
             userId: user._id.toString(),
@@ -448,11 +520,27 @@ export async function handler(event) {
           if (!usbKeyTokenHash) {
             usbKeyTokenHash = legacyPreferences?.usbKeyTokenHash || "";
           }
+
+          if (user?.faceAuthEnabled === undefined) {
+            faceAuthEnabled = legacyPreferences?.faceAuthEnabled === true;
+          }
+
+          if (!faceAuthProfile && legacyPreferences?.faceAuthProfile) {
+            faceAuthProfile = legacyPreferences.faceAuthProfile;
+          }
         }
+
+        const hasFaceProfile =
+          Boolean(faceAuthProfile?.encryptedDescriptors?.data) &&
+          Boolean(faceAuthProfile?.encryptedDescriptors?.iv) &&
+          Boolean(faceAuthProfile?.encryptedDescriptors?.tag);
+
+        const faceAuthReady = faceAuthEnabled === true && hasFaceProfile;
 
         const requiresSecondFactor =
           user.twoFactor?.enabled === true ||
-          (usbKeyLoginEnabled === true && Boolean(usbKeyTokenHash));
+          (usbKeyLoginEnabled === true && Boolean(usbKeyTokenHash)) ||
+          faceAuthReady;
 
         if (requiresSecondFactor) {
           const tempToken = generateTempToken(
@@ -473,10 +561,12 @@ export async function handler(event) {
               needs2FA: user.twoFactor?.enabled === true,
               needsUSBKey:
                 usbKeyLoginEnabled === true && Boolean(usbKeyTokenHash),
+              needsFaceAuth: faceAuthReady,
               tempToken,
               fingerprintLoginEnabled,
               biometricCredentialId,
               biometricCredentialIds,
+              faceAuthEnabled: faceAuthReady,
               usbKeyLoginEnabled:
                 usbKeyLoginEnabled === true && Boolean(usbKeyTokenHash),
             },
@@ -513,6 +603,8 @@ export async function handler(event) {
             fingerprintLoginEnabled,
             biometricCredentialId,
             biometricCredentialIds,
+            faceAuthEnabled: false,
+            needsFaceAuth: false,
             usbKeyLoginEnabled: false,
             needsUSBKey: false,
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
@@ -737,6 +829,164 @@ export async function handler(event) {
           200,
           {
             message: "Fingerprint verified. Login successful!",
+            ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
+          },
+          origin,
+          {
+            "Set-Cookie": createAuthCookie(
+              token,
+              tokenExpiryConfig.cookieMaxAgeSeconds,
+            ),
+          },
+        );
+      }
+
+      // VERIFY USB KEY (encrypted token from MaxCode-Accounting.sec file)
+      if (action === "verify-face-auth") {
+        const { tempToken, descriptor } = body;
+
+        if (!tempToken || !Array.isArray(descriptor)) {
+          return createResponse(
+            400,
+            { error: "Temporary token and face descriptor are required" },
+            origin,
+          );
+        }
+
+        let decoded;
+        try {
+          decoded = verifyToken(tempToken);
+        } catch {
+          return createResponse(
+            401,
+            { error: "Invalid or expired temporary token" },
+            origin,
+          );
+        }
+
+        if (!decoded?.temp) {
+          return createResponse(401, { error: "Invalid token type" }, origin);
+        }
+
+        const user = await usersCollection.findOne({
+          _id: new ObjectId(decoded.userId),
+        });
+
+        if (!user) {
+          return createResponse(401, { error: "User not found" }, origin);
+        }
+
+        let faceAuthEnabled = user?.faceAuthEnabled === true;
+        let faceAuthProfile = user?.faceAuthProfile || null;
+
+        if (user?.faceAuthEnabled === undefined || !faceAuthProfile) {
+          const legacyPreferences = await preferencesCollection.findOne({
+            userId: user._id.toString(),
+          });
+
+          if (user?.faceAuthEnabled === undefined) {
+            faceAuthEnabled = legacyPreferences?.faceAuthEnabled === true;
+          }
+
+          if (!faceAuthProfile && legacyPreferences?.faceAuthProfile) {
+            faceAuthProfile = legacyPreferences.faceAuthProfile;
+          }
+        }
+
+        if (!faceAuthEnabled || !faceAuthProfile) {
+          return createResponse(
+            403,
+            { error: "Face authentication is not enabled for this account" },
+            origin,
+          );
+        }
+
+        const incomingDescriptor = normalizeDescriptor(descriptor);
+        if (incomingDescriptor.length < 64) {
+          return createResponse(
+            400,
+            { error: "Invalid face descriptor payload" },
+            origin,
+          );
+        }
+
+        let storedDescriptors = [];
+        try {
+          storedDescriptors = decryptFaceDescriptors(faceAuthProfile)
+            .map((item) => normalizeDescriptor(item))
+            .filter((item) => item.length === incomingDescriptor.length);
+        } catch {
+          return createResponse(
+            500,
+            { error: "Stored face profile is unreadable. Re-enroll face auth." },
+            origin,
+          );
+        }
+
+        if (storedDescriptors.length === 0) {
+          return createResponse(
+            403,
+            { error: "No valid face profile found. Please re-setup face auth." },
+            origin,
+          );
+        }
+
+        const distances = storedDescriptors
+          .map((current) => computeFaceDistance(incomingDescriptor, current))
+          .filter((distance) => Number.isFinite(distance));
+
+        if (distances.length === 0) {
+          return createResponse(
+            401,
+            { error: "Face does not match. Please try again." },
+            origin,
+          );
+        }
+
+        const sortedDistances = distances.sort((first, second) => first - second);
+        const bestDistance = sortedDistances[0];
+        const averageBestDistances =
+          sortedDistances.slice(0, Math.min(3, sortedDistances.length)).reduce(
+            (sum, distance) => sum + distance,
+            0,
+          ) / Math.min(3, sortedDistances.length);
+
+        if (
+          !Number.isFinite(bestDistance) ||
+          bestDistance > FACE_AUTH_DISTANCE_THRESHOLD ||
+          averageBestDistances > FACE_AUTH_AVERAGE_DISTANCE_THRESHOLD
+        ) {
+          return createResponse(
+            401,
+            { error: "Face does not match. Please try again." },
+            origin,
+          );
+        }
+
+        const actorName = await resolveActorName(user);
+        const tokenPayload = {
+          userId: user._id.toString(),
+          name: actorName,
+          email: user.email,
+          phone: user.phone,
+          role: user.role || "user",
+        };
+
+        const tokenExpiryConfig = getTokenExpiryConfig(user);
+        const token = generateToken(
+          tokenPayload,
+          tokenExpiryConfig.jwtExpiresIn,
+        );
+
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { $set: { lastLogin: new Date() } },
+        );
+
+        return createResponse(
+          200,
+          {
+            message: "Face authentication verified. Login successful!",
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
           },
           origin,

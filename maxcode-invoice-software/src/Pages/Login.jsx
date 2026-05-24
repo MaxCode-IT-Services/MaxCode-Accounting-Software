@@ -14,6 +14,10 @@ import {
   verifyDeviceBiometric,
 } from "../utils/biometricAuth";
 import { extractTokenFromUsbKeyFile } from "../utils/usbKeyAuth";
+import {
+  extractFaceDescriptorFromVideo,
+  isFaceAuthSupported,
+} from "../utils/faceAuth";
 
 const Login = ({ settings, onAuthSuccess }) => {
   const navigate = useNavigate();
@@ -51,12 +55,21 @@ const Login = ({ settings, onAuthSuccess }) => {
   const [isVerifyingUsbKey, setIsVerifyingUsbKey] = useState(false);
   const [usbKeyError, setUsbKeyError] = useState("");
   const [selectedUsbFile, setSelectedUsbFile] = useState(null);
+  const [needsFaceAuth, setNeedsFaceAuth] = useState(false);
+  const [isVerifyingFaceAuth, setIsVerifyingFaceAuth] = useState(false);
+  const [faceAuthError, setFaceAuthError] = useState("");
   const [pendingLoginData, setPendingLoginData] = useState(null);
 
   const pinRefs = useRef([]);
   const twoFACodeRefs = useRef([]);
   const backupCodeRefs = useRef([]);
   const usbFileInputRef = useRef(null);
+  const faceVideoRef = useRef(null);
+  const faceStreamRef = useRef(null);
+  const faceVerifyButtonRef = useRef(null);
+  const faceAutoVerifyRequestedRef = useRef(false);
+  const faceAutoVerifyFrameRef = useRef(null);
+  const faceAutoVerifyAttemptedRef = useRef(false);
   const captchaContainerRef = useRef(null);
   const captchaWidgetIdRef = useRef(null);
 
@@ -255,6 +268,125 @@ const Login = ({ settings, onAuthSuccess }) => {
       clearCaptchaWidget();
     };
   }, [captchaEnabled, captchaSiteKey]);
+
+  const stopFaceCamera = useCallback(() => {
+    if (faceStreamRef.current) {
+      faceStreamRef.current.getTracks().forEach((track) => track.stop());
+      faceStreamRef.current = null;
+    }
+
+    if (faceVideoRef.current) {
+      faceVideoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const startFaceCamera = useCallback(async () => {
+    if (!isFaceAuthSupported()) {
+      throw new Error("Camera is not supported on this browser/device");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        frameRate: { ideal: 24, max: 30 },
+      },
+      audio: false,
+    });
+
+    faceStreamRef.current = stream;
+
+    if (faceVideoRef.current) {
+      faceVideoRef.current.srcObject = stream;
+      await faceVideoRef.current.play();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!needsFaceAuth) {
+      stopFaceCamera();
+      faceAutoVerifyRequestedRef.current = false;
+      faceAutoVerifyAttemptedRef.current = false;
+      if (faceAutoVerifyFrameRef.current) {
+        cancelAnimationFrame(faceAutoVerifyFrameRef.current);
+        faceAutoVerifyFrameRef.current = null;
+      }
+      return;
+    }
+
+    let active = true;
+
+    const initCamera = async () => {
+      try {
+        setFaceAuthError("");
+        await startFaceCamera();
+      } catch (error) {
+        if (!active) return;
+        const deniedCameraError =
+          error?.name === "NotAllowedError" ||
+          error?.name === "PermissionDeniedError" ||
+          error?.name === "SecurityError";
+        const message = deniedCameraError
+          ? "Camera permission denied. Please allow camera access in the browser and try again."
+          : error?.message || "Unable to access camera for face authentication";
+        if (deniedCameraError) {
+          faceAutoVerifyAttemptedRef.current = true;
+        }
+        setFaceAuthError(message);
+        if (!deniedCameraError) {
+          showError(message);
+        }
+      }
+    };
+
+    initCamera();
+
+    return () => {
+      active = false;
+      stopFaceCamera();
+      if (faceAutoVerifyFrameRef.current) {
+        cancelAnimationFrame(faceAutoVerifyFrameRef.current);
+        faceAutoVerifyFrameRef.current = null;
+      }
+    };
+  }, [needsFaceAuth, startFaceCamera, stopFaceCamera]);
+
+  useEffect(() => {
+    if (!needsFaceAuth || isVerifyingFaceAuth || faceAutoVerifyAttemptedRef.current) {
+      return undefined;
+    }
+
+    const tryAutoVerify = () => {
+      if (
+        !needsFaceAuth ||
+        isVerifyingFaceAuth ||
+        faceAutoVerifyAttemptedRef.current
+      ) {
+        return;
+      }
+
+      const video = faceVideoRef.current;
+      if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+        faceAutoVerifyFrameRef.current = requestAnimationFrame(tryAutoVerify);
+        return;
+      }
+
+      faceAutoVerifyRequestedRef.current = true;
+      faceAutoVerifyAttemptedRef.current = true;
+      faceAutoVerifyFrameRef.current = null;
+      handleFaceAuthSubmit();
+    };
+
+    faceAutoVerifyFrameRef.current = requestAnimationFrame(tryAutoVerify);
+
+    return () => {
+      if (faceAutoVerifyFrameRef.current) {
+        cancelAnimationFrame(faceAutoVerifyFrameRef.current);
+        faceAutoVerifyFrameRef.current = null;
+      }
+    };
+  }, [needsFaceAuth, isVerifyingFaceAuth, handleFaceAuthSubmit]);
 
   const handlePinChange = (index, value) => {
     if (value.length > 1) value = value[value.length - 1];
@@ -457,6 +589,7 @@ const Login = ({ settings, onAuthSuccess }) => {
 
     setNeedsFingerprint(false);
     setNeedsUsbKey(false);
+    setNeedsFaceAuth(false);
     setNeeds2FA(true);
     setTempToken(pendingLoginData.tempToken);
     setShowBackupOption(false);
@@ -473,6 +606,7 @@ const Login = ({ settings, onAuthSuccess }) => {
 
     setNeedsFingerprint(false);
     setNeeds2FA(false);
+    setNeedsFaceAuth(false);
     setNeedsUsbKey(true);
     setTempToken(pendingLoginData.tempToken);
     setFingerprintError("");
@@ -489,10 +623,43 @@ const Login = ({ settings, onAuthSuccess }) => {
 
     setNeedsUsbKey(false);
     setNeeds2FA(false);
+    setNeedsFaceAuth(false);
     setNeedsFingerprint(true);
     setUsbKeyError("");
     setSelectedUsbFile(null);
     showInfo("Please verify fingerprint to continue login.");
+  };
+
+  const switchFromUsbKeyToFaceAuth = () => {
+    if (!pendingLoginData?.requiresFaceAuth) {
+      showError("Face authentication is not enabled for this account.");
+      return;
+    }
+
+    setNeedsUsbKey(false);
+    setNeeds2FA(false);
+    setNeedsFingerprint(false);
+    setNeedsFaceAuth(true);
+    setUsbKeyError("");
+    setFaceAuthError("");
+    showInfo("Please verify face authentication to continue login.");
+  };
+
+  const switchFromFaceAuthToUsbKey = () => {
+    if (!pendingLoginData?.requiresUSBKey) {
+      showError("USB key is not enabled for this account.");
+      return;
+    }
+
+    setNeedsFaceAuth(false);
+    setNeeds2FA(false);
+    setNeedsFingerprint(false);
+    setNeedsFaceAuth(false);
+    setNeedsUsbKey(true);
+    setFaceAuthError("");
+    setUsbKeyError("");
+    setSelectedUsbFile(null);
+    showInfo("Please Verify USB Security Key.");
   };
 
   const switchToUsbKeyFrom2FA = () => {
@@ -616,6 +783,56 @@ const Login = ({ settings, onAuthSuccess }) => {
       setIsVerifyingUsbKey(false);
     }
   };
+
+  async function handleFaceAuthSubmit(e) {
+    e?.preventDefault?.();
+
+    const tokenForVerification =
+      pendingLoginData?.tempToken ||
+      tempToken ||
+      pendingLoginData?.responseData?.tempToken;
+
+    if (!tokenForVerification) {
+      showError("Face authentication session expired. Please login again.");
+      setNeedsFaceAuth(false);
+      return;
+    }
+
+    if (!faceVideoRef.current) {
+      setFaceAuthError("Camera is not ready. Please try again.");
+      return;
+    }
+
+    setIsVerifyingFaceAuth(true);
+    setFaceAuthError("");
+
+    try {
+      const result = await extractFaceDescriptorFromVideo(faceVideoRef.current, {
+        includeExpressions: false,
+        inputSize: 128,
+      });
+
+      const response = await apiPost(API_ENPOINTS.AUTH.LOGIN, {
+        action: "verify-face-auth",
+        tempToken: tokenForVerification,
+        descriptor: result.descriptor,
+      });
+
+      completeLogin(
+        response.data,
+        response.data?.message || "Face verified! Login successful",
+      );
+    } catch (error) {
+      const message =
+        error?.response?.data?.error ||
+        error?.message ||
+        "Face authentication verification failed";
+      setFaceAuthError(message);
+      showError(message);
+    } finally {
+      setIsVerifyingFaceAuth(false);
+    }
+  }
 
   const handle2FASubmit = async (e) => {
     e.preventDefault();
@@ -752,6 +969,7 @@ const Login = ({ settings, onAuthSuccess }) => {
       const fingerprintLoginEnabled =
         response?.data?.fingerprintLoginEnabled === true;
       const usbKeyLoginEnabled = response?.data?.usbKeyLoginEnabled === true;
+      const faceAuthEnabled = response?.data?.faceAuthEnabled === true;
       const biometricState = fingerprintLoginEnabled
         ? getBiometricAvailability(mobile, response.data)
         : { localBiometric: null, hasBiometricCredential: false };
@@ -766,6 +984,7 @@ const Login = ({ settings, onAuthSuccess }) => {
               phone: mobile,
               requires2FA: true,
               requiresUSBKey: response.data.needsUSBKey === true,
+              requiresFaceAuth: response.data.needsFaceAuth === true,
               requiresFingerprint: true,
               canUseFingerprint: false,
               tempToken: response.data.tempToken,
@@ -795,6 +1014,7 @@ const Login = ({ settings, onAuthSuccess }) => {
           phone: mobile,
           requires2FA: response.data.needs2FA === true,
           requiresUSBKey: true,
+          requiresFaceAuth: response.data.needsFaceAuth === true,
           requiresFingerprint: fingerprintLoginEnabled,
           canUseFingerprint: biometricState.hasBiometricCredential,
           tempToken: response.data.tempToken,
@@ -804,10 +1024,35 @@ const Login = ({ settings, onAuthSuccess }) => {
         setNeedsUsbKey(true);
         setNeeds2FA(false);
         setNeedsFingerprint(false);
+        setNeedsFaceAuth(false);
         setShowBackupOption(false);
         setUsbKeyError("");
+        setFaceAuthError("");
         setSelectedUsbFile(null);
         showInfo("PIN verified. Please verify your USB Security Key.");
+        return;
+      }
+
+      if (faceAuthEnabled && response.data.tempToken) {
+        setPendingLoginData({
+          phone: mobile,
+          requires2FA: response.data.needs2FA === true,
+          requiresUSBKey: response.data.needsUSBKey === true,
+          requiresFaceAuth: true,
+          requiresFingerprint: fingerprintLoginEnabled,
+          canUseFingerprint: biometricState.hasBiometricCredential,
+          tempToken: response.data.tempToken,
+          responseData: response.data,
+        });
+        setTempToken(response.data.tempToken);
+        setNeedsFaceAuth(true);
+        setNeedsUsbKey(false);
+        setNeeds2FA(false);
+        setNeedsFingerprint(false);
+        setShowBackupOption(false);
+        setFaceAuthError("");
+        setUsbKeyError("");
+        showInfo("PIN verified. Please verify Face Authentication.");
         return;
       }
 
@@ -816,6 +1061,7 @@ const Login = ({ settings, onAuthSuccess }) => {
           phone: mobile,
           requires2FA: response.data.needs2FA === true,
           requiresUSBKey: response.data.needsUSBKey === true,
+          requiresFaceAuth: response.data.needsFaceAuth === true,
           requiresFingerprint: true,
           canUseFingerprint: biometricState.hasBiometricCredential,
           tempToken: response.data.tempToken || null,
@@ -824,11 +1070,13 @@ const Login = ({ settings, onAuthSuccess }) => {
         setNeedsFingerprint(true);
         setNeedsUsbKey(false);
         setNeeds2FA(false);
+        setNeedsFaceAuth(false);
         setShowBackupOption(false);
         setTwoFACode(["", "", "", "", "", ""]);
         setBackupCode(["", "", "", "", "", "", "", ""]);
         setFingerprintError("");
         setUsbKeyError("");
+        setFaceAuthError("");
         showInfo(
           response.data.needs2FA
             ? response.data.needsUSBKey
@@ -846,6 +1094,7 @@ const Login = ({ settings, onAuthSuccess }) => {
           phone: mobile,
           requires2FA: true,
           requiresUSBKey: response.data.needsUSBKey === true,
+          requiresFaceAuth: response.data.needsFaceAuth === true,
           requiresFingerprint: false,
           canUseFingerprint: false,
           tempToken: response.data.tempToken,
@@ -854,6 +1103,7 @@ const Login = ({ settings, onAuthSuccess }) => {
         setNeeds2FA(true);
         setNeedsUsbKey(false);
         setNeedsFingerprint(false);
+        setNeedsFaceAuth(false);
         setShowBackupOption(false); // Reset to 2FA mode
         showInfo(
           response.data.needsUSBKey
@@ -1020,19 +1270,20 @@ const Login = ({ settings, onAuthSuccess }) => {
           {/* Right Side: Enhanced Login Form */}
           <div className="col-lg-5 p-4 p-xl-5 bg-white">
             <div className="d-flex flex-column h-100">
-              {/* Logo and Header */}
-              <div className="text-center mb-2">
-                <img
-                  src="Logo.png"
-                  alt="Company Logo"
-                  className="img-fluid mb-3"
-                  style={{
-                    maxHeight: "70px",
-                    maxWidth: "220px",
-                    objectFit: "contain",
-                  }}
-                />
-              </div>
+              {!needsFaceAuth && (
+                <div className="text-center mb-2">
+                  <img
+                    src="Logo.png"
+                    alt="Company Logo"
+                    className="img-fluid mb-3"
+                    style={{
+                      maxHeight: "70px",
+                      maxWidth: "220px",
+                      objectFit: "contain",
+                    }}
+                  />
+                </div>
+              )}
 
               <form
                 onSubmit={
@@ -1040,13 +1291,15 @@ const Login = ({ settings, onAuthSuccess }) => {
                     ? handleFingerprintSubmit
                     : needsUsbKey
                       ? handleUsbKeySubmit
+                      : needsFaceAuth
+                        ? handleFaceAuthSubmit
                       : needs2FA
                         ? handle2FASubmit
                         : handleSubmit
                 }
                 className="flex-grow-1"
               >
-                {!needs2FA && !needsFingerprint && !needsUsbKey ? (
+                {!needs2FA && !needsFingerprint && !needsUsbKey && !needsFaceAuth ? (
                   <>
                     {/* Mobile Number Field */}
                     <div className="mb-3">
@@ -1237,11 +1490,11 @@ const Login = ({ settings, onAuthSuccess }) => {
                   </>
                 ) : needsFingerprint ? (
                   <>
-                    <div className="mb-4 text-center">
+                    <div className="mb-2 text-center">
                       <h4 className="fw-semibold mb-2">Verify Fingerprint</h4>
                     </div>
 
-                    <div className="mb-4">
+                    <div className="mb-2">
                       <div className="card border-0 bg-light">
                         <div className="card-body text-center py-2">
                           <div className="mx-auto mb-3 fingerprint-orb-wrap mt-2">
@@ -1329,9 +1582,11 @@ const Login = ({ settings, onAuthSuccess }) => {
                         onClick={() => {
                           setNeedsFingerprint(false);
                           setNeedsUsbKey(false);
+                          setNeedsFaceAuth(false);
                           setPendingLoginData(null);
                           setFingerprintError("");
                           setUsbKeyError("");
+                          setFaceAuthError("");
                           setSelectedUsbFile(null);
                           setPin(["", "", "", "", "", ""]);
                           setErrors({});
@@ -1346,13 +1601,13 @@ const Login = ({ settings, onAuthSuccess }) => {
                   </>
                 ) : needsUsbKey ? (
                   <>
-                    <div className="mb-4 text-center">
+                    <div className="mb-2 text-center">
                       <h4 className="fw-semibold mb-2">
                         Verify USB Security Key
                       </h4>
                     </div>
 
-                    <div className="mb-4">
+                    <div className="mb-2">
                       <div className="card bg-light">
                         <div
                           className="card-body text-center py-3"
@@ -1451,12 +1706,26 @@ const Login = ({ settings, onAuthSuccess }) => {
                         </button>
                       )}
 
+                      {pendingLoginData?.requiresFaceAuth && (
+                        <button
+                          type="button"
+                          onClick={switchFromUsbKeyToFaceAuth}
+                          className="btn btn-link text-decoration-none p-0 fw-bold"
+                          style={{ color: "var(--primary-color)" }}
+                        >
+                          <i className="fas fa-camera me-1"></i>
+                          Face Authentication
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => {
                           setNeedsUsbKey(false);
+                          setNeedsFaceAuth(false);
                           setPendingLoginData(null);
                           setUsbKeyError("");
+                          setFaceAuthError("");
                           setSelectedUsbFile(null);
                           setPin(["", "", "", "", "", ""]);
                           setErrors({});
@@ -1467,6 +1736,94 @@ const Login = ({ settings, onAuthSuccess }) => {
                         <i className="fas fa-arrow-left me-2"></i>
                         Back to Login
                       </button>
+                    </div>
+                  </>
+                ) : needsFaceAuth ? (
+                  <>
+                    <div className="mb-2">
+                      <div className="card bg-light border-0">
+                        <div
+                          className="card-body p-2"
+                          style={{ border: "2px dashed #1c7c93" }}
+                        >
+                          <div
+                            className="rounded-3 overflow-hidden"
+                            style={{ minHeight: "240px", background: "#0f172a" }}
+                          >
+                            <video
+                              ref={faceVideoRef}
+                              autoPlay
+                              muted
+                              playsInline
+                              className="w-100"
+                              style={{
+                                height: "240px",
+                                objectFit: "cover",
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {faceAuthError && (
+                        <div className="error-message mt-2 text-center">
+                          <i className="fas fa-exclamation-circle me-1"></i>
+                          {faceAuthError}
+                        </div>
+                      )}
+
+                    </div>
+
+                    <button
+                      ref={faceVerifyButtonRef}
+                      type="submit"
+                      disabled={isVerifyingFaceAuth}
+                      className="btn btn-lg w-100 py-2 rounded-3 fw-semibold text-white position-relative overflow-hidden"
+                      style={{
+                        background: "var(--header-gradient)",
+                        border: "none",
+                        opacity: isVerifyingFaceAuth ? 0.8 : 1,
+                        transition: "all 0.3s ease",
+                      }}
+                    >
+                      <i className="fas fa-camera me-2"></i>
+                      {isVerifyingFaceAuth ? "Verifying face..." : "Verify Face"}
+                    </button>
+
+                    <div className="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNeedsFaceAuth(false);
+                          setNeedsFingerprint(false);
+                          setNeedsUsbKey(false);
+                          setPendingLoginData(null);
+                          setFaceAuthError("");
+                          setFingerprintError("");
+                          setUsbKeyError("");
+                          setPin(["", "", "", "", "", ""]);
+                          setErrors({});
+                        }}
+                        className="btn btn-link p-0 fw-bold"
+                        style={{ color: "#c17c00" }}
+                      >
+                        <i className="fas fa-arrow-left me-2"></i>
+                        Back to Login
+                      </button>
+
+                      {pendingLoginData?.requiresUSBKey ? (
+                        <button
+                          type="button"
+                          onClick={switchFromFaceAuthToUsbKey}
+                          className="btn btn-link text-decoration-none p-0 fw-semibold"
+                          style={{ color: "#007026" }}
+                        >
+                          <i className="fa-brands fa-usb me-2"></i>
+                          Verify USB Security Key
+                        </button>
+                      ) : (
+                        <span />
+                      )}
                     </div>
                   </>
                 ) : (
@@ -1646,6 +2003,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                         setNeeds2FA(false);
                         setNeedsFingerprint(false);
                         setNeedsUsbKey(false);
+                        setNeedsFaceAuth(false);
                         setTempToken(null);
                         setPendingLoginData(null);
                         setTwoFACode(["", "", "", "", "", ""]);
@@ -1653,6 +2011,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                         setShowBackupOption(false);
                         setFingerprintError("");
                         setUsbKeyError("");
+                        setFaceAuthError("");
                         setSelectedUsbFile(null);
                         setErrors({});
                       }}

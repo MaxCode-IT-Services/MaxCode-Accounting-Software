@@ -11,6 +11,9 @@ const TwoFATab = ({
   usbKeyLogin,
   handleUsbKeyToggle,
   isUsbKeyLoading,
+  faceAuth,
+  handleFaceAuthToggle,
+  isFaceAuthLoading,
   showBackupCodes,
   backupCodes,
   handleCopyBackupCodes,
@@ -263,6 +266,90 @@ const TwoFATab = ({
                       aria-hidden="true"
                     ></span>
                     Updating USB key settings...
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="row mb-4">
+          <div className="col-12">
+            <div className="card bg-light border-start border-4 border-info">
+              <div className="card-body">
+                <div className="mb-3">
+                  <h6 className="mb-1 d-flex align-items-center gap-2">
+                    <i className="fas fa-camera text-info"></i>
+                    {faceAuth.enabled
+                      ? "Face Authentication is Active"
+                      : "Face Authentication is Inactive"}
+                  </h6>
+                  <small className="text-muted d-block">
+                    After PIN verification, user can continue login using live
+                    face verification.
+                  </small>
+                  
+                  {!faceAuth.supported && (
+                    <small className="text-warning d-block mt-1">
+                      This browser/device does not support camera-based face
+                      authentication.
+                    </small>
+                  )}
+                  {faceAuth.enabled && !faceAuth.configured && (
+                    <small className="text-danger d-block mt-1">
+                      Face profile missing. Please disable and enable again to
+                      setup face authentication.
+                    </small>
+                  )}
+                </div>
+
+                <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                  <div
+                    className={`badge badge-pill ${faceAuth.enabled ? "bg-success" : "bg-danger"}`}
+                    style={{ padding: "10px 15px" }}
+                  >
+                    <i
+                      className={`fas ${faceAuth.enabled ? "fa-check-circle" : "fa-times-circle"} me-2`}
+                    ></i>
+                    {faceAuth.enabled ? "ENABLED" : "DISABLED"}
+                  </div>
+
+                  <div
+                    className="form-check form-switch"
+                    style={{
+                      transform: "scale(1.3)",
+                      transformOrigin: "right",
+                    }}
+                  >
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      id="faceAuthToggle"
+                      checked={faceAuth.enabled}
+                      onChange={(e) => handleFaceAuthToggle(e.target.checked)}
+                      disabled={isFaceAuthLoading}
+                      style={{
+                        cursor: "pointer",
+                        width: "50px",
+                        height: "28px",
+                      }}
+                    />
+                    <label
+                      className="form-check-label"
+                      htmlFor="faceAuthToggle"
+                      style={{ cursor: "pointer" }}
+                    ></label>
+                  </div>
+                </div>
+
+                {isFaceAuthLoading && (
+                  <div className="mt-3 text-muted small d-flex align-items-center gap-2">
+                    <span
+                      className="spinner-border spinner-border-sm"
+                      role="status"
+                      aria-hidden="true"
+                    ></span>
+                    Updating face authentication settings...
                   </div>
                 )}
               </div>

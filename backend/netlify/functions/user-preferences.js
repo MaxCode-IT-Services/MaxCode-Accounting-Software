@@ -1,6 +1,89 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { ObjectId } from "mongodb";
+import crypto from "crypto";
+
+const FACE_AUTH_ENCRYPTION_CONTEXT = "maxcode-face-auth-v1";
+
+const getFaceAuthEncryptionKey = () => {
+  const baseSecret = String(process.env.JWT_SECRET || "").trim();
+
+  if (!baseSecret) {
+    throw new Error("JWT_SECRET is required for face auth encryption");
+  }
+
+  return crypto
+    .createHash("sha256")
+    .update(`${FACE_AUTH_ENCRYPTION_CONTEXT}:${baseSecret}`)
+    .digest();
+};
+
+const encryptFaceDescriptors = (descriptors = []) => {
+  const iv = crypto.randomBytes(12);
+  const key = getFaceAuthEncryptionKey();
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const payload = JSON.stringify(descriptors);
+
+  const encrypted = Buffer.concat([
+    cipher.update(payload, "utf8"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+
+  return {
+    iv: iv.toString("base64"),
+    tag: tag.toString("base64"),
+    data: encrypted.toString("base64"),
+  };
+};
+
+const normalizeFaceAuthProfile = (value) => {
+  if (value === null) return null;
+
+  if (!value || typeof value !== "object") {
+    throw new Error("faceAuthProfile must be an object");
+  }
+
+  const descriptors = Array.isArray(value?.descriptors) ? value.descriptors : [];
+  const steps = Array.isArray(value?.steps)
+    ? value.steps
+        .filter((step) => typeof step === "string" && step.trim())
+        .map((step) => step.trim())
+    : [];
+
+  if (descriptors.length < 4) {
+    throw new Error("At least 4 face descriptors are required");
+  }
+
+  const normalizedDescriptors = descriptors.map((descriptor) => {
+    if (!Array.isArray(descriptor) || descriptor.length < 64) {
+      throw new Error("Invalid face descriptor format");
+    }
+
+    const normalized = descriptor.map((num) => Number(num));
+    if (normalized.some((num) => !Number.isFinite(num))) {
+      throw new Error("Face descriptor contains invalid values");
+    }
+
+    return normalized.slice(0, 128);
+  });
+
+  const encrypted = encryptFaceDescriptors(normalizedDescriptors);
+  const descriptorHash = crypto
+    .createHash("sha256")
+    .update(JSON.stringify(normalizedDescriptors))
+    .digest("hex");
+
+  return {
+    version:
+      Number.isInteger(value?.version) && value.version > 0 ? value.version : 1,
+    model: String(value?.model || "face-api.js").trim(),
+    steps,
+    descriptorHash,
+    encryptedDescriptors: encrypted,
+    enrolledAt: new Date(),
+  };
+};
 
 /**
  * User Preferences API
@@ -69,14 +152,19 @@ export async function handler(event) {
       "paymentLinkManagementServerSide",
       "fingerprintLoginEnabled",
       "usbKeyLoginEnabled",
+      "faceAuthEnabled",
     ];
 
     // Fields that store a string value (not boolean)
     const stringPreferenceFields = ["biometricCredentialId", "usbKeyTokenHash"];
-    const userBooleanFields = ["fingerprintLoginEnabled", "usbKeyLoginEnabled"];
+    const userBooleanFields = [
+      "fingerprintLoginEnabled",
+      "usbKeyLoginEnabled",
+      "faceAuthEnabled",
+    ];
     const userStringFields = ["biometricCredentialId", "usbKeyTokenHash"];
     const userStringArrayFields = ["biometricCredentialIds"];
-    const userObjectFields = ["settingsTabs"]; // For nested object permissions
+    const userObjectFields = ["settingsTabs", "faceAuthProfile"]; // For nested object permissions
 
     const mergePreferenceValues = (document = {}) => {
       const merged = {};
@@ -122,6 +210,8 @@ export async function handler(event) {
                 biometricCredentialIds: 1,
                 usbKeyLoginEnabled: 1,
                 usbKeyTokenHash: 1,
+                faceAuthEnabled: 1,
+                faceAuthProfile: 1,
                 "permissions.settingsTabs": 1,
               },
             },
@@ -160,6 +250,24 @@ export async function handler(event) {
         mergedPreferences.usbKeyTokenHash = userDoc.usbKeyTokenHash;
       }
 
+      if (typeof userDoc?.faceAuthEnabled === "boolean") {
+        mergedPreferences.faceAuthEnabled = userDoc.faceAuthEnabled;
+      }
+
+      if (userDoc?.faceAuthProfile && typeof userDoc.faceAuthProfile === "object") {
+        mergedPreferences.faceAuthConfigured = Boolean(
+          userDoc?.faceAuthProfile?.encryptedDescriptors?.data,
+        );
+        mergedPreferences.faceAuthSteps = Array.isArray(
+          userDoc?.faceAuthProfile?.steps,
+        )
+          ? userDoc.faceAuthProfile.steps
+          : [];
+      } else {
+        mergedPreferences.faceAuthConfigured = false;
+        mergedPreferences.faceAuthSteps = [];
+      }
+
       if (
         userDoc?.permissions?.settingsTabs &&
         typeof userDoc.permissions.settingsTabs === "object"
@@ -193,6 +301,12 @@ export async function handler(event) {
               userUpdateFields["permissions.settingsTabs"] = value;
             } else if (value === null) {
               userUpdateFields["permissions.settingsTabs"] = null;
+            }
+          } else if (key === "faceAuthProfile") {
+            try {
+              userUpdateFields.faceAuthProfile = normalizeFaceAuthProfile(value);
+            } catch (profileError) {
+              invalidField = `faceAuthProfile: ${profileError.message}`;
             }
           }
         } else if (userStringFields.includes(key)) {
