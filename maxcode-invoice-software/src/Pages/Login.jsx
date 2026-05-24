@@ -1552,12 +1552,12 @@ const Login = ({ settings, onAuthSuccess }) => {
                       )}
                     </button>
 
-                    <div className="d-flex justify-content-between mt-3 flex-wrap gap-2">
+                    <div className="d-flex justify-content-between mt-3 flex-wrap gap-2 auth-alt-actions">
                       {pendingLoginData?.requires2FA && (
                         <button
                           type="button"
                           onClick={switchFromFingerprintTo2FA}
-                          className="btn btn-link text-decoration-none p-0 fw-bold"
+                          className="btn btn-link text-decoration-none p-0 fw-bold auth-alt-link"
                           style={{ color: "var(--primary-color)" }}
                         >
                           <i className="fas fa-shield-alt me-2"></i>
@@ -1569,7 +1569,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                         <button
                           type="button"
                           onClick={switchFromFingerprintToUsbKey}
-                          className="btn btn-link text-decoration-none p-0 fw-bold"
+                          className="btn btn-link text-decoration-none p-0 fw-bold auth-alt-link"
                           style={{ color: "#007026" }}
                         >
                           <i className="fa-brands fa-usb me-2"></i>
@@ -1591,7 +1591,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                           setPin(["", "", "", "", "", ""]);
                           setErrors({});
                         }}
-                        className="btn btn-link p-0 fw-bold"
+                        className="btn btn-link p-0 fw-bold auth-alt-link auth-back-link"
                         style={{ color: "#c17c00" }}
                       >
                         <i className="fas fa-arrow-left me-2"></i>
@@ -1674,13 +1674,13 @@ const Login = ({ settings, onAuthSuccess }) => {
                       )}
                     </button>
 
-                    <div className="d-flex justify-content-between mt-3 flex-wrap gap-2">
+                    <div className="d-flex justify-content-between mt-3 flex-wrap gap-2 auth-alt-actions">
                       {pendingLoginData?.requiresFingerprint &&
                         pendingLoginData?.canUseFingerprint && (
                           <button
                             type="button"
                             onClick={switchFromUsbKeyToFingerprint}
-                            className="btn btn-link text-decoration-none p-0 fw-bold"
+                            className="btn btn-link text-decoration-none p-0 fw-bold auth-alt-link"
                             style={{ color: "#007026" }}
                           >
                             <i className="fas fa-fingerprint me-1"></i>
@@ -1698,7 +1698,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                             setUsbKeyError("");
                             setErrors({});
                           }}
-                          className="btn btn-link text-decoration-none p-0 fw-bold"
+                          className="btn btn-link text-decoration-none p-0 fw-bold auth-alt-link"
                           style={{ color: "var(--primary-color)" }}
                         >
                           <i className="fas fa-shield-alt me-1"></i>
@@ -1710,7 +1710,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                         <button
                           type="button"
                           onClick={switchFromUsbKeyToFaceAuth}
-                          className="btn btn-link text-decoration-none p-0 fw-bold"
+                          className="btn btn-link text-decoration-none p-0 fw-bold auth-alt-link"
                           style={{ color: "var(--primary-color)" }}
                         >
                           <i className="fas fa-camera me-1"></i>
@@ -1730,7 +1730,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                           setPin(["", "", "", "", "", ""]);
                           setErrors({});
                         }}
-                        className="btn btn-link p-0 fw-bold"
+                        className="btn btn-link p-0 fw-bold auth-alt-link auth-back-link"
                         style={{ color: "#c17c00" }}
                       >
                         <i className="fas fa-arrow-left me-2"></i>
@@ -1790,7 +1790,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                       {isVerifyingFaceAuth ? "Verifying face..." : "Verify Face"}
                     </button>
 
-                    <div className="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+                    <div className="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2 auth-alt-actions">
                       <button
                         type="button"
                         onClick={() => {
@@ -1804,7 +1804,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                           setPin(["", "", "", "", "", ""]);
                           setErrors({});
                         }}
-                        className="btn btn-link p-0 fw-bold"
+                        className="btn btn-link p-0 fw-bold auth-alt-link auth-back-link"
                         style={{ color: "#c17c00" }}
                       >
                         <i className="fas fa-arrow-left me-2"></i>
@@ -1815,7 +1815,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                         <button
                           type="button"
                           onClick={switchFromFaceAuthToUsbKey}
-                          className="btn btn-link text-decoration-none p-0 fw-semibold"
+                          className="btn btn-link text-decoration-none p-0 fw-semibold auth-alt-link"
                           style={{ color: "#007026" }}
                         >
                           <i className="fa-brands fa-usb me-2"></i>
@@ -2015,7 +2015,7 @@ const Login = ({ settings, onAuthSuccess }) => {
                         setSelectedUsbFile(null);
                         setErrors({});
                       }}
-                      className="btn btn-link w-100 mt-3"
+                      className="btn btn-link w-100 mt-3 auth-back-link"
                       style={{ color: "#c17c00" }}
                     >
                       <i className="fas fa-arrow-left me-2"></i>
@@ -2698,6 +2698,34 @@ const Login = ({ settings, onAuthSuccess }) => {
             min-height: auto !important;
             transform: scale(0.95);
             transform-origin: center top;
+          }
+
+          .auth-alt-actions {
+            display: flex !important;
+            flex-wrap: wrap;
+            justify-content: space-between !important;
+            gap: 6px 10px !important;
+            align-items: start;
+          }
+
+          .auth-alt-actions > .auth-alt-link,
+          .auth-alt-actions > .auth-back-link {
+            width: calc(50% - 5px);
+            white-space: nowrap !important;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+
+          .auth-alt-link,
+          .auth-back-link {
+            font-size: 0.78rem !important;
+            line-height: 1.2 !important;
+            text-align: left !important;
+          }
+
+          .auth-alt-link i,
+          .auth-back-link i {
+            font-size: 0.72rem;
           }
         }
       `}</style>
