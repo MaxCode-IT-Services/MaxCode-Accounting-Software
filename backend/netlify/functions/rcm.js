@@ -147,6 +147,11 @@ const getFinancialYearLabel = (invoiceDateValue) => {
   return `${startYear}-${endYearShort}`;
 };
 
+const toNumber = (value) => {
+  const parsed = typeof value === "number" ? value : parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 const buildPublicUrl = (publicDomain, path) => {
   const cleanedPath = String(path || "").replace(/^\/+/, "");
   if (publicDomain) {
@@ -723,7 +728,7 @@ export async function handler(event) {
         .toArray();
 
       const totalAmount = allRcm.reduce(
-        (sum, p) => sum + (p.taxData?.totalAmount || 0),
+        (sum, p) => sum + toNumber(p.taxData?.totalAmount),
         0,
       );
 
@@ -733,11 +738,11 @@ export async function handler(event) {
         )
         .reduce((sum, p) => {
           if (p.paidAmount !== undefined && p.paidAmount !== null) {
-            return sum + (p.paidAmount || 0);
+            return sum + toNumber(p.paidAmount);
           } else if (p.paymentStatus === "Paid") {
-            return sum + (p.taxData?.totalAmount || 0);
+            return sum + toNumber(p.taxData?.totalAmount);
           } else if (p.paymentStatus === "Partial") {
-            return sum + (p.taxData?.totalAmount || 0) / 2;
+            return sum + toNumber(p.taxData?.totalAmount) / 2;
           }
           return sum;
         }, 0);
