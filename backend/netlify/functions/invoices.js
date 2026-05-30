@@ -255,6 +255,23 @@ export async function handler(event) {
       };
     };
 
+    const syncPaymentReceiptTransactionById = async (receiptId) => {
+      if (!receiptId || !ObjectId.isValid(receiptId)) return;
+      const paymentReceiptsCol = db.collection("payment_receipts");
+      const receipt = await paymentReceiptsCol.findOne({
+        _id: new ObjectId(receiptId),
+      });
+      if (!receipt) return;
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "payment_receipts",
+        sourceType: "payment_receipt",
+        sourceRecord: receipt,
+        sourceLabel: receipt.receiptNumber || "",
+      });
+    };
+
     // GET - Fetch all invoices or specific invoice by ID with pagination support
     if (event.httpMethod === "GET") {
       const {
@@ -1031,6 +1048,8 @@ export async function handler(event) {
               },
             },
           );
+
+          await syncPaymentReceiptTransactionById(adv.advanceId);
         }
       }
 
@@ -1129,6 +1148,8 @@ export async function handler(event) {
               $set: { adjustedAmount: reversedAdjusted, updatedAt: new Date() },
             },
           );
+
+          await syncPaymentReceiptTransactionById(adv.advanceId);
         }
 
         // Apply new adjustments
@@ -1155,6 +1176,8 @@ export async function handler(event) {
               },
             },
           );
+
+          await syncPaymentReceiptTransactionById(adv.advanceId);
         }
 
         const advanceAdjustedTotal = updatedAppliedAdvances.reduce(

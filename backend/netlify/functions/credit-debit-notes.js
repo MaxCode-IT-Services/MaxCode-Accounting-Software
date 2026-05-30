@@ -134,6 +134,22 @@ export async function handler(event) {
       return `${startYear}-${endYearShort}`;
     };
 
+    const syncPaymentReceiptTransactionById = async (receiptId) => {
+      if (!receiptId || !ObjectId.isValid(receiptId)) return;
+      const receipt = await db.collection("payment_receipts").findOne({
+        _id: new ObjectId(receiptId),
+      });
+      if (!receipt) return;
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "payment_receipts",
+        sourceType: "payment_receipt",
+        sourceRecord: receipt,
+        sourceLabel: receipt.receiptNumber || "",
+      });
+    };
+
     const getNextNoteNumber = async (
       financialYearValue,
       noteType = "Credit Note",
@@ -776,6 +792,8 @@ export async function handler(event) {
               },
             },
           );
+
+          await syncPaymentReceiptTransactionById(String(receipt._id));
         }
       }
 
@@ -982,6 +1000,8 @@ export async function handler(event) {
               },
             },
           );
+
+          await syncPaymentReceiptTransactionById(String(receipt._id));
         }
 
         const shouldApplyNewAdvances = noteType === "Debit Note";
@@ -1015,6 +1035,8 @@ export async function handler(event) {
               },
             },
           );
+
+          await syncPaymentReceiptTransactionById(String(receipt._id));
         }
       }
 

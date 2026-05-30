@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { decryptSecretFromStorage } from "./utils/secret-crypto.js";
 import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
+import { syncTransactionSnapshot } from "./utils/transactions.js";
 
 const normalizeCloudflareSettings = (settings = {}) => {
   if (!settings || typeof settings !== "object") return null;
@@ -1553,6 +1554,17 @@ export async function handler(event) {
         ...getAuditFieldsFromEvent(event, "create"),
       });
 
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "projects",
+        sourceType: "project",
+        sourceRecord: {
+          ...projectData,
+          _id: result.insertedId,
+        },
+        sourceLabel: projectData.projectId || "",
+      });
+
       return createResponse(
         201,
         {
@@ -1723,6 +1735,20 @@ export async function handler(event) {
         );
       }
 
+      const updatedProjectRecord = await projectsCollection.findOne({
+        _id: projectObjectId,
+      });
+
+      if (updatedProjectRecord) {
+        await syncTransactionSnapshot({
+          db,
+          sourceCollection: "projects",
+          sourceType: "project",
+          sourceRecord: updatedProjectRecord,
+          sourceLabel: updatedProjectRecord.projectId || "",
+        });
+      }
+
       return createResponse(
         200,
         { message: "Project record updated successfully" },
@@ -1793,6 +1819,15 @@ export async function handler(event) {
           origin,
         );
       }
+
+      await syncTransactionSnapshot({
+        db,
+        sourceCollection: "projects",
+        sourceType: "project",
+        sourceRecord: existingProjectRecord,
+        sourceLabel: existingProjectRecord.projectId || "",
+        deleted: true,
+      });
 
       return createResponse(
         200,

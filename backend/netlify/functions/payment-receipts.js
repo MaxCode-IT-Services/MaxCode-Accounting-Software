@@ -173,6 +173,15 @@ const normalizeInvoiceRef = (ref = {}) => {
   return { invoiceId, invoiceNumber };
 };
 
+const normalizeDebitNoteRef = (ref = {}) => {
+  const debitNoteId = String(ref.debitNoteId || ref.noteId || "").trim();
+  const debitNoteNumber = String(
+    ref.debitNoteNumber || ref.noteNumber || "",
+  ).trim();
+  if (!debitNoteId && !debitNoteNumber) return null;
+  return { debitNoteId, debitNoteNumber };
+};
+
 const collectInvoiceRefsFromReceipt = (receipt = {}) => {
   const refsMap = new Map();
 
@@ -205,6 +214,24 @@ const collectInvoiceRefsFromReceipt = (receipt = {}) => {
   return Array.from(refsMap.values());
 };
 
+const collectDebitNoteRefsFromReceipt = (receipt = {}) => {
+  const refsMap = new Map();
+
+  const addRef = (ref) => {
+    const normalized = normalizeDebitNoteRef(ref);
+    if (!normalized) return;
+    const key = `${normalized.debitNoteId}::${normalized.debitNoteNumber}`;
+    refsMap.set(key, normalized);
+  };
+
+  addRef({
+    debitNoteId: receipt.debitNoteId,
+    debitNoteNumber: receipt.debitNoteNumber,
+  });
+
+  return Array.from(refsMap.values());
+};
+
 const allocationAmountForInvoice = (
   receipt = {},
   resolvedInvoiceId,
@@ -230,6 +257,25 @@ const allocationAmountForInvoice = (
       sum + toNumber(allocation?.allocatedAmount || allocation?.amount || 0)
     );
   }, 0);
+};
+
+const allocationAmountForDebitNote = (
+  receipt = {},
+  resolvedDebitNoteId,
+  resolvedDebitNoteNumber,
+) => {
+  const receiptDebitNoteId = String(receipt?.debitNoteId || "");
+  const receiptDebitNoteNumber = String(receipt?.debitNoteNumber || "");
+  const matches =
+    (receiptDebitNoteId && receiptDebitNoteId === resolvedDebitNoteId) ||
+    (receiptDebitNoteNumber &&
+      receiptDebitNoteNumber === resolvedDebitNoteNumber);
+
+  if (!matches) return 0;
+
+  const explicitAllocation = toNumber(receipt?.debitNoteAllocatedAmount || 0);
+  if (explicitAllocation > 0) return explicitAllocation;
+  return toNumber(receipt?.amount || 0);
 };
 
 const computeInvoiceDue = (invoice = {}) => {
@@ -413,19 +459,136 @@ const recalculateInvoicePaymentSummary = async (
     latestAdvanceMeta.paymentMethod ||
     "";
 
+  const updatedInvoiceRecord = {
+    ...invoice,
+    amountReceived: amountReceived > 0 ? String(amountReceived) : "",
+    paymentStatus,
+    paymentDate,
+    paymentMethod,
+    dueAmount: dueAmount.toFixed(2),
+    updatedAt: new Date(),
+  };
+
   await invoicesCol.updateOne(
     { _id: invoice._id },
     {
       $set: {
-        amountReceived: amountReceived > 0 ? String(amountReceived) : "",
-        paymentStatus,
-        paymentDate,
-        paymentMethod,
-        dueAmount: dueAmount.toFixed(2),
-        updatedAt: new Date(),
+        amountReceived: updatedInvoiceRecord.amountReceived,
+        paymentStatus: updatedInvoiceRecord.paymentStatus,
+        paymentDate: updatedInvoiceRecord.paymentDate,
+        paymentMethod: updatedInvoiceRecord.paymentMethod,
+        dueAmount: updatedInvoiceRecord.dueAmount,
+        updatedAt: updatedInvoiceRecord.updatedAt,
       },
     },
   );
+
+  await syncTransactionSnapshot({
+    db,
+    sourceCollection: "invoices",
+    sourceType: "invoice",
+    sourceRecord: updatedInvoiceRecord,
+    sourceLabel: updatedInvoiceRecord.invoiceNumber || "",
+  });
+};
+
+const recalculateDebitNotePaymentSummary = async (
+  db,
+  { debitNoteId, debitNoteNumber },
+) => {
+  if (!debitNoteId && !debitNoteNumber) return;
+
+  const notesCol = db.collection("creditDebitNotes");
+
+  const debitNoteFilter = {
+    isDeleted: { $ne: true },
+    noteType: "Debit Note",
+  };
+  if (debitNoteId && ObjectId.isValid(debitNoteId)) {
+    debitNoteFilter._id = new ObjectId(debitNoteId);
+  } else if (debitNoteNumber) {
+    debitNoteFilter.noteNumber = debitNoteNumber;
+  } else {
+    return;
+  }
+
+  const debitNote = await notesCol.findOne(debitNoteFilter);
+  if (!debitNote) return;
+
+  const resolvedDebitNoteId = String(debitNote._id);
+  const resolvedDebitNoteNumber = String(debitNote.noteNumber || "");
+
+  const linkedNoteFilters = [];
+  if (resolvedDebitNoteId) {
+    linkedNoteFilters.push({ debitNoteId: resolvedDebitNoteId });
+  }
+  if (resolvedDebitNoteNumber) {
+    linkedNoteFilters.push({ debitNoteNumber: resolvedDebitNoteNumber });
+  }
+  if (linkedNoteFilters.length === 0) return;
+
+  const regularReceipts = await db
+    .collection("payment_receipts")
+    .find({
+      isDeleted: { $ne: true },
+      paymentType: { $ne: "advance" },
+      $or: linkedNoteFilters,
+    })
+    .toArray();
+
+  const receivedAmount = regularReceipts.reduce((sum, receipt) => {
+    return (
+      sum +
+      allocationAmountForDebitNote(
+        receipt,
+        resolvedDebitNoteId,
+        resolvedDebitNoteNumber,
+      )
+    );
+  }, 0);
+
+  const latestRegularReceipt =
+    regularReceipts.length > 0
+      ? regularReceipts.reduce((latest, current) => {
+          const latestTime = getReceiptEventTime(latest);
+          const currentTime = getReceiptEventTime(current);
+          return currentTime >= latestTime ? current : latest;
+        })
+      : null;
+
+  const totalAmount = toNumber(debitNote.totalAmount || debitNote.amount || 0);
+  const nextReceivedAmount = Math.min(totalAmount, Math.max(receivedAmount, 0));
+  const updatedDebitNoteRecord = {
+    ...debitNote,
+    receivedAmount: nextReceivedAmount,
+    paymentStatus: deriveDebitNotePaymentStatus(totalAmount, nextReceivedAmount),
+    paymentDate: latestRegularReceipt
+      ? parseDateValue(latestRegularReceipt.receiptDate) || ""
+      : "",
+    paymentMethod: latestRegularReceipt?.paymentMethod || "",
+    updatedAt: new Date(),
+  };
+
+  await notesCol.updateOne(
+    { _id: debitNote._id },
+    {
+      $set: {
+        receivedAmount: updatedDebitNoteRecord.receivedAmount,
+        paymentStatus: updatedDebitNoteRecord.paymentStatus,
+        paymentDate: updatedDebitNoteRecord.paymentDate,
+        paymentMethod: updatedDebitNoteRecord.paymentMethod,
+        updatedAt: updatedDebitNoteRecord.updatedAt,
+      },
+    },
+  );
+
+  await syncTransactionSnapshot({
+    db,
+    sourceCollection: "creditDebitNotes",
+    sourceType: "credit-debit-note",
+    sourceRecord: updatedDebitNoteRecord,
+    sourceLabel: updatedDebitNoteRecord.noteNumber || "",
+  });
 };
 
 /**
@@ -1254,37 +1417,12 @@ export async function handler(event) {
 
       if (
         normalizedPaymentType === "regular" &&
-        normalizedAgainstType === "debit_note" &&
-        selectedDebitNote
+        normalizedAgainstType === "debit_note"
       ) {
-        const debitNotesCol = db.collection("creditDebitNotes");
-        const debitNoteTotal = toNumber(
-          selectedDebitNote.totalAmount || selectedDebitNote.amount,
-        );
-        const previousReceived = toNumber(
-          selectedDebitNote.receivedAmount || 0,
-        );
-        const nextReceived = Math.min(
-          debitNoteTotal,
-          previousReceived + debitNoteAppliedAmount,
-        );
-        const nextPaymentStatus = deriveDebitNotePaymentStatus(
-          debitNoteTotal,
-          nextReceived,
-        );
-
-        await debitNotesCol.updateOne(
-          { _id: selectedDebitNote._id },
-          {
-            $set: {
-              paymentStatus: nextPaymentStatus,
-              paymentDate: receiptDate ? new Date(receiptDate) : now,
-              receivedAmount: nextReceived,
-              paymentMethod: normalizedRecord.paymentMethod || paymentMethod,
-              updatedAt: now,
-            },
-          },
-        );
+        await recalculateDebitNotePaymentSummary(db, {
+          debitNoteId: regularDoc.debitNoteId,
+          debitNoteNumber: regularDoc.debitNoteNumber,
+        });
       }
 
       receiptMetaCache.expiresAt = 0;
@@ -1292,6 +1430,19 @@ export async function handler(event) {
       const refsToRecalc = collectInvoiceRefsFromReceipt(regularDoc);
       for (const ref of refsToRecalc) {
         await recalculateInvoicePaymentSummary(db, ref);
+      }
+
+      const debitRefsToRecalc = [
+        ...(existing.paymentType !== "advance"
+          ? collectDebitNoteRefsFromReceipt(existing)
+          : []),
+        ...(updated?.paymentType !== "advance"
+          ? collectDebitNoteRefsFromReceipt(updated)
+          : []),
+      ];
+
+      for (const ref of debitRefsToRecalc) {
+        await recalculateDebitNotePaymentSummary(db, ref);
       }
 
       return createResponse(
@@ -1552,6 +1703,11 @@ export async function handler(event) {
         const refsToRecalc = collectInvoiceRefsFromReceipt(existing);
         for (const ref of refsToRecalc) {
           await recalculateInvoicePaymentSummary(db, ref);
+        }
+
+        const debitRefsToRecalc = collectDebitNoteRefsFromReceipt(existing);
+        for (const ref of debitRefsToRecalc) {
+          await recalculateDebitNotePaymentSummary(db, ref);
         }
       }
 
