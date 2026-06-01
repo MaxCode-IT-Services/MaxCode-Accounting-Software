@@ -107,7 +107,8 @@ const Notification = ({ onUnreadCountChange }) => {
         const daysRemaining = Number(item?.templateData?.daysRemaining ?? 0);
 
         if (
-          item?.templateType === "service-expiry" &&
+          (item?.templateType === "service-expiry" ||
+            item?.templateType === "service-history-expiry") &&
           !ALERT_DAYS.includes(daysRemaining)
         ) {
           return null;
@@ -512,7 +513,10 @@ const Notification = ({ onUnreadCountChange }) => {
       );
     }
 
-    if (notification?.templateType !== "service-expiry") {
+    if (
+      notification?.templateType !== "service-expiry" &&
+      notification?.templateType !== "service-history-expiry"
+    ) {
       return notification.expanded
         ? notification.description
         : truncateText(notification.description || "");

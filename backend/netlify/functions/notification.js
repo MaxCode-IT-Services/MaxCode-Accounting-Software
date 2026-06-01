@@ -53,7 +53,7 @@ const findApplicableFinancialYear = (expiryDate, financialYears = []) => {
   });
 };
 
-const buildServiceExpiryNotifications = ({
+const buildServiceHistoryExpiryNotifications = ({
   serviceRecords = [],
   financialYears = [],
   today,
@@ -61,10 +61,17 @@ const buildServiceExpiryNotifications = ({
   const notifications = [];
 
   serviceRecords.forEach((record) => {
-    const serviceRows = Array.isArray(record?.services) ? record.services : [];
+    const serviceRows = Array.isArray(record?.transactions)
+      ? record.transactions
+      : [];
 
     serviceRows.forEach((service, index) => {
-      if (!service?.sendAlert || !service?.expiryDate) return;
+      if (!service?.expiryDate) return;
+
+      const rowStatus = String(service?.status || "Active")
+        .trim()
+        .toLowerCase();
+      if (rowStatus !== "active") return;
 
       const expiryDate = getDateOnly(service.expiryDate);
       if (!expiryDate) return;
@@ -88,19 +95,20 @@ const buildServiceExpiryNotifications = ({
       const recordIdentifier =
         record?._id || record?.id || record?.serviceNumber || "service";
       const rowIdentifier = service?.id || index + 1;
-      const dedupeKey = `service-expiry-${recordIdentifier}-${rowIdentifier}-${service.expiryDate}-${daysRemaining}`;
+      const dedupeKey = `service-history-expiry-${recordIdentifier}-${rowIdentifier}-${service.expiryDate}-${daysRemaining}`;
 
       notifications.push({
         dedupeKey,
-        title: "📢 Subsctiption Expiry Reminder",
-        description: `${service.serviceName || "Service"} Subsciption for ${record.businessName || "Business"} is Expirying in ${daysRemaining} day${daysRemaining > 1 ? "s" : ""}. Expiry Date: ${formatDateForDisplay(service.expiryDate)}, Price: ${formatCurrency(price)}, Tax ${taxPercentage}%: ${formatCurrency(taxAmount)}, Total Amount ${formatCurrency(totalAmount)}. Please take necessary action to renew or notify the client.`,
+        title: "📢 Renewal Reminder",
+        description: `${service.serviceName || "Service"} renewal for ${record.businessName || "Business"} is expiring in ${daysRemaining} day${daysRemaining > 1 ? "s" : ""}. Expiry Date: ${formatDateForDisplay(service.expiryDate)}, Price: ${formatCurrency(price)}, Tax ${taxPercentage}%: ${formatCurrency(taxAmount)}, Total Amount ${formatCurrency(totalAmount)}. Please take necessary action to renew or notify the client.`,
         icon: "bullhorn",
         type: daysRemaining <= 3 ? "danger" : "warning",
         image: "https://img.maxcodehub.com/Others/Ex.png",
-        templateType: "service-expiry",
+        templateType: "service-history-expiry",
         templateData: {
           serviceName: service.serviceName || "Service",
           businessName: record.businessName || "Business",
+          renewDate: service?.renewDate || "",
           daysRemaining,
           expiryDate: formatDateForDisplay(service.expiryDate),
           price: formatCurrency(price),
@@ -309,7 +317,7 @@ export async function handler(event) {
                       id: 1,
                       serviceNumber: 1,
                       businessName: 1,
-                      services: 1,
+                      transactions: 1,
                     },
                   },
                 )
@@ -349,7 +357,7 @@ export async function handler(event) {
                 .toArray(),
             ]);
 
-          const serviceNotifications = buildServiceExpiryNotifications({
+          const serviceNotifications = buildServiceHistoryExpiryNotifications({
             serviceRecords,
             financialYears,
             today,

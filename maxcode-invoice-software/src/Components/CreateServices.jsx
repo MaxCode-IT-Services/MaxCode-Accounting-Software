@@ -1158,7 +1158,7 @@ const CreateServices = ({
                 <div className="col-12">
                   <h6 className="border-bottom pb-2 mb-3">
                     <i className="fas fa-network-wired me-2 text-info"></i>
-                    Services Details
+                   Next Year Renewal Services & Subscription Details
                   </h6>
                   {(errors.services || errors.servicesDates) && (
                     <div className="alert alert-danger">
@@ -1546,7 +1546,7 @@ const CreateServices = ({
                 <div className="col-12">
                   <h6 className="border-bottom pb-2 mb-3">
                     <i className="fas fa-rotate-right me-2 text-warning"></i>
-                    Add Transaction (Renewal/Update)
+                    Add History (Active, Renewal & Service History)
                   </h6>
                   {errors.transactionsDates && (
                     <div className="alert alert-danger">
