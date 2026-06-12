@@ -49,7 +49,7 @@ const QutationManagement = () => {
     send: 0,
     approve: 0,
     reject: 0,
-    pending: 0,
+    expired: 0,
   });
 
   const columnsWithDateFilter = [
@@ -62,7 +62,7 @@ const QutationManagement = () => {
   ];
 
   useEffect(() => {
-    document.title = "Qutation Management | MaxCode IT Services";
+    document.title = "Quotation Management | MaxCode IT Services";
     fetchFinancialYears();
 
     const fetchPreference = async () => {
@@ -131,8 +131,8 @@ const QutationManagement = () => {
       reject: activeRecords.filter(
         (record) => record.qutationStatus === "Reject",
       ).length,
-      pending: activeRecords.filter(
-        (record) => record.qutationStatus === "Pending",
+      expired: activeRecords.filter(
+        (record) => record.qutationStatus === "Expired",
       ).length,
     });
   };
@@ -372,49 +372,54 @@ const QutationManagement = () => {
   const cards = [
     {
       icon: "fa-solid fa-file-invoice-dollar",
-      title: "Total Qutation",
+      title: "Total Quotation",
       key: "total",
       color: "primary",
       count: statistics.total,
     },
     {
       icon: "fas fa-paper-plane",
-      title: "Send Qutation",
+      title: "Send Quotation",
       key: "send",
       color: "info",
       count: statistics.send,
     },
     {
       icon: "fas fa-circle-check",
-      title: "Approved Qutation",
+      title: "Approved Quotation",
       key: "approve",
       color: "success",
       count: statistics.approve,
     },
     {
       icon: "fas fa-circle-xmark",
-      title: "Rejected Qutation",
+      title: "Rejected Quotation",
       key: "reject",
       color: "danger",
       count: statistics.reject,
     },
     {
-      icon: "fas fa-hourglass-half",
-      title: "Pending Qutation",
-      key: "pending",
+      icon: "fas fa-calendar-times",
+      title: "Expired Quotation",
+      key: "expired",
       color: "warning",
-      count: statistics.pending,
+      count: statistics.expired,
     },
     {
       icon: "fas fa-plus-circle",
-      title: "Add New Qutation",
+      title: "Add New Quotation",
       key: "addNew",
       color: "success",
     },
   ];
 
   const preparedData = useMemo(() => {
-    return records.map((record, index) => ({
+    const sortedRecords = [...records].sort((a, b) => {
+      const dateA = new Date(a.createdDate || a.createdDateTime || 0);
+      const dateB = new Date(b.createdDate || b.createdDateTime || 0);
+      return dateB - dateA;
+    });
+    return sortedRecords.map((record, index) => ({
       ...record,
       sn: (currentPage - 1) * recordsPerPage + index + 1,
       createdDateTime:
@@ -458,41 +463,69 @@ const QutationManagement = () => {
 
   const columns = [
     { key: "sn", label: "S.No", width: 70 },
+    { key: "qutationNumber", label: "Quotation No.", width: 130 },
     { key: "clientName", label: "Client Name", width: 160 },
     { key: "phoneNumber", label: "Phone", width: 130 },
     { key: "projectName", label: "Project Name", width: 180 },
     { key: "projectType", label: "Project Type", width: 140 },
-    { key: "qutationType", label: "Qutation Type", width: 180 },
+    { key: "qutationType", label: "Quotation Type", width: 180 },
     {
-      key: "uploadedQutation",
-      label: "Upload Qutation",
-      width: 130,
+      key: "qutationFile",
+      label: "Quotation File",
+      width: 150,
       disableSort: true,
       disableFilter: true,
-      render: (_, record) =>
-        record.qutationFileLink ? (
-          <div onClick={(event) => event.stopPropagation()}>
+      render: (_, record) => (
+        <div onClick={(event) => event.stopPropagation()} style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {record.qutationFileLink ? (
             <UploadedFilePreviewBox
               fileUrl={record.qutationFileLink}
-              title="Open uploaded qutation"
+              title="Open uploaded quotation file"
               iconClassName="fa-solid fa-file-contract"
             />
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-secondary"
-            title="No uploaded qutation"
-            disabled
-          >
-            <i class="fa-solid fa-file-contract"></i>
-          </button>
-        ),
+          ) : (
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary"
+              title="No uploaded quotation file"
+              disabled
+            >
+              <i className="fa-solid fa-file-contract"></i>
+            </button>
+          )}
+          {record?.qutationGoogleDriveLink ? (
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-info"
+              onClick={(event) => {
+                event.stopPropagation();
+                window.open(
+                  record.qutationGoogleDriveLink,
+                  "_blank",
+                  "noopener,noreferrer",
+                );
+              }}
+              title="Open Google Drive link"
+            >
+              <i className="fab fa-google-drive"></i>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary"
+              title="No Google Drive link"
+              disabled
+            >
+              <i className="fab fa-google-drive"></i>
+            </button>
+          )}
+        </div>
+      ),
     },
-    { key: "qutationDate", label: "Qutation Date", width: 140 },
+    { key: "qutationDate", label: "Quotation Date", width: 140 },
     {
       key: "qutationExpiryDate",
-      label: "Qutation Expiry Date",
+      label: "Quotation Expiry Date",
       width: 170,
     },
     {
@@ -503,68 +536,8 @@ const QutationManagement = () => {
     },
     { key: "developmentTime", label: "Development Time", width: 150 },
     {
-      key: "qutationFile",
-      label: "Qutation File",
-      width: 120,
-      disableSort: true,
-      disableFilter: true,
-      render: (_, record) =>
-        record.qutationFileLink ? (
-          <div onClick={(event) => event.stopPropagation()}>
-            <UploadedFilePreviewBox
-              fileUrl={record.qutationFileLink}
-              title="Open uploaded qutation file"
-              iconClassName="fa-solid fa-file-contract"
-            />
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-secondary"
-            title="No uploaded qutation file"
-            disabled
-          >
-            <i class="fa-solid fa-file-contract"></i>
-          </button>
-        ),
-    },
-    {
-      key: "qutationLink",
-      label: "Qutation Link",
-      width: 120,
-      disableSort: true,
-      disableFilter: true,
-      render: (_, record) =>
-        record?.qutationGoogleDriveLink ? (
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-info"
-            onClick={(event) => {
-              event.stopPropagation();
-              window.open(
-                record.qutationGoogleDriveLink,
-                "_blank",
-                "noopener,noreferrer",
-              );
-            }}
-            title="Open Google Drive link"
-          >
-            <i className="fab fa-google-drive"></i>
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-secondary"
-            title="No Google Drive link"
-            disabled
-          >
-            <i className="fab fa-google-drive"></i>
-          </button>
-        ),
-    },
-    {
       key: "qutationStatus",
-      label: "Qutation Status",
+      label: "Quotation Status",
       width: 150,
       render: (value) => (
         <span className={`badge ${getBadgeClass(value)}`}>{value}</span>
@@ -582,11 +555,10 @@ const QutationManagement = () => {
 
   const defaultVisibleColumns = [
     "sn",
+    "qutationNumber",
     "clientName",
     "phoneNumber",
-    "projectName",
     "qutationType",
-    "uploadedQutation",
     "qutationTotalAmount",
     "action",
   ];
@@ -730,7 +702,7 @@ const QutationManagement = () => {
           className="py-3 d-flex justify-content-between align-items-center flex-wrap"
           style={{ marginTop: "70px" }}
         >
-          <h4 className="fs-18 fw-semibold m-0">Qutation Management</h4>
+          <h4 className="fs-18 fw-semibold m-0">Quotation Management</h4>
 
           <div className="form-check form-switch m-0">
             <input
@@ -746,11 +718,11 @@ const QutationManagement = () => {
                 setSortDirection("normal");
                 setActiveCardFilter("total");
               }}
-              id="serverSideToggleQutation"
+              id="serverSideToggleQuotation"
             />
             <label
               className="form-check-label ms-2"
-              htmlFor="serverSideToggleQutation"
+              htmlFor="serverSideToggleQuotation"
             >
               Server-side Mode {serverSide ? "(Enabled)" : "(Disabled)"}
             </label>
@@ -790,7 +762,7 @@ const QutationManagement = () => {
                         <i className={`${card.icon} fs-4 text-white`} />
                       </span>
                     </div>
-                    <h5 className="mb-2 fw-bold">{card.title}</h5>
+                    <h5 className="mb-2 fw-bold" style={{ fontSize: "16px" }}>{card.title}</h5>
                     <h6 className="mb-0 text-muted fw-bold">
                       {card.key === "addNew" ? "+ Add New" : card.count || 0}
                     </h6>
@@ -821,14 +793,14 @@ const QutationManagement = () => {
           columnsWithDropdownFilter={columnsWithDropdownFilter}
           columnsWithDateFilter={columnsWithDateFilter}
           filterOptions={serverSide ? dynamicFilterOptions : getFilterOptions()}
-          tableTitle="Qutation Record"
+          tableTitle="Quotation Record"
           showColumnSelector={true}
           showExport={true}
           showRefresh={true}
           showAdvancedFilter={true}
           showSearch={true}
-          exportFileName="Qutation_Management"
-          exportTitle="Qutation Management Report"
+          exportFileName="Quotation_Management"
+          exportTitle="Quotation Management Report"
           activeCardFilter={activeCardFilter}
           cards={cards}
           getBadgeClass={getBadgeClass}
@@ -868,10 +840,10 @@ const QutationManagement = () => {
             setQutationToDelete(null);
           }}
           onConfirm={confirmDelete}
-          title="Delete Qutation"
+          title="Delete Quotation"
           message={
             <>
-              Are you sure you want to delete qutation{" "}
+              Are you sure you want to delete quotation{" "}
               <strong>
                 "
                 {records.find(
@@ -880,7 +852,7 @@ const QutationManagement = () => {
                 )?.projectName || ""}
                 "
               </strong>
-              ? This action marks the qutation as deleted.
+              ? This action marks the quotation as deleted.
             </>
           }
           confirmText="Delete"

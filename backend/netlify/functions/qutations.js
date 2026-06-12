@@ -692,9 +692,9 @@ export async function handler(event) {
         qutationStatus: "Reject",
       });
 
-      const totalPending = await qutationsCollection.countDocuments({
+      const totalExpired = await qutationsCollection.countDocuments({
         isDeleted: { $ne: true },
-        qutationStatus: "Pending",
+        qutationStatus: "Expired",
       });
 
       return createResponse(
@@ -712,7 +712,7 @@ export async function handler(event) {
             send: totalSend,
             approve: totalApprove,
             reject: totalReject,
-            pending: totalPending,
+            expired: totalExpired,
           },
           filterOptions: {
             projectType: ["All", ...projectTypes.sort()],

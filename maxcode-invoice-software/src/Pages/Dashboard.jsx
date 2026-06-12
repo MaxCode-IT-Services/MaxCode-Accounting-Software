@@ -665,7 +665,7 @@ const Dashboard = () => {
                       <i className={`${card.icon} fs-4 text-white`} />
                     </span>
                   </div>
-                  <h6 className="mb-2 fw-bold">{card.title}</h6>
+                  <h6 className="mb-2 fw-bold" style={{ fontSize: "14.5px" }}>{card.title}</h6>
                   <p className="mb-0 text-muted fw-semibold kpi-value">
                     <Counter value={card.rawValue ?? card.value ?? 0} format={card.format ?? "currency"} />
                   </p>
@@ -702,7 +702,7 @@ const Dashboard = () => {
                       <i className={`${card.icon} fs-4 text-white`} />
                     </span>
                   </div>
-                  <h6 className="mb-2 fw-bold">{card.title}</h6>
+                  <h6 className="mb-2 fw-bold" style={{ fontSize: "14.5px" }}>{card.title}</h6>
                   <p className="mb-0 text-muted fw-semibold kpi-value">
                     <Counter value={card.value} format="int" />
                   </p>

@@ -716,7 +716,7 @@ const ProfitLoss = () => {
                       <i className={`${card.icon} fs-4 text-white`} />
                     </span>
                   </div>
-                  <h5 className="mb-2 fw-bold">{card.title}</h5>
+                  <h5 className="mb-2 fw-bold" style={{ fontSize: "16px" }}>{card.title}</h5>
                   <h6 className="mb-0 text-muted fw-bold">{card.value}</h6>
                 </div>
               </div>
@@ -745,7 +745,7 @@ const ProfitLoss = () => {
                       <i className={`${card.icon} fs-4 text-white`} />
                     </span>
                   </div>
-                  <h5 className="mb-2 fw-bold">{card.title}</h5>
+                  <h5 className="mb-2 fw-bold" style={{ fontSize: "16px" }}>{card.title}</h5>
                   <h6 className="mb-1 text-muted fw-bold">{card.value}</h6>
                   {card.caption && <div className="text-muted small">{card.caption}</div>}
                 </div>

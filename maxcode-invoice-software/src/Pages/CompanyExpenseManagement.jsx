@@ -1091,7 +1091,7 @@ const CompanyExpenseManagement = () => {
                         <i className={`${card.icon} fs-4 text-white`} />
                       </span>
                     </div>
-                    <h5 className="mb-2 fw-bold">{card.title}</h5>
+                    <h5 className="mb-2 fw-bold" style={{ fontSize: "16px" }}>{card.title}</h5>
                     <h6 className="mb-0 text-muted fw-bold">
                       {displayValue}
                     </h6>

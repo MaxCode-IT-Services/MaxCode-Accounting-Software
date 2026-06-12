@@ -31,7 +31,7 @@ const PROJECT_TYPE_OPTIONS = [
   "Website + App + Social Media",
   "Other",
 ];
-const QUTATION_TYPE_OPTIONS = ["One Time Development", "Subscription Software"];
+const QUTATION_TYPE_OPTIONS = ["One Time Development", "Subscription Software", "Subscription Services"];
 const QUTATION_STATUS_OPTIONS = [
   "Send",
   "Approve",
