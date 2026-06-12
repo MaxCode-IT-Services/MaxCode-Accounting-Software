@@ -565,6 +565,16 @@ const ServicesManagement = () => {
     return { total, active, expired };
   };
 
+  const calculateTransactionCounters = (transactionRows = []) => {
+    const total = transactionRows.length;
+    const active = transactionRows.filter((row) => row?.status === "Active").length;
+    const expired = transactionRows.filter(
+      (row) => row?.status === "Expired",
+    ).length;
+
+    return { total, active, expired };
+  };
+
   const updateStatistics = (data) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -574,16 +584,25 @@ const ServicesManagement = () => {
 
     const stats = data.reduce(
       (acc, record) => {
+        // Process services (Active service plans)
         const serviceRows = Array.isArray(record.services)
           ? record.services
           : [];
-        const rowSummary = calculateServiceCounters(serviceRows);
+        const serviceSummary = calculateServiceCounters(serviceRows);
 
-        acc.total += rowSummary.total;
-        acc.allActive += rowSummary.active;
-        acc.expired += rowSummary.expired;
+        // Process transactions (Service history - Renewal & Service History)
+        const transactionRows = Array.isArray(record.transactions)
+          ? record.transactions
+          : [];
+        const transactionSummary = calculateTransactionCounters(transactionRows);
 
-        const dueSoonCount = serviceRows.filter((row) => {
+        // Aggregate both services and transactions
+        acc.total += serviceSummary.total + transactionSummary.total;
+        acc.allActive += serviceSummary.active + transactionSummary.active;
+        acc.expired += serviceSummary.expired + transactionSummary.expired;
+
+        // Calculate due soon from both services and transactions
+        const serviceDueSoonCount = serviceRows.filter((row) => {
           if (!row?.expiryDate) return false;
           const expiry = new Date(row.expiryDate);
           expiry.setHours(0, 0, 0, 0);
@@ -594,7 +613,18 @@ const ServicesManagement = () => {
           );
         }).length;
 
-        acc.dueSoon += dueSoonCount;
+        const transactionDueSoonCount = transactionRows.filter((row) => {
+          if (!row?.expiryDate) return false;
+          const expiry = new Date(row.expiryDate);
+          expiry.setHours(0, 0, 0, 0);
+          return (
+            row.status !== "Expired" &&
+            expiry >= today &&
+            expiry <= dueSoonLimit
+          );
+        }).length;
+
+        acc.dueSoon += serviceDueSoonCount + transactionDueSoonCount;
         // FIXED: Only count transaction amounts for revenue, NOT service plans (avoids double counting)
         acc.totalAmount +=
           parseFloat(record.summary?.totalTransactionAmount || 0) || 0;

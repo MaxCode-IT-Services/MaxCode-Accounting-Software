@@ -69,6 +69,7 @@ const emptyServiceRow = (id = 1) => ({
   expiryDate: "",
   status: "Active",
   sendAlert: false,
+  renewalStatus: "Pending",
 });
 
 const emptyTransactionRow = (id = 1) => ({
@@ -79,6 +80,7 @@ const emptyTransactionRow = (id = 1) => ({
   renewDate: "",
   expiryDate: "",
   status: "Active",
+  sendAlert: false,
 });
 
 const getAutoStatusFromExpiry = (expiryDate) => {
@@ -432,6 +434,7 @@ const CreateServices = ({
             expiryDate: service.expiryDate || "",
             status: getExpiryDrivenStatus(service.expiryDate, service.status),
             sendAlert: Boolean(service.sendAlert),
+            renewalStatus: service.renewalStatus || "Pending",
           }))
         : [emptyServiceRow(1)];
 
@@ -447,6 +450,7 @@ const CreateServices = ({
               transaction.expiryDate,
               transaction.status,
             ),
+            sendAlert: Boolean(transaction.sendAlert),
           }))
         : [emptyTransactionRow(1)];
 
@@ -591,6 +595,19 @@ const CreateServices = ({
     );
   };
 
+  const handleServiceRenewalStatusChange = (id, statusValue) => {
+    setServices((prev) =>
+      prev.map((service) =>
+        service.id === id
+          ? {
+              ...service,
+              renewalStatus: statusValue,
+            }
+          : service,
+      ),
+    );
+  };
+
   const handleServiceSendAlertToggle = (id, checked) => {
     setServices((prev) =>
       prev.map((service) =>
@@ -656,6 +673,14 @@ const CreateServices = ({
                 : "Expired",
             }
           : transaction,
+      ),
+    );
+  };
+
+  const handleTransactionSendAlertToggle = (id, checked) => {
+    setTransactions((prev) =>
+      prev.map((transaction) =>
+        transaction.id === id ? { ...transaction, sendAlert: checked } : transaction,
       ),
     );
   };
@@ -1178,7 +1203,7 @@ const CreateServices = ({
                           <th style={{ width: "120px" }}>Price (Rs)</th>
                           <th style={{ width: "140px" }}>Start Date</th>
                           <th style={{ width: "140px" }}>Expiry Date</th>
-                          <th style={{ width: "60px" }}>Status</th>
+                          <th style={{ width: "100px" }}>Renewal Status</th>
                           <th style={{ width: "70px" }}>Send Alert</th>
                           <th style={{ width: "50px" }}>Action</th>
                         </tr>
@@ -1282,19 +1307,19 @@ const CreateServices = ({
                                 <input
                                   className="form-check-input me-2"
                                   type="checkbox"
-                                  checked={service.status === "Active"}
+                                  checked={service.renewalStatus === "Pending"}
                                   onChange={(e) =>
-                                    handleServiceStatusToggle(
+                                    handleServiceRenewalStatusChange(
                                       service.id,
-                                      e.target.checked,
+                                      e.target.checked ? "Pending" : "Stop",
                                     )
                                   }
                                   disabled={isViewMode}
                                 />
                                 <span
-                                  className={`badge ${service.status === "Active" ? "bg-success" : "bg-danger"}`}
+                                  className={`badge ${service.renewalStatus === "Pending" ? "bg-success" : "bg-danger"}`}
                                 >
-                                  {service.status}
+                                  {service.renewalStatus || "Pending"}
                                 </span>
                               </div>
                             </td>
@@ -1475,19 +1500,19 @@ const CreateServices = ({
                                 </label>
                                 <div className="d-flex align-items-center gap-2">
                                   <span
-                                    className={`badge ${service.status === "Active" ? "bg-success" : "bg-danger"}`}
+                                    className={`badge ${service.renewalStatus === "Pending" ? "bg-success" : "bg-danger"}`}
                                   >
-                                    {service.status}
+                                    {service.renewalStatus || "Pending"}
                                   </span>
                                   <div className="form-check form-switch m-0">
                                     <input
                                       className="form-check-input"
                                       type="checkbox"
-                                      checked={service.status === "Active"}
+                                      checked={service.renewalStatus === "Pending"}
                                       onChange={(e) =>
-                                        handleServiceStatusToggle(
+                                        handleServiceRenewalStatusChange(
                                           service.id,
-                                          e.target.checked,
+                                          e.target.checked ? "Pending" : "Stop",
                                         )
                                       }
                                       disabled={isViewMode}
@@ -1566,8 +1591,9 @@ const CreateServices = ({
                           <th style={{ width: "120px" }}>Price (Rs)</th>
                           <th style={{ width: "140px" }}>Renew Date</th>
                           <th style={{ width: "140px" }}>Expiry Date</th>
-                          <th style={{ width: "140px" }}>Status</th>
-                          <th style={{ width: "80px" }}>Action</th>
+                          <th style={{ width: "100px" }}>Status</th>
+                          <th style={{ width: "70px" }}>Send Alert</th>
+                          <th style={{ width: "50px" }}>Action</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1683,6 +1709,29 @@ const CreateServices = ({
                                 >
                                   {transaction.status}
                                 </span>
+                              </div>
+                            </td>
+                            <td className="align-middle">
+                              <div className="d-flex align-items-center justify-content-between gap-2 px-1">
+                                <span
+                                  className={`badge ${transaction.sendAlert ? "bg-success" : "bg-secondary"}`}
+                                >
+                                  {transaction.sendAlert ? "On" : "Off"}
+                                </span>
+                                <div className="form-check form-switch m-0">
+                                  <input
+                                    className="form-check-input"
+                                    type="checkbox"
+                                    checked={Boolean(transaction.sendAlert)}
+                                    onChange={(e) =>
+                                      handleTransactionSendAlertToggle(
+                                        transaction.id,
+                                        e.target.checked,
+                                      )
+                                    }
+                                    disabled={isViewMode}
+                                  />
+                                </div>
                               </div>
                             </td>
                             <td className="text-center align-middle">
@@ -1851,6 +1900,33 @@ const CreateServices = ({
                                     checked={transaction.status === "Active"}
                                     onChange={(e) =>
                                       handleTransactionStatusToggle(
+                                        transaction.id,
+                                        e.target.checked,
+                                      )
+                                    }
+                                    disabled={isViewMode}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="col-6 mb-3">
+                              <label className="form-label fw-semibold mb-0">
+                                Send Alert
+                              </label>
+                              <div className="d-flex align-items-center gap-2 mt-2">
+                                <span
+                                  className={`badge ${transaction.sendAlert ? "bg-success" : "bg-secondary"}`}
+                                >
+                                  {transaction.sendAlert ? "On" : "Off"}
+                                </span>
+                                <div className="form-check form-switch m-0">
+                                  <input
+                                    className="form-check-input"
+                                    type="checkbox"
+                                    checked={Boolean(transaction.sendAlert)}
+                                    onChange={(e) =>
+                                      handleTransactionSendAlertToggle(
                                         transaction.id,
                                         e.target.checked,
                                       )
