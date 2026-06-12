@@ -39,6 +39,12 @@ const formatDate = (dateString) => {
   }
 };
 
+const formatRoundingWithSign = (value) => {
+  const num = toNumber(value);
+  if (num === 0) return "0";
+  return num > 0 ? `+${num.toFixed(2)}` : `${num.toFixed(2)}`;
+};
+
 const distributeByAmount = (itemAmounts, targetTotal) => {
   if (!itemAmounts.length) return [];
 
@@ -80,10 +86,24 @@ const buildItemWiseRows = ({
 
   let grandAmount = 0;
   let grandTax = 0;
+  let grandRounding = 0;
   let grandTotalAmount = 0;
-  let serial = 1;
+  let invoiceSerial = 1;
 
-  (records || []).forEach((record) => {
+  // Sort records in ascending order by invoice date and invoice number
+  const sortedRecords = [...(records || [])].sort((a, b) => {
+    const dateA = new Date(a?.[dateKey] || 0);
+    const dateB = new Date(b?.[dateKey] || 0);
+    if (dateA.getTime() !== dateB.getTime()) {
+      return dateA.getTime() - dateB.getTime();
+    }
+    // If dates are same, sort by invoice number
+    const invoiceA = String(getValueByKey(a, invoiceNumberKey) || "");
+    const invoiceB = String(getValueByKey(b, invoiceNumberKey) || "");
+    return invoiceA.localeCompare(invoiceB);
+  });
+
+  sortedRecords.forEach((record) => {
     const items = Array.isArray(record?.items) ? record.items : [];
     if (!items.length) return;
 
@@ -103,17 +123,14 @@ const buildItemWiseRows = ({
     const invoiceCgst = round2(toNumber(record?.taxData?.cgst || 0));
     const invoiceSgst = round2(toNumber(record?.taxData?.sgst || 0));
     const invoiceIgst = round2(toNumber(record?.taxData?.igst || 0));
-    const invoiceRounding = round2(toNumber(record?.roundingAmount || 0));
-    const invoiceTotalAmount = round2(
-      toNumber(
-        record?.taxData?.totalAmount ||
-          invoiceAmount +
-            invoiceCgst +
-            invoiceSgst +
-            invoiceIgst +
-            invoiceRounding,
-      ),
-    );
+    const invoiceTotalTax = round2(invoiceCgst + invoiceSgst + invoiceIgst);
+    
+    // Calculate rounding as the difference between totalAmount and (amount + tax)
+    const recordTotalAmount = round2(toNumber(record?.taxData?.totalAmount || 0));
+    const calculatedTotal = round2(invoiceAmount + invoiceTotalTax);
+    const invoiceRounding = round2(recordTotalAmount - calculatedTotal);
+    
+    const invoiceTotalAmount = recordTotalAmount;
 
     const distributedCgst = distributeByAmount(itemAmounts, invoiceCgst);
     const distributedSgst = distributeByAmount(itemAmounts, invoiceSgst);
@@ -151,10 +168,11 @@ const buildItemWiseRows = ({
       invoiceItemsTotal = round2(invoiceItemsTotal + totalAmount);
 
       rows.push({
-        sn: serial,
+        sn: itemIndex === 0 ? invoiceSerial : "",
         invoiceNumber: getValueByKey(record, invoiceNumberKey),
         invoiceDate: formatDate(record?.[dateKey]),
         partyName: getValueByKey(record, partyNameKey),
+        businessName: record?.businessName || "",
         gstin: getValueByKey(record, partyDetails.gstinKey),
         address: getValueByKey(record, partyDetails.addressKey),
         placeOfSupply: getValueByKey(record, partyDetails.placeOfSupplyKey),
@@ -168,13 +186,11 @@ const buildItemWiseRows = ({
         sgst,
         igst,
         tax,
-        rounding,
+        rounding: formatRoundingWithSign(rounding),
         totalAmount,
         rowType: "item",
         partyLabel,
       });
-
-      serial += 1;
     });
 
     rows.push({
@@ -182,6 +198,7 @@ const buildItemWiseRows = ({
       invoiceNumber: "",
       invoiceDate: "",
       partyName: "",
+      businessName: "",
       gstin: "",
       address: "",
       placeOfSupply: "",
@@ -195,14 +212,18 @@ const buildItemWiseRows = ({
       sgst: round2(invoiceItemsSgst),
       igst: round2(invoiceItemsIgst),
       tax: round2(invoiceItemsTax),
-      rounding: round2(invoiceItemsRounding),
+      rounding: formatRoundingWithSign(invoiceItemsRounding),
       totalAmount: round2(invoiceItemsTotal),
       rowType: "total",
       partyLabel,
     });
 
+    // Increment serial number for next invoice
+    invoiceSerial += 1;
+
     grandAmount = round2(grandAmount + invoiceItemsAmount);
     grandTax = round2(grandTax + invoiceItemsTax);
+    grandRounding = round2(grandRounding + invoiceItemsRounding);
     grandTotalAmount = round2(grandTotalAmount + invoiceItemsTotal);
   });
 
@@ -211,6 +232,7 @@ const buildItemWiseRows = ({
     invoiceNumber: "",
     invoiceDate: "",
     partyName: "",
+    businessName: "",
     gstin: "",
     address: "",
     placeOfSupply: "",
@@ -224,7 +246,7 @@ const buildItemWiseRows = ({
     sgst: "",
     igst: "",
     tax: round2(grandTax),
-    rounding: "",
+    rounding: formatRoundingWithSign(grandRounding),
     totalAmount: round2(grandTotalAmount),
     rowType: "grand-total",
     partyLabel,
@@ -258,6 +280,7 @@ export const exportItemWiseExcel = ({
     "Invoice No": row.invoiceNumber,
     "Invoice Date": row.invoiceDate,
     [row.partyLabel]: row.partyName,
+    "Business Name": row.businessName,
     GSTIN: row.gstin,
     Address: row.address,
     "Place Of Supply": row.placeOfSupply,
@@ -282,6 +305,7 @@ export const exportItemWiseExcel = ({
     { width: 16 },
     { width: 14 },
     { width: 24 },
+    { width: 26 },
     { width: 24 },
     { width: 30 },
     { width: 16 },
@@ -313,8 +337,8 @@ export const exportItemWiseExcel = ({
     if (!ws[headerCellRef]) continue;
 
     ws[headerCellRef].s = {
-      fill: { patternType: "solid", fgColor: { rgb: "FFFF00" } },
-      font: { bold: true, color: { rgb: "000000" } },
+      fill: { patternType: "solid", fgColor: { rgb: "4CAF50" } },
+      font: { bold: true, color: { rgb: "FFFFFF" } },
       alignment: { horizontal: "center", vertical: "center" },
       border: {
         top: { style: "thin", color: { rgb: "000000" } },
@@ -339,6 +363,15 @@ export const exportItemWiseExcel = ({
         alignment: {
           vertical: "center",
           horizontal: col >= 9 ? "right" : "left",
+        },
+        fill: isSummaryRow
+          ? { patternType: "solid", fgColor: { rgb: "C8E6C9" } }
+          : undefined,
+        border: {
+          top: { style: "thin", color: { rgb: "CCCCCC" } },
+          bottom: { style: "thin", color: { rgb: "CCCCCC" } },
+          left: { style: "thin", color: { rgb: "CCCCCC" } },
+          right: { style: "thin", color: { rgb: "CCCCCC" } },
         },
       };
     }
@@ -372,6 +405,11 @@ export const exportItemWisePDF = ({
     partyDetails,
   });
 
+  // Check if single page PDF columns mode is enabled
+  const singlePagePdfColumnsMode =
+    String(localStorage.getItem("pdfExportSinglePageColumnsMode") || "")
+      .toLowerCase() === "true";
+
   const doc = new jsPDF({
     orientation: "landscape",
     unit: "mm",
@@ -379,7 +417,26 @@ export const exportItemWisePDF = ({
   });
 
   const pageWidth = doc.internal.pageSize.getWidth();
-  const formattedDateTime = new Date().toLocaleString();
+  
+  // Format date-time as DD-MM-YYYY | HH:MM:SS AM/PM
+  const formatDateTimeForPDF = (date) => {
+    const d = new Date(date);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    const hoursStr = String(hours).padStart(2, '0');
+    return `${day}-${month}-${year} | ${hoursStr}:${minutes}:${seconds} ${ampm}`;
+  };
+  
+  const formattedDateTime = formatDateTimeForPDF(new Date());
+  const tableLeftMargin = 8;
+  const tableRightMargin = 8;
+  const availableWidth = pageWidth - tableLeftMargin - tableRightMargin;
 
   // Helper to clean up whitespace (but allow wrapping)
   const cleanText = (val) => {
@@ -395,6 +452,7 @@ export const exportItemWisePDF = ({
     cleanText(row.invoiceNumber),
     cleanText(row.invoiceDate),
     cleanText(row.partyName),
+    cleanText(row.businessName),
     cleanText(row.gstin),
     cleanText(row.address),
     cleanText(row.placeOfSupply),
@@ -421,8 +479,8 @@ export const exportItemWisePDF = ({
     doc.internal.scaleFactor;
   doc.text(titleText, (pageWidth - titleWidth) / 2, 12);
 
-  // Yellow separator line
-  doc.setDrawColor(255, 204, 0);
+  // Green separator line
+  doc.setDrawColor(76, 175, 80);
   doc.setLineWidth(1);
   doc.line(8, 17, pageWidth - 8, 17);
 
@@ -430,7 +488,6 @@ export const exportItemWisePDF = ({
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
   doc.text(`Generated on: ${formattedDateTime}`, 8, 25);
-  // Count unique invoice numbers (ignore empty)
   const uniqueInvoices = Array.from(
     new Set(rows.map((r) => r.invoiceNumber).filter(Boolean)),
   );
@@ -443,6 +500,7 @@ export const exportItemWisePDF = ({
     "Invoice No",
     "Invoice Date",
     partyLabel,
+    "Business Name",
     "GSTIN",
     "Address",
     "Place Of Supply",
@@ -460,76 +518,236 @@ export const exportItemWisePDF = ({
     "Total Amount",
   ];
 
-  autoTable(doc, {
-    head: [tableHead],
-    body: tableBody,
-    startY: 30,
-    styles: {
-      fontSize: 7,
-      cellPadding: 1.5,
-      overflow: "linebreak",
-      lineWidth: 0.1,
-      lineColor: [200, 200, 200],
-      textColor: [0, 0, 0],
-      halign: "center",
-      valign: "middle",
-      minCellHeight: 7,
-      cellWidth: "wrap",
-    },
-    headStyles: {
-      fillColor: [255, 204, 0],
-      textColor: [0, 0, 0],
-      fontStyle: "bold",
-      fontSize: 8,
-      halign: "center",
-      valign: "middle",
-      minCellHeight: 8,
-    },
-    columnStyles: {
-      0: { cellWidth: 10, halign: "center", minCellHeight: 7 }, // S.No
-      1: { cellWidth: 22, halign: "center", minCellHeight: 7 }, // Invoice No
-      2: { cellWidth: 20, halign: "center", minCellHeight: 7 }, // Invoice Date
-      3: { cellWidth: 32, halign: "left", minCellHeight: 7 }, // Party Name
-      4: { cellWidth: 26, halign: "center", minCellHeight: 7 }, // GSTIN
-      5: { cellWidth: 36, halign: "left", minCellHeight: 7 }, // Address
-      6: { cellWidth: 26, halign: "left", minCellHeight: 7 }, // Place Of Supply
-      7: { cellWidth: 32, halign: "left", minCellHeight: 7 }, // Item Name
-      8: { cellWidth: 18, halign: "center", minCellHeight: 7 }, // HSN/SAC
-      9: { cellWidth: 13, halign: "right", minCellHeight: 7 }, // Qty
-      10: { cellWidth: 16, halign: "right", minCellHeight: 7 }, // Price
-      11: { cellWidth: 18, halign: "right", minCellHeight: 7 }, // Amount
-      12: { cellWidth: 13, halign: "center", minCellHeight: 7 }, // Tax %
-      13: { cellWidth: 15, halign: "right", minCellHeight: 7 }, // CGST
-      14: { cellWidth: 15, halign: "right", minCellHeight: 7 }, // SGST
-      15: { cellWidth: 15, halign: "right", minCellHeight: 7 }, // IGST
-      16: { cellWidth: 15, halign: "right", minCellHeight: 7 }, // Tax
-      17: { cellWidth: 15, halign: "right", minCellHeight: 7 }, // Round Off
-      18: { cellWidth: 20, halign: "right", minCellHeight: 7 }, // Total Amount
-    },
-    didParseCell: (hookData) => {
-      if (hookData.section !== "body") return;
+  let columnStyles;
 
-      const row = rows[hookData.row.index];
-      if (row?.rowType === "total" || row?.rowType === "grand-total") {
-        hookData.cell.styles.fontStyle = "bold";
-        hookData.cell.styles.fillColor = [255, 250, 205];
+  if (singlePagePdfColumnsMode) {
+    // Dynamic column width calculation using measurement
+    const cellPaddingLeftRight = 2;
+    const horizontalPadding = cellPaddingLeftRight * 2;
+    const widthSafetyFactor = 0.998;
+    const PDF_WIDTH_MEASUREMENT_SAMPLE_SIZE = 100;
+
+    const measurementRows =
+      tableBody.length > PDF_WIDTH_MEASUREMENT_SAMPLE_SIZE
+        ? tableBody.slice(0, PDF_WIDTH_MEASUREMENT_SAMPLE_SIZE)
+        : tableBody;
+
+    const measureColumnsAtFontSize = (fontSize) => {
+      return tableHead.map((label, columnIndex) => {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(fontSize + 0.6);
+        const headerWidth = doc.getTextWidth(String(label || ""));
+
+        const maxBodyWidth = measurementRows.reduce((maxWidth, row) => {
+          const cellValue = String(row?.[columnIndex] ?? "");
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(fontSize);
+          return Math.max(maxWidth, doc.getTextWidth(cellValue));
+        }, 0);
+
+        const preferredWidth =
+          Math.max(headerWidth, maxBodyWidth) + horizontalPadding + 0.8;
+        return Math.max(6, preferredWidth);
+      });
+    };
+
+    const minFontSize = 1.8;
+    const maxFontSize = 9.5;
+    let computedFontSize = 8;
+    let columnWidths = measureColumnsAtFontSize(computedFontSize);
+    let totalWidth = columnWidths.reduce((sum, width) => sum + width, 0);
+    const maxAllowedWidth = availableWidth * widthSafetyFactor;
+
+    const totalAtMin = measureColumnsAtFontSize(minFontSize).reduce(
+      (sum, width) => sum + width,
+      0,
+    );
+    const totalAtMax = measureColumnsAtFontSize(maxFontSize).reduce(
+      (sum, width) => sum + width,
+      0,
+    );
+
+    if (totalAtMin >= maxAllowedWidth) {
+      computedFontSize = minFontSize;
+    } else if (totalAtMax <= maxAllowedWidth) {
+      computedFontSize = maxFontSize;
+    } else {
+      let low = minFontSize;
+      let high = maxFontSize;
+
+      for (let i = 0; i < 22; i += 1) {
+        const mid = (low + high) / 2;
+        const midTotal = measureColumnsAtFontSize(mid).reduce(
+          (sum, width) => sum + width,
+          0,
+        );
+
+        if (midTotal <= maxAllowedWidth) {
+          low = mid;
+        } else {
+          high = mid;
+        }
       }
-    },
-    alternateRowStyles: {
-      fillColor: [245, 245, 245],
-    },
-    margin: {
-      top: 30,
-      bottom: 8,
-      left: 8,
-      right: 8,
-    },
-    tableWidth: "auto",
-    horizontalPageBreak: true,
-    theme: "grid",
-    showHead: "everyPage",
-    pageBreak: "auto",
-  });
+
+      computedFontSize = low;
+    }
+
+    columnWidths = measureColumnsAtFontSize(computedFontSize);
+    totalWidth = columnWidths.reduce((sum, width) => sum + width, 0);
+
+    let guard = 0;
+    while (
+      totalWidth > maxAllowedWidth &&
+      computedFontSize > minFontSize &&
+      guard < 16
+    ) {
+      computedFontSize = Math.max(minFontSize, computedFontSize * 0.94);
+      columnWidths = measureColumnsAtFontSize(computedFontSize);
+      totalWidth = columnWidths.reduce((sum, width) => sum + width, 0);
+      guard += 1;
+    }
+
+    const widthScale = totalWidth > 0 ? maxAllowedWidth / totalWidth : 1;
+
+    columnStyles = columnWidths.reduce((styles, width, columnIndex) => {
+      styles[columnIndex] = {
+        cellWidth: Math.max(0.8, width * widthScale),
+        halign:
+          columnIndex === 0 ? "center" : columnIndex >= 9 ? "right" : "left",
+        valign: "middle",
+      };
+      return styles;
+    }, {});
+
+    autoTable(doc, {
+      head: [tableHead],
+      body: tableBody,
+      startY: 30,
+      styles: {
+        fontSize: computedFontSize,
+        cellPadding: {
+          top: 1.5,
+          right: cellPaddingLeftRight,
+          bottom: 1.5,
+          left: cellPaddingLeftRight,
+        },
+        overflow: "visible",
+        lineWidth: 0.1,
+        lineColor: [200, 200, 200],
+        textColor: [0, 0, 0],
+        fillColor: [255, 255, 255],
+        valign: "middle",
+      },
+      headStyles: {
+        fillColor: [76, 175, 80],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: Math.max(computedFontSize + 0.4, 1.2),
+        halign: "center",
+        valign: "middle",
+      },
+      columnStyles,
+      didParseCell: (hookData) => {
+        if (hookData.section !== "body") return;
+
+        hookData.cell.styles.overflow = "visible";
+
+        const row = rows[hookData.row.index];
+        if (row?.rowType === "total" || row?.rowType === "grand-total") {
+          hookData.cell.styles.fontStyle = "bold";
+          hookData.cell.styles.fillColor = [200, 230, 201];
+        } else {
+          hookData.cell.styles.fillColor =
+            hookData.row.index % 2 === 0 ? [255, 255, 255] : [248, 250, 245];
+        }
+      },
+      margin: {
+        top: 30,
+        bottom: 8,
+        left: tableLeftMargin,
+        right: tableRightMargin,
+      },
+      tableWidth: maxAllowedWidth,
+      horizontalPageBreak: false,
+      showHead: "everyPage",
+      pageBreak: "auto",
+      theme: "grid",
+    });
+  } else {
+    // Original fixed column widths
+    columnStyles = {
+      0: { cellWidth: 10, halign: "center", minCellHeight: 7 },
+      1: { cellWidth: 22, halign: "center", minCellHeight: 7 },
+      2: { cellWidth: 20, halign: "center", minCellHeight: 7 },
+      3: { cellWidth: 32, halign: "left", minCellHeight: 7 },
+      4: { cellWidth: 26, halign: "center", minCellHeight: 7 },
+      5: { cellWidth: 36, halign: "left", minCellHeight: 7 },
+      6: { cellWidth: 26, halign: "left", minCellHeight: 7 },
+      7: { cellWidth: 32, halign: "left", minCellHeight: 7 },
+      8: { cellWidth: 18, halign: "center", minCellHeight: 7 },
+      9: { cellWidth: 13, halign: "right", minCellHeight: 7 },
+      10: { cellWidth: 16, halign: "right", minCellHeight: 7 },
+      11: { cellWidth: 18, halign: "right", minCellHeight: 7 },
+      12: { cellWidth: 13, halign: "center", minCellHeight: 7 },
+      13: { cellWidth: 15, halign: "right", minCellHeight: 7 },
+      14: { cellWidth: 15, halign: "right", minCellHeight: 7 },
+      15: { cellWidth: 15, halign: "right", minCellHeight: 7 },
+      16: { cellWidth: 15, halign: "right", minCellHeight: 7 },
+      17: { cellWidth: 15, halign: "right", minCellHeight: 7 },
+      18: { cellWidth: 20, halign: "right", minCellHeight: 7 },
+    };
+
+    autoTable(doc, {
+      head: [tableHead],
+      body: tableBody,
+      startY: 30,
+      styles: {
+        fontSize: 7,
+        cellPadding: 1.5,
+        overflow: "linebreak",
+        lineWidth: 0.1,
+        lineColor: [200, 200, 200],
+        textColor: [0, 0, 0],
+        halign: "center",
+        valign: "middle",
+        minCellHeight: 7,
+        cellWidth: "wrap",
+      },
+      headStyles: {
+        fillColor: [76, 175, 80],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 8,
+        halign: "center",
+        valign: "middle",
+        minCellHeight: 8,
+      },
+      columnStyles,
+      didParseCell: (hookData) => {
+        if (hookData.section !== "body") return;
+
+        const row = rows[hookData.row.index];
+        if (row?.rowType === "total" || row?.rowType === "grand-total") {
+          hookData.cell.styles.fontStyle = "bold";
+          hookData.cell.styles.fillColor = [200, 230, 201];
+        }
+      },
+      alternateRowStyles: {
+        fillColor: [245, 245, 245],
+      },
+      margin: {
+        top: 30,
+        bottom: 8,
+        left: 8,
+        right: 8,
+      },
+      tableWidth: "auto",
+      horizontalPageBreak: true,
+      theme: "grid",
+      showHead: "everyPage",
+      pageBreak: "auto",
+    });
+  }
 
   doc.save(
     `${exportFileName}_Item_Wise_${new Date().toISOString().slice(0, 10)}.pdf`,

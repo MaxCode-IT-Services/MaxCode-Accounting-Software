@@ -1334,6 +1334,9 @@ const SalesManagement = () => {
     return {
       companyName: businessSettings.companyName || "",
       companyAddress: businessSettings.companyAddress || "",
+      companyPhone: businessSettings.companyPhone || businessSettings.phone || businessSettings.phoneNumber || businessSettings.contactPhone || "",
+      companyWebsite: businessSettings.companyWebsite || businessSettings.website || businessSettings.webSite || businessSettings.companyUrl || businessSettings.websiteUrl || "",
+      companyEmail: businessSettings.companyEmail || businessSettings.email || businessSettings.officialEmail || businessSettings.contactEmail || "",
       companyGstin: businessSettings.gstin || "",
       accountName: businessSettings.accountName || "",
       bankName: businessSettings.bankName || "",
@@ -1400,6 +1403,19 @@ const SalesManagement = () => {
       return;
     }
 
+    // Sort invoices in ascending order by date, then by invoice number
+    const sortedData = [...dataToExport].sort((a, b) => {
+      const dateA = new Date(a?.invoiceDate || 0);
+      const dateB = new Date(b?.invoiceDate || 0);
+      if (dateA.getTime() !== dateB.getTime()) {
+        return dateA.getTime() - dateB.getTime();
+      }
+      // If dates are same, sort by invoice number
+      const invoiceA = String(a?.invoiceNumber || "");
+      const invoiceB = String(b?.invoiceNumber || "");
+      return invoiceA.localeCompare(invoiceB);
+    });
+
     setExportingInvoices(true);
     try {
       const html2canvas = (await import("html2canvas")).default;
@@ -1414,8 +1430,8 @@ const SalesManagement = () => {
         compress: true,
       });
 
-      for (let i = 0; i < dataToExport.length; i += 1) {
-        const record = dataToExport[i];
+      for (let i = 0; i < sortedData.length; i += 1) {
+        const record = sortedData[i];
         const elementId = getInvoiceElementId(record, i);
         const element = document.getElementById(elementId);
 
@@ -1465,8 +1481,8 @@ const SalesManagement = () => {
       exportItemWiseExcel({
         records: dataToExport,
         exportFileName: "Sales_Management",
-        sheetName: "Sales Item Wise",
-        reportTitle: "Sales_Item_Wise",
+        sheetName: "Sales Report",
+        reportTitle: "Sales Report",
         invoiceNumberKey: "invoiceNumber",
         partyNameKey: ["clientName", "businessName"],
         partyLabel: "Client Name",

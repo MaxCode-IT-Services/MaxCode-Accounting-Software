@@ -1117,8 +1117,8 @@ const PurchaseManagement = () => {
       exportItemWiseExcel({
         records: dataToExport,
         exportFileName: "Purchase_Management",
-        sheetName: "Purchase Item Wise",
-        reportTitle: "Purchase_Item_Wise",
+        sheetName: "Purchase Report",
+        reportTitle: "Purchase Report",
         invoiceNumberKey: "invoiceNumber",
         partyNameKey: "vendorName",
         partyLabel: "Vendor Name",

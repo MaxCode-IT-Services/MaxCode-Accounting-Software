@@ -1064,6 +1064,19 @@ const RcmManagement = () => {
       return;
     }
 
+    // Sort invoices in ascending order by date, then by invoice number
+    const sortedData = [...dataToExport].sort((a, b) => {
+      const dateA = new Date(a?.invoiceDate || 0);
+      const dateB = new Date(b?.invoiceDate || 0);
+      if (dateA.getTime() !== dateB.getTime()) {
+        return dateA.getTime() - dateB.getTime();
+      }
+      // If dates are same, sort by self invoice number
+      const invoiceA = String(a?.selfInvoiceNumber || "");
+      const invoiceB = String(b?.selfInvoiceNumber || "");
+      return invoiceA.localeCompare(invoiceB);
+    });
+
     setExportingInvoices(true);
     try {
       const html2canvas = (await import("html2canvas")).default;
@@ -1078,8 +1091,8 @@ const RcmManagement = () => {
         compress: true,
       });
 
-      for (let i = 0; i < dataToExport.length; i += 1) {
-        const record = dataToExport[i];
+      for (let i = 0; i < sortedData.length; i += 1) {
+        const record = sortedData[i];
         const elementId = getSelfInvoiceElementId(record, i);
         const element = document.getElementById(elementId);
 
@@ -1129,8 +1142,8 @@ const RcmManagement = () => {
       exportItemWiseExcel({
         records: dataToExport,
         exportFileName: "RCM_Management",
-        sheetName: "RCM Item Wise",
-        reportTitle: "RCM_Item_Wise",
+        sheetName: "RCM Report",
+        reportTitle: "RCM Report",
         invoiceNumberKey: "selfInvoiceNumber",
         partyNameKey: "serviceProviderBusinessName",
         partyLabel: "Service Provider",
