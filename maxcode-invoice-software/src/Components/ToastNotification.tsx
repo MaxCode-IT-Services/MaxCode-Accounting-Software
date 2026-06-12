@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 
 // Import sound files - adjust paths according to your project structure
@@ -19,7 +19,11 @@ if (typeof window !== "undefined") {
   window.addEventListener("keydown", markUserInteraction, { once: true });
 }
 
-const ToastNotification = ({ type, message, duration = 3000 }) => {
+const ToastNotification = ({ type, message, duration = 3000, onClose }) => {
+  const [isExiting, setIsExiting] = useState(false);
+  const toastRef = useRef(null);
+  const isClosingRef = useRef(false);
+
   // Get settings with default values
   const settings = JSON.parse(
     localStorage.getItem("adminSettings") || '{"soundNotifications": true}',
@@ -32,6 +36,32 @@ const ToastNotification = ({ type, message, duration = 3000 }) => {
       playNotificationSound(soundFile);
     }
   }, [type, settings.soundNotifications]);
+
+  // Auto-dismiss timer — triggers exit animation instead of immediate cleanup
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!isClosingRef.current) {
+        setIsExiting(true);
+      }
+    }, duration);
+    return () => clearTimeout(timer);
+  }, [duration]);
+
+  // Listen for exit animation end to safely remove DOM
+  useEffect(() => {
+    const el = toastRef.current;
+    if (!el) return;
+
+    const handleAnimationEnd = (e) => {
+      if (e.animationName === "toastSlideOut" && onClose && !isClosingRef.current) {
+        isClosingRef.current = true;
+        onClose();
+      }
+    };
+
+    el.addEventListener("animationend", handleAnimationEnd);
+    return () => el.removeEventListener("animationend", handleAnimationEnd);
+  }, [onClose]);
 
   const getSoundFile = (type) => {
     switch (type) {
@@ -100,12 +130,18 @@ const ToastNotification = ({ type, message, duration = 3000 }) => {
     }
   };
 
+  const handleClose = () => {
+    setIsExiting(true);
+  };
+
   const styles = getToastStyles();
+  const animationClass = isExiting ? "toast-exit" : "toast-enter";
 
   return (
     <div className="position-fixed top-0 end-0 p-3" style={{ zIndex: 9999 }}>
       <div
-        className="toast show"
+        ref={toastRef}
+        className={`toast show ${animationClass}`}
         role="alert"
         aria-live="assertive"
         aria-atomic="true"
@@ -117,9 +153,7 @@ const ToastNotification = ({ type, message, duration = 3000 }) => {
             className="btn-close btn-close-white"
             data-bs-dismiss="toast"
             aria-label="Close"
-            onClick={() => {
-              // Close action is handled by the shared toast lifecycle.
-            }}
+            onClick={handleClose}
           ></button>
         </div>
         <div className="toast-body bg-white">{message}</div>
@@ -162,12 +196,8 @@ const showToast = (type, message, duration = 3000) => {
 
   activeToastRoot = createRoot(activeToastContainer);
   activeToastRoot.render(
-    <ToastNotification type={type} message={message} duration={duration} />,
+    <ToastNotification type={type} message={message} duration={duration} onClose={cleanupActiveToast} />,
   );
-
-  activeToastTimer = setTimeout(() => {
-    cleanupActiveToast();
-  }, duration);
 };
 
 // Convenience functions for different toast types

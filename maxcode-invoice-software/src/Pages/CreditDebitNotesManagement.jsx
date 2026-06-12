@@ -12,6 +12,10 @@ import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 import { fetchAllPaginatedEntities } from "../utils/fetchAllEntities";
+import {
+  exportItemWiseExcel,
+  exportItemWisePDF,
+} from "../utils/itemWiseExport";
 
 const CreditDebitNotesManagement = () => {
   const moduleKey = "creditDebitNotesManagement";
@@ -45,6 +49,8 @@ const CreditDebitNotesManagement = () => {
     pending: 0,
     approved: 0,
   });
+  const [businessSettings, setBusinessSettings] = useState({});
+  const [exportingNotes, setExportingNotes] = useState(false);
 
   const debounceTimeoutRef = useRef(null);
   const debounceColumnTimeoutRef = useRef(null);
@@ -70,7 +76,19 @@ const CreditDebitNotesManagement = () => {
       }
     };
 
+    const fetchBusinessSettings = async () => {
+      try {
+        const res = await apiGet("/business-settings");
+        if (res.data) {
+          setBusinessSettings(res.data);
+        }
+      } catch {
+        // keep default
+      }
+    };
+
     fetchPreference();
+    fetchBusinessSettings();
   }, []);
 
   useEffect(() => {
@@ -863,6 +881,141 @@ const CreditDebitNotesManagement = () => {
     };
   };
 
+  // Handle export with items (PDF)
+  const handleExportItemWisePDF = () => {
+    const dataToExport = serverSide ? records : records;
+    if (!dataToExport.length) {
+      showError("No credit/debit notes found for the selected filters.");
+      return;
+    }
+
+    try {
+      exportItemWisePDF({
+        records: dataToExport,
+        exportFileName: "CreditDebitNotes_Management",
+        reportTitle: "Credit/Debit Notes Report",
+        invoiceNumberKey: "noteNumber",
+        partyNameKey: ["clientName", "businessName"],
+        partyLabel: "Client Name",
+        dateKey: "noteDateTime",
+        partyDetails: {
+          gstinKey: "gstin",
+          addressKey: "address",
+          placeOfSupplyKey: "placeOfSupply",
+        },
+      });
+      showSuccess("Credit/Debit notes PDF exported successfully!");
+    } catch (error) {
+      console.error("Credit/Debit notes PDF export error:", error);
+      showError("Failed to export Credit/Debit notes PDF.");
+    }
+  };
+
+  // Handle export with items (Excel)
+  const handleExportItemWiseExcel = () => {
+    const dataToExport = serverSide ? records : records;
+    if (!dataToExport.length) {
+      showError("No credit/debit notes found for the selected filters.");
+      return;
+    }
+
+    try {
+      exportItemWiseExcel({
+        records: dataToExport,
+        exportFileName: "CreditDebitNotes_Management",
+        sheetName: "Credit/Debit Notes Report",
+        reportTitle: "Credit/Debit Notes Report",
+        invoiceNumberKey: "noteNumber",
+        partyNameKey: ["clientName", "businessName"],
+        partyLabel: "Client Name",
+        dateKey: "noteDateTime",
+        partyDetails: {
+          gstinKey: "gstin",
+          addressKey: "address",
+          placeOfSupplyKey: "placeOfSupply",
+        },
+      });
+      showSuccess("Credit/Debit notes Excel exported successfully!");
+    } catch (error) {
+      console.error("Credit/Debit notes Excel export error:", error);
+      showError("Failed to export Credit/Debit notes Excel.");
+    }
+  };
+
+  // Export multiple notes as PDF
+  const exportNotesPdf = async () => {
+    const dataToExport = serverSide ? records : records;
+    if (!dataToExport.length) {
+      showError("No credit & debit notes found for the selected filters.");
+      return;
+    }
+
+    // Sort notes in ascending order by date, then by note number
+    const sortedData = [...dataToExport].sort((a, b) => {
+      const dateA = new Date(a?.noteDateTime || 0);
+      const dateB = new Date(b?.noteDateTime || 0);
+      if (dateA.getTime() !== dateB.getTime()) {
+        return dateA.getTime() - dateB.getTime();
+      }
+      // If dates are same, sort by note number
+      const noteA = String(a?.noteNumber || "");
+      const noteB = String(b?.noteNumber || "");
+      return noteA.localeCompare(noteB);
+    });
+
+    setExportingNotes(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const jsPDF = (await import("jspdf")).default;
+
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+
+      const pdf = new jsPDF({
+        orientation: "p",
+        unit: "mm",
+        format: "a4",
+        compress: true,
+      });
+
+      for (let i = 0; i < sortedData.length; i += 1) {
+        const record = sortedData[i];
+        const elementId = `credit-debit-note-print-${record.id || record.noteNumber || i}`;
+        const element = document.getElementById(elementId);
+
+        if (!element) {
+          throw new Error(`Note element not found: ${elementId}`);
+        }
+
+        const canvas = await html2canvas(element, {
+          scale: 3,
+          useCORS: true,
+          allowTaint: true,
+          width: element.offsetWidth,
+          height: element.offsetHeight,
+          logging: false,
+          backgroundColor: "#ffffff",
+        });
+
+        const imgData = canvas.toDataURL("image/jpeg", 1.0);
+        if (i > 0) pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, 0, 210, 297);
+      }
+
+      const now = new Date();
+      const day = String(now.getDate()).padStart(2, "0");
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const year = now.getFullYear();
+      const fileDate = `${day}-${month}-${year}`;
+      pdf.save(`Credit_Debit_Notes_${fileDate}.pdf`);
+      showSuccess("Notes PDF downloaded successfully!");
+    } catch (error) {
+      console.error("Multi-note PDF error:", error);
+      showError("Failed to generate notes PDF.");
+    } finally {
+      setExportingNotes(false);
+    }
+  };
+
   return (
     <>
       <div className="container-fluid">
@@ -972,8 +1125,40 @@ const CreditDebitNotesManagement = () => {
           showSearch={true}
           exportFileName="Credit_Debit_Notes"
           exportTitle="Credit/Debit Notes Report"
+          extraExportItems={[
+            {
+              label: "Export Excel with Items",
+              onClick: handleExportItemWiseExcel,
+            },
+            {
+              label: "Export PDF with Items",
+              onClick: handleExportItemWisePDF,
+            },
+            {
+              label: exportingNotes
+                ? "Generating Credit & Debit Notes PDF..."
+                : "Credit & Debit Notes PDF",
+              onClick: exportNotesPdf,
+            },
+          ]}
           activeCardFilter={activeCardFilter}
           cards={cards}
+          actionMenu={[
+            {
+              label: "Export Excel with Items",
+              onClick: handleExportItemWiseExcel,
+            },
+            {
+              label: "Export PDF with Items",
+              onClick: handleExportItemWisePDF,
+            },
+            {
+              label: exportingNotes
+                ? "Generating Credit & Debit Notes PDF..."
+                : "Credit & Debit Notes PDF",
+              onClick: exportNotesPdf,
+            },
+          ]}
           customActions={(record) => (
             <button
               type="button"
