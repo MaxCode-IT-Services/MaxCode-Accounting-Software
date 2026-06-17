@@ -248,24 +248,25 @@ const deleteFromCloudflareStore = async ({
   }
 };
 
-const normalizeIncomingQutationData = (qutationData = {}) => {
-  const normalizedData = { ...qutationData };
+const normalizeIncomingQuotationData = (quotationData = {}) => {
+  const normalizedData = { ...quotationData };
 
-  if (!normalizedData.qutationExpiryDate && normalizedData.qutationValidity) {
-    normalizedData.qutationExpiryDate = normalizedData.qutationValidity;
+  if (!normalizedData.quotationExpiryDate && normalizedData.quotationValidity) {
+    normalizedData.quotationExpiryDate = normalizedData.quotationValidity;
   }
 
-  delete normalizedData.qutationValidity;
+  delete normalizedData.quotationValidity;
   delete normalizedData.agreementGoogleDriveLink;
+  delete normalizedData.sn; // Remove serial number - frontend display only
 
   return normalizedData;
 };
 
-const normalizeOutgoingQutationData = (qutationData = {}) => {
-  const normalizedData = { ...qutationData };
+const normalizeOutgoingQuotationData = (quotationData = {}) => {
+  const normalizedData = { ...quotationData };
 
-  if (!normalizedData.qutationExpiryDate && normalizedData.qutationValidity) {
-    normalizedData.qutationExpiryDate = normalizedData.qutationValidity;
+  if (!normalizedData.quotationExpiryDate && normalizedData.quotationValidity) {
+    normalizedData.quotationExpiryDate = normalizedData.quotationValidity;
   }
 
   delete normalizedData.agreementGoogleDriveLink;
@@ -274,8 +275,8 @@ const normalizeOutgoingQutationData = (qutationData = {}) => {
 };
 
 /**
- * Qutation Management API
- * Handles CRUD operations for qutations with pagination support
+ * Quotation Management API
+ * Handles CRUD operations for quotations with pagination support
  * Requires JWT authentication
  */
 export async function handler(event) {
@@ -289,7 +290,7 @@ export async function handler(event) {
     verifyRequestToken(event);
 
     const { db } = await connectToDatabase();
-    const qutationsCollection = db.collection("qutations");
+    const quotationsCollection = db.collection("quotations");
     const yearsCollection = db.collection("financialYears");
     let performaTermsBindingPromise = null;
 
@@ -321,7 +322,7 @@ export async function handler(event) {
       return "";
     };
 
-    const buildFallbackQutationFormat = (financialYearValue) => {
+    const buildFallbackQuotationFormat = (financialYearValue) => {
       const token = getFinancialYearToken(financialYearValue);
       if (!token) return "";
       return `MC/QTN/${token}/0001`;
@@ -341,7 +342,7 @@ export async function handler(event) {
       const pattern = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
 
       const query = {
-        qutationNumber: { $regex: pattern },
+        quotationNumber: { $regex: pattern },
         isDeleted: { $ne: true },
       };
 
@@ -349,16 +350,16 @@ export async function handler(event) {
         query.financialYear = String(financialYear).trim();
       }
 
-      const existingQutations = await qutationsCollection
-        .find(query, { projection: { qutationNumber: 1 } })
+      const existingQuotations = await quotationsCollection
+        .find(query, { projection: { quotationNumber: 1 } })
         .toArray();
 
       let maxNumber = 0;
-      existingQutations.forEach((qutation) => {
-        const qutationNumber = String(qutation?.qutationNumber || "");
-        const qutationMatch = qutationNumber.match(pattern);
-        if (!qutationMatch) return;
-        const current = parseInt(qutationMatch[1], 10);
+      existingQuotations.forEach((quotation) => {
+        const quotationNumber = String(quotation?.quotationNumber || "");
+        const quotationMatch = quotationNumber.match(pattern);
+        if (!quotationMatch) return;
+        const current = parseInt(quotationMatch[1], 10);
         if (!Number.isNaN(current) && current > maxNumber) {
           maxNumber = current;
         }
@@ -368,7 +369,7 @@ export async function handler(event) {
       return `${prefix}${String(nextNumber).padStart(width, "0")}`;
     };
 
-    const resolveQutationNumberContext = async (requestedFinancialYear) => {
+    const resolveQuotationNumberContext = async (requestedFinancialYear) => {
       const normalizedRequestedFinancialYear = String(
         requestedFinancialYear || "",
       ).trim();
@@ -393,8 +394,8 @@ export async function handler(event) {
         String(yearRecord?.financialYear || "").trim();
 
       const format =
-        String(yearRecord?.qutationFormat || "").trim() ||
-        buildFallbackQutationFormat(resolvedFinancialYear);
+        String(yearRecord?.quotationFormat || "").trim() ||
+        buildFallbackQuotationFormat(resolvedFinancialYear);
 
       return {
         financialYear: resolvedFinancialYear,
@@ -415,7 +416,7 @@ export async function handler(event) {
       } = event.queryStringParameters || {};
 
       if (action === "next-number") {
-        const { financialYear, format } = await resolveQutationNumberContext(
+        const { financialYear, format } = await resolveQuotationNumberContext(
           event.queryStringParameters?.financialYear,
         );
 
@@ -429,7 +430,7 @@ export async function handler(event) {
             400,
             {
               error:
-                "Could not generate qutation number. Please configure financial year format first.",
+                "Could not generate quotation number. Please configure financial year format first.",
             },
             origin,
           );
@@ -439,7 +440,7 @@ export async function handler(event) {
           200,
           {
             nextNumber,
-            qutationNumber: nextNumber,
+            quotationNumber: nextNumber,
             financialYear,
             format,
           },
@@ -448,22 +449,22 @@ export async function handler(event) {
       }
 
       if (id) {
-        const qutation = await qutationsCollection.findOne({
+        const quotation = await quotationsCollection.findOne({
           _id: new ObjectId(id),
           isDeleted: { $ne: true },
         });
 
-        if (!qutation) {
-          return createResponse(404, { error: "Qutation not found" }, origin);
+        if (!quotation) {
+          return createResponse(404, { error: "Quotation not found" }, origin);
         }
 
         const binding = await getPerformaTermsBinding();
-        const { document: hydratedQutation, patch } =
-          applyTermsBindingToDocument(qutation, binding);
+        const { document: hydratedQuotation, patch } =
+          applyTermsBindingToDocument(quotation, binding);
 
         if (patch) {
-          await qutationsCollection.updateOne(
-            { _id: qutation._id },
+          await quotationsCollection.updateOne(
+            { _id: quotation._id },
             {
               $set: patch,
             },
@@ -472,7 +473,7 @@ export async function handler(event) {
 
         return createResponse(
           200,
-          normalizeOutgoingQutationData(hydratedQutation),
+          normalizeOutgoingQuotationData(hydratedQuotation),
           origin,
         );
       }
@@ -485,7 +486,7 @@ export async function handler(event) {
         if (key === "filter") return;
 
         const normalizedKey =
-          key === "qutationValidity" ? "qutationExpiryDate" : key;
+          key === "quotationValidity" ? "quotationExpiryDate" : key;
 
         if (
           ["page", "limit", "sortBy", "sortOrder", "search", "id"].includes(key)
@@ -509,9 +510,9 @@ export async function handler(event) {
           if (
             [
               "projectType",
-              "qutationType",
-              "qutationStatus",
-              "qutationSendVia",
+              "quotationType",
+              "quotationStatus",
+              "quotationSendVia",
             ].includes(key)
           ) {
             filterQuery[normalizedKey] = value.trim();
@@ -535,7 +536,7 @@ export async function handler(event) {
         if (key.endsWith("_start")) {
           let baseKey = key.replace(/_start$/, "");
           if (baseKey === "createdDateTime") baseKey = "createdAt";
-          if (baseKey === "qutationValidity") baseKey = "qutationExpiryDate";
+          if (baseKey === "quotationValidity") baseKey = "quotationExpiryDate";
 
           if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
 
@@ -553,7 +554,7 @@ export async function handler(event) {
         if (key.endsWith("_end")) {
           let baseKey = key.replace(/_end$/, "");
           if (baseKey === "createdDateTime") baseKey = "createdAt";
-          if (baseKey === "qutationValidity") baseKey = "qutationExpiryDate";
+          if (baseKey === "quotationValidity") baseKey = "quotationExpiryDate";
 
           if (!dateRanges[baseKey]) dateRanges[baseKey] = {};
 
@@ -575,19 +576,19 @@ export async function handler(event) {
 
       if (filter) {
         if (filter === "send") {
-          filterQuery.qutationStatus = { $in: ["Send", "Send + Approve"] };
+          filterQuery.quotationStatus = { $in: ["Send", "Send + Approve"] };
         }
 
         if (filter === "approve") {
-          filterQuery.qutationStatus = { $in: ["Approve", "Send + Approve"] };
+          filterQuery.quotationStatus = { $in: ["Approve", "Send + Approve"] };
         }
 
         if (filter === "reject") {
-          filterQuery.qutationStatus = "Reject";
+          filterQuery.quotationStatus = "Reject";
         }
 
         if (filter === "pending") {
-          filterQuery.qutationStatus = "Pending";
+          filterQuery.quotationStatus = "Pending";
         }
       }
 
@@ -597,9 +598,9 @@ export async function handler(event) {
           { projectName: { $regex: search, $options: "i" } },
           { phoneNumber: { $regex: search, $options: "i" } },
           { email: { $regex: search, $options: "i" } },
-          { qutationType: { $regex: search, $options: "i" } },
-          { qutationStatus: { $regex: search, $options: "i" } },
-          { qutationSendVia: { $regex: search, $options: "i" } },
+          { quotationType: { $regex: search, $options: "i" } },
+          { quotationStatus: { $regex: search, $options: "i" } },
+          { quotationSendVia: { $regex: search, $options: "i" } },
         ];
       }
 
@@ -611,9 +612,9 @@ export async function handler(event) {
       sortObject[sortBy] = sortOrder === "asc" ? 1 : -1;
 
       const totalRecords =
-        await qutationsCollection.countDocuments(filterQuery);
+        await quotationsCollection.countDocuments(filterQuery);
 
-      const qutations = await qutationsCollection
+      const quotations = await quotationsCollection
         .find(filterQuery)
         .sort(sortObject)
         .skip(skip)
@@ -621,18 +622,18 @@ export async function handler(event) {
         .toArray();
 
       const binding = await getPerformaTermsBinding();
-      const patchedQutations = [];
+      const patchedQuotations = [];
       const backfillUpdates = [];
 
-      qutations.forEach((qutation) => {
-        const { document: hydratedQutation, patch } =
-          applyTermsBindingToDocument(qutation, binding);
-        patchedQutations.push(hydratedQutation);
+      quotations.forEach((quotation) => {
+        const { document: hydratedQuotation, patch } =
+          applyTermsBindingToDocument(quotation, binding);
+        patchedQuotations.push(hydratedQuotation);
 
         if (patch) {
           backfillUpdates.push({
             updateOne: {
-              filter: { _id: qutation._id },
+              filter: { _id: quotation._id },
               update: {
                 $set: patch,
               },
@@ -642,65 +643,65 @@ export async function handler(event) {
       });
 
       if (backfillUpdates.length > 0) {
-        await qutationsCollection.bulkWrite(backfillUpdates, {
+        await quotationsCollection.bulkWrite(backfillUpdates, {
           ordered: false,
         });
       }
 
-      const normalizedQutations = patchedQutations.map(
-        normalizeOutgoingQutationData,
+      const normalizedQuotations = patchedQuotations.map(
+        normalizeOutgoingQuotationData,
       );
 
-      const projectTypes = await qutationsCollection.distinct("projectType", {
+      const projectTypes = await quotationsCollection.distinct("projectType", {
         isDeleted: { $ne: true },
         projectType: { $exists: true, $ne: "" },
       });
 
-      const qutationTypes = await qutationsCollection.distinct("qutationType", {
+      const quotationTypes = await quotationsCollection.distinct("quotationType", {
         isDeleted: { $ne: true },
-        qutationType: { $exists: true, $ne: "" },
+        quotationType: { $exists: true, $ne: "" },
       });
 
-      const qutationStatuses = await qutationsCollection.distinct(
-        "qutationStatus",
+      const quotationStatuses = await quotationsCollection.distinct(
+        "quotationStatus",
         {
           isDeleted: { $ne: true },
-          qutationStatus: { $exists: true, $ne: "" },
+          quotationStatus: { $exists: true, $ne: "" },
         },
       );
 
-      const qutationSendVias = await qutationsCollection.distinct(
-        "qutationSendVia",
+      const quotationSendVias = await quotationsCollection.distinct(
+        "quotationSendVia",
         {
           isDeleted: { $ne: true },
-          qutationSendVia: { $exists: true, $ne: "" },
+          quotationSendVia: { $exists: true, $ne: "" },
         },
       );
 
-      const totalSend = await qutationsCollection.countDocuments({
+      const totalSend = await quotationsCollection.countDocuments({
         isDeleted: { $ne: true },
-        qutationStatus: { $in: ["Send", "Send + Approve"] },
+        quotationStatus: { $in: ["Send", "Send + Approve"] },
       });
 
-      const totalApprove = await qutationsCollection.countDocuments({
+      const totalApprove = await quotationsCollection.countDocuments({
         isDeleted: { $ne: true },
-        qutationStatus: { $in: ["Approve", "Send + Approve"] },
+        quotationStatus: { $in: ["Approve", "Send + Approve"] },
       });
 
-      const totalReject = await qutationsCollection.countDocuments({
+      const totalReject = await quotationsCollection.countDocuments({
         isDeleted: { $ne: true },
-        qutationStatus: "Reject",
+        quotationStatus: "Reject",
       });
 
-      const totalExpired = await qutationsCollection.countDocuments({
+      const totalExpired = await quotationsCollection.countDocuments({
         isDeleted: { $ne: true },
-        qutationStatus: "Expired",
+        quotationStatus: "Expired",
       });
 
       return createResponse(
         200,
         {
-          data: normalizedQutations,
+          data: normalizedQuotations,
           pagination: {
             page: pageNum,
             limit: limitNum,
@@ -716,9 +717,9 @@ export async function handler(event) {
           },
           filterOptions: {
             projectType: ["All", ...projectTypes.sort()],
-            qutationType: ["All", ...qutationTypes.sort()],
-            qutationStatus: ["All", ...qutationStatuses.sort()],
-            qutationSendVia: ["All", ...qutationSendVias.sort()],
+            quotationType: ["All", ...quotationTypes.sort()],
+            quotationStatus: ["All", ...quotationStatuses.sort()],
+            quotationSendVia: ["All", ...quotationSendVias.sort()],
           },
         },
         origin,
@@ -726,80 +727,80 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === "POST") {
-      const qutationData = normalizeIncomingQutationData(
+      const quotationData = normalizeIncomingQuotationData(
         JSON.parse(event.body || "{}"),
       );
-      delete qutationData.performaInvoiceTermsVersion;
-      delete qutationData.performaInvoiceTermsConditionsSnapshot;
+      delete quotationData.performaInvoiceTermsVersion;
+      delete quotationData.performaInvoiceTermsConditionsSnapshot;
 
-      const { financialYear, format } = await resolveQutationNumberContext(
-        qutationData.financialYear,
+      const { financialYear, format } = await resolveQuotationNumberContext(
+        quotationData.financialYear,
       );
 
-      if (!qutationData.financialYear && financialYear) {
-        qutationData.financialYear = financialYear;
+      if (!quotationData.financialYear && financialYear) {
+        quotationData.financialYear = financialYear;
       }
 
-      if (!qutationData.qutationNumber) {
-        qutationData.qutationNumber = await getNextFromFormat({
+      if (!quotationData.quotationNumber) {
+        quotationData.quotationNumber = await getNextFromFormat({
           format,
-          financialYear: qutationData.financialYear || financialYear,
+          financialYear: quotationData.financialYear || financialYear,
         });
       }
 
-      if (!qutationData.qutationNumber) {
+      if (!quotationData.quotationNumber) {
         return createResponse(
           400,
           {
             error:
-              "Could not generate qutation number. Please configure financial year format first.",
+              "Could not generate quotation number. Please configure financial year format first.",
           },
           origin,
         );
       }
 
-      const existingQutation = await qutationsCollection.findOne({
-        qutationNumber: qutationData.qutationNumber,
+      const existingQuotation = await quotationsCollection.findOne({
+        quotationNumber: quotationData.quotationNumber,
         isDeleted: { $ne: true },
       });
 
-      if (existingQutation) {
+      if (existingQuotation) {
         return createResponse(
           409,
-          { error: "Qutation number already exists" },
+          { error: "Quotation number already exists" },
           origin,
         );
       }
 
-      if (qutationData?.qutationUpload?.fileDataBase64) {
+      if (quotationData?.quotationUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
           return createResponse(
             400,
             {
               error:
-                "Cloudflare settings missing. Configure Cloudflare before uploading qutation document.",
+                "Cloudflare settings missing. Configure Cloudflare before uploading quotation document.",
             },
             origin,
           );
         }
 
-        const qutationUpload = qutationData.qutationUpload;
+        const quotationUpload = quotationData.quotationUpload;
         const extension = getExtensionFromUpload(
-          qutationUpload.fileName,
-          qutationUpload.fileType,
+          quotationUpload.fileName,
+          quotationUpload.fileType,
         );
-        const fileName = `${sanitizeIdentifier(qutationData.qutationNumber)}.${extension}`;
-        const objectPath = `Qutation/${getFinancialYearLabel(qutationData.qutationDate)}/${fileName}`;
+        const fileName = `${sanitizeIdentifier(quotationData.quotationNumber)}.${extension}`;
+        const objectPath = `Quotation/${getFinancialYearLabel(quotationData.quotationDate)}/${fileName}`;
         const fileBuffer = Buffer.from(
-          String(qutationUpload.fileDataBase64 || ""),
+          String(quotationUpload.fileDataBase64 || ""),
           "base64",
         );
 
         if (!fileBuffer.length) {
           return createResponse(
             400,
-            { error: "Invalid qutation file data" },
+            { error: "Invalid quotation file data" },
             origin,
           );
         }
@@ -809,25 +810,25 @@ export async function handler(event) {
           publicDomain: cloudflareSettings.publicDomain,
           password: cloudflareSettings.password,
           objectPath,
-          mimeType: qutationUpload.fileType || "application/octet-stream",
+          mimeType: quotationUpload.fileType || "application/octet-stream",
           fileBuffer,
         });
 
-        qutationData.qutationFileURL = uploadResult.fileUrl;
-        qutationData.qutationFilePath = uploadResult.filePath;
-        qutationData.qutationFileName = fileName;
-        qutationData.qutationFileType =
-          qutationUpload.fileType || "application/octet-stream";
+        quotationData.quotationFileURL = uploadResult.fileUrl;
+        quotationData.quotationFilePath = uploadResult.filePath;
+        quotationData.quotationFileName = fileName;
+        quotationData.quotationFileType =
+          quotationUpload.fileType || "application/octet-stream";
       }
 
-      delete qutationData.qutationUpload;
+      delete quotationData.quotationUpload;
 
       const binding = await getPerformaTermsBinding();
 
-      const result = await qutationsCollection.insertOne({
-        ...qutationData,
-        qutationTotalAmount: Number(qutationData.qutationTotalAmount || 0),
-        status: qutationData.status || "Active",
+      const result = await quotationsCollection.insertOne({
+        ...quotationData,
+        quotationTotalAmount: Number(quotationData.quotationTotalAmount || 0),
+        status: quotationData.status || "Active",
         performaInvoiceTermsVersion: binding?.version || "V1.0.0",
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -836,7 +837,7 @@ export async function handler(event) {
 
       return createResponse(
         201,
-        { message: "Qutation created successfully", id: result.insertedId },
+        { message: "Quotation created successfully", id: result.insertedId },
         origin,
       );
     }
@@ -847,90 +848,90 @@ export async function handler(event) {
       if (!id) {
         return createResponse(
           400,
-          { error: "Qutation ID is required" },
+          { error: "Quotation ID is required" },
           origin,
         );
       }
 
-      const qutationData = normalizeIncomingQutationData(
+      const quotationData = normalizeIncomingQuotationData(
         JSON.parse(event.body || "{}"),
       );
-      delete qutationData.performaInvoiceTermsVersion;
-      delete qutationData.performaInvoiceTermsConditionsSnapshot;
+      delete quotationData.performaInvoiceTermsVersion;
+      delete quotationData.performaInvoiceTermsConditionsSnapshot;
 
-      const qutationObjectId = new ObjectId(id);
-      const existingQutation = await qutationsCollection.findOne({
-        _id: qutationObjectId,
+      const quotationObjectId = new ObjectId(id);
+      const existingQuotation = await quotationsCollection.findOne({
+        _id: quotationObjectId,
         isDeleted: { $ne: true },
       });
 
-      if (!existingQutation) {
-        return createResponse(404, { error: "Qutation not found" }, origin);
+      if (!existingQuotation) {
+        return createResponse(404, { error: "Quotation not found" }, origin);
       }
 
-      if (qutationData?.qutationUpload?.fileDataBase64) {
+      if (quotationData?.quotationUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
           return createResponse(
             400,
             {
               error:
-                "Cloudflare settings missing. Configure Cloudflare before uploading qutation document.",
+                "Cloudflare settings missing. Configure Cloudflare before uploading quotation document.",
             },
             origin,
           );
         }
 
-        const qutationUpload = qutationData.qutationUpload;
+        const quotationUpload = quotationData.quotationUpload;
         const fileBuffer = Buffer.from(
-          String(qutationUpload.fileDataBase64 || ""),
+          String(quotationUpload.fileDataBase64 || ""),
           "base64",
         );
 
         if (!fileBuffer.length) {
           return createResponse(
             400,
-            { error: "Invalid qutation file data" },
+            { error: "Invalid quotation file data" },
             origin,
           );
         }
 
-        const existingPath = existingQutation.qutationFilePath;
+        const existingPath = existingQuotation.quotationFilePath;
         const extension =
           getExtensionFromPath(existingPath) ||
           getExtensionFromUpload(
-            qutationUpload.fileName,
-            qutationUpload.fileType,
+            quotationUpload.fileName,
+            quotationUpload.fileType,
           );
-        const fileName = `${sanitizeIdentifier(qutationData.qutationNumber || existingQutation.qutationNumber)}.${extension}`;
+        const fileName = `${sanitizeIdentifier(quotationData.quotationNumber || existingQuotation.quotationNumber)}.${extension}`;
         const objectPath =
           existingPath ||
-          `Qutation/${getFinancialYearLabel(qutationData.qutationDate || existingQutation.qutationDate)}/${fileName}`;
+          `Quotation/${getFinancialYearLabel(quotationData.quotationDate || existingQuotation.quotationDate)}/${fileName}`;
 
         const uploadResult = await uploadToCloudflareStore({
           storeUrl: cloudflareSettings.storeUrl,
           publicDomain: cloudflareSettings.publicDomain,
           password: cloudflareSettings.password,
           objectPath,
-          mimeType: qutationUpload.fileType || "application/octet-stream",
+          mimeType: quotationUpload.fileType || "application/octet-stream",
           fileBuffer,
         });
 
-        qutationData.qutationFileURL = uploadResult.fileUrl;
-        qutationData.qutationFilePath = uploadResult.filePath;
-        qutationData.qutationFileName = fileName;
-        qutationData.qutationFileType =
-          qutationUpload.fileType || "application/octet-stream";
+        quotationData.quotationFileURL = uploadResult.fileUrl;
+        quotationData.quotationFilePath = uploadResult.filePath;
+        quotationData.quotationFileName = fileName;
+        quotationData.quotationFileType =
+          quotationUpload.fileType || "application/octet-stream";
       }
 
-      delete qutationData.qutationUpload;
+      delete quotationData.quotationUpload;
 
-      const result = await qutationsCollection.updateOne(
-        { _id: qutationObjectId, isDeleted: { $ne: true } },
+      const result = await quotationsCollection.updateOne(
+        { _id: quotationObjectId, isDeleted: { $ne: true } },
         {
           $set: {
-            ...qutationData,
-            qutationTotalAmount: Number(qutationData.qutationTotalAmount || 0),
+            ...quotationData,
+            quotationTotalAmount: Number(quotationData.quotationTotalAmount || 0),
             updatedAt: new Date(),
             ...getAuditFieldsFromEvent(event, "update"),
           },
@@ -938,12 +939,12 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Qutation not found" }, origin);
+        return createResponse(404, { error: "Quotation not found" }, origin);
       }
 
       return createResponse(
         200,
-        { message: "Qutation updated successfully" },
+        { message: "Quotation updated successfully" },
         origin,
       );
     }
@@ -954,29 +955,29 @@ export async function handler(event) {
       if (!id) {
         return createResponse(
           400,
-          { error: "Qutation ID is required" },
+          { error: "Quotation ID is required" },
           origin,
         );
       }
 
-      const qutationObjectId = new ObjectId(id);
-      const existingQutation = await qutationsCollection.findOne({
-        _id: qutationObjectId,
+      const quotationObjectId = new ObjectId(id);
+      const existingQuotation = await quotationsCollection.findOne({
+        _id: quotationObjectId,
         isDeleted: { $ne: true },
       });
 
-      if (!existingQutation) {
-        return createResponse(404, { error: "Qutation not found" }, origin);
+      if (!existingQuotation) {
+        return createResponse(404, { error: "Quotation not found" }, origin);
       }
 
-      if (existingQutation.qutationFilePath) {
+      if (existingQuotation.quotationFilePath) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
           return createResponse(
             400,
             {
               error:
-                "Cloudflare settings missing. Unable to delete qutation uploaded file.",
+                "Cloudflare settings missing. Unable to delete quotation uploaded file.",
             },
             origin,
           );
@@ -985,12 +986,12 @@ export async function handler(event) {
         await deleteFromCloudflareStore({
           storeUrl: cloudflareSettings.storeUrl,
           password: cloudflareSettings.password,
-          objectPath: existingQutation.qutationFilePath,
+          objectPath: existingQuotation.quotationFilePath,
         });
       }
 
-      const result = await qutationsCollection.updateOne(
-        { _id: qutationObjectId },
+      const result = await quotationsCollection.updateOne(
+        { _id: quotationObjectId },
         {
           $set: {
             isDeleted: true,
@@ -1002,12 +1003,12 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Qutation not found" }, origin);
+        return createResponse(404, { error: "Quotation not found" }, origin);
       }
 
       return createResponse(
         200,
-        { message: "Qutation deleted successfully" },
+        { message: "Quotation deleted successfully" },
         origin,
       );
     }

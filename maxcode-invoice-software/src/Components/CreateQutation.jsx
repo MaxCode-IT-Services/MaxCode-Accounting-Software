@@ -31,8 +31,8 @@ const PROJECT_TYPE_OPTIONS = [
   "Website + App + Social Media",
   "Other",
 ];
-const QUTATION_TYPE_OPTIONS = ["One Time Development", "Subscription Software", "Subscription Services"];
-const QUTATION_STATUS_OPTIONS = [
+const QUOTATION_TYPE_OPTIONS = ["One Time Development", "Subscription Software", "Subscription Services"];
+const QUOTATION_STATUS_OPTIONS = [
   "Send",
   "Approve",
   "Reject",
@@ -40,32 +40,32 @@ const QUTATION_STATUS_OPTIONS = [
   "Expired",
   "Pending",
 ];
-const QUTATION_SEND_VIA_OPTIONS = ["WhatsApp", "Email", "WhatsApp + Email"];
+const QUOTATION_SEND_VIA_OPTIONS = ["WhatsApp", "Email", "WhatsApp + Email"];
 
 const initialFormData = {
-  qutationNumber: "",
+  quotationNumber: "",
   clientName: "",
   phoneNumber: "",
   address: "",
   email: "",
   projectName: "",
   projectType: "Website",
-  qutationType: "One Time Development",
-  qutationDate: "",
-  qutationExpiryDate: "",
-  qutationTotalAmount: "",
+  quotationType: "One Time Development",
+  quotationDate: "",
+  quotationExpiryDate: "",
+  quotationTotalAmount: "",
   developmentTime: "",
-  qutationGoogleDriveLink: "",
-  qutationSendVia: "WhatsApp",
-  qutationStatus: "Send",
-  qutationSendDate: "",
-  qutationApproveDate: "",
-  qutationRejectDate: "",
+  quotationGoogleDriveLink: "",
+  quotationSendVia: "WhatsApp",
+  quotationStatus: "Send",
+  quotationSendDate: "",
+  quotationApproveDate: "",
+  quotationRejectDate: "",
   financialYear: "",
   description: "",
 };
 
-const CreateQutation = ({
+const CreateQuotation = ({
   show,
   onClose,
   onSubmit,
@@ -77,7 +77,7 @@ const CreateQutation = ({
   const [formData, setFormData] = useState(initialFormData);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const [selectedQutationFile, setSelectedQutationFile] = useState(null);
+  const [selectedQuotationFile, setSelectedQuotationFile] = useState(null);
 
   useEffect(() => {
     if (show) {
@@ -96,18 +96,18 @@ const CreateQutation = ({
       setFormData({
         ...initialFormData,
         ...editingRecord,
-        qutationExpiryDate:
-          editingRecord.qutationExpiryDate ||
-          editingRecord.qutationValidity ||
+        quotationExpiryDate:
+          editingRecord.quotationExpiryDate ||
+          editingRecord.quotationValidity ||
           "",
       });
-      setSelectedQutationFile(null);
+      setSelectedQuotationFile(null);
       setErrors({});
       return;
     }
 
     setFormData(initialFormData);
-    setSelectedQutationFile(null);
+    setSelectedQuotationFile(null);
     setErrors({});
   }, [editingRecord, show]);
 
@@ -128,9 +128,9 @@ const CreateQutation = ({
 
     let cancelled = false;
 
-    const fetchNextQutationNumber = async () => {
+    const fetchNextQuotationNumber = async () => {
       try {
-        const response = await apiGet(API_ENDPOINTS.QUTATIONS.NEXT_NUMBER, {
+        const response = await apiGet(API_ENDPOINTS.QUOTATIONS.NEXT_NUMBER, {
           params: activeFinancialYearValue
             ? { financialYear: activeFinancialYearValue }
             : {},
@@ -138,12 +138,12 @@ const CreateQutation = ({
 
         if (cancelled) return;
 
-        const nextQutationNumber =
-          response?.data?.qutationNumber || response?.data?.nextNumber || "";
+        const nextQuotationNumber =
+          response?.data?.quotationNumber || response?.data?.nextNumber || "";
 
         setFormData((prev) => ({
           ...prev,
-          qutationNumber: nextQutationNumber || prev.qutationNumber,
+          quotationNumber: nextQuotationNumber || prev.quotationNumber,
           financialYear: activeFinancialYearValue,
         }));
       } catch (error) {
@@ -155,7 +155,7 @@ const CreateQutation = ({
       }
     };
 
-    fetchNextQutationNumber();
+    fetchNextQuotationNumber();
 
     return () => {
       cancelled = true;
@@ -169,9 +169,9 @@ const CreateQutation = ({
   ]);
 
   const isViewMode = editingRecord?.isViewMode;
-  const uploadedQutationViewUrl =
-    formData.qutationFileURL ||
-    (formData.qutationFilePath ? formData.qutationGoogleDriveLink : "") ||
+  const uploadedQuotationViewUrl =
+    formData.quotationFileURL ||
+    (formData.quotationFilePath ? formData.quotationGoogleDriveLink : "") ||
     "";
 
   const validateForm = () => {
@@ -183,17 +183,17 @@ const CreateQutation = ({
       "address",
       "projectName",
       "projectType",
-      "qutationType",
-      "qutationDate",
-      "qutationExpiryDate",
-      "qutationTotalAmount",
+      "quotationType",
+      "quotationDate",
+      "quotationExpiryDate",
+      "quotationTotalAmount",
       "developmentTime",
-      "qutationSendVia",
-      "qutationStatus",
+      "quotationSendVia",
+      "quotationStatus",
     ];
 
     if (!editingRecord) {
-      requiredFields.unshift("qutationNumber");
+      requiredFields.unshift("quotationNumber");
     }
 
     requiredFields.forEach((field) => {
@@ -214,17 +214,17 @@ const CreateQutation = ({
     }
 
     if (
-      formData.qutationGoogleDriveLink &&
-      !/^https?:\/\//i.test(formData.qutationGoogleDriveLink)
+      formData.quotationGoogleDriveLink &&
+      !/^https?:\/\//i.test(formData.quotationGoogleDriveLink)
     ) {
-      newErrors.qutationGoogleDriveLink = "Please enter a valid URL";
+      newErrors.quotationGoogleDriveLink = "Please enter a valid URL";
     }
 
     if (
-      formData.qutationTotalAmount &&
-      Number(formData.qutationTotalAmount) <= 0
+      formData.quotationTotalAmount &&
+      Number(formData.quotationTotalAmount) <= 0
     ) {
-      newErrors.qutationTotalAmount = "Amount must be greater than 0";
+      newErrors.quotationTotalAmount = "Amount must be greater than 0";
     }
 
     const activeFinancialYear = getActiveFinancialYearRecord();
@@ -232,12 +232,12 @@ const CreateQutation = ({
       normalizeFinancialYearValue(activeFinancialYear);
 
     if (!activeFinancialYear?.startDate || !activeFinancialYear?.endDate) {
-      newErrors.qutationDate =
+      newErrors.quotationDate =
         "Selected/default financial year is not configured. Please set financial year first";
     } else if (
-      !isDateWithinFinancialYear(formData.qutationDate, activeFinancialYear)
+      !isDateWithinFinancialYear(formData.quotationDate, activeFinancialYear)
     ) {
-      newErrors.qutationDate = `Qutation Date must be between ${activeFinancialYear.startDate} and ${activeFinancialYear.endDate} for financial year ${activeFinancialYearValue}.`;
+      newErrors.quotationDate = `Quotation Date must be between ${activeFinancialYear.startDate} and ${activeFinancialYear.endDate} for financial year ${activeFinancialYearValue}.`;
     }
 
     setErrors(newErrors);
@@ -256,7 +256,7 @@ const CreateQutation = ({
     if (name === "phoneNumber") {
       const numericValue = value.replace(/\D/g, "").slice(0, 10);
       setFormData((prev) => ({ ...prev, [name]: numericValue }));
-    } else if (name === "qutationTotalAmount") {
+    } else if (name === "quotationTotalAmount") {
       const numericValue = value.replace(/[^0-9.]/g, "");
       setFormData((prev) => ({ ...prev, [name]: numericValue }));
     } else {
@@ -268,10 +268,10 @@ const CreateQutation = ({
     }
   };
 
-  const handleQutationFileChange = (e) => {
+  const handleQuotationFileChange = (e) => {
     const file = e.target.files?.[0] || null;
     if (!file) {
-      setSelectedQutationFile(null);
+      setSelectedQuotationFile(null);
       return;
     }
 
@@ -279,17 +279,17 @@ const CreateQutation = ({
       file.type === "application/pdf" || file.type.startsWith("image/");
 
     if (!isAllowedType) {
-      showError("Please upload only image or PDF qutation file");
+      showError("Please upload only image or PDF quotation file");
       e.target.value = "";
-      setSelectedQutationFile(null);
+      setSelectedQuotationFile(null);
       return;
     }
 
-    setSelectedQutationFile(file);
+    setSelectedQuotationFile(file);
   };
 
   const openGoogleDriveLink = () => {
-    const link = formData.qutationGoogleDriveLink?.trim();
+    const link = formData.quotationGoogleDriveLink?.trim();
     if (!link) {
       showError("Please enter quotation Google Drive link first");
       return;
@@ -317,31 +317,31 @@ const CreateQutation = ({
           formData.financialYear ||
           normalizeFinancialYearValue(getActiveFinancialYearRecord()) ||
           "",
-        qutationTotalAmount: Number(formData.qutationTotalAmount || 0),
+        quotationTotalAmount: Number(formData.quotationTotalAmount || 0),
       };
 
       delete payload.agreementGoogleDriveLink;
 
-      const qutationUpload = selectedQutationFile
+      const quotationUpload = selectedQuotationFile
         ? {
-            fileName: selectedQutationFile.name,
-            fileType: selectedQutationFile.type || "application/octet-stream",
-            fileDataBase64: await toBase64(selectedQutationFile),
+            fileName: selectedQuotationFile.name,
+            fileType: selectedQuotationFile.type || "application/octet-stream",
+            fileDataBase64: await toBase64(selectedQuotationFile),
           }
         : null;
 
-      if (qutationUpload) {
-        payload.qutationUpload = qutationUpload;
+      if (quotationUpload) {
+        payload.quotationUpload = quotationUpload;
       }
 
       if (editingRecord && !editingRecord.isViewMode) {
-        const qutationId = editingRecord._id || editingRecord.id;
+        const quotationId = editingRecord._id || editingRecord.id;
         const { _id, id, ...cleanData } = payload;
-        await apiPut(API_ENDPOINTS.QUTATIONS.UPDATE(qutationId), cleanData);
-        showSuccess("Qutation updated successfully!");
+        await apiPut(API_ENDPOINTS.QUOTATIONS.UPDATE(quotationId), cleanData);
+        showSuccess("Quotation updated successfully!");
       } else {
-        await apiPost(API_ENDPOINTS.QUTATIONS.CREATE, payload);
-        showSuccess("Qutation created successfully!");
+        await apiPost(API_ENDPOINTS.QUOTATIONS.CREATE, payload);
+        showSuccess("Quotation created successfully!");
       }
 
       onSubmit(payload);
@@ -349,7 +349,7 @@ const CreateQutation = ({
       showError(
         error.response?.data?.message ||
           error.response?.data?.error ||
-          "Failed to save qutation",
+          "Failed to save quotation",
       );
     } finally {
       setSubmitting(false);
@@ -362,9 +362,9 @@ const CreateQutation = ({
 
   const modalTitle = editingRecord
     ? editingRecord.isViewMode
-      ? `View Qutation - ${editingRecord.projectName || ""}`
-      : `Edit Qutation - ${editingRecord.projectName || ""}`
-    : "Add New Qutation";
+      ? `View Quotation - ${editingRecord.projectName || ""}`
+      : `Edit Quotation - ${editingRecord.projectName || ""}`
+    : "Add New Quotation";
 
   return (
     <div
@@ -385,7 +385,7 @@ const CreateQutation = ({
           </div>
 
           <div className="modal-body">
-            <form id="qutationForm" onSubmit={handleSubmit} noValidate>
+            <form id="quotationForm" onSubmit={handleSubmit} noValidate>
               <div className="row">
                 <div className="col-md-4 mb-3">
                   <label htmlFor="clientName" className="form-label">
@@ -535,111 +535,111 @@ const CreateQutation = ({
                 </div>
 
                 <div className="col-md-2 mb-3">
-                  <label htmlFor="qutationNumber" className="form-label">
+                  <label htmlFor="quotationNumber" className="form-label">
                     <i className="fas fa-hashtag me-2 text-primary"></i>
-                    Qutation Number <RequiredStar />
+                    Quotation Number <RequiredStar />
                   </label>
                   <input
                     type="text"
-                    className={`form-control modern-input ${errors.qutationNumber ? "is-invalid" : ""}`}
-                    id="qutationNumber"
-                    name="qutationNumber"
-                    value={formData.qutationNumber}
+                    className={`form-control modern-input ${errors.quotationNumber ? "is-invalid" : ""}`}
+                    id="quotationNumber"
+                    name="quotationNumber"
+                    value={formData.quotationNumber}
                     readOnly
                   />
-                  {errors.qutationNumber && (
+                  {errors.quotationNumber && (
                     <div className="invalid-feedback d-block">
-                      {errors.qutationNumber}
+                      {errors.quotationNumber}
                     </div>
                   )}
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationType" className="form-label">
+                  <label htmlFor="quotationType" className="form-label">
                     <i className="fas fa-file-signature me-2 text-primary"></i>
-                    Qutation Type <RequiredStar />
+                    Quotation Type <RequiredStar />
                   </label>
                   <select
-                    id="qutationType"
-                    name="qutationType"
-                    className={`form-select modern-input ${errors.qutationType ? "is-invalid" : ""}`}
-                    value={formData.qutationType}
+                    id="quotationType"
+                    name="quotationType"
+                    className={`form-select modern-input ${errors.quotationType ? "is-invalid" : ""}`}
+                    value={formData.quotationType}
                     onChange={handleInputChange}
                     disabled={isViewMode}
                   >
-                    {QUTATION_TYPE_OPTIONS.map((option) => (
+                    {QUOTATION_TYPE_OPTIONS.map((option) => (
                       <option key={option} value={option}>
                         {option}
                       </option>
                     ))}
                   </select>
-                  {errors.qutationType && (
+                  {errors.quotationType && (
                     <div className="invalid-feedback d-block">
-                      {errors.qutationType}
+                      {errors.quotationType}
                     </div>
                   )}
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationDate" className="form-label">
+                  <label htmlFor="quotationDate" className="form-label">
                     <i className="fas fa-calendar-day me-2 text-primary"></i>
-                    Qutation Date <RequiredStar />
+                    Quotation Date <RequiredStar />
                   </label>
                   <input
                     type="date"
-                    className={`form-control modern-input ${errors.qutationDate ? "is-invalid" : ""}`}
-                    id="qutationDate"
-                    name="qutationDate"
-                    value={formData.qutationDate}
+                    className={`form-control modern-input ${errors.quotationDate ? "is-invalid" : ""}`}
+                    id="quotationDate"
+                    name="quotationDate"
+                    value={formData.quotationDate}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
                   />
-                  {errors.qutationDate && (
+                  {errors.quotationDate && (
                     <div className="invalid-feedback d-block">
-                      {errors.qutationDate}
+                      {errors.quotationDate}
                     </div>
                   )}
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationExpiryDate" className="form-label">
+                  <label htmlFor="quotationExpiryDate" className="form-label">
                     <i className="fas fa-calendar-check me-2 text-primary"></i>
-                    Qutation Expiry Date <RequiredStar />
+                    Quotation Expiry Date <RequiredStar />
                   </label>
                   <input
                     type="date"
-                    className={`form-control modern-input ${errors.qutationExpiryDate ? "is-invalid" : ""}`}
-                    id="qutationExpiryDate"
-                    name="qutationExpiryDate"
-                    value={formData.qutationExpiryDate}
+                    className={`form-control modern-input ${errors.quotationExpiryDate ? "is-invalid" : ""}`}
+                    id="quotationExpiryDate"
+                    name="quotationExpiryDate"
+                    value={formData.quotationExpiryDate}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
                   />
-                  {errors.qutationExpiryDate && (
+                  {errors.quotationExpiryDate && (
                     <div className="invalid-feedback d-block">
-                      {errors.qutationExpiryDate}
+                      {errors.quotationExpiryDate}
                     </div>
                   )}
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationTotalAmount" className="form-label">
+                  <label htmlFor="quotationTotalAmount" className="form-label">
                     <i className="fas fa-indian-rupee-sign me-2 text-primary"></i>
-                    Qutation Total Amount <RequiredStar />
+                    Quotation Total Amount <RequiredStar />
                   </label>
                   <input
                     type="text"
-                    className={`form-control modern-input ${errors.qutationTotalAmount ? "is-invalid" : ""}`}
-                    id="qutationTotalAmount"
-                    name="qutationTotalAmount"
-                    value={formData.qutationTotalAmount}
+                    className={`form-control modern-input ${errors.quotationTotalAmount ? "is-invalid" : ""}`}
+                    id="quotationTotalAmount"
+                    name="quotationTotalAmount"
+                    value={formData.quotationTotalAmount}
                     onChange={handleInputChange}
                     placeholder="Enter total amount"
                     readOnly={isViewMode}
                   />
-                  {errors.qutationTotalAmount && (
+                  {errors.quotationTotalAmount && (
                     <div className="invalid-feedback d-block">
-                      {errors.qutationTotalAmount}
+                      {errors.quotationTotalAmount}
                     </div>
                   )}
                 </div>
@@ -668,19 +668,19 @@ const CreateQutation = ({
 
                 <div className="col-md-4 mb-3">
                   <label
-                    htmlFor="qutationGoogleDriveLink"
+                    htmlFor="quotationGoogleDriveLink"
                     className="form-label"
                   >
                     <i className="fab fa-google-drive me-2 text-primary"></i>
-                    Qutation Google Drive Link
+                    Quotation Google Drive Link
                   </label>
                   <div className="input-group">
                     <input
                       type="url"
-                      className={`form-control modern-input ${errors.qutationGoogleDriveLink ? "is-invalid" : ""}`}
-                      id="qutationGoogleDriveLink"
-                      name="qutationGoogleDriveLink"
-                      value={formData.qutationGoogleDriveLink}
+                      className={`form-control modern-input ${errors.quotationGoogleDriveLink ? "is-invalid" : ""}`}
+                      id="quotationGoogleDriveLink"
+                      name="quotationGoogleDriveLink"
+                      value={formData.quotationGoogleDriveLink}
                       onChange={handleInputChange}
                       placeholder="Paste Google Drive document URL"
                       readOnly={isViewMode}
@@ -694,9 +694,9 @@ const CreateQutation = ({
                       <i className="fas fa-eye"></i>
                     </button>
                   </div>
-                  {errors.qutationGoogleDriveLink && (
+                  {errors.quotationGoogleDriveLink && (
                     <div className="invalid-feedback d-block">
-                      {errors.qutationGoogleDriveLink}
+                      {errors.quotationGoogleDriveLink}
                     </div>
                   )}
                 </div>
@@ -704,7 +704,7 @@ const CreateQutation = ({
                 <div className="col-md-4 mb-3">
                   <label className="form-label fw-semibold">
                     <i className="fas fa-file-upload me-2 text-warning"></i>
-                    Upload Qutation (Image/PDF)
+                    Upload Quotation (Image/PDF)
                   </label>
 
                   {!isViewMode ? (
@@ -712,117 +712,117 @@ const CreateQutation = ({
                       type="file"
                       className="form-control modern-input file-picker-input"
                       accept="image/*,application/pdf"
-                      onChange={handleQutationFileChange}
+                      onChange={handleQuotationFileChange}
                     />
-                  ) : uploadedQutationViewUrl ? (
+                  ) : uploadedQuotationViewUrl ? (
                     <UploadedFilePreviewBox
-                      fileUrl={uploadedQutationViewUrl}
-                      fileType={selectedQutationFile?.type}
-                      title="Open uploaded qutation in new tab"
+                      fileUrl={uploadedQuotationViewUrl}
+                      fileType={selectedQuotationFile?.type}
+                      title="Open uploaded quotation in new tab"
                       iconClassName="fa-solid fa-file-contract"
                     />
                   ) : (
                     <span className="text-muted small">
-                      No uploaded qutation file
+                      No uploaded quotation file
                     </span>
                   )}
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationStatus" className="form-label">
+                  <label htmlFor="quotationStatus" className="form-label">
                     <i className="fas fa-list-check me-2 text-primary"></i>
-                    Qutation Status <RequiredStar />
+                    Quotation Status <RequiredStar />
                   </label>
                   <select
-                    id="qutationStatus"
-                    name="qutationStatus"
-                    className={`form-select modern-input ${errors.qutationStatus ? "is-invalid" : ""}`}
-                    value={formData.qutationStatus}
+                    id="quotationStatus"
+                    name="quotationStatus"
+                    className={`form-select modern-input ${errors.quotationStatus ? "is-invalid" : ""}`}
+                    value={formData.quotationStatus}
                     onChange={handleInputChange}
                     disabled={isViewMode}
                   >
-                    {QUTATION_STATUS_OPTIONS.map((option) => (
+                    {QUOTATION_STATUS_OPTIONS.map((option) => (
                       <option key={option} value={option}>
                         {option}
                       </option>
                     ))}
                   </select>
-                  {errors.qutationStatus && (
+                  {errors.quotationStatus && (
                     <div className="invalid-feedback d-block">
-                      {errors.qutationStatus}
+                      {errors.quotationStatus}
                     </div>
                   )}
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationSendVia" className="form-label">
+                  <label htmlFor="quotationSendVia" className="form-label">
                     <i className="fas fa-share-nodes me-2 text-primary"></i>
-                    Qutation Send Via <RequiredStar />
+                    Quotation Send Via <RequiredStar />
                   </label>
                   <select
-                    id="qutationSendVia"
-                    name="qutationSendVia"
-                    className={`form-select modern-input ${errors.qutationSendVia ? "is-invalid" : ""}`}
-                    value={formData.qutationSendVia}
+                    id="quotationSendVia"
+                    name="quotationSendVia"
+                    className={`form-select modern-input ${errors.quotationSendVia ? "is-invalid" : ""}`}
+                    value={formData.quotationSendVia}
                     onChange={handleInputChange}
                     disabled={isViewMode}
                   >
-                    {QUTATION_SEND_VIA_OPTIONS.map((option) => (
+                    {QUOTATION_SEND_VIA_OPTIONS.map((option) => (
                       <option key={option} value={option}>
                         {option}
                       </option>
                     ))}
                   </select>
-                  {errors.qutationSendVia && (
+                  {errors.quotationSendVia && (
                     <div className="invalid-feedback d-block">
-                      {errors.qutationSendVia}
+                      {errors.quotationSendVia}
                     </div>
                   )}
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationSendDate" className="form-label">
+                  <label htmlFor="quotationSendDate" className="form-label">
                     <i className="fas fa-paper-plane me-2 text-primary"></i>
-                    Qutation Send Date
+                    Quotation Send Date
                   </label>
                   <input
                     type="date"
                     className="form-control modern-input"
-                    id="qutationSendDate"
-                    name="qutationSendDate"
-                    value={formData.qutationSendDate}
+                    id="quotationSendDate"
+                    name="quotationSendDate"
+                    value={formData.quotationSendDate}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
                   />
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationApproveDate" className="form-label">
+                  <label htmlFor="quotationApproveDate" className="form-label">
                     <i className="fas fa-circle-check me-2 text-primary"></i>
-                    Qutation Approve Date
+                    Quotation Approve Date
                   </label>
                   <input
                     type="date"
                     className="form-control modern-input"
-                    id="qutationApproveDate"
-                    name="qutationApproveDate"
-                    value={formData.qutationApproveDate}
+                    id="quotationApproveDate"
+                    name="quotationApproveDate"
+                    value={formData.quotationApproveDate}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
                   />
                 </div>
 
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationRejectDate" className="form-label">
+                  <label htmlFor="quotationRejectDate" className="form-label">
                     <i className="fas fa-circle-xmark me-2 text-primary"></i>
-                    Qutation Reject Date
+                    Quotation Reject Date
                   </label>
                   <input
                     type="date"
                     className="form-control modern-input"
-                    id="qutationRejectDate"
-                    name="qutationRejectDate"
-                    value={formData.qutationRejectDate}
+                    id="quotationRejectDate"
+                    name="quotationRejectDate"
+                    value={formData.quotationRejectDate}
                     onChange={handleInputChange}
                     readOnly={isViewMode}
                   />
@@ -860,7 +860,7 @@ const CreateQutation = ({
             {!isViewMode && (
               <button
                 type="submit"
-                form="qutationForm"
+                form="quotationForm"
                 className="btn btn-success"
                 disabled={submitting}
               >
@@ -876,7 +876,7 @@ const CreateQutation = ({
                 ) : (
                   <>
                     <i className="fas fa-check me-2"></i>
-                    {editingRecord ? "Update Qutation" : "Save Qutation"}
+                    {editingRecord ? "Update Quotation" : "Save Quotation"}
                   </>
                 )}
               </button>
@@ -924,4 +924,4 @@ const CreateQutation = ({
   );
 };
 
-export default CreateQutation;
+export default CreateQuotation;

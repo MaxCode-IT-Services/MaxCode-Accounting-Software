@@ -113,7 +113,7 @@ export const PERMISSION_MODULES = [
   },
   {
     key: "fixedDepositManagement",
-    label: "Fixed Deposit Management",
+    label: "FD Management",
     description: "Manage fixed deposits and closure accounting",
     icon: "fa-solid fa-piggy-bank",
     route: "/admin/fixed-deposit-management",
@@ -152,11 +152,11 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
-    key: "qutationManagement",
-    label: "Qutation Management",
-    description: "Manage qutations",
+    key: "quotationManagement",
+    label: "Quotation Management",
+    description: "Manage quotations",
     icon: "fa-solid fa-file-invoice-dollar",
-    route: "/admin/qutation-management",
+    route: "/admin/quotation-management",
     detailed: true,
   },
   {

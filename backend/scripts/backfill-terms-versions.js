@@ -16,7 +16,7 @@ const TARGETS = [
     snapshotField: "selfInvoiceTermsConditionsSnapshot",
   },
   {
-    collectionName: "qutations",
+    collectionName: "quotations",
     termsKind: "performaInvoice",
     snapshotField: "performaInvoiceTermsConditionsSnapshot",
   },

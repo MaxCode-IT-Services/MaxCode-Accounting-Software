@@ -78,14 +78,14 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/credit-debit-notes?id=${id}`,
   },
 
-  // Qutation endpoints
-  QUTATIONS: {
-    LIST: "/qutations",
-    CREATE: "/qutations",
-    NEXT_NUMBER: "/qutations?action=next-number",
-    GET: (id) => `/qutations?id=${id}`,
-    UPDATE: (id) => `/qutations?id=${id}`,
-    DELETE: (id) => `/qutations?id=${id}`,
+  // Quotation endpoints
+  QUOTATIONS: {
+    LIST: "/quotations",
+    CREATE: "/quotations",
+    NEXT_NUMBER: "/quotations?action=next-number",
+    GET: (id) => `/quotations?id=${id}`,
+    UPDATE: (id) => `/quotations?id=${id}`,
+    DELETE: (id) => `/quotations?id=${id}`,
   },
 
   // Financial Year endpoints

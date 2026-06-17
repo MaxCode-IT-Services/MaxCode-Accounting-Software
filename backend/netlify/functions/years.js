@@ -142,7 +142,7 @@ export async function handler(event) {
             "invoiceFormat",
             "selfInvoiceFormat",
             "fdFormat",
-            "qutationFormat",
+            "quotationFormat",
             "serviceFormat",
             "projectFormat",
             "companyExpenseFormat",
@@ -239,7 +239,7 @@ export async function handler(event) {
               { performaInvoiceFormat: { $regex: search, $options: "i" } },
               { creditNoteFormat: { $regex: search, $options: "i" } },
               { debitNoteFormat: { $regex: search, $options: "i" } },
-              { qutationFormat: { $regex: search, $options: "i" } },
+              { quotationFormat: { $regex: search, $options: "i" } },
               { serviceFormat: { $regex: search, $options: "i" } },
               { projectFormat: { $regex: search, $options: "i" } },
               { companyExpenseFormat: { $regex: search, $options: "i" } },
@@ -405,10 +405,10 @@ export async function handler(event) {
             "Debit Note Format already exists. Please use a unique format.",
         },
         {
-          field: "qutationFormat",
-          value: payload.qutationFormat,
+          field: "quotationFormat",
+          value: payload.quotationFormat,
           message:
-            "Qutation Format already exists. Please use a unique format.",
+            "Quotation Format already exists. Please use a unique format.",
         },
         {
           field: "serviceFormat",
@@ -549,10 +549,10 @@ export async function handler(event) {
             "Debit Note Format already exists. Please use a unique format.",
         },
         {
-          field: "qutationFormat",
-          value: payload.qutationFormat,
+          field: "quotationFormat",
+          value: payload.quotationFormat,
           message:
-            "Qutation Format already exists. Please use a unique format.",
+            "Quotation Format already exists. Please use a unique format.",
         },
         {
           field: "serviceFormat",

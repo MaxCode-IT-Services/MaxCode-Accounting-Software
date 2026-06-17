@@ -43,7 +43,7 @@ const FixedDepositManagement = () => {
   const columnsWithDateFilter = ["startDate", "maturityDate", "closureDateFormatted", "createdDateTime"];
 
   useEffect(() => {
-    document.title = "Fixed Deposit Management | MaxCode IT Services";
+    document.title = "FD Management | MaxCode IT Services";
 
     const fetchPreference = async () => {
       try {
@@ -466,7 +466,7 @@ const FixedDepositManagement = () => {
   return (
     <div className="container-fluid">
       <div className="py-3 d-flex justify-content-between align-items-center flex-wrap" style={{ marginTop: "70px" }}>
-        <h4 className="fs-18 fw-semibold m-0">Fixed Deposit Management</h4>
+        <h4 className="fs-18 fw-semibold m-0">FD Management</h4>
         <div className="form-check form-switch m-0">
           <input
             className="form-check-input"
@@ -556,7 +556,7 @@ const FixedDepositManagement = () => {
         showAdvancedFilter={true}
         showSearch={true}
         exportFileName="Fixed_Deposit_Management"
-        exportTitle="Fixed Deposit Management Report"
+        exportTitle="FD Management Report"
         activeCardFilter={activeCardFilter}
         cards={cards}
         getBadgeClass={(value) => {

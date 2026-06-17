@@ -22,7 +22,7 @@ const CreateYear = ({
     performaInvoiceFormat: "",
     creditNoteFormat: "",
     debitNoteFormat: "",
-    qutationFormat: "",
+    quotationFormat: "",
     serviceFormat: "",
     projectFormat: "",
     companyExpenseFormat: "",
@@ -73,7 +73,7 @@ const CreateYear = ({
     /^MC\/CN\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoDebitNoteFormat = (value) =>
     /^MC\/DN\/\d{2}-\d{2}\/0001$/.test(value);
-  const isAutoQutationFormat = (value) =>
+  const isAutoQuotationFormat = (value) =>
     /^MC\/QTN\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoServiceFormat = (value) =>
     /^MC\/SRV\/\d{2}-\d{2}\/0001$/.test(value);
@@ -110,7 +110,7 @@ const CreateYear = ({
         performaInvoiceFormat: editingRecord.performaInvoiceFormat || "",
         creditNoteFormat: editingRecord.creditNoteFormat || "",
         debitNoteFormat: editingRecord.debitNoteFormat || "",
-        qutationFormat: editingRecord.qutationFormat || "",
+        quotationFormat: editingRecord.quotationFormat || "",
         serviceFormat: editingRecord.serviceFormat || "",
         projectFormat: editingRecord.projectFormat || "",
         companyExpenseFormat: editingRecord.companyExpenseFormat || "",
@@ -141,7 +141,7 @@ const CreateYear = ({
         performaInvoiceFormat: "",
         creditNoteFormat: "",
         debitNoteFormat: "",
-        qutationFormat: "",
+        quotationFormat: "",
         serviceFormat: "",
         projectFormat: "",
         companyExpenseFormat: "",
@@ -250,7 +250,7 @@ const CreateYear = ({
     const nextPerformaInvoiceFormat = `MC/PI/${yearPart}/0001`;
     const nextCreditNoteFormat = `MC/CN/${yearPart}/0001`;
     const nextDebitNoteFormat = `MC/DN/${yearPart}/0001`;
-    const nextQutationFormat = `MC/QTN/${yearPart}/0001`;
+    const nextQuotationFormat = `MC/QTN/${yearPart}/0001`;
     const nextServiceFormat = `MC/SRV/${yearPart}/0001`;
     const nextProjectFormat = `MC/PRJ/${yearPart}/0001`;
     const nextCompanyExpenseFormat = `MC/CEXP/${yearPart}/0001`;
@@ -271,8 +271,8 @@ const CreateYear = ({
     const shouldUpdateDebitNoteFormat =
       !formData.debitNoteFormat ||
       isAutoDebitNoteFormat(formData.debitNoteFormat);
-    const shouldUpdateQutationFormat =
-      !formData.qutationFormat || isAutoQutationFormat(formData.qutationFormat);
+    const shouldUpdateQuotationFormat =
+      !formData.quotationFormat || isAutoQuotationFormat(formData.quotationFormat);
     const shouldUpdateServiceFormat =
       !formData.serviceFormat || isAutoServiceFormat(formData.serviceFormat);
     const shouldUpdateProjectFormat =
@@ -292,7 +292,7 @@ const CreateYear = ({
       !shouldUpdatePerformaInvoiceFormat &&
       !shouldUpdateCreditNoteFormat &&
       !shouldUpdateDebitNoteFormat &&
-      !shouldUpdateQutationFormat &&
+      !shouldUpdateQuotationFormat &&
       !shouldUpdateServiceFormat &&
       !shouldUpdateProjectFormat &&
       !shouldUpdateCompanyExpenseFormat &&
@@ -318,9 +318,9 @@ const CreateYear = ({
       debitNoteFormat: shouldUpdateDebitNoteFormat
         ? nextDebitNoteFormat
         : prev.debitNoteFormat,
-      qutationFormat: shouldUpdateQutationFormat
-        ? nextQutationFormat
-        : prev.qutationFormat,
+      quotationFormat: shouldUpdateQuotationFormat
+        ? nextQuotationFormat
+        : prev.quotationFormat,
       serviceFormat: shouldUpdateServiceFormat
         ? nextServiceFormat
         : prev.serviceFormat,
@@ -342,7 +342,7 @@ const CreateYear = ({
     formData.performaInvoiceFormat,
     formData.creditNoteFormat,
     formData.debitNoteFormat,
-    formData.qutationFormat,
+    formData.quotationFormat,
     formData.serviceFormat,
     formData.projectFormat,
     formData.companyExpenseFormat,
@@ -374,7 +374,7 @@ const CreateYear = ({
     performaInvoiceFormat: "Performa Invoice Format",
     creditNoteFormat: "Credit Note Format",
     debitNoteFormat: "Debit Note Format",
-    qutationFormat: "Qutation Format",
+    quotationFormat: "Quotation Format",
     serviceFormat: "Service Number Format",
     projectFormat: "Project Number Format",
     companyExpenseFormat: "Company Expense Number Format",
@@ -468,7 +468,7 @@ const CreateYear = ({
       "performaInvoiceFormat",
       "creditNoteFormat",
       "debitNoteFormat",
-      "qutationFormat",
+      "quotationFormat",
       "serviceFormat",
       "projectFormat",
       "companyExpenseFormat",
@@ -561,9 +561,9 @@ const CreateYear = ({
       newErrors.debitNoteFormat =
         "Debit note format must be at least 3 characters";
     }
-    if (formData.qutationFormat && formData.qutationFormat.length < 3) {
-      newErrors.qutationFormat =
-        "Qutation format must be at least 3 characters";
+    if (formData.quotationFormat && formData.quotationFormat.length < 3) {
+      newErrors.quotationFormat =
+        "Quotation Format must be at least 3 characters";
     }
     if (formData.serviceFormat && formData.serviceFormat.length < 3) {
       newErrors.serviceFormat = "Service format must be at least 3 characters";
@@ -659,9 +659,9 @@ const CreateYear = ({
           } else if (errorMessage.includes("Debit Note Format")) {
             setErrors((prev) => ({ ...prev, debitNoteFormat: errorMessage }));
             scrollToField("debitNoteFormat");
-          } else if (errorMessage.includes("Qutation Format")) {
-            setErrors((prev) => ({ ...prev, qutationFormat: errorMessage }));
-            scrollToField("qutationFormat");
+          } else if (errorMessage.includes("Quotation Format")) {
+            setErrors((prev) => ({ ...prev, quotationFormat: errorMessage }));
+            scrollToField("quotationFormat");
           } else if (errorMessage.includes("Service Format")) {
             setErrors((prev) => ({ ...prev, serviceFormat: errorMessage }));
             scrollToField("serviceFormat");
@@ -948,25 +948,25 @@ const CreateYear = ({
                   )}
                 </div>
 
-                {/* Qutation Format */}
+                {/* Quotation Format */}
                 <div className="col-md-4 mb-3">
-                  <label htmlFor="qutationFormat" className="form-label">
+                  <label htmlFor="quotationFormat" className="form-label">
                     <i className="fas fa-file-signature me-2 text-primary"></i>
-                    Qutation Format <RequiredStar />
+                    Quotation Format <RequiredStar />
                   </label>
                   <input
                     type="text"
-                    className={`form-control modern-input ${errors.qutationFormat ? "is-invalid" : ""}`}
-                    id="qutationFormat"
-                    name="qutationFormat"
-                    value={formData.qutationFormat}
+                    className={`form-control modern-input ${errors.quotationFormat ? "is-invalid" : ""}`}
+                    id="quotationFormat"
+                    name="quotationFormat"
+                    value={formData.quotationFormat}
                     onChange={handleInputChange}
                     placeholder="e.g., MC/QTN/25-26/0001"
                     readOnly={isViewMode}
                   />
-                  {errors.qutationFormat && (
+                  {errors.quotationFormat && (
                     <div className="invalid-feedback d-block">
-                      {errors.qutationFormat}
+                      {errors.quotationFormat}
                     </div>
                   )}
                 </div>

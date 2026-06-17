@@ -25,8 +25,8 @@ const AdminDashboard = lazy(() => import("../src/Pages/Dashboard.jsx"));
 const ClientManagement = lazy(() => import("../src/Pages/ClientManagement"));
 const LeadManagement = lazy(() => import("../src/Pages/LeadManagement"));
 const FileManagement = lazy(() => import("../src/Pages/FileManagement"));
-const QutationManagement = lazy(
-  () => import("../src/Pages/QutationManagement"),
+const QuotationManagement = lazy(
+  () => import("../src/Pages/QuotationManagement"),
 );
 const VendorManagement = lazy(() => import("../src/Pages/VendorManagement"));
 const StaffManagement = lazy(() => import("../src/Pages/StaffManagement"));
@@ -276,11 +276,11 @@ const dashboardChildRoutes = (
       }
     />
     <Route
-      path="qutation-management"
+      path="quotation-management"
       element={
-        <PermissionRoute moduleKey="qutationManagement">
+        <PermissionRoute moduleKey="quotationManagement">
           <Suspense fallback={<Loading />}>
-            <QutationManagement />
+            <QuotationManagement />
           </Suspense>
         </PermissionRoute>
       }

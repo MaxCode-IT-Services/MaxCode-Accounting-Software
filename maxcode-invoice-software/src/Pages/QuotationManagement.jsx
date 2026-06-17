@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReusableTable from "../Components/ReusableTable";
-import CreateQutation from "../Components/CreateQutation";
+import CreateQuotation from "../Components/CreateQuotation";
 import ConfirmationModal from "../Components/ConfirmationModal";
 import UploadedFilePreviewBox from "../Components/UploadedFilePreviewBox";
 import {
@@ -12,8 +12,8 @@ import API_ENDPOINTS from "../utils/apiEndpoints";
 import { apiDelete, apiGet, apiPost } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
-const QutationManagement = () => {
-  const moduleKey = "qutationManagement";
+const QuotationManagement = () => {
+  const moduleKey = "quotationManagement";
   const canCreate = hasActionPermission(moduleKey, "create");
 
   const [serverSide, setServerSide] = useState(true);
@@ -27,11 +27,11 @@ const QutationManagement = () => {
   );
   const [loading, setLoading] = useState(false);
   const [totalRecords, setTotalRecords] = useState(0);
-  const [showCreateQutationForm, setShowCreateQutationForm] = useState(false);
+  const [showCreateQuotationForm, setShowCreateQuotationForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [activeCardFilter, setActiveCardFilter] = useState("total");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [qutationToDelete, setQutationToDelete] = useState(null);
+  const [quotationToDelete, setQuotationToDelete] = useState(null);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage, setRecordsPerPage] = useState(10);
@@ -54,11 +54,11 @@ const QutationManagement = () => {
 
   const columnsWithDateFilter = [
     "createdDateTime",
-    "qutationDate",
-    "qutationExpiryDate",
-    "qutationSendDate",
-    "qutationApproveDate",
-    "qutationRejectDate",
+    "quotationDate",
+    "quotationExpiryDate",
+    "quotationSendDate",
+    "quotationApproveDate",
+    "quotationRejectDate",
   ];
 
   useEffect(() => {
@@ -68,8 +68,8 @@ const QutationManagement = () => {
     const fetchPreference = async () => {
       try {
         const response = await apiGet("/user-preferences");
-        if (typeof response.data?.qutationManagementServerSide === "boolean") {
-          setServerSide(response.data.qutationManagementServerSide);
+        if (typeof response.data?.quotationManagementServerSide === "boolean") {
+          setServerSide(response.data.quotationManagementServerSide);
         }
       } catch (error) {
         // keep defaults
@@ -107,7 +107,7 @@ const QutationManagement = () => {
     const savePreference = async () => {
       try {
         await apiPost("/user-preferences", {
-          qutationManagementServerSide: serverSide,
+          quotationManagementServerSide: serverSide,
         });
       } catch (error) {
         // ignore
@@ -123,16 +123,16 @@ const QutationManagement = () => {
     setStatistics({
       total: activeRecords.length,
       send: activeRecords.filter((record) =>
-        ["Send", "Send + Approve"].includes(record.qutationStatus),
+        ["Send", "Send + Approve"].includes(record.quotationStatus),
       ).length,
       approve: activeRecords.filter((record) =>
-        ["Approve", "Send + Approve"].includes(record.qutationStatus),
+        ["Approve", "Send + Approve"].includes(record.quotationStatus),
       ).length,
       reject: activeRecords.filter(
-        (record) => record.qutationStatus === "Reject",
+        (record) => record.quotationStatus === "Reject",
       ).length,
       expired: activeRecords.filter(
-        (record) => record.qutationStatus === "Expired",
+        (record) => record.quotationStatus === "Expired",
       ).length,
     });
   };
@@ -163,7 +163,7 @@ const QutationManagement = () => {
     return financialYears.find((year) => year?.isDefault === true) || null;
   };
 
-  const fetchQutations = async () => {
+  const fetchQuotations = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -176,7 +176,7 @@ const QutationManagement = () => {
     setLoading(true);
 
     try {
-      let url = API_ENDPOINTS.QUTATIONS.LIST;
+      let url = API_ENDPOINTS.QUOTATIONS.LIST;
       const params = new URLSearchParams();
 
       if (serverSide) {
@@ -247,16 +247,16 @@ const QutationManagement = () => {
 
       const responseBody = response?.data;
 
-      let qutationsData;
+      let quotationsData;
       let total;
 
       if (serverSide) {
-        qutationsData =
-          responseBody?.data || responseBody?.qutations || responseBody || [];
+        quotationsData =
+          responseBody?.data || responseBody?.quotations || responseBody || [];
         total =
           responseBody?.pagination?.totalRecords ||
           responseBody?.total ||
-          (Array.isArray(qutationsData) ? qutationsData.length : 0);
+          (Array.isArray(quotationsData) ? quotationsData.length : 0);
 
         if (responseBody?.statistics) {
           setStatistics(responseBody.statistics);
@@ -266,30 +266,30 @@ const QutationManagement = () => {
           setDynamicFilterOptions(responseBody.filterOptions);
         }
       } else {
-        qutationsData =
+        quotationsData =
           responseBody?.data ||
-          responseBody?.qutations ||
+          responseBody?.quotations ||
           (Array.isArray(responseBody) ? responseBody : []);
-        total = Array.isArray(qutationsData) ? qutationsData.length : 0;
+        total = Array.isArray(quotationsData) ? quotationsData.length : 0;
       }
 
-      if (!Array.isArray(qutationsData)) {
-        qutationsData = [];
+      if (!Array.isArray(quotationsData)) {
+        quotationsData = [];
       }
 
-      const mappedData = qutationsData.map((record) => {
+      const mappedData = quotationsData.map((record) => {
         const createdDate =
           record.createdDate || record.createdAt || record.created_on;
-        const qutationFileLink = record.qutationFileURL || "";
+        const quotationFileLink = record.quotationFileURL || "";
 
         return {
           ...record,
           id: record._id || record.id,
           createdDate,
-          qutationExpiryDate:
-            record.qutationExpiryDate || record.qutationValidity || "",
-          qutationTotalAmount: Number(record.qutationTotalAmount || 0),
-          qutationFileLink,
+          quotationExpiryDate:
+            record.quotationExpiryDate || record.quotationValidity || "",
+          quotationTotalAmount: Number(record.quotationTotalAmount || 0),
+          quotationFileLink,
         };
       });
 
@@ -306,7 +306,7 @@ const QutationManagement = () => {
         error?.response?.data?.message ||
         error?.response?.data?.error ||
         error?.message ||
-        "Failed to fetch qutations";
+        "Failed to fetch quotations";
 
       showError(backendMessage);
       setRecords([]);
@@ -326,7 +326,7 @@ const QutationManagement = () => {
 
     debounceTimeoutRef.current = setTimeout(
       () => {
-        fetchQutations();
+        fetchQuotations();
       },
       serverSide ? 500 : 0,
     );
@@ -463,23 +463,23 @@ const QutationManagement = () => {
 
   const columns = [
     { key: "sn", label: "S.No", width: 70 },
-    { key: "qutationNumber", label: "Quotation No.", width: 130 },
+    { key: "quotationNumber", label: "Quotation No.", width: 130 },
     { key: "clientName", label: "Client Name", width: 160 },
     { key: "phoneNumber", label: "Phone", width: 130 },
     { key: "projectName", label: "Project Name", width: 180 },
     { key: "projectType", label: "Project Type", width: 140 },
-    { key: "qutationType", label: "Quotation Type", width: 180 },
+    { key: "quotationType", label: "Quotation Type", width: 180 },
     {
-      key: "qutationFile",
+      key: "quotationFile",
       label: "Quotation File",
       width: 150,
       disableSort: true,
       disableFilter: true,
       render: (_, record) => (
         <div onClick={(event) => event.stopPropagation()} style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          {record.qutationFileLink ? (
+          {record.quotationFileLink ? (
             <UploadedFilePreviewBox
-              fileUrl={record.qutationFileLink}
+              fileUrl={record.quotationFileLink}
               title="Open uploaded quotation file"
               iconClassName="fa-solid fa-file-contract"
             />
@@ -493,14 +493,14 @@ const QutationManagement = () => {
               <i className="fa-solid fa-file-contract"></i>
             </button>
           )}
-          {record?.qutationGoogleDriveLink ? (
+          {record?.quotationGoogleDriveLink ? (
             <button
               type="button"
               className="btn btn-sm btn-outline-info"
               onClick={(event) => {
                 event.stopPropagation();
                 window.open(
-                  record.qutationGoogleDriveLink,
+                  record.quotationGoogleDriveLink,
                   "_blank",
                   "noopener,noreferrer",
                 );
@@ -522,31 +522,31 @@ const QutationManagement = () => {
         </div>
       ),
     },
-    { key: "qutationDate", label: "Quotation Date", width: 140 },
+    { key: "quotationDate", label: "Quotation Date", width: 140 },
     {
-      key: "qutationExpiryDate",
+      key: "quotationExpiryDate",
       label: "Quotation Expiry Date",
       width: 170,
     },
     {
-      key: "qutationTotalAmount",
+      key: "quotationTotalAmount",
       label: "Total Amount",
       width: 150,
       render: (value) => `Rs. ${Number(value || 0).toLocaleString("en-IN")}`,
     },
     { key: "developmentTime", label: "Development Time", width: 150 },
     {
-      key: "qutationStatus",
+      key: "quotationStatus",
       label: "Quotation Status",
       width: 150,
       render: (value) => (
         <span className={`badge ${getBadgeClass(value)}`}>{value}</span>
       ),
     },
-    { key: "qutationSendVia", label: "Send Via", width: 150 },
-    { key: "qutationSendDate", label: "Send Date", width: 130 },
-    { key: "qutationApproveDate", label: "Approve Date", width: 130 },
-    { key: "qutationRejectDate", label: "Reject Date", width: 130 },
+    { key: "quotationSendVia", label: "Send Via", width: 150 },
+    { key: "quotationSendDate", label: "Send Date", width: 130 },
+    { key: "quotationApproveDate", label: "Approve Date", width: 130 },
+    { key: "quotationRejectDate", label: "Reject Date", width: 130 },
     { key: "createdDateTime", label: "Created Date & Time", width: 210 },
     { key: "action", label: "Actions", width: 150 },
   ];
@@ -555,52 +555,52 @@ const QutationManagement = () => {
 
   const defaultVisibleColumns = [
     "sn",
-    "qutationNumber",
+    "quotationNumber",
     "clientName",
     "phoneNumber",
-    "qutationType",
-    "qutationTotalAmount",
+    "quotationType",
+    "quotationTotalAmount",
     "action",
   ];
 
   const columnsWithDropdownFilter = [
     "projectType",
-    "qutationType",
-    "qutationStatus",
-    "qutationSendVia",
+    "quotationType",
+    "quotationStatus",
+    "quotationSendVia",
   ];
 
   const getFilterOptions = () => {
     const projectTypes = [
       ...new Set(records.map((r) => r.projectType).filter(Boolean)),
     ];
-    const qutationTypes = [
-      ...new Set(records.map((r) => r.qutationType).filter(Boolean)),
+    const quotationTypes = [
+      ...new Set(records.map((r) => r.quotationType).filter(Boolean)),
     ];
-    const qutationStatus = [
-      ...new Set(records.map((r) => r.qutationStatus).filter(Boolean)),
+    const quotationStatus = [
+      ...new Set(records.map((r) => r.quotationStatus).filter(Boolean)),
     ];
-    const qutationSendVia = [
-      ...new Set(records.map((r) => r.qutationSendVia).filter(Boolean)),
+    const quotationSendVia = [
+      ...new Set(records.map((r) => r.quotationSendVia).filter(Boolean)),
     ];
 
     return {
       projectType: ["All", ...projectTypes.sort()],
-      qutationType: ["All", ...qutationTypes.sort()],
-      qutationStatus: ["All", ...qutationStatus.sort()],
-      qutationSendVia: ["All", ...qutationSendVia.sort()],
+      quotationType: ["All", ...quotationTypes.sort()],
+      quotationStatus: ["All", ...quotationStatus.sort()],
+      quotationSendVia: ["All", ...quotationSendVia.sort()],
     };
   };
 
   const handleCardClick = (cardKey) => {
     if (cardKey === "addNew") {
       if (!canCreate) {
-        showError("You don't have permission to add qutation records");
+        showError("You don't have permission to add quotation records");
         return;
       }
 
       setEditingRecord(null);
-      setShowCreateQutationForm(true);
+      setShowCreateQuotationForm(true);
       return;
     }
 
@@ -613,45 +613,45 @@ const QutationManagement = () => {
   const getCardNumber = (index) => (index % 8) + 1;
 
   const handleFormSubmit = () => {
-    setShowCreateQutationForm(false);
+    setShowCreateQuotationForm(false);
     setEditingRecord(null);
-    fetchQutations();
+    fetchQuotations();
   };
 
   const handleEdit = (record) => {
     setEditingRecord(record);
-    setShowCreateQutationForm(true);
-    showInfo(`Editing qutation: ${record.projectName}`);
+    setShowCreateQuotationForm(true);
+    showInfo(`Editing quotation: ${record.projectName}`);
   };
 
   const handleView = (record) => {
     setEditingRecord({ ...record, isViewMode: true });
-    setShowCreateQutationForm(true);
-    showInfo(`Viewing qutation: ${record.projectName}`);
+    setShowCreateQuotationForm(true);
+    showInfo(`Viewing quotation: ${record.projectName}`);
   };
 
   const handleDelete = (id) => {
     const record = records.find((item) => item.id === id || item._id === id);
     if (!record) return;
 
-    setQutationToDelete(id);
+    setQuotationToDelete(id);
     setShowDeleteConfirm(true);
   };
 
   const confirmDelete = async () => {
-    if (!qutationToDelete) return;
+    if (!quotationToDelete) return;
 
     try {
-      await apiDelete(API_ENDPOINTS.QUTATIONS.DELETE(qutationToDelete));
-      showSuccess("Qutation deleted successfully!");
-      await fetchQutations();
+      await apiDelete(API_ENDPOINTS.QUOTATIONS.DELETE(quotationToDelete));
+      showSuccess("Quotation deleted successfully!");
+      await fetchQuotations();
       setShowDeleteConfirm(false);
-      setQutationToDelete(null);
+      setQuotationToDelete(null);
     } catch (error) {
       showError(
         error.response?.data?.message ||
           error.response?.data?.error ||
-          "Failed to delete qutation",
+          "Failed to delete quotation",
       );
     }
   };
@@ -666,7 +666,7 @@ const QutationManagement = () => {
       setActiveCardFilter("total");
     }
 
-    fetchQutations();
+    fetchQuotations();
     showInfo("Data refreshed!");
   };
 
@@ -817,13 +817,13 @@ const QutationManagement = () => {
           onPageChange={setCurrentPage}
           onRecordsPerPageChange={setRecordsPerPage}
           onColumnFilterChange={handleDebouncedColumnFilterChange}
-          exportApi={API_ENDPOINTS.QUTATIONS.LIST}
+          exportApi={API_ENDPOINTS.QUOTATIONS.LIST}
         />
 
-        <CreateQutation
-          show={showCreateQutationForm}
+        <CreateQuotation
+          show={showCreateQuotationForm}
           onClose={() => {
-            setShowCreateQutationForm(false);
+            setShowCreateQuotationForm(false);
             setEditingRecord(null);
           }}
           onSubmit={handleFormSubmit}
@@ -837,7 +837,7 @@ const QutationManagement = () => {
           show={showDeleteConfirm}
           onHide={() => {
             setShowDeleteConfirm(false);
-            setQutationToDelete(null);
+            setQuotationToDelete(null);
           }}
           onConfirm={confirmDelete}
           title="Delete Quotation"
@@ -848,7 +848,7 @@ const QutationManagement = () => {
                 "
                 {records.find(
                   (r) =>
-                    r.id === qutationToDelete || r._id === qutationToDelete,
+                    r.id === quotationToDelete || r._id === quotationToDelete,
                 )?.projectName || ""}
                 "
               </strong>
@@ -874,4 +874,4 @@ const getBadgeClass = (value) => {
   return "bg-dark";
 };
 
-export default QutationManagement;
+export default QuotationManagement;

@@ -487,8 +487,8 @@ const FinancialYearManagement = () => {
       width: 220,
     },
     {
-      key: "qutationFormat",
-      label: "Qutation Format",
+      key: "quotationFormat",
+      label: "Quotation Format",
       width: 220,
     },
     {

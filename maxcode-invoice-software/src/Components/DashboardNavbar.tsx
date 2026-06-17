@@ -687,7 +687,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     {
       to: "/admin/fixed-deposit-management",
       icon: "fa-solid fa-piggy-bank",
-      label: "Fixed Deposit Management",
+      label: "FD Management",
       permissionKey: "fixedDepositManagement",
     },
     {
@@ -715,10 +715,10 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "profitLoss",
     },
     {
-      to: "/admin/qutation-management",
+      to: "/admin/quotation-management",
       icon: "fa-solid fa-file-signature",
-      label: "Qutation Management",
-      permissionKey: "qutationManagement",
+      label: "Quotation Management",
+      permissionKey: "quotationManagement",
     },
     {
       to: "/admin/services-management",
