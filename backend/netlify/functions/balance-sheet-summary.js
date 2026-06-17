@@ -73,6 +73,7 @@ const calculateBalanceSheetFromTransactions = (
   let creditNotePayable = 0;
   let customerOverpayment = 0;
   let inventory = round2(openingBalances.inventory || 0);
+  let fixedDepositAsset = 0;
 
   // Process each transaction line
   for (const transaction of transactions) {
@@ -112,6 +113,8 @@ const calculateBalanceSheetFromTransactions = (
         customerAdvance = round2(customerAdvance + credit - debit);
       } else if (accountHead === "Credit Note Payable") {
         creditNotePayable = round2(creditNotePayable + credit - debit);
+      } else if (accountHead === "Fixed Deposit Asset") {
+        fixedDepositAsset = round2(fixedDepositAsset + debit - credit);
       }
     }
   }
@@ -129,6 +132,7 @@ const calculateBalanceSheetFromTransactions = (
   customerAdvance = round2(customerAdvance);
   creditNotePayable = round2(creditNotePayable);
   inventory = round2(inventory);
+  fixedDepositAsset = round2(fixedDepositAsset);
 
   // Handle overdraft (negative cash/bank)
   let overdraft = 0;
@@ -162,7 +166,9 @@ const calculateBalanceSheetFromTransactions = (
 
   const cashBankTotal = round2(cashBalance + bankBalance);
   const receivablesGstTotal = round2(receivables + gstReceivable);
-  const totalAssets = round2(cashBankTotal + receivablesGstTotal + inventory);
+  const totalAssets = round2(
+    cashBankTotal + receivablesGstTotal + inventory + fixedDepositAsset,
+  );
 
   const payablesGstTotal = round2(payables + gstPayable);
   const overdraftFundingTotal = round2(overdraft + ownerFunding);
@@ -190,6 +196,7 @@ const calculateBalanceSheetFromTransactions = (
       receivables: receivables,
       gstReceivable: gstReceivable,
       inventory: inventory,
+      fixedDeposits: fixedDepositAsset,
     },
     liabilities: {
       payables: payables,

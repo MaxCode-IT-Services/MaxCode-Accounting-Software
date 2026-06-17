@@ -141,6 +141,7 @@ export async function handler(event) {
             "financialYear",
             "invoiceFormat",
             "selfInvoiceFormat",
+            "fdFormat",
             "qutationFormat",
             "serviceFormat",
             "projectFormat",
@@ -234,6 +235,7 @@ export async function handler(event) {
               { financialYear: { $regex: search, $options: "i" } },
               { invoiceFormat: { $regex: search, $options: "i" } },
               { selfInvoiceFormat: { $regex: search, $options: "i" } },
+              { fdFormat: { $regex: search, $options: "i" } },
               { performaInvoiceFormat: { $regex: search, $options: "i" } },
               { creditNoteFormat: { $regex: search, $options: "i" } },
               { debitNoteFormat: { $regex: search, $options: "i" } },
@@ -380,6 +382,11 @@ export async function handler(event) {
             "Self Invoice Format already exists. Please use a unique format.",
         },
         {
+          field: "fdFormat",
+          value: payload.fdFormat,
+          message: "FD Format already exists. Please use a unique format.",
+        },
+        {
           field: "performaInvoiceFormat",
           value: payload.performaInvoiceFormat,
           message:
@@ -517,6 +524,11 @@ export async function handler(event) {
           value: payload.selfInvoiceFormat,
           message:
             "Self Invoice Format already exists. Please use a unique format.",
+        },
+        {
+          field: "fdFormat",
+          value: payload.fdFormat,
+          message: "FD Format already exists. Please use a unique format.",
         },
         {
           field: "performaInvoiceFormat",

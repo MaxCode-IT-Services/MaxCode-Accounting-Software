@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "prepare:netlify-dev": "node scripts/prepare-netlify-dev.cjs",
-    "dev": "npm run prepare:netlify-dev && netlify dev",
+    "dev": "npm run prepare:netlify-dev && npx netlify dev",
     "build": "echo 'Backend functions ready'",
     "test": "echo 'Tests not configured yet'",
     "deploy": "netlify deploy --prod",

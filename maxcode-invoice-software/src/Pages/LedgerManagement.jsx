@@ -378,6 +378,17 @@ const LedgerManagement = () => {
         </span>
       ),
     },
+    {
+      key: "sourceEvent",
+      label: "Event Type",
+      width: 120,
+      render: (value) => {
+        if (!value) return "—";
+        const eventClass = value === "open" ? "badge bg-success" : value === "close" ? "badge bg-danger" : "badge bg-secondary";
+        const eventLabel = value === "open" ? "FD Open" : value === "close" ? "FD Close" : value;
+        return <span className={eventClass}>{eventLabel}</span>;
+      },
+    },
     { key: "notes", label: "Ledger Logic", width: 340 },
     { key: "description", label: "Description", width: 420 },
   ];

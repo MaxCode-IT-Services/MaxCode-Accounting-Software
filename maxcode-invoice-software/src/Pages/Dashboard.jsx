@@ -196,6 +196,9 @@ const Dashboard = () => {
       const projectsData = Array.isArray(payload.projects)
         ? payload.projects
         : [];
+      const fixedDepositsData = Array.isArray(payload.fixedDeposits)
+        ? payload.fixedDeposits
+        : [];
 
       setFinancialYears(
         yearData
@@ -228,6 +231,20 @@ const Dashboard = () => {
       );
 
       setProjects(projectsData.filter((record) => record?.isDeleted !== true));
+
+      // Store fixed deposits for use in summary calculations
+      const activeFixedDeposits = fixedDepositsData.filter(
+        (record) => record?.isDeleted !== true && record?.fdStatus === "Active"
+      );
+      const totalActiveFdBalance = activeFixedDeposits.reduce(
+        (sum, fd) => sum + toNumber(fd?.principalAmount || 0),
+        0
+      );
+      window.__dashboardFD = {
+        fixedDeposits: fixedDepositsData.filter((record) => record?.isDeleted !== true),
+        activeFixedDeposits,
+        totalActiveFdBalance,
+      };
     } catch (error) {
       console.error("Failed to load dashboard data:", error);
       showError("Failed to fetch dashboard data");
@@ -464,11 +481,12 @@ const Dashboard = () => {
       route: "/admin/vendor-management",
     },
     {
-      key: "staff",
-      title: "Total Active Staff",
-      value: summary.counts.staff,
-      icon: "fa-solid fa-user-tie",
-      route: "/admin/staff-management",
+      key: "fixed-deposits",
+      title: "Active Fixed Deposits",
+      value: window.__dashboardFD?.totalActiveFdBalance || 0,
+      icon: "fa-solid fa-vault",
+      route: "/admin/fixed-deposit-management",
+      format: "currency",
     },
     {
       key: "projects",
@@ -704,7 +722,11 @@ const Dashboard = () => {
                   </div>
                   <h6 className="mb-2 fw-bold" style={{ fontSize: "14.5px" }}>{card.title}</h6>
                   <p className="mb-0 text-muted fw-semibold kpi-value">
-                    <Counter value={card.value} format="int" />
+                    {card.format === "currency" ? (
+                      formatCurrency(card.value)
+                    ) : (
+                      <Counter value={card.value} format="int" />
+                    )}
                   </p>
                 </div>
               </div>

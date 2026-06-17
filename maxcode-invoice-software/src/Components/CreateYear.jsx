@@ -35,6 +35,7 @@ const CreateYear = ({
     openingSgstItc: "",
     openingIgstItc: "",
     paymentReceiptFormat: "",
+    fdFormat: "",
   });
 
   const [errors, setErrors] = useState({});
@@ -82,6 +83,7 @@ const CreateYear = ({
     /^MC\/CEXP\/\d{2}-\d{2}\/0001$/.test(value);
   const isAutoPaymentReceiptFormat = (value) =>
     /^MC\/RCPT\/\d{2}-\d{2}\/0001$/.test(value);
+  const isAutoFdFormat = (value) => /^MC\/FD\/\d{2}-\d{2}\/0001$/.test(value);
 
   useEffect(() => {
     if (show) {
@@ -113,6 +115,7 @@ const CreateYear = ({
         projectFormat: editingRecord.projectFormat || "",
         companyExpenseFormat: editingRecord.companyExpenseFormat || "",
         paymentReceiptFormat: editingRecord.paymentReceiptFormat || "",
+        fdFormat: editingRecord.fdFormat || "",
         description: editingRecord.description || "",
         isDefault: editingRecord.isDefault || false,
         status: editingRecord.status || "Active",
@@ -143,6 +146,7 @@ const CreateYear = ({
         projectFormat: "",
         companyExpenseFormat: "",
         paymentReceiptFormat: "",
+        fdFormat: "",
         description: "",
         isDefault: false,
         status: "Active",
@@ -251,6 +255,7 @@ const CreateYear = ({
     const nextProjectFormat = `MC/PRJ/${yearPart}/0001`;
     const nextCompanyExpenseFormat = `MC/CEXP/${yearPart}/0001`;
     const nextPaymentReceiptFormat = `MC/RCPT/${yearPart}/0001`;
+    const nextFdFormat = `MC/FD/${yearPart}/0001`;
 
     const shouldUpdateInvoiceFormat =
       !formData.invoiceFormat || isAutoInvoiceFormat(formData.invoiceFormat);
@@ -278,6 +283,8 @@ const CreateYear = ({
     const shouldUpdatePaymentReceiptFormat =
       !formData.paymentReceiptFormat ||
       isAutoPaymentReceiptFormat(formData.paymentReceiptFormat);
+    const shouldUpdateFdFormat =
+      !formData.fdFormat || isAutoFdFormat(formData.fdFormat);
 
     if (
       !shouldUpdateInvoiceFormat &&
@@ -289,7 +296,8 @@ const CreateYear = ({
       !shouldUpdateServiceFormat &&
       !shouldUpdateProjectFormat &&
       !shouldUpdateCompanyExpenseFormat &&
-      !shouldUpdatePaymentReceiptFormat
+      !shouldUpdatePaymentReceiptFormat &&
+      !shouldUpdateFdFormat
     )
       return;
 
@@ -325,6 +333,7 @@ const CreateYear = ({
       paymentReceiptFormat: shouldUpdatePaymentReceiptFormat
         ? nextPaymentReceiptFormat
         : prev.paymentReceiptFormat,
+      fdFormat: shouldUpdateFdFormat ? nextFdFormat : prev.fdFormat,
     }));
   }, [
     formData.financialYear,
@@ -338,6 +347,7 @@ const CreateYear = ({
     formData.projectFormat,
     formData.companyExpenseFormat,
     formData.paymentReceiptFormat,
+    formData.fdFormat,
     editingRecord,
   ]);
 
@@ -369,6 +379,7 @@ const CreateYear = ({
     projectFormat: "Project Number Format",
     companyExpenseFormat: "Company Expense Number Format",
     paymentReceiptFormat: "Payment Receipt Format",
+    fdFormat: "Fixed Deposit Number Format",
     description: "Description",
     status: "Status",
     openingCash: "Opening Cash Balance",
@@ -462,6 +473,7 @@ const CreateYear = ({
       "projectFormat",
       "companyExpenseFormat",
       "paymentReceiptFormat",
+      "fdFormat",
     ];
 
     requiredFields.forEach((field) => {
@@ -572,6 +584,9 @@ const CreateYear = ({
     ) {
       newErrors.paymentReceiptFormat =
         "Payment receipt format must be at least 3 characters";
+    }
+    if (formData.fdFormat && formData.fdFormat.length < 3) {
+      newErrors.fdFormat = "FD format must be at least 3 characters";
     }
 
     setErrors(newErrors);
@@ -1044,6 +1059,29 @@ const CreateYear = ({
                   {errors.paymentReceiptFormat && (
                     <div className="invalid-feedback d-block">
                       {errors.paymentReceiptFormat}
+                    </div>
+                  )}
+                </div>
+
+                {/* Fixed Deposit Number Format */}
+                <div className="col-md-4 mb-3">
+                  <label htmlFor="fdFormat" className="form-label">
+                    <i className="fas fa-piggy-bank me-2 text-primary"></i>
+                    Fixed Deposit Number Format <RequiredStar />
+                  </label>
+                  <input
+                    type="text"
+                    className={`form-control modern-input ${errors.fdFormat ? "is-invalid" : ""}`}
+                    id="fdFormat"
+                    name="fdFormat"
+                    value={formData.fdFormat}
+                    onChange={handleInputChange}
+                    placeholder="e.g., MC/FD/25-26/0001"
+                    readOnly={isViewMode}
+                  />
+                  {errors.fdFormat && (
+                    <div className="invalid-feedback d-block">
+                      {errors.fdFormat}
                     </div>
                   )}
                 </div>

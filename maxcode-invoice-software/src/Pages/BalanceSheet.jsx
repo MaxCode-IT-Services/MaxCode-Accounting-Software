@@ -312,6 +312,14 @@ const BalanceSheet = () => {
       });
     }
 
+    if (assets.fixedDeposits > 0) {
+      assetRows.push({
+        section: "Assets",
+        account: "Fixed Deposits",
+        amount: assets.fixedDeposits,
+      });
+    }
+
     assetRows.push({
       section: "Assets",
       account: "Total Assets",
@@ -419,12 +427,25 @@ const BalanceSheet = () => {
     });
 
     return [...assetRows, ...liabilityRows, ...equityRows].map(
-      (row, index) => ({
-        ...row,
-        sn: index + 1,
-        amountFormatted: formatCurrency(row.amount),
-        description: getDescription(row.account, row.section, row.isTotal),
-      }),
+      (row, index) => {
+        // Calculate running balance (cumulative sum for each section)
+        let runningBalance = 0;
+        if (row.section === "Assets") {
+          runningBalance = [...assetRows].slice(0, assetRows.indexOf(row) + 1).reduce((sum, r) => sum + r.amount, 0);
+        } else if (row.section === "Liabilities") {
+          runningBalance = [...liabilityRows].slice(0, liabilityRows.indexOf(row) + 1).reduce((sum, r) => sum + r.amount, 0);
+        } else if (row.section === "Liabilities & Equity") {
+          runningBalance = [...equityRows].slice(0, equityRows.indexOf(row) + 1).reduce((sum, r) => sum + r.amount, 0);
+        }
+        
+        return {
+          ...row,
+          sn: index + 1,
+          amountFormatted: formatCurrency(row.amount),
+          runningBalance: formatCurrency(runningBalance),
+          description: getDescription(row.account, row.section, row.isTotal),
+        };
+      },
     );
   }, [
     assets,
@@ -529,6 +550,15 @@ const BalanceSheet = () => {
           {value}
         </span>
       ),
+    },
+    {
+      key: "runningBalance",
+      label: "Running Balance",
+      width: 160,
+      render: (value, row) => {
+        if (!value || row?.isTotal || row?.isHeader) return "—";
+        return <span className="fw-semibold text-info">{value}</span>;
+      },
     },
   ];
 

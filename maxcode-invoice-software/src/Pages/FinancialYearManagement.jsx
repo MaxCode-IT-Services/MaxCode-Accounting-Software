@@ -85,7 +85,7 @@ const FinancialYearManagement = () => {
     upcomingYear: 0,
   });
 
-  // Card data array
+  // Card data array - Removed Matured and Close cards
   const cards = [
     {
       icon: "fa-solid fa-calendar",
@@ -177,6 +177,7 @@ const FinancialYearManagement = () => {
       toNumber(record?.openingItc || record?.openingGstInput || 0)
     );
   };
+  
   const formatDateForDisplay = (dateString) => {
     if (!dateString) return "";
 
@@ -509,6 +510,11 @@ const FinancialYearManagement = () => {
       key: "paymentReceiptFormat",
       label: "Payment Receipt Format",
       width: 240,
+    },
+    {
+      key: "fdFormat",
+      label: "FD Number Format",
+      width: 220,
     },
     { key: "description", label: "Description", width: 200 },
     {
@@ -896,7 +902,7 @@ const FinancialYearManagement = () => {
           </div>
         </div>
 
-        {/* Statistics Cards */}
+        {/* Statistics Cards - Only showing 6 cards */}
         <div className="row">
           {cards.map((card, index) => {
             const cardNumber = getCardNumber(index);

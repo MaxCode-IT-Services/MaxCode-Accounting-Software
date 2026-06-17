@@ -73,6 +73,7 @@ const calculateProfitLossFromTransactions = (
   let developerPayoutExpense = 0; // Developer payouts
   let directExpenses = 0; // Direct expenses
   let indirectExpenses = 0; // Indirect expenses
+  let fdPenaltyExpense = 0; // FD closure penalties
 
   // GST adjustments
   let gstOutputTotal = 0;
@@ -158,6 +159,10 @@ const calculateProfitLossFromTransactions = (
         accountHead === "Indirect Expenses Account"
       ) {
         indirectExpenses = round2(indirectExpenses + debit - credit);
+      } else if (accountHead === "Interest Income") {
+        otherIncome = round2(otherIncome + credit - debit);
+      } else if (accountHead === "FD Early Closure Penalty") {
+        fdPenaltyExpense = round2(fdPenaltyExpense + debit - credit);
       }
 
       // === GST TRACKING ===
@@ -211,6 +216,7 @@ const calculateProfitLossFromTransactions = (
   developerPayoutExpense = round2(developerPayoutExpense);
   directExpenses = round2(directExpenses);
   indirectExpenses = round2(indirectExpenses);
+  fdPenaltyExpense = round2(fdPenaltyExpense);
 
   gstOutputTotal = round2(gstOutputTotal);
   gstInputTotal = round2(gstInputTotal);
@@ -235,7 +241,8 @@ const calculateProfitLossFromTransactions = (
       rcmExpense +
       developerPayoutExpense +
       directExpenses +
-      indirectExpenses,
+      indirectExpenses +
+      fdPenaltyExpense,
   );
 
   // Cost of Goods Sold (COGS) calculation
@@ -295,6 +302,7 @@ const calculateProfitLossFromTransactions = (
       developerPayoutExpense,
       directExpenses,
       indirectExpenses,
+      fdPenaltyExpense,
       totalExpenses,
     },
     costOfGoodsSold: {

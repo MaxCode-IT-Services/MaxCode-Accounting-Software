@@ -685,6 +685,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "ownerWithdrawal",
     },
     {
+      to: "/admin/fixed-deposit-management",
+      icon: "fa-solid fa-piggy-bank",
+      label: "Fixed Deposit Management",
+      permissionKey: "fixedDepositManagement",
+    },
+    {
       to: "/admin/ledger-management",
       icon: "fa-solid fa-book",
       label: "Ledger Management",

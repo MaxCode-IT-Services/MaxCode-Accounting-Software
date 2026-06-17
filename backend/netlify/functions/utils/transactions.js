@@ -99,6 +99,9 @@ const normalizeSourceType = (sourceType = "") => {
       return "owner-investment";
     case "owner-withdrawal":
       return "owner-withdrawal";
+    case "fixed-deposit":
+    case "fixeddeposit":
+      return "fixed-deposit";
     case "credit-note":
     case "debit-note":
       return "credit-debit-note";
@@ -401,6 +404,22 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
     "stockValue",
     "closingStock",
     "inventoryAmount",
+    "fdNumber",
+    "bankName",
+    "transferredFromAccount",
+    "transferredFromAccountType",
+    "principalAmount",
+    "rateOfInterest",
+    "startDate",
+    "maturityDate",
+    "tenure",
+    "fdStatus",
+    "interestPayoutMode",
+    "closureDate",
+    "totalInterestEarned",
+    "penaltyAmount",
+    "closurePaymentMethod",
+    "closureRemarks",
   ]);
 
   if (sourceRecord?.taxData && typeof sourceRecord.taxData === "object") {
@@ -486,6 +505,30 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
     );
   }
 
+  if (type === "fixed-deposit") {
+    Object.assign(
+      base,
+      pickFields(sourceRecord, [
+        "fdNumber",
+        "bankName",
+        "transferredFromAccount",
+        "transferredFromAccountType",
+        "principalAmount",
+        "rateOfInterest",
+        "startDate",
+        "maturityDate",
+        "tenure",
+        "fdStatus",
+        "interestPayoutMode",
+        "closureDate",
+        "totalInterestEarned",
+        "penaltyAmount",
+        "closurePaymentMethod",
+        "closureRemarks",
+      ]),
+    );
+  }
+
   if (type === "project") {
     Object.assign(
       base,
@@ -505,7 +548,7 @@ const getDocumentId = (sourceRecord = {}) => {
   return String(rawId || sourceRecord?.id || "").trim();
 };
 
-const getSourceDate = (sourceRecord = {}, sourceType = "") => {
+const getSourceDate = (sourceRecord = {}, sourceType = "", sourceEvent = "") => {
   const type = normalizeSourceType(sourceType);
   switch (type) {
     case "invoice":
@@ -530,11 +573,106 @@ const getSourceDate = (sourceRecord = {}, sourceType = "") => {
       return sourceRecord.fundDate || sourceRecord.createdAt;
     case "owner-withdrawal":
       return sourceRecord.withdrawalDate || sourceRecord.createdAt;
+    case "fixed-deposit":
+      if (String(sourceEvent || "").toLowerCase() === "close") {
+        return (
+          sourceRecord.closureDate ||
+          sourceRecord.updatedAt ||
+          sourceRecord.createdAt
+        );
+      }
+      return sourceRecord.startDate || sourceRecord.createdAt;
     case "project":
       return sourceRecord.projectDate || sourceRecord.createdAt;
     default:
       return sourceRecord.invoiceDate || sourceRecord.createdAt;
   }
+};
+
+const buildLinesForFixedDeposit = (record = {}) => {
+  const principalAmount = roundAmount(
+    toNumber(record?.principalAmount || record?.amount || 0),
+  );
+  if (principalAmount <= 0) return [];
+
+  const status = String(record?.fdStatus || "Active").trim().toLowerCase();
+  const isClosed = status === "closed" || status === "matured";
+  const interestEarned = roundAmount(
+    Math.max(toNumber(record?.totalInterestEarned || 0), 0),
+  );
+  const penaltyAmount = roundAmount(
+    Math.max(toNumber(record?.penaltyAmount || 0), 0),
+  );
+  const totalMaturityAmount = roundAmount(
+    principalAmount + interestEarned - penaltyAmount,
+  );
+  const sourceAccountType = String(
+    record?.transferredFromAccountType || record?.transferredFromAccount || "",
+  )
+    .trim()
+    .toLowerCase();
+  const sourceAccount = isCashLike(sourceAccountType)
+    ? "Cash Account"
+    : "Bank Account";
+  const receivingAccount = getPaymentAccountHead(
+    record?.closurePaymentMethod,
+    "Bank Account",
+  );
+
+  if (!isClosed) {
+    return balanceLines(
+      [
+        {
+          accountHead: "Fixed Deposit Asset",
+          accountType: "Asset",
+          debit: principalAmount,
+          credit: 0,
+        },
+        {
+          accountHead: sourceAccount,
+          accountType: "Asset",
+          debit: 0,
+          credit: principalAmount,
+        },
+      ],
+      ["Fixed Deposit Asset", sourceAccount],
+    );
+  }
+
+  const lines = [
+    {
+      accountHead: receivingAccount,
+      accountType: "Asset",
+      debit: totalMaturityAmount,
+      credit: 0,
+    },
+    {
+      accountHead: "Fixed Deposit Asset",
+      accountType: "Asset",
+      debit: 0,
+      credit: principalAmount,
+    },
+  ];
+
+  if (interestEarned > 0) {
+    lines.push({
+      accountHead: "Interest Income",
+      accountType: "Income",
+      debit: 0,
+      credit: interestEarned,
+    });
+  }
+
+  if (penaltyAmount > 0) {
+    lines.push({
+      accountHead: "FD Early Closure Penalty",
+      accountType: "Expense",
+      debit: penaltyAmount,
+      credit: 0,
+    });
+  }
+
+  return balanceLines(lines, ["Fixed Deposit Asset", "Interest Income"]);
 };
 
 const buildLinesForInvoice = (record = {}) => {
@@ -1230,6 +1368,8 @@ const buildLines = (sourceType, sourceRecord) => {
       return buildLinesForOwnerInvestment(sourceRecord);
     case "owner-withdrawal":
       return buildLinesForOwnerWithdrawal(sourceRecord);
+    case "fixed-deposit":
+      return buildLinesForFixedDeposit(sourceRecord);
     case "project":
       return buildLinesForProject(sourceRecord);
     default:
@@ -1278,6 +1418,24 @@ const getRecordAmount = (sourceType, sourceRecord) => {
       return roundAmount(
         toNumber(sourceRecord?.amount || sourceRecord?.withdrawalAmount || 0),
       );
+    case "fixed-deposit": {
+      const principalAmount = roundAmount(
+        toNumber(sourceRecord?.principalAmount || sourceRecord?.amount || 0),
+      );
+      const status = String(sourceRecord?.fdStatus || "Active")
+        .trim()
+        .toLowerCase();
+      if (status === "closed" || status === "matured") {
+        const interestEarned = roundAmount(
+          toNumber(sourceRecord?.totalInterestEarned || 0),
+        );
+        const penaltyAmount = roundAmount(
+          toNumber(sourceRecord?.penaltyAmount || 0),
+        );
+        return roundAmount(principalAmount + interestEarned - penaltyAmount);
+      }
+      return principalAmount;
+    }
     case "project":
       return Array.isArray(sourceRecord?.developerTransactions)
         ? roundAmount(
@@ -1298,16 +1456,30 @@ export const buildTransactionSnapshot = ({
   sourceRecord,
   operation = "upsert",
   sourceLabel = "",
+  sourceEvent = "",
 }) => {
   const sourceId = getDocumentId(sourceRecord);
   const normalizedType = normalizeSourceType(sourceType);
+  const normalizedEvent = String(sourceEvent || "").trim().toLowerCase();
   const sourceDate = getDateOnlyString(
-    getSourceDate(sourceRecord, normalizedType),
+    getSourceDate(sourceRecord, normalizedType, normalizedEvent),
   );
-  const financialYear =
-    sourceRecord?.financialYear ||
-    sourceRecord?.fiscalYear ||
-    getFinancialYear(sourceDate);
+  
+  // For FD closing transactions, use closureFinancialYear if available
+  let financialYear;
+  if (normalizedType === "fixed-deposit" && normalizedEvent === "close") {
+    financialYear =
+      sourceRecord?.closureFinancialYear ||
+      sourceRecord?.financialYear ||
+      sourceRecord?.fiscalYear ||
+      getFinancialYear(sourceDate);
+  } else {
+    financialYear =
+      sourceRecord?.financialYear ||
+      sourceRecord?.fiscalYear ||
+      getFinancialYear(sourceDate);
+  }
+  
   const lines = buildLines(normalizedType, sourceRecord);
 
   const debitTotal = roundAmount(
@@ -1317,7 +1489,7 @@ export const buildTransactionSnapshot = ({
     lines.reduce((sum, line) => sum + toNumber(line?.credit || 0), 0),
   );
   const amount = getRecordAmount(normalizedType, sourceRecord);
-  const sourceKey = `${sourceCollection}:${sourceId}`;
+  const sourceKey = `${sourceCollection}:${sourceId}${normalizedEvent ? `:${normalizedEvent}` : ""}`;
   const sourceRecordForFeatures = buildSourceRecordForFeatures(
     normalizedType,
     sourceRecord,
@@ -1380,6 +1552,7 @@ export const buildTransactionSnapshot = ({
     sourceKey,
     sourceCollection,
     sourceType: normalizedType,
+    sourceEvent: normalizedEvent,
     sourceId,
     sourceLabel:
       sourceLabel ||
@@ -1432,18 +1605,29 @@ export const syncTransactionSnapshot = async ({
   sourceType,
   sourceRecord,
   sourceLabel = "",
+  sourceEvent = "",
   deleted = false,
 }) => {
   const transactionsCollection = db.collection("transactions");
   const sourceId = getDocumentId(sourceRecord);
   if (!sourceId) return null;
 
-  const sourceKey = `${sourceCollection}:${sourceId}`;
+  const normalizedEvent = String(sourceEvent || "").trim().toLowerCase();
+  const sourceKey = `${sourceCollection}:${sourceId}${normalizedEvent ? `:${normalizedEvent}` : ""}`;
 
   if (deleted) {
-    // Soft delete: mark existing active record(s) as deleted
+    // Soft delete: mark all related snapshot record(s) as deleted
+    const deleteFilter = {
+      sourceCollection,
+      sourceId,
+      isDeleted: { $ne: true },
+    };
+    if (normalizedEvent) {
+      deleteFilter.sourceEvent = normalizedEvent;
+    }
+
     await transactionsCollection.updateMany(
-      { sourceKey, isDeleted: { $ne: true } },
+      deleteFilter,
       {
         $set: {
           isDeleted: true,
@@ -1460,6 +1644,7 @@ export const syncTransactionSnapshot = async ({
     sourceCollection,
     sourceRecord,
     sourceLabel,
+    sourceEvent: normalizedEvent,
     operation: "upsert",
   });
 
@@ -1526,6 +1711,7 @@ export const normalizeTransactionSnapshot = (transaction = {}) => {
     sourceKey: String(transaction.sourceKey || "").trim(),
     sourceCollection: String(transaction.sourceCollection || "").trim(),
     sourceType: normalizedSourceType,
+    sourceEvent: String(transaction.sourceEvent || "").trim(),
     sourceId: String(transaction.sourceId || "").trim(),
     sourceLabel: String(transaction.sourceLabel || "").trim(),
     transactionDate: getDateOnlyString(transaction.transactionDate),

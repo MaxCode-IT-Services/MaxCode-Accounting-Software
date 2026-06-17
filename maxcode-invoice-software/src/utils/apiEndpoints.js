@@ -97,6 +97,16 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/years?id=${id}`,
   },
 
+  FIXED_DEPOSITS: {
+    LIST: "/fixed-deposits",
+    CREATE: "/fixed-deposits",
+    NEXT_NUMBER: (financialYear) =>
+      `/fixed-deposits?action=next-number${financialYear ? `&financialYear=${encodeURIComponent(financialYear)}` : ""}`,
+    GET: (id) => `/fixed-deposits?id=${id}`,
+    UPDATE: (id) => `/fixed-deposits?id=${id}`,
+    DELETE: (id) => `/fixed-deposits?id=${id}`,
+  },
+
   // Business Settings endpoints
   BUSINESS_SETTINGS: {
     GET: "/business-settings",

@@ -112,6 +112,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "fixedDepositManagement",
+    label: "Fixed Deposit Management",
+    description: "Manage fixed deposits and closure accounting",
+    icon: "fa-solid fa-piggy-bank",
+    route: "/admin/fixed-deposit-management",
+    detailed: true,
+  },
+  {
     key: "ledgerManagement",
     label: "Ledger Management",
     description: "Manage ledgers",

@@ -71,6 +71,7 @@ export async function handler(event) {
       rcm,
       paymentReceipts,
       projects,
+      fixedDeposits,
     ] = await Promise.all([
       db.collection("financialYears").find(notDeletedQuery).toArray(),
       db
@@ -131,6 +132,22 @@ export async function handler(event) {
           },
         })
         .toArray(),
+      db
+        .collection("fixedDeposits")
+        .find(notDeletedQuery, {
+          projection: {
+            _id: 1,
+            id: 1,
+            fdNumber: 1,
+            principalAmount: 1,
+            fdStatus: 1,
+            createdAt: 1,
+            createdDate: 1,
+            date: 1,
+            isDeleted: 1,
+          },
+        })
+        .toArray(),
     ]);
 
     return createResponse(
@@ -146,6 +163,7 @@ export async function handler(event) {
         rcm,
         paymentReceipts,
         projects,
+        fixedDeposits,
       },
       origin,
     );

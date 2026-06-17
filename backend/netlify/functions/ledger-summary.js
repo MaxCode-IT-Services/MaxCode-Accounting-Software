@@ -104,6 +104,11 @@ const calculateLedgerFromTransactions = (
     ownerInvestmentCredit: 0,
     ownerWithdrawalDebit: 0,
     ownerWithdrawalCredit: 0,
+    fdAssetDebit: 0,
+    fdAssetCredit: 0,
+    interestIncomeCredit: 0,
+    fdPenaltyDebit: 0,
+    fdTransactions: [],
   };
 
   // Process all transactions
@@ -158,7 +163,26 @@ const calculateLedgerFromTransactions = (
       } else if (accountHead === "Owner Withdrawal Account") {
         summary.ownerWithdrawalDebit += debit;
         summary.ownerWithdrawalCredit += credit;
+      } else if (accountHead === "Fixed Deposit Asset") {
+        summary.fdAssetDebit += debit;
+        summary.fdAssetCredit += credit;
+      } else if (accountHead === "Interest Income") {
+        summary.interestIncomeCredit += credit;
+      } else if (accountHead === "FD Early Closure Penalty") {
+        summary.fdPenaltyDebit += debit;
       }
+    }
+
+    // Track FD transactions separately for detailed display
+    if (transaction.sourceType === "fixed_deposit" || transaction.sourceType === "fixed-deposit") {
+      summary.fdTransactions.push({
+        sourceId: transaction.sourceId,
+        sourceLabel: transaction.sourceLabel,
+        sourceEvent: transaction.sourceEvent,
+        transactionDate: transaction.transactionDate,
+        amount: transaction.amount,
+        lines: transaction.lines || [],
+      });
     }
   }
 
@@ -407,6 +431,33 @@ const calculateLedgerFromTransactions = (
       },
       {
         sn: 18,
+        accountName: "Fixed Deposit Asset",
+        debit: summary.fdAssetDebit,
+        credit: summary.fdAssetCredit,
+        balance: round2(summary.fdAssetDebit - summary.fdAssetCredit),
+        balanceType: summary.fdAssetDebit >= summary.fdAssetCredit ? "Dr" : "Cr",
+        notes: "FD principal amounts held as asset",
+      },
+      {
+        sn: 19,
+        accountName: "Interest Income",
+        debit: 0,
+        credit: summary.interestIncomeCredit,
+        balance: round2(-summary.interestIncomeCredit),
+        balanceType: "Cr",
+        notes: "Interest earned from FD closures",
+      },
+      {
+        sn: 20,
+        accountName: "FD Early Closure Penalty",
+        debit: summary.fdPenaltyDebit,
+        credit: 0,
+        balance: summary.fdPenaltyDebit,
+        balanceType: "Dr",
+        notes: "Penalty charges for early FD closure",
+      },
+      {
+        sn: 21,
         accountName: "GST Payable/(Receivable)",
         debit: netGstDebit,
         credit: netGstCredit,
@@ -414,6 +465,17 @@ const calculateLedgerFromTransactions = (
         balanceType: netGstType,
         notes: "Net GST position after input set-off",
       },
+      ...((summary.fdTransactions && Array.isArray(summary.fdTransactions)) ? summary.fdTransactions.map((fd, index) => ({
+        sn: 22 + index,
+        accountName: `FD Transaction - ${fd.sourceLabel}`,
+        debit: fd.lines.reduce((sum, line) => sum + toNumber(line.debit), 0),
+        credit: fd.lines.reduce((sum, line) => sum + toNumber(line.credit), 0),
+        balance: fd.lines.reduce((sum, line) => sum + toNumber(line.debit) - toNumber(line.credit), 0),
+        balanceType: fd.lines.reduce((sum, line) => sum + toNumber(line.debit) - toNumber(line.credit), 0) >= 0 ? "Dr" : "Cr",
+        notes: `${fd.sourceEvent === "open" ? "FD Open" : "FD Close"}: ${fd.sourceLabel} on ${fd.transactionDate}`,
+        sourceEvent: fd.sourceEvent,
+        description: fd.lines.map((line) => `${line.accountHead}: Dr ${toNumber(line.debit).toFixed(2)}, Cr ${toNumber(line.credit).toFixed(2)}`).join(" | "),
+      })) : []),
     ],
   };
 };
