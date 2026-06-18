@@ -36,6 +36,7 @@ interface ExtendedFullscreenDocument extends Document {
 const PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY =
   "pdfExportSinglePageColumnsMode";
 const EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY = "exportPreserveTextColorMode";
+const ACCOUNTING_VIEW_MODE_KEY = "accountingViewMode";
 
 const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   // State management
@@ -67,6 +68,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     useState(true);
   const [cloudflareLoginCaptchaEnabled, setCloudflareLoginCaptchaEnabled] =
     useState(false);
+  const [accountingViewMode, setAccountingViewMode] = useState("professional");
   const [showCompanyTooltip, setShowCompanyTooltip] = useState(false);
   const [user, setUser] = useState({
     name: "Guest User",
@@ -155,21 +157,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
     setCircleColor(colors[Math.floor(Math.random() * colors.length)]);
   }, []);
 
-  useEffect(() => {
-    const enabled =
-      String(
-        localStorage.getItem(PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY) || "",
-      ).toLowerCase() === "true";
-    setSinglePagePdfColumnsMode(enabled);
-
-    const preserveExportTextColor =
-      String(
-        localStorage.getItem(EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY) || "",
-      ).toLowerCase() === "true";
-    setPreserveExportTextColorMode(preserveExportTextColor);
-  }, []);
-
-  // Fetch business settings feature toggles
+  // Handle responsiveness
   useEffect(() => {
     const fetchFeatureToggles = async () => {
       try {
@@ -177,23 +165,48 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
         const settings = res?.data?.settings || res?.data || {};
         const toggles = settings.featureToggles || {};
 
-        // Default to true if not explicitly set to false
+        // Load all toggles from database
         const projCredAccess =
           toggles.projectCredentialsAccessControl !== false;
         const pubPaymentWhatsapp = toggles.publicPaymentWhatsapp !== false;
         const cloudflareLoginCaptcha = toggles.cloudflareLoginCaptcha === true;
+        const viewMode = toggles.accountingViewMode || "professional";
+        const pdfSinglePageColumns = toggles.pdfExportSinglePageColumns === true;
+        const exportPreserveTextColor = toggles.exportPreserveTextColor === true;
 
         setProjectCredentialsAccessControl(projCredAccess);
         setPublicPaymentWhatsappEnabled(pubPaymentWhatsapp);
         setCloudflareLoginCaptchaEnabled(cloudflareLoginCaptcha);
+        setAccountingViewMode(viewMode);
+        setSinglePagePdfColumnsMode(pdfSinglePageColumns);
+        setPreserveExportTextColorMode(exportPreserveTextColor);
+
+        // Sync to localStorage for quick access (but source is database)
+        localStorage.setItem(ACCOUNTING_VIEW_MODE_KEY, viewMode);
+        localStorage.setItem(
+          PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY,
+          pdfSinglePageColumns ? "true" : "false"
+        );
+        localStorage.setItem(
+          EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY,
+          exportPreserveTextColor ? "true" : "false"
+        );
+
         window.dispatchEvent(
           new CustomEvent("business-settings-updated", {
             detail: { featureToggles: toggles },
           }),
         );
+
+        // Dispatch accounting view mode change event on initial load
+        window.dispatchEvent(
+          new CustomEvent("accountingViewModeChanged", {
+            detail: { viewMode },
+          }),
+        );
       } catch (err) {
         console.error("Failed to fetch feature toggles:", err);
-        // keep defaults as true
+        // keep defaults
       }
     };
 
@@ -449,10 +462,16 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   ) => {
     const enabled = event.target.checked;
     setSinglePagePdfColumnsMode(enabled);
-    localStorage.setItem(
-      PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY,
-      enabled ? "true" : "false",
-    );
+    
+    // Save to database
+    saveFeatureToggles({
+      projectCredentialsAccessControl,
+      publicPaymentWhatsapp: publicPaymentWhatsappEnabled,
+      cloudflareLoginCaptcha: cloudflareLoginCaptchaEnabled,
+      accountingViewMode,
+      pdfExportSinglePageColumns: enabled,
+      exportPreserveTextColor: preserveExportTextColorMode,
+    });
   };
 
   const handleTogglePreserveExportTextColorMode = (
@@ -460,10 +479,16 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
   ) => {
     const enabled = event.target.checked;
     setPreserveExportTextColorMode(enabled);
-    localStorage.setItem(
-      EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY,
-      enabled ? "true" : "false",
-    );
+    
+    // Save to database
+    saveFeatureToggles({
+      projectCredentialsAccessControl,
+      publicPaymentWhatsapp: publicPaymentWhatsappEnabled,
+      cloudflareLoginCaptcha: cloudflareLoginCaptchaEnabled,
+      accountingViewMode,
+      pdfExportSinglePageColumns: singlePagePdfColumnsMode,
+      exportPreserveTextColor: enabled,
+    });
   };
 
   const saveFeatureToggles = async (nextToggles: any) => {
@@ -478,16 +503,43 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       const returned = response?.data?.settings || {};
       const toggles = returned.featureToggles || nextToggles || {};
 
-      // Use same logic as fetch: anything other than false = true
+      // Load all toggles from response
       setProjectCredentialsAccessControl(
         toggles.projectCredentialsAccessControl !== false,
       );
       setPublicPaymentWhatsappEnabled(toggles.publicPaymentWhatsapp !== false);
       setCloudflareLoginCaptchaEnabled(toggles.cloudflareLoginCaptcha === true);
+      
+      const viewMode = toggles.accountingViewMode || "professional";
+      setAccountingViewMode(viewMode);
+      
+      const pdfSinglePageColumns = toggles.pdfExportSinglePageColumns === true;
+      setSinglePagePdfColumnsMode(pdfSinglePageColumns);
+      
+      const exportPreserveTextColor = toggles.exportPreserveTextColor === true;
+      setPreserveExportTextColorMode(exportPreserveTextColor);
+
+      // Sync to localStorage for quick access (source is database)
+      localStorage.setItem(ACCOUNTING_VIEW_MODE_KEY, viewMode);
+      localStorage.setItem(
+        PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY,
+        pdfSinglePageColumns ? "true" : "false"
+      );
+      localStorage.setItem(
+        EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY,
+        exportPreserveTextColor ? "true" : "false"
+      );
 
       window.dispatchEvent(
         new CustomEvent("business-settings-updated", {
           detail: { featureToggles: toggles },
+        }),
+      );
+
+      // Dispatch accounting view mode change event
+      window.dispatchEvent(
+        new CustomEvent("accountingViewModeChanged", {
+          detail: { viewMode },
         }),
       );
 
@@ -497,6 +549,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
           .then((res: any) => {
             const settings = res?.data?.settings || res?.data || {};
             const freshToggles = settings.featureToggles || {};
+            
             setProjectCredentialsAccessControl(
               freshToggles.projectCredentialsAccessControl !== false,
             );
@@ -506,9 +559,37 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
             setCloudflareLoginCaptchaEnabled(
               freshToggles.cloudflareLoginCaptcha === true,
             );
+            
+            const dbViewMode = freshToggles.accountingViewMode || "professional";
+            setAccountingViewMode(dbViewMode);
+            
+            const dbPdfSinglePageColumns = freshToggles.pdfExportSinglePageColumns === true;
+            setSinglePagePdfColumnsMode(dbPdfSinglePageColumns);
+            
+            const dbExportPreserveTextColor = freshToggles.exportPreserveTextColor === true;
+            setPreserveExportTextColorMode(dbExportPreserveTextColor);
+
+            // Sync to localStorage
+            localStorage.setItem(ACCOUNTING_VIEW_MODE_KEY, dbViewMode);
+            localStorage.setItem(
+              PDF_EXPORT_SINGLE_PAGE_COLUMNS_MODE_KEY,
+              dbPdfSinglePageColumns ? "true" : "false"
+            );
+            localStorage.setItem(
+              EXPORT_PRESERVE_TEXT_COLOR_MODE_KEY,
+              dbExportPreserveTextColor ? "true" : "false"
+            );
+            
             window.dispatchEvent(
               new CustomEvent("business-settings-updated", {
                 detail: { featureToggles: freshToggles },
+              }),
+            );
+
+            // Dispatch accounting view mode change event
+            window.dispatchEvent(
+              new CustomEvent("accountingViewModeChanged", {
+                detail: { viewMode: dbViewMode },
               }),
             );
           })
@@ -518,7 +599,6 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       }, 300);
     } catch (error) {
       console.error("Failed to save feature toggles", error);
-      // Reset to previous values on error
     }
   };
 
@@ -554,6 +634,22 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       projectCredentialsAccessControl,
       publicPaymentWhatsapp: publicPaymentWhatsappEnabled,
       cloudflareLoginCaptcha: enabled,
+    });
+  };
+
+  const handleToggleAccountingViewMode = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const isDetailed = event.target.checked;
+    const newMode = isDetailed ? "detailed" : "professional";
+    setAccountingViewMode(newMode);
+    
+    // Save to database via business settings
+    saveFeatureToggles({
+      projectCredentialsAccessControl,
+      publicPaymentWhatsapp: publicPaymentWhatsappEnabled,
+      cloudflareLoginCaptcha: cloudflareLoginCaptchaEnabled,
+      accountingViewMode: newMode,
     });
   };
 
@@ -1302,6 +1398,39 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
                           </div>
                         </div>
                       )}
+
+                      {/* Accounting View Mode - Professional/Detailed */}
+                      <div className="dropdown-item px-3 py-2 border-bottom">
+                        <div className="d-flex align-items-center justify-content-between gap-2">
+                          <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+                            <div
+                              className="fw-semibold"
+                              style={{ fontSize: "13px" }}
+                            >
+                              Show All Account Details
+                            </div>
+                            <small
+                              className="text-muted"
+                              style={{ fontSize: "11px" }}
+                            >
+                              {accountingViewMode === "detailed"
+                                ? "Detailed: View opening/closing balances & all accounts"
+                                : "Professional: Consolidated view (like Zoho/Tally)"}
+                            </small>
+                          </div>
+                          <div
+                            className="form-check form-switch"
+                            style={{ flex: "0 0 auto", marginRight: "-10px" }}
+                          >
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              checked={accountingViewMode === "detailed"}
+                              onChange={handleToggleAccountingViewMode}
+                            />
+                          </div>
+                        </div>
+                      </div>
 
                       {/* Cloudflare Login Captcha - only Super Admin */}
                       {String(user.role || "")

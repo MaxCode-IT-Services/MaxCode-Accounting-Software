@@ -30,6 +30,7 @@ const LedgerManagement = () => {
     years: "idle",
     ledger: "idle",
   });
+  const [viewMode, setViewMode] = useState("professional");
 
   const toNumber = (value) => {
     const num = parseFloat(value);
@@ -163,15 +164,29 @@ const LedgerManagement = () => {
       setSelectedFinancialYear(selectedYear);
     };
 
+    const handleAccountingViewModeChanged = (event) => {
+      const mode = event?.detail?.viewMode || "professional";
+      setViewMode(mode);
+    };
+
     window.addEventListener(
       "financialYearSelectionChanged",
       handleFinancialYearSelectionChanged,
+    );
+
+    window.addEventListener(
+      "accountingViewModeChanged",
+      handleAccountingViewModeChanged,
     );
 
     return () => {
       window.removeEventListener(
         "financialYearSelectionChanged",
         handleFinancialYearSelectionChanged,
+      );
+      window.removeEventListener(
+        "accountingViewModeChanged",
+        handleAccountingViewModeChanged,
       );
     };
   }, [loadAllData]);
@@ -246,7 +261,22 @@ const LedgerManagement = () => {
       balanceText: buildBalanceCell(row.debit, row.credit),
       balanceClass: getBalanceMeta(row.debit, row.credit).className,
     }));
-  }, [ledgerData]);
+  }, [ledgerData, viewMode]);
+
+  // Filter rows based on professional/detailed view mode
+  const filterRowsByViewMode = useCallback((allRows) => {
+    if (viewMode === "detailed") {
+      return allRows; // Show all rows in detailed mode
+    }
+
+    // Professional view: hide only duplicate/opening balance accounts, keep all Amount data
+    const hiddenAccounts = new Set([
+      "Customer Credit Balance (Overpayment)",
+      "Credit Note / Customer Refund Payable",
+    ]);
+
+    return allRows.filter((row) => !hiddenAccounts.has(row.accountName));
+  }, [viewMode]);
 
   const cards = [
     {
@@ -313,9 +343,11 @@ const LedgerManagement = () => {
   };
 
   const filteredLedgerRows = useMemo(() => {
-    if (activeCardFilter === "total") return ledgerRows;
+    const viewModeFiltered = filterRowsByViewMode(ledgerRows);
+    
+    if (activeCardFilter === "total") return viewModeFiltered;
     if (activeCardFilter === "credit") {
-      return ledgerRows.filter((row) =>
+      return viewModeFiltered.filter((row) =>
         [
           "Sales Account",
           "Credit Note / Customer Refund Payable",
@@ -329,13 +361,13 @@ const LedgerManagement = () => {
       );
     }
     if (activeCardFilter === "cash") {
-      return ledgerRows.filter((row) => row.accountName === "Cash Account");
+      return viewModeFiltered.filter((row) => row.accountName === "Cash Account");
     }
     if (activeCardFilter === "bank") {
-      return ledgerRows.filter((row) => row.accountName === "Bank Account");
+      return viewModeFiltered.filter((row) => row.accountName === "Bank Account");
     }
     if (activeCardFilter === "gst") {
-      return ledgerRows.filter((row) =>
+      return viewModeFiltered.filter((row) =>
         [
           "GST Output Account",
           "GST Input Account",
@@ -344,10 +376,10 @@ const LedgerManagement = () => {
       );
     }
     if (activeCardFilter === "year") {
-      return ledgerRows;
+      return viewModeFiltered;
     }
-    return ledgerRows;
-  }, [activeCardFilter, ledgerRows]);
+    return viewModeFiltered;
+  }, [activeCardFilter, ledgerRows, filterRowsByViewMode]);
 
   const columns = [
     { key: "sn", label: "S.No", width: 70 },

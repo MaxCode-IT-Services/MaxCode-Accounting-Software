@@ -20,6 +20,7 @@ const BalanceSheet = () => {
     years: "idle",
     balanceSheet: "idle",
   });
+  const [viewMode, setViewMode] = useState("professional");
 
   const toNumber = (value) => {
     const num = parseFloat(value);
@@ -117,15 +118,29 @@ const BalanceSheet = () => {
       setSelectedFinancialYear(selectedYear);
     };
 
+    const handleAccountingViewModeChanged = (event) => {
+      const mode = event?.detail?.viewMode || "professional";
+      setViewMode(mode);
+    };
+
     window.addEventListener(
       "financialYearSelectionChanged",
       handleFinancialYearSelectionChanged,
+    );
+
+    window.addEventListener(
+      "accountingViewModeChanged",
+      handleAccountingViewModeChanged,
     );
 
     return () => {
       window.removeEventListener(
         "financialYearSelectionChanged",
         handleFinancialYearSelectionChanged,
+      );
+      window.removeEventListener(
+        "accountingViewModeChanged",
+        handleAccountingViewModeChanged,
       );
     };
   }, [loadAllData]);
@@ -457,10 +472,31 @@ const BalanceSheet = () => {
     ownerInvestment,
     ownerWithdrawal,
     retainedEarnings,
+    viewMode,
   ]);
 
+  // Filter rows based on professional/detailed view mode
+  const filterRowsByViewMode = useCallback((allRows) => {
+    if (viewMode === "detailed") {
+      return allRows; // Show all rows in detailed mode
+    }
+
+    // Professional view: hide only duplicate opening balance rows and calculation rows
+    // But keep all Amount data visible
+    const hiddenAccounts = new Set([
+      "Cash (Opening)",
+      "Bank (Opening)",
+      "Capital (Opening)",
+      "Retained Earnings / Current Profit (Calculated)",
+    ]);
+
+    return allRows.filter((row) => !hiddenAccounts.has(row.account));
+  }, [viewMode]);
+
   const filteredRows = useMemo(() => {
-    if (activeCardFilter === "all") return rows;
+    const viewModeFiltered = filterRowsByViewMode(rows);
+    
+    if (activeCardFilter === "all") return viewModeFiltered;
 
     const filterMap = {
       cashOpen: "Cash (Opening)",
@@ -470,23 +506,23 @@ const BalanceSheet = () => {
     };
 
     if (filterMap[activeCardFilter]) {
-      return rows.filter((row) => row.account === filterMap[activeCardFilter]);
+      return viewModeFiltered.filter((row) => row.account === filterMap[activeCardFilter]);
     }
 
     if (activeCardFilter === "totalAssets") {
-      return rows.filter((row) => row.section === "Assets");
+      return viewModeFiltered.filter((row) => row.section === "Assets");
     }
 
     if (activeCardFilter === "totalLiabilities") {
-      return rows.filter(
+      return viewModeFiltered.filter(
         (row) =>
           row.section === "Liabilities" ||
           row.section === "Liabilities & Equity",
       );
     }
 
-    return rows;
-  }, [rows, activeCardFilter]);
+    return viewModeFiltered;
+  }, [rows, activeCardFilter, filterRowsByViewMode]);
 
   const handleCardClick = (cardKey) => {
     setActiveCardFilter(activeCardFilter === cardKey ? "all" : cardKey);

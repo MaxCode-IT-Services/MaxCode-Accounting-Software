@@ -393,6 +393,9 @@ const sanitizeFeatureToggles = (value = {}) => {
       value.projectCredentialsAccessControl !== false,
     publicPaymentWhatsapp: value.publicPaymentWhatsapp !== false,
     cloudflareLoginCaptcha: value.cloudflareLoginCaptcha === true,
+    accountingViewMode: value.accountingViewMode || "professional",
+    pdfExportSinglePageColumns: value.pdfExportSinglePageColumns === true,
+    exportPreserveTextColor: value.exportPreserveTextColor === true,
   };
 };
 
