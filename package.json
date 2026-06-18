@@ -40,6 +40,6 @@
   "author": "MaxCode",
   "license": "MIT",
   "dependencies": {
-    "bson": "^7.2.0"
+    "bson": "^6.10.0"
   }
 }
