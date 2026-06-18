@@ -38,7 +38,7 @@ const RESTORE_INSERT_BATCH_SIZE = 500;
 
 const GLOBAL_SETTINGS_SCOPE = "global";
 
-const getSharedBusinessSettings = async (db, fallbackUserId) => {
+export const getSharedBusinessSettings = async (db, fallbackUserId) => {
   const collection = db.collection("business_settings");
 
   const globalSettings = await collection.findOne({
@@ -68,7 +68,7 @@ const getSharedBusinessSettings = async (db, fallbackUserId) => {
   );
 };
 
-const getDynamicCollectionNames = async (db) => {
+export const getDynamicCollectionNames = async (db) => {
   try {
     const allCollections = await db
       .listCollections({}, { nameOnly: true })
@@ -95,7 +95,7 @@ const getDynamicCollectionNames = async (db) => {
   }
 };
 
-const toTrimmedString = (value) => {
+export const toTrimmedString = (value) => {
   if (value === undefined || value === null) return "";
   return String(value).trim();
 };
@@ -111,7 +111,7 @@ const maskSecretValue = (value = "") => {
   return SECRET_MASK;
 };
 
-const maskDriveConfigForResponse = (config = {}) => {
+export const maskDriveConfigForResponse = (config = {}) => {
   if (!config || typeof config !== "object") {
     return {
       enabled: false,
@@ -166,7 +166,7 @@ const maskDriveConfigForResponse = (config = {}) => {
   };
 };
 
-const normalizeDriveConfigSecrets = (config = {}) => {
+export const normalizeDriveConfigSecrets = (config = {}) => {
   if (!config || typeof config !== "object") {
     return {};
   }
@@ -187,7 +187,7 @@ const normalizeDriveConfigSecrets = (config = {}) => {
   };
 };
 
-const mergeDriveConfigWithStored = (incoming = {}, stored = {}) => {
+export const mergeDriveConfigWithStored = (incoming = {}, stored = {}) => {
   const incomingConfig =
     incoming && typeof incoming === "object" ? incoming : {};
   const storedConfig = stored && typeof stored === "object" ? stored : {};
@@ -214,10 +214,10 @@ const mergeDriveConfigWithStored = (incoming = {}, stored = {}) => {
   };
 };
 
-const getApiKeyFromRequest = (event) =>
+export const getApiKeyFromRequest = (event) =>
   event.headers["x-api-key"] || event.headers["X-API-Key"];
 
-const hasValidBackupApiKey = (event) => {
+export const hasValidBackupApiKey = (event) => {
   const backupApiKey = process.env.BACKUP_API_KEY;
   const requestApiKey = getApiKeyFromRequest(event);
 
@@ -236,7 +236,7 @@ const validateJwtAccess = (event) => {
   return decoded;
 };
 
-const buildBackupPayload = async (db, options = {}) => {
+export const buildBackupPayload = async (db, options = {}) => {
   const requestedCollections = Array.isArray(options.collectionNames)
     ? options.collectionNames
     : null;
@@ -318,7 +318,7 @@ const insertDocumentsInBatches = async ({
   }
 };
 
-const getBackupStats = (backupData) => {
+export const getBackupStats = (backupData) => {
   const totalRecords = Object.values(backupData.collections || {}).reduce(
     (sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0),
     0,
@@ -531,7 +531,7 @@ const restoreBackupData = async (client, db, backupData, userId) => {
   };
 };
 
-const validateDriveConfigPayload = (config = {}) => {
+export const validateDriveConfigPayload = (config = {}) => {
   const enabled = Boolean(config.enabled);
 
   if (!enabled) {
@@ -573,7 +573,7 @@ const validateDriveConfigPayload = (config = {}) => {
  * @param {Object} driveConfig
  * @returns {Promise<string>}
  */
-const getGoogleAccessToken = async (driveConfig) => {
+export const getGoogleAccessToken = async (driveConfig) => {
   try {
     const params = new URLSearchParams({
       client_id: toTrimmedString(driveConfig.clientId),
@@ -620,7 +620,7 @@ const getGoogleAccessToken = async (driveConfig) => {
  * @param {string} trigger - Trigger type (manual/automated)
  * @returns {Promise<Object>} Upload result with fileId and fileUrl
  */
-const uploadToGoogleDrive = async (
+export const uploadToGoogleDrive = async (
   driveConfig,
   backupData,
   trigger = "manual",
@@ -742,7 +742,7 @@ const uploadToGoogleDrive = async (
  * @param {Object} driveConfig - Google Drive configuration
  * @returns {Promise<Object>} Test result
  */
-const testGoogleDriveConnection = async (driveConfig) => {
+export const testGoogleDriveConnection = async (driveConfig) => {
   try {
     const accessToken = await getGoogleAccessToken(driveConfig);
 
