@@ -470,9 +470,9 @@ const Home = () => {
                 Complete Business Billing, Accounting & GST Platform
               </h1>
               <p className="hero-text">
-                Aapke software ke saare core modules ek unified dashboard me.
-                Client management se balance sheet tak full workflow fast, clean
-                aur team-friendly experience ke saath.
+                All core modules of your software in one unified dashboard.
+                Complete workflow from client management to balance sheet — fast,
+                clean, and designed for teams.
               </p>
 
               <div className="d-flex flex-wrap gap-3">

@@ -15511,6 +15511,14 @@ html[data-bs-theme="dark"] .table-light {
   display: none;
 }
 
+.app-sidebar-menu .simplebar-scrollbar {
+  width: 6px;
+}
+
+.app-sidebar-menu .simplebar-scrollbar::before {
+  width: 6px;
+}
+
 .simplebar-content:after,
 .simplebar-content:before {
   content: " ";

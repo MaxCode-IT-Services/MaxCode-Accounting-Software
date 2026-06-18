@@ -1438,7 +1438,7 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
             <div
               className="h-100"
               data-simplebar
-              style={{ minHeight: 0, overflowY: "auto", flex: "1 1 auto" }}
+              style={{ minHeight: 0, overflowY: "auto", flex: "1 1 auto", scrollbarWidth: "thin" }}
             >
               <div id="sidebar-menu">
                 {!isMobile && (
