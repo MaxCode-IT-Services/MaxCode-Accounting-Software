@@ -46,17 +46,16 @@ const parseTimeToMinutes = (timeStr) => {
 };
 
 /**
- * Get the current time in a given IANA timezone, returning total minutes.
- * Falls back to UTC if the timezone is invalid.
- * @param {string} timezone
+ * Get the current time in IST (Asia/Kolkata) — since the app is for Indian users
+ * and the BackupTab shows times in IST, we default to IST.
  * @returns {{ minutes: number, day: number, date: number, month: number, year: number, hour: number, weekday: number }}
  */
-const getCurrentTimeInTimezone = (timezone) => {
+const getCurrentTimeInIST = () => {
   const now = new Date();
-  const tz = toTrimmedString(timezone) || "UTC";
+  const timezone = "Asia/Kolkata";
   try {
     const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
+      timeZone: timezone,
       hour: "numeric",
       minute: "numeric",
       hour12: false,
@@ -74,7 +73,6 @@ const getCurrentTimeInTimezone = (timezone) => {
     const month = get("month");
     const year = get("year");
 
-    // Weekday mapping: Intl returns short names like "Mon", "Tue"…
     const weekdayMap = {
       sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
     };
@@ -82,15 +80,19 @@ const getCurrentTimeInTimezone = (timezone) => {
 
     return { minutes: hour * 60 + minute, day, date: day, month, year, hour, weekday };
   } catch {
-    // Fallback to UTC
+    // Fallback to UTC calculation + 5:30 for IST
+    const istOffset = 5.5 * 60;
+    const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const istMinutes = (utcMinutes + istOffset) % (24 * 60);
+    const istDate = new Date(now.getTime() + istOffset * 60 * 1000);
     return {
-      minutes: now.getUTCHours() * 60 + now.getUTCMinutes(),
-      day: now.getUTCDate(),
-      date: now.getUTCDate(),
-      month: now.getUTCMonth() + 1,
-      year: now.getUTCFullYear(),
-      hour: now.getUTCHours(),
-      weekday: now.getUTCDay(),
+      minutes: istMinutes,
+      day: istDate.getUTCDate(),
+      date: istDate.getUTCDate(),
+      month: istDate.getUTCMonth() + 1,
+      year: istDate.getUTCFullYear(),
+      hour: Math.floor(istMinutes / 60),
+      weekday: istDate.getUTCDay(),
     };
   }
 };
@@ -218,8 +220,8 @@ export async function handler(event) {
       { sort: { triggeredAt: -1 } },
     );
 
-    // 5. Determine current time in configured timezone
-    const nowTime = getCurrentTimeInTimezone(backupSettings.timezone);
+    // 5. Determine current time in IST
+    const nowTime = getCurrentTimeInIST();
 
     // 6. Check if we should run now
     if (!shouldRunBackup(backupSettings, lastRun, nowTime)) {
@@ -264,13 +266,7 @@ export async function handler(event) {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
-        message: "Scheduled automated backup completed and uploaded to Google Drive",
-        stats,
-        drive: {
-          fileName: uploadResult.fileName,
-          fileUrl: uploadResult.fileUrl,
-          fileSize: uploadResult.fileSize,
-        },
+        message: "Backup completed successfully",
         timestamp: new Date().toISOString(),
       }),
     };
@@ -297,6 +293,7 @@ export async function handler(event) {
       body: JSON.stringify({
         success: false,
         error: `Scheduled backup failed: ${error.message}`,
+        timestamp: new Date().toISOString(),
       }),
     };
   }

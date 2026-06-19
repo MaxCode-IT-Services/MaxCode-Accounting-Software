@@ -15,7 +15,8 @@
  *   Requires X-Api-Key header matching the BACKUP_API_KEY environment variable.
  *
  * Response:
- *   JSON with { success, message, stats, drive, timestamp }
+ *   Success: { success: true, message: "...", timestamp: "..." }
+ *   Error:   { success: false, error: "...", timestamp: "..." }
  *
  * Example cron-job.org config:
  *   URL:     https://your-site.netlify.app/api/backup-cron
@@ -154,13 +155,7 @@ export async function handler(event) {
 
     return createResponse(200, {
       success: true,
-      message: "Backup completed and uploaded to Google Drive successfully",
-      stats,
-      drive: {
-        fileName: uploadResult.fileName,
-        fileUrl: uploadResult.fileUrl,
-        fileSize: uploadResult.fileSize,
-      },
+      message: "Backup completed successfully",
       timestamp: new Date().toISOString(),
     }, origin);
   } catch (error) {

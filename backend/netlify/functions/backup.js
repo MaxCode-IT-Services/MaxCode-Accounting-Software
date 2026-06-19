@@ -1273,13 +1273,8 @@ export async function handler(event) {
             200,
             {
               success: true,
-              message: `Automated backup uploaded to Google Drive successfully`,
-              stats,
-              drive: {
-                fileName: uploadResult.fileName,
-                fileUrl: uploadResult.fileUrl,
-                fileSize: uploadResult.fileSize,
-              },
+              message: "Backup completed successfully",
+              timestamp: new Date().toISOString(),
             },
             origin,
           );
@@ -1298,8 +1293,8 @@ export async function handler(event) {
             500,
             {
               success: false,
-              error: `Automated backup upload failed: ${error.message}`,
-              stats,
+              error: `Automated backup failed: ${error.message}`,
+              timestamp: new Date().toISOString(),
             },
             origin,
           );
@@ -1326,8 +1321,9 @@ export async function handler(event) {
     return createResponse(
       500,
       {
+        success: false,
         error: "Failed to create backup",
-        message: "Backup request failed",
+        timestamp: new Date().toISOString(),
       },
       origin,
     );
