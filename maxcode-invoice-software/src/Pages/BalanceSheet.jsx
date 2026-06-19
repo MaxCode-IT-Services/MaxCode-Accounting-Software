@@ -269,6 +269,8 @@ const BalanceSheet = () => {
           return "Input GST available for claim or refund";
         case "Inventory":
           return "Closing stock value";
+        case "Fixed Deposits":
+          return "Fixed deposit investments held as assets";
         case "Accounts Payable (Sundry Creditors)":
           return "Amount payable to suppliers for unpaid purchases";
         case "GST Payable":

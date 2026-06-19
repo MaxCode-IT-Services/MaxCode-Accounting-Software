@@ -541,6 +541,7 @@ const LedgerManagement = () => {
           "credit",
           "balanceText",
           "notes",
+          "description",
         ]}
         tableTitle="Ledger Register"
         showColumnSelector={true}
