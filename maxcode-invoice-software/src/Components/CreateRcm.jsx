@@ -77,6 +77,7 @@ const CreateRcm = ({
   const [selectedRcmFile, setSelectedRcmFile] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
+  const [roundingEnabled, setRoundingEnabled] = useState(true);
 
   useEffect(() => {
     if (show) {
@@ -209,6 +210,7 @@ const CreateRcm = ({
         setTaxData(editingRecord.taxData);
       }
       setSelectedRcmFile(null);
+      setRoundingEnabled(editingRecord.roundingEnabled !== false);
     } else {
       resetForm();
     }
@@ -298,6 +300,7 @@ const CreateRcm = ({
     });
     setErrors({});
     setSelectedRcmFile(null);
+    setRoundingEnabled(true);
   };
 
   const handleRcmFileChange = (e) => {
@@ -376,6 +379,8 @@ const CreateRcm = ({
     let roundValue;
     if (manualRoundingAmount !== null && manualRoundingAmount !== undefined) {
       roundValue = toNumber(manualRoundingAmount);
+    } else if (!roundingEnabled) {
+      roundValue = 0;
     } else {
       const decimalPart = subtotalWithTax - Math.floor(subtotalWithTax);
       if (decimalPart <= 0.5) {
@@ -468,6 +473,12 @@ const CreateRcm = ({
     }));
     calculateTotals(items, taxData.taxPercentage, value);
   };
+
+  // Recalculate when rounding toggle changes
+  useEffect(() => {
+    if (!show) return;
+    calculateTotals(items, taxData.taxPercentage, null);
+  }, [roundingEnabled]);
 
   const handleTdsPercentChange = (e) => {
     const value = e.target.value;
@@ -648,6 +659,7 @@ const CreateRcm = ({
         const submitData = {
           ...formData,
           placeOfSupply: "Rajasthan (08)",
+          roundingEnabled: roundingEnabled,
           items: items,
           taxData: {
             ...taxData,
@@ -1374,11 +1386,29 @@ const CreateRcm = ({
                     className="card shadow-sm border-0"
                     style={{ backgroundColor: "#f8f9fa" }}
                   >
-                    <div className="card-header bg-success rounded-top-3 text-white">
+                    <div className="card-header bg-success rounded-top-3 text-white d-flex justify-content-between align-items-center">
                       <h6 className="mb-0">
                         <i className="fas fa-receipt me-2"></i>Amount
                         Calculation
                       </h6>
+                      <div className="form-check form-switch mb-0">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="rcmRoundingToggle"
+                          checked={roundingEnabled}
+                          onChange={(e) => setRoundingEnabled(e.target.checked)}
+                          disabled={isViewMode}
+                          style={{ cursor: isViewMode ? "not-allowed" : "pointer" }}
+                        />
+                        <label
+                          className="form-check-label text-white ms-1"
+                          htmlFor="rcmRoundingToggle"
+                          style={{ fontSize: "0.8rem", cursor: isViewMode ? "not-allowed" : "pointer" }}
+                        >
+                          {roundingEnabled ? "Rounding ON" : "Rounding OFF"}
+                        </label>
+                      </div>
                     </div>
                     <div className="card-body">
                       <div className="row">
@@ -1502,14 +1532,19 @@ const CreateRcm = ({
                           >
                             <i className="fas fa-adjust me-2 text-secondary"></i>
                             Rounding Amount
+                            {!roundingEnabled && (
+                              <span className="badge bg-warning text-dark ms-2" style={{ fontSize: "0.65rem" }}>
+                                Disabled
+                              </span>
+                            )}
                           </label>
                           <div className="input-group">
-                            <span className="input-group-text bg-secondary text-white">
+                            <span className={`input-group-text ${!roundingEnabled ? "bg-light text-muted" : "bg-secondary text-white"}`}>
                               ₹
                             </span>
                             <input
                               type="text"
-                              className="form-control modern-input"
+                              className={`form-control modern-input ${!roundingEnabled ? "bg-light" : ""}`}
                               id="roundingAmount"
                               name="roundingAmount"
                               value={formData.roundingAmount}
@@ -1517,7 +1552,7 @@ const CreateRcm = ({
                                 handleNumberInput(e);
                                 handleRoundingChange(e);
                               }}
-                              readOnly={isViewMode}
+                              readOnly={isViewMode || !roundingEnabled}
                             />
                           </div>
                         </div>

@@ -115,6 +115,7 @@ const CreateSales = ({
   const [submitting, setSubmitting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
+  const [roundingEnabled, setRoundingEnabled] = useState(true);
   const clientSearchDebounceRef = useRef(null);
   const clientAbortControllerRef = useRef(null);
   const clientLoadingResetRef = useRef(null);
@@ -392,6 +393,7 @@ const CreateSales = ({
         }));
         setAppliedAdvances(restored);
       }
+      setRoundingEnabled(editingRecord.roundingEnabled !== false);
     } else {
       baseRegularReceivedRef.current = 0;
       lockedRegularPaymentDateRef.current = "";
@@ -550,6 +552,7 @@ const CreateSales = ({
     setErrors({});
     setAvailableAdvances([]);
     setAppliedAdvances([]);
+    setRoundingEnabled(true);
   };
 
   const toNumber = (value) => {
@@ -731,6 +734,8 @@ const CreateSales = ({
     let roundValue;
     if (manualRoundingAmount !== null && manualRoundingAmount !== undefined) {
       roundValue = toNumber(manualRoundingAmount);
+    } else if (!roundingEnabled) {
+      roundValue = 0;
     } else {
       const decimalPart = subtotalWithTax - Math.floor(subtotalWithTax);
       if (decimalPart <= 0.5) {
@@ -1134,6 +1139,12 @@ const CreateSales = ({
     calculateTotals(items, taxData.taxPercentage, value);
   };
 
+  // Recalculate when rounding toggle changes
+  useEffect(() => {
+    if (!show) return;
+    calculateTotals(items, taxData.taxPercentage, null);
+  }, [roundingEnabled]);
+
   const handleTdsPercentChange = (e) => {
     const value = e.target.value;
     setFormData((prev) => ({
@@ -1307,6 +1318,7 @@ const CreateSales = ({
         // Build submitData but do NOT include _id (MongoDB does not allow updating _id)
         const submitData = {
           ...formData,
+          roundingEnabled: roundingEnabled,
           dueAmount: dueAmount.toFixed(2),
           items: items,
           taxData: taxData,
@@ -2001,11 +2013,29 @@ const CreateSales = ({
                     className="card shadow-sm border-0"
                     style={{ backgroundColor: "#f8f9fa" }}
                   >
-                    <div className="card-header bg-success rounded-top-3 text-white">
+                    <div className="card-header bg-success rounded-top-3 text-white d-flex justify-content-between align-items-center">
                       <h6 className="mb-0">
                         <i className="fas fa-receipt me-2"></i>Amount
                         Calculation
                       </h6>
+                      <div className="form-check form-switch mb-0">
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id="salesRoundingToggle"
+                          checked={roundingEnabled}
+                          onChange={(e) => setRoundingEnabled(e.target.checked)}
+                          disabled={isViewMode}
+                          style={{ cursor: isViewMode ? "not-allowed" : "pointer" }}
+                        />
+                        <label
+                          className="form-check-label text-white ms-1"
+                          htmlFor="salesRoundingToggle"
+                          style={{ fontSize: "0.8rem", cursor: isViewMode ? "not-allowed" : "pointer" }}
+                        >
+                          {roundingEnabled ? "Rounding ON" : "Rounding OFF"}
+                        </label>
+                      </div>
                     </div>
                     <div className="card-body">
                       <div className="row">
@@ -2141,14 +2171,19 @@ const CreateSales = ({
                           >
                             <i className="fas fa-adjust me-2 text-secondary"></i>
                             Rounding Amount
+                            {!roundingEnabled && (
+                              <span className="badge bg-warning text-dark ms-2" style={{ fontSize: "0.65rem" }}>
+                                Disabled
+                              </span>
+                            )}
                           </label>
                           <div className="input-group">
-                            <span className="input-group-text bg-secondary text-white">
+                            <span className={`input-group-text ${!roundingEnabled ? "bg-light text-muted" : "bg-secondary text-white"}`}>
                               ₹
                             </span>
                             <input
                               type="text"
-                              className="form-control modern-input"
+                              className={`form-control modern-input ${!roundingEnabled ? "bg-light" : ""}`}
                               id="roundingAmount"
                               name="roundingAmount"
                               value={formData.roundingAmount}
@@ -2156,7 +2191,7 @@ const CreateSales = ({
                                 handleNumberInput(e);
                                 handleRoundingChange(e);
                               }}
-                              readOnly={isViewMode}
+                              readOnly={isViewMode || !roundingEnabled}
                             />
                           </div>
                         </div>

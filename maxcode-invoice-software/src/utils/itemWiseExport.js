@@ -81,6 +81,7 @@ const buildItemWiseRows = ({
   partyLabel,
   dateKey = "invoiceDate",
   partyDetails = {},
+  originalRefNoKey,
 }) => {
   const rows = [];
 
@@ -171,6 +172,7 @@ const buildItemWiseRows = ({
         sn: itemIndex === 0 ? invoiceSerial : "",
         invoiceNumber: getValueByKey(record, invoiceNumberKey),
         invoiceDate: formatDate(record?.[dateKey]),
+        originalRefNo: originalRefNoKey ? getValueByKey(record, originalRefNoKey) : undefined,
         partyName: getValueByKey(record, partyNameKey),
         businessName: record?.businessName || "",
         gstin: getValueByKey(record, partyDetails.gstinKey),
@@ -197,6 +199,7 @@ const buildItemWiseRows = ({
       sn: "",
       invoiceNumber: "",
       invoiceDate: "",
+      originalRefNo: "",
       partyName: "",
       businessName: "",
       gstin: "",
@@ -231,6 +234,7 @@ const buildItemWiseRows = ({
     sn: "",
     invoiceNumber: "",
     invoiceDate: "",
+    originalRefNo: "",
     partyName: "",
     businessName: "",
     gstin: "",
@@ -265,6 +269,10 @@ export const exportItemWiseExcel = ({
   partyLabel,
   dateKey,
   partyDetails,
+  originalRefNoKey,
+  invoiceNumberLabel,
+  dateLabel,
+  hideBusinessName,
 }) => {
   const rows = buildItemWiseRows({
     records,
@@ -273,55 +281,77 @@ export const exportItemWiseExcel = ({
     partyLabel,
     dateKey,
     partyDetails,
+    originalRefNoKey,
   });
 
-  const exportRows = rows.map((row) => ({
-    "S.No": row.sn,
-    "Invoice No": row.invoiceNumber,
-    "Invoice Date": row.invoiceDate,
-    [row.partyLabel]: row.partyName,
-    "Business Name": row.businessName,
-    GSTIN: row.gstin,
-    Address: row.address,
-    "Place Of Supply": row.placeOfSupply,
-    "Item Name": row.itemName,
-    "HSN/SAC": row.hsnCode,
-    Quantity: row.quantity,
-    Price: row.price,
-    Amount: row.amount,
-    "Tax %": row.taxPercent,
-    CGST: row.cgst,
-    SGST: row.sgst,
-    IGST: row.igst,
-    Tax: row.tax,
-    "Round Off": row.rounding,
-    "Total Amount": row.totalAmount,
-  }));
+  const exportRows = rows.map((row) => {
+    const mapped = {
+      "S.No": row.sn,
+      [invoiceNumberLabel || "Invoice No"]: row.invoiceNumber,
+      [dateLabel || "Invoice Date"]: row.invoiceDate,
+    };
+    if (originalRefNoKey) {
+      mapped["Supplier Invoice No"] = row.originalRefNo ?? "";
+    }
+    mapped[row.partyLabel] = row.partyName;
+    if (!hideBusinessName) {
+      mapped["Business Name"] = row.businessName;
+    }
+    mapped.GSTIN = row.gstin;
+    mapped.Address = row.address;
+    mapped["Place Of Supply"] = row.placeOfSupply;
+    mapped["Item Name"] = row.itemName;
+    mapped["HSN/SAC"] = row.hsnCode;
+    mapped.Quantity = row.quantity;
+    mapped.Price = row.price;
+    mapped.Amount = row.amount;
+    mapped["Tax %"] = row.taxPercent;
+    mapped.CGST = row.cgst;
+    mapped.SGST = row.sgst;
+    mapped.IGST = row.igst;
+    mapped.Tax = row.tax;
+    mapped["Round Off"] = row.rounding;
+    mapped["Total Amount"] = row.totalAmount;
+    return mapped;
+  });
 
   const ws = XLSX.utils.json_to_sheet(exportRows);
 
-  ws["!cols"] = [
-    { width: 8 },
-    { width: 16 },
-    { width: 14 },
-    { width: 24 },
-    { width: 26 },
-    { width: 24 },
-    { width: 30 },
-    { width: 16 },
-    { width: 24 },
-    { width: 12 },
-    { width: 10 },
-    { width: 12 },
-    { width: 10 },
-    { width: 12 },
-    { width: 12 },
-    { width: 12 },
-    { width: 14 },
-    { width: 12 },
-    { width: 12 },
-    { width: 16 },
+  // Dynamic column widths based on actual columns
+  const colCount = Object.keys(exportRows[0] || {}).length;
+  const defaultWidths = [
+    { width: 8 },   // S.No
+    { width: 16 },  // Invoice No
+    { width: 14 },  // Invoice Date
   ];
+  if (originalRefNoKey) {
+    defaultWidths.push({ width: 16 }); // Supplier Invoice No
+  }
+  defaultWidths.push(
+    { width: 24 },  // Party Name
+  );
+  if (!hideBusinessName) {
+    defaultWidths.push({ width: 26 }); // Business Name
+  }
+  defaultWidths.push(
+    { width: 24 },  // GSTIN
+    { width: 30 },  // Address
+    { width: 16 },  // Place Of Supply
+    { width: 24 },  // Item Name
+    { width: 12 },  // HSN/SAC
+    { width: 10 },  // Quantity
+    { width: 12 },  // Price
+    { width: 10 },  // Amount
+    { width: 12 },  // Tax %
+    { width: 12 },  // CGST
+    { width: 12 },  // SGST
+    { width: 14 },  // IGST
+    { width: 12 },  // Tax
+    { width: 12 },  // Round Off
+    { width: 16 },  // Total Amount
+  );
+
+  ws["!cols"] = defaultWidths;
 
   ws["!freeze"] = {
     xSplit: 0,
@@ -395,6 +425,10 @@ export const exportItemWisePDF = ({
   partyLabel,
   dateKey,
   partyDetails,
+  originalRefNoKey,
+  invoiceNumberLabel,
+  dateLabel,
+  hideBusinessName,
 }) => {
   const rows = buildItemWiseRows({
     records,
@@ -403,6 +437,7 @@ export const exportItemWisePDF = ({
     partyLabel,
     dateKey,
     partyDetails,
+    originalRefNoKey,
   });
 
   // Check if single page PDF columns mode is enabled
@@ -447,28 +482,38 @@ export const exportItemWisePDF = ({
       .trim();
   };
 
-  const tableBody = rows.map((row) => [
-    row.sn,
-    cleanText(row.invoiceNumber),
-    cleanText(row.invoiceDate),
-    cleanText(row.partyName),
-    cleanText(row.businessName),
-    cleanText(row.gstin),
-    cleanText(row.address),
-    cleanText(row.placeOfSupply),
-    cleanText(row.itemName),
-    cleanText(row.hsnCode),
-    row.quantity,
-    row.price,
-    row.amount,
-    row.taxPercent,
-    row.cgst,
-    row.sgst,
-    row.igst,
-    row.tax,
-    row.rounding,
-    row.totalAmount,
-  ]);
+  const tableBody = rows.map((row) => {
+    const cells = [
+      row.sn,
+      cleanText(row.invoiceNumber),
+      cleanText(row.invoiceDate),
+    ];
+    if (originalRefNoKey) {
+      cells.push(cleanText(row.originalRefNo));
+    }
+    cells.push(cleanText(row.partyName));
+    if (!hideBusinessName) {
+      cells.push(cleanText(row.businessName));
+    }
+    cells.push(
+      cleanText(row.gstin),
+      cleanText(row.address),
+      cleanText(row.placeOfSupply),
+      cleanText(row.itemName),
+      cleanText(row.hsnCode),
+      row.quantity,
+      row.price,
+      row.amount,
+      row.taxPercent,
+      row.cgst,
+      row.sgst,
+      row.igst,
+      row.tax,
+      row.rounding,
+      row.totalAmount,
+    );
+    return cells;
+  });
 
   // Title
   doc.setFontSize(18);
@@ -497,10 +542,11 @@ export const exportItemWisePDF = ({
 
   const tableHead = [
     "S.No",
-    "Invoice No",
-    "Invoice Date",
+    invoiceNumberLabel || "Invoice No",
+    dateLabel || "Invoice Date",
+    ...(originalRefNoKey ? ["Supplier Invoice No"] : []),
     partyLabel,
-    "Business Name",
+    ...(!hideBusinessName ? ["Business Name"] : []),
     "GSTIN",
     "Address",
     "Place Of Supply",
