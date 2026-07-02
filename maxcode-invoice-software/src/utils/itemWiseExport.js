@@ -720,50 +720,76 @@ export const exportItemWisePDF = ({
       theme: "grid",
     });
   } else {
-    // Original fixed column widths
-    columnStyles = {
-      0: { cellWidth: 10, halign: "center", minCellHeight: 7 },
-      1: { cellWidth: 22, halign: "center", minCellHeight: 7 },
-      2: { cellWidth: 20, halign: "center", minCellHeight: 7 },
-      3: { cellWidth: 32, halign: "left", minCellHeight: 7 },
-      4: { cellWidth: 26, halign: "center", minCellHeight: 7 },
-      5: { cellWidth: 36, halign: "left", minCellHeight: 7 },
-      6: { cellWidth: 26, halign: "left", minCellHeight: 7 },
-      7: { cellWidth: 32, halign: "left", minCellHeight: 7 },
-      8: { cellWidth: 18, halign: "center", minCellHeight: 7 },
-      9: { cellWidth: 13, halign: "right", minCellHeight: 7 },
-      10: { cellWidth: 16, halign: "right", minCellHeight: 7 },
-      11: { cellWidth: 18, halign: "right", minCellHeight: 7 },
-      12: { cellWidth: 13, halign: "center", minCellHeight: 7 },
-      13: { cellWidth: 15, halign: "right", minCellHeight: 7 },
-      14: { cellWidth: 15, halign: "right", minCellHeight: 7 },
-      15: { cellWidth: 15, halign: "right", minCellHeight: 7 },
-      16: { cellWidth: 15, halign: "right", minCellHeight: 7 },
-      17: { cellWidth: 15, halign: "right", minCellHeight: 7 },
-      18: { cellWidth: 20, halign: "right", minCellHeight: 7 },
-    };
+    // Fixed font size mode — no content wrapping, columns overflow to next page
+    const fixedFontSize = 7;
+    const fixedHeaderFontSize = 8;
+    const fixedCellPadding = 1.5;
+    const horizontalPadding = fixedCellPadding * 2;
+
+    // Measure each column's required width based on content at fixed font size
+    const PDF_WIDTH_MEASUREMENT_SAMPLE_SIZE = 100;
+    const measurementRows =
+      tableBody.length > PDF_WIDTH_MEASUREMENT_SAMPLE_SIZE
+        ? tableBody.slice(0, PDF_WIDTH_MEASUREMENT_SAMPLE_SIZE)
+        : tableBody;
+
+    const measuredWidths = tableHead.map((label, columnIndex) => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(fixedHeaderFontSize);
+      const headerWidth = doc.getTextWidth(String(label || ""));
+
+      const maxBodyWidth = measurementRows.reduce((maxWidth, row) => {
+        const cellValue = String(row?.[columnIndex] ?? "");
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(fixedFontSize);
+        return Math.max(maxWidth, doc.getTextWidth(cellValue));
+      }, 0);
+
+      const preferredWidth =
+        Math.max(headerWidth, maxBodyWidth) + horizontalPadding + 1;
+      return Math.max(8, preferredWidth);
+    });
+
+    columnStyles = measuredWidths.reduce((styles, width, columnIndex) => {
+      styles[columnIndex] = {
+        cellWidth: width,
+        halign:
+          columnIndex === 0
+            ? "center"
+            : columnIndex >= tableHead.indexOf("Item Name") &&
+                columnIndex <= tableHead.indexOf("HSN/SAC")
+              ? "left"
+              : columnIndex >= tableHead.indexOf("Qty")
+                ? "right"
+                : "left",
+        valign: "middle",
+      };
+      return styles;
+    }, {});
+
+    // Fix S.No and small columns to centered
+    if (columnStyles[0]) columnStyles[0].halign = "center";
 
     autoTable(doc, {
       head: [tableHead],
       body: tableBody,
       startY: 30,
       styles: {
-        fontSize: 7,
-        cellPadding: 1.5,
-        overflow: "linebreak",
+        fontSize: fixedFontSize,
+        cellPadding: fixedCellPadding,
+        overflow: "visible",
         lineWidth: 0.1,
         lineColor: [200, 200, 200],
         textColor: [0, 0, 0],
-        halign: "center",
+        halign: "left",
         valign: "middle",
         minCellHeight: 7,
-        cellWidth: "wrap",
       },
       headStyles: {
         fillColor: [76, 175, 80],
         textColor: [255, 255, 255],
         fontStyle: "bold",
-        fontSize: 8,
+        fontSize: fixedHeaderFontSize,
         halign: "center",
         valign: "middle",
         minCellHeight: 8,
@@ -771,6 +797,7 @@ export const exportItemWisePDF = ({
       columnStyles,
       didParseCell: (hookData) => {
         if (hookData.section !== "body") return;
+        hookData.cell.styles.overflow = "visible";
 
         const row = rows[hookData.row.index];
         if (row?.rowType === "total" || row?.rowType === "grand-total") {
@@ -784,11 +811,12 @@ export const exportItemWisePDF = ({
       margin: {
         top: 30,
         bottom: 8,
-        left: 8,
-        right: 8,
+        left: tableLeftMargin,
+        right: tableRightMargin,
       },
-      tableWidth: "auto",
+      tableWidth: "wrap",
       horizontalPageBreak: true,
+      horizontalPageBreakRepeat: [0],
       theme: "grid",
       showHead: "everyPage",
       pageBreak: "auto",
