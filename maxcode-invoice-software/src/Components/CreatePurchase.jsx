@@ -123,6 +123,7 @@ const CreatePurchase = ({
   const [selectedInvoiceFile, setSelectedInvoiceFile] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
+  const [roundingEnabled, setRoundingEnabled] = useState(true);
   const vendorSearchDebounceRef = useRef(null);
   const vendorAbortControllerRef = useRef(null);
   const vendorLoadingResetRef = useRef(null);
@@ -328,6 +329,7 @@ const CreatePurchase = ({
         setTaxData(editingRecord.taxData);
       }
       setSelectedInvoiceFile(null);
+      setRoundingEnabled(editingRecord.roundingEnabled !== false); // default true
     } else {
       resetForm();
     }
@@ -374,6 +376,7 @@ const CreatePurchase = ({
     });
     setSelectedInvoiceFile(null);
     setErrors({});
+    setRoundingEnabled(true);
   };
 
   const handleInvoiceFileChange = (e) => {
@@ -577,6 +580,9 @@ const CreatePurchase = ({
     let roundValue;
     if (manualRoundingAmount !== null && manualRoundingAmount !== undefined) {
       roundValue = parseFloat(manualRoundingAmount) || 0;
+    } else if (!roundingEnabled) {
+      // When rounding is disabled, set rounding to 0
+      roundValue = 0;
     } else {
       const decimalPart = subtotalWithTax - Math.floor(subtotalWithTax);
       if (decimalPart <= 0.5) {
@@ -620,6 +626,11 @@ const CreatePurchase = ({
     calculateTotals(items, taxData.taxPercentage, value);
   };
 
+  // Recalculate when rounding toggle changes
+  useEffect(() => {
+    if (!show) return;
+    calculateTotals(items, taxData.taxPercentage, null);
+  }, [roundingEnabled]);
   const handleNumberInput = (e) => {
     const value = e.target.value;
     // Allow only numbers and decimal point
@@ -755,6 +766,7 @@ const CreatePurchase = ({
           ...formData,
           invoiceURL: manualInvoiceUrl,
           amountPaid: normalizedAmountPaid,
+          roundingEnabled: roundingEnabled,
           items: items,
           taxData: taxData,
           ...(invoiceUpload ? { invoiceUpload } : {}),
@@ -1360,11 +1372,30 @@ const CreatePurchase = ({
                     className="card shadow-sm border-0"
                     style={{ backgroundColor: "#f8f9fa" }}
                   >
-                    <div className="card-header bg-success rounded-top-3 text-white">
+                    <div className="card-header bg-success rounded-top-3 text-white d-flex justify-content-between align-items-center">
                       <h6 className="mb-0">
                         <i className="fas fa-receipt me-2"></i>Amount
                         Calculation
                       </h6>
+                      {!isViewMode && (
+                        <div className="form-check form-switch m-0">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={roundingEnabled}
+                            onChange={(e) => setRoundingEnabled(e.target.checked)}
+                            id="roundingToggle"
+                            style={{ cursor: "pointer" }}
+                          />
+                          <label
+                            className="form-check-label ms-1 text-white"
+                            htmlFor="roundingToggle"
+                            style={{ fontSize: "0.8rem", cursor: "pointer", whiteSpace: "nowrap" }}
+                          >
+                            {roundingEnabled ? "Rounding Enabled" : "Rounding Disabled"}
+                          </label>
+                        </div>
+                      )}
                     </div>
                     <div className="card-body">
                       {/* Row for Subtotal (full width) */}
@@ -1494,6 +1525,11 @@ const CreatePurchase = ({
                           >
                             <i className="fas fa-adjust me-2 text-secondary"></i>
                             Rounding Amount
+                            {!roundingEnabled && (
+                              <span className="badge bg-warning text-dark ms-2" style={{ fontSize: "0.65rem" }}>
+                                Disabled
+                              </span>
+                            )}
                           </label>
                           <div className="input-group">
                             <span className="input-group-text bg-secondary text-white">
@@ -1509,7 +1545,8 @@ const CreatePurchase = ({
                                 handleNumberInput(e);
                                 handleRoundingChange(e);
                               }}
-                              readOnly={isViewMode}
+                              readOnly={isViewMode || !roundingEnabled}
+                              style={!roundingEnabled ? { backgroundColor: "#e9ecef" } : {}}
                             />
                           </div>
                         </div>
