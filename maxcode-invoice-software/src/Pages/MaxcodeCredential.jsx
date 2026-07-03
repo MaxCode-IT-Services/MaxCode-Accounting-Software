@@ -224,6 +224,7 @@ const MaxcodeCredential = () => {
           record.iosRepoUrl,
           record.iosAppLink,
           record.serverName,
+          record.hostOrIp,
           record.serverPortNumber,
           record.serverRootUsername || record.serverUsername,
           record.databaseName,
@@ -499,6 +500,7 @@ const MaxcodeCredential = () => {
     { key: "iosRepoUrl", label: "IOS Repo URL", width: 220 },
     { key: "iosAppLink", label: "IOS App Link", width: 220 },
     { key: "serverName", label: "Server Name", width: 150 },
+    { key: "hostOrIp", label: "Host / IP Address", width: 170 },
     { key: "serverPortNumber", label: "Server Port Number", width: 150 },
     {
       key: "serverRootUsername",
@@ -837,6 +839,7 @@ const MaxcodeCredential = () => {
             "projectName",
             "websiteGithubRepoName",
             "serverName",
+            "hostOrIp",
             "createdBy",
             "action",
           ]}

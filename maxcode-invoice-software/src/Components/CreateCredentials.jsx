@@ -27,6 +27,7 @@ const INITIAL_FORM = {
   iosRepoUrl: "",
   iosAppLink: "",
   serverName: "",
+  hostOrIp: "",
   serverRootUsername: "",
   serverRootPassword: "",
   serverPortNumber: "",
@@ -212,6 +213,7 @@ const CreateCredentials = ({
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
   const [showPasswords, setShowPasswords] = useState({
+    hostOrIp: false,
     serverRootUsername: false,
     serverRootPassword: false,
     databaseRootUsername: false,
@@ -275,6 +277,7 @@ const CreateCredentials = ({
         iosRepoUrl: editingRecord.iosRepoUrl || "",
         iosAppLink: editingRecord.iosAppLink || "",
         serverName: editingRecord.serverName || "",
+        hostOrIp: editingRecord.hostOrIp || "",
         serverRootUsername:
           editingRecord.serverRootUsername ||
           editingRecord.serverUsername ||
@@ -302,6 +305,7 @@ const CreateCredentials = ({
 
     setErrors({});
     setShowPasswords({
+      hostOrIp: false,
       serverRootUsername: false,
       serverRootPassword: false,
       databaseRootUsername: false,
@@ -317,6 +321,7 @@ const CreateCredentials = ({
 
     clearAllSecretAutoHideTimers();
     setShowPasswords({
+      hostOrIp: false,
       serverRootUsername: false,
       serverRootPassword: false,
       databaseRootUsername: false,
@@ -1259,7 +1264,7 @@ const CreateCredentials = ({
           >
             <form id="credentialsForm" onSubmit={handleSubmit} noValidate>
               <div className="row mb-2">
-                <div className="col-md-4 mb-3">
+                <div className="col-md-3 mb-3">
                   <label htmlFor="clientRefId" className="form-label">
                     Select Client <span className="text-danger">*</span>
                   </label>
@@ -1294,7 +1299,7 @@ const CreateCredentials = ({
                   "Auto-filled client name",
                   true,
                   true,
-                  "col-md-4",
+                  "col-md-3",
                 )}
 
                 {renderTextInput(
@@ -1303,7 +1308,7 @@ const CreateCredentials = ({
                   "Auto-filled business name",
                   true,
                   true,
-                  "col-md-4",
+                  "col-md-3",
                 )}
 
                 {renderTextInput(
@@ -1374,6 +1379,11 @@ const CreateCredentials = ({
                   "serverName",
                   "Server Name",
                   "Enter server name",
+                )}
+                {renderPasswordInput(
+                  "hostOrIp",
+                  "Host / IP Address",
+                  "Enter host or IP address",
                 )}
                 {renderPasswordInput(
                   "serverRootUsername",

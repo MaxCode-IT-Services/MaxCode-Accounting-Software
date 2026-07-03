@@ -6,6 +6,7 @@ import crypto from "crypto";
 const SECRET_MASK = "********";
 const ENCRYPTED_PREFIX = "enc:v1:";
 const SENSITIVE_FIELDS = [
+  "hostOrIp",
   "serverRootUsername",
   "serverRootPassword",
   "databaseRootUsername",
@@ -14,6 +15,7 @@ const SENSITIVE_FIELDS = [
   "appPassword",
 ];
 const LEGACY_SENSITIVE_ALIASES = {
+  hostOrIp: ["hostOrIp"],
   serverRootUsername: ["serverRootUsername", "serverUsername"],
   serverRootPassword: ["serverRootPassword", "serverPassword"],
   databaseRootUsername: ["databaseRootUsername", "databaseId"],

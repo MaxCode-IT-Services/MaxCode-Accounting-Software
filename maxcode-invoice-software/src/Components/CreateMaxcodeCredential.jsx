@@ -27,6 +27,7 @@ const INITIAL_FORM = {
   iosRepoUrl: "",
   iosAppLink: "",
   serverName: "",
+  hostOrIp: "",
   serverRootUsername: "",
   serverRootPassword: "",
   serverPortNumber: "",
@@ -212,6 +213,7 @@ const CreateMaxcodeCredential = ({
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [errors, setErrors] = useState({});
   const [showPasswords, setShowPasswords] = useState({
+    hostOrIp: false,
     serverRootUsername: false,
     serverRootPassword: false,
     databaseRootUsername: false,
@@ -275,6 +277,7 @@ const CreateMaxcodeCredential = ({
         iosRepoUrl: editingRecord.iosRepoUrl || "",
         iosAppLink: editingRecord.iosAppLink || "",
         serverName: editingRecord.serverName || "",
+        hostOrIp: editingRecord.hostOrIp || "",
         serverRootUsername:
           editingRecord.serverRootUsername ||
           editingRecord.serverUsername ||
@@ -302,6 +305,7 @@ const CreateMaxcodeCredential = ({
 
     setErrors({});
     setShowPasswords({
+      hostOrIp: false,
       serverRootUsername: false,
       serverRootPassword: false,
       databaseRootUsername: false,
@@ -317,6 +321,7 @@ const CreateMaxcodeCredential = ({
 
     clearAllSecretAutoHideTimers();
     setShowPasswords({
+      hostOrIp: false,
       serverRootUsername: false,
       serverRootPassword: false,
       databaseRootUsername: false,
@@ -1313,6 +1318,11 @@ const CreateMaxcodeCredential = ({
                   "serverName",
                   "Server Name",
                   "Enter server name",
+                )}
+                {renderPasswordInput(
+                  "hostOrIp",
+                  "Host / IP Address",
+                  "Enter host or IP address",
                 )}
                 {renderPasswordInput(
                   "serverRootUsername",
