@@ -787,6 +787,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "fixedDepositManagement",
     },
     {
+      to: "/admin/tds-management",
+      icon: "fa-solid fa-calculator",
+      label: "TDS Management",
+      permissionKey: "tdsManagement",
+    },
+    {
       to: "/admin/ledger-management",
       icon: "fa-solid fa-book",
       label: "Ledger Management",

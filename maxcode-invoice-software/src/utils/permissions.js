@@ -120,6 +120,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "tdsManagement",
+    label: "TDS Management",
+    description: "Manage TDS on sales invoices",
+    icon: "fa-solid fa-calculator",
+    route: "/admin/tds-management",
+    detailed: true,
+  },
+  {
     key: "ledgerManagement",
     label: "Ledger Management",
     description: "Manage ledgers",
