@@ -1514,7 +1514,9 @@ const CreditDebitNotePreview = ({
                           }}
                         >
                           <p className="fw-bold text-center mb-0">
-                            Signature of Customer
+                            {notePreviewData.clientName ||
+                              noteRecord?.clientName ||
+                              "Signature of Customer"}
                           </p>
                           <p className="text-center text-muted mb-0 small fw-bold">
                             Authorized Signatory
@@ -1544,12 +1546,13 @@ const CreditDebitNotePreview = ({
                             }}
                           />
                           <p
-                            className="fw-bold text-center mb-1"
+                            className="fw-bold text-center pt-1 mb-0"
                             style={{ fontSize: "10px" }}
                           >
                             This signature is for {noteType.toLowerCase()}{" "}
-                            {notePreviewData.invoiceNumber} Date & Time :{" "}
-                            {signatureDateTime}
+                            {notePreviewData.invoiceNumber}
+                            <br />
+                            Date & Time : {signatureDateTime}
                           </p>
                           <div
                             className="pt-2"
