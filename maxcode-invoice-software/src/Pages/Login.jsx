@@ -76,6 +76,28 @@ const Login = ({ settings, onAuthSuccess }) => {
   const TURNSTILE_SCRIPT_SRC =
     "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
+  // Start loading Turnstile script immediately on mount — don't wait for API settings.
+  // This eliminates the sequential delay of: API call → script load → widget render.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // If script is already loaded (e.g. preloaded in index.html), nothing to do.
+    if (window.turnstile) return;
+
+    // Check if a script tag already exists (from preload or prior attempt).
+    const existingScript = document.querySelector(
+      'script[data-turnstile-script="true"]',
+    );
+    if (existingScript) return;
+
+    const script = document.createElement("script");
+    script.src = TURNSTILE_SCRIPT_SRC;
+    script.async = true;
+    script.defer = true;
+    script.dataset.turnstileScript = "true";
+    document.head.appendChild(script);
+  }, []);
+
   const clearCaptchaWidget = useCallback(() => {
     if (typeof window !== "undefined" && window.turnstile) {
       try {
