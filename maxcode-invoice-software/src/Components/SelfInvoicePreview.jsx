@@ -1335,12 +1335,13 @@ const SelfInvoicePreview = ({
                           />
                           {/* Date/Time text - appears above signature */}
                           <p
-                            className="fw-bold text-center mb-1"
+                            className="fw-bold text-center pt-1 mb-0"
                             style={{ fontSize: "10px" }}
                           >
                             This signature is for self invoice of{" "}
-                            {selfInvoiceNumber} Date & Time :{" "}
-                            {signatureDateTime}
+                            {selfInvoiceNumber}
+                            <br />
+                            Date & Time : {signatureDateTime}
                           </p>
                           {/* Signature Line */}
                           <div

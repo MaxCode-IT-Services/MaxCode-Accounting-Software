@@ -556,7 +556,7 @@ const PaymentReceiptPreview = ({
         .money-receipt-wrap {
           overflow: auto;
           max-height: calc(96vh - 60px);
-          background: #e8eaeb;
+          background: #ffffff;
           padding: 20px;
         }
 
@@ -567,8 +567,9 @@ const PaymentReceiptPreview = ({
           margin: 0 auto;
           position: relative;
           background: #f1f6e0;
-          border: 1px solid #b9ccb8;
-          box-shadow: 0 16px 38px rgba(15, 23, 42, 0.2);
+          // border: 1px solid #b9ccb8;
+          // box-shadow: 0 16px 38px rgba(15, 23, 42, 0.2);
+          box-shadow: rgba(50, 50, 93, 0.25) 0px 50px 100px -20px, rgba(0, 0, 0, 0.3) 0px 30px 60px -30px, rgba(10, 37, 64, 0.35) 0px -2px 6px 0px inset;
           overflow: hidden;
         }
 
@@ -850,7 +851,8 @@ const PaymentReceiptPreview = ({
         }
 
         .signature-context {
-          margin: 0 0 4px;
+          margin: 0 0 0px;
+          padding: 2px 0 0 0;
           font-size: 10px;
           color: #2f4436;
           font-weight: 700;
@@ -1095,6 +1097,47 @@ const PaymentReceiptPreview = ({
             border-radius: 0;
           }
         }
+
+        @media (max-width: 768px) {
+          .money-receipt-toolbar {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
+          }
+
+          .money-receipt-toolbar h5 {
+            font-size: 15px;
+            text-align: center;
+          }
+
+          .money-receipt-actions {
+            justify-content: center;
+            gap: 6px;
+          }
+
+          .mr-btn {
+            padding: 8px 14px;
+            font-size: 13px;
+            flex: 1 1 auto;
+            min-width: 0;
+            white-space: nowrap;
+            text-align: center;
+          }
+
+          .money-receipt-dialog {
+            max-width: 100vw;
+            margin: 8px auto;
+          }
+
+          .money-receipt-shell {
+            border-radius: 8px;
+            max-height: 96vh;
+          }
+
+          .money-receipt-wrap {
+            padding: 10px;
+          }
+        }
       `}</style>
 
       <div
@@ -1280,8 +1323,9 @@ const PaymentReceiptPreview = ({
                         className="founder-signature-image"
                       />
                       <p className="signature-context">
-                        This signature is for receipt of {receiptRefNumber} Date
-                        & Time : {signatureDateTimeText}
+                        This signature is for receipt of {receiptRefNumber}
+                        <br />
+                        Date & Time : {signatureDateTimeText}
                       </p>
                       <div className="signature-line">
                         <p className="signature-name">Vipin Khandelwal</p>
