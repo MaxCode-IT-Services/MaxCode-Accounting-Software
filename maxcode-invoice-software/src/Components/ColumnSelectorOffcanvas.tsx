@@ -15,6 +15,8 @@ const ColumnSelectorOffcanvas = ({
   const [isAllAutoResized, setIsAllAutoResized] = React.useState(false);
   const [isAllCleared, setIsAllCleared] = React.useState(false);
   const [originalWidths, setOriginalWidths] = React.useState({});
+  const [isSearchOpen, setIsSearchOpen] = React.useState(false);
+  const [searchTerm, setSearchTerm] = React.useState("");
 
   // Toggle column visibility
   const handleColumnToggle = (key) => {
@@ -174,25 +176,149 @@ const ColumnSelectorOffcanvas = ({
       <style>
         {`
           .drop-placeholder-wrapper > div {
-            border: 2px dashed #0d6efd;
+            border: 2px dashed #0da440;
             border-radius: 5px;
             height: 48px;
             background-color: #e9ecef;
             margin-bottom: 8px;
           }
           .pinned-left {
-            background-color: rgba(13, 110, 253, 0.1) !important;
-            border-left: 3px solid #0d6efd !important;
+            background-color: #01ad3c2b !important;
+            border-left: 3px solid #0da440 !important;
           }
           .pinned-right {
-            background-color: rgba(13, 110, 253, 0.1) !important;
-            border-right: 3px solid #0d6efd !important;
+            background-color: #01ad3c2b !important;
+            border-right: 3px solid #0da440 !important;
           }
           .column-item {
-            transition: all 0.2s ease;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: scale(1);
           }
           .column-item:hover {
-            background-color: #f8f9fa;
+            background-color: #f0fdf4;
+            transform: scale(1.03);
+            box-shadow: rgba(60, 64, 67, 0.3) 0px 1px 2px 0px, rgba(60, 64, 67, 0.15) 0px 1px 3px 1px;
+            z-index: 2;
+          }
+          .column-item:active {
+            transform: scale(0.98);
+            transition: transform 0.1s ease;
+          }
+          .search-bar-enter {
+            animation: slideDown 0.25s ease forwards;
+          }
+          .search-bar-exit {
+            animation: slideUp 0.2s ease forwards;
+          }
+          .search-bar-enter .search-input-group {
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            transition: border-color 0.3s ease;
+          }
+          .search-bar-enter .search-input-group:focus-within {
+            border-color: var(--maxcode-primary-hover);
+          }
+          .search-bar-enter .search-input-group .input-group-text {
+            border: none;
+            background: white;
+            padding: 6px 10px;
+            font-size: 0.875rem;
+          }
+          .search-bar-enter .search-input-group .form-control {
+            border: none;
+            padding: 6px 12px;
+            font-size: 0.875rem;
+            box-shadow: none;
+          }
+          .search-bar-enter .search-input-group .form-control:focus {
+            box-shadow: none;
+          }
+          .search-bar-enter .search-input-group .btn-outline-secondary {
+            border: none;
+            border-left: 1px solid #e9ecef;
+            font-size: 0.875rem;
+            border-radius: 0;
+            padding: 6px 10px;
+          }
+          @keyframes slideDown {
+            from { opacity: 0; max-height: 0; transform: translateY(-8px); }
+            to { opacity: 1; max-height: 50px; transform: translateY(0); }
+          }
+          @keyframes slideUp {
+            from { opacity: 1; max-height: 50px; transform: translateY(0); }
+            to { opacity: 0; max-height: 0; transform: translateY(-8px); }
+          }
+          .no-results-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 35px 20px;
+            margin: 10px 0;
+            background: linear-gradient(145deg, #f0fdf4 0%, #dcfce7 50%, #ecfdf5 100%);
+            border: 2px dashed #09a98d;
+            border-radius: 14px;
+            animation: fadeInScale 0.35s ease forwards;
+            position: relative;
+            overflow: hidden;
+          }
+          .no-results-box::before {
+            content: "";
+            position: absolute;
+            top: -30px;
+            right: -30px;
+            width: 80px;
+            height: 80px;
+            background: radial-gradient(circle, rgba(9, 169, 141, 0.1) 0%, transparent 70%);
+            border-radius: 50%;
+          }
+          .no-results-box::after {
+            content: "";
+            position: absolute;
+            bottom: -20px;
+            left: -20px;
+            width: 60px;
+            height: 60px;
+            background: radial-gradient(circle, rgba(0, 112, 38, 0.08) 0%, transparent 70%);
+            border-radius: 50%;
+          }
+          .no-results-box .no-results-icon {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #007026 0%, #09a98d 100%);
+            border-radius: 50%;
+            margin-bottom: 14px;
+            box-shadow: 0 4px 15px rgba(9, 169, 141, 0.3);
+            animation: bounceIn 0.5s ease;
+          }
+          .no-results-box .no-results-icon i {
+            font-size: 22px;
+            color: #ffffff;
+          }
+          .no-results-box .no-results-text {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1a1a2e;
+            letter-spacing: 0.3px;
+          }
+          .no-results-box .no-results-subtext {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 6px;
+            font-style: italic;
+          }
+          @keyframes fadeInScale {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+          }
+          @keyframes bounceIn {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
           }
         `}
       </style>
@@ -255,6 +381,17 @@ const ColumnSelectorOffcanvas = ({
             </div>
             <div className="d-flex gap-2">
               <button
+                className="btn btn-sm btn-outline-secondary"
+                onClick={() => {
+                  setIsSearchOpen(!isSearchOpen);
+                  if (isSearchOpen) setSearchTerm("");
+                }}
+                title={isSearchOpen ? "Close search" : "Search columns"}
+                data-bs-toggle="tooltip"
+              >
+                <i className={`fas ${isSearchOpen ? "fa-times" : "fa-search"}`}></i>
+              </button>
+              <button
                 className={`btn btn-sm ${isAllAutoResized ? "btn-primary" : "btn-outline-secondary"}`}
                 onClick={handleAutoResizeAll}
                 title={
@@ -286,6 +423,32 @@ const ColumnSelectorOffcanvas = ({
               </button>
             </div>
           </div>
+          {isSearchOpen && (
+            <div className="search-bar-enter mt-2">
+              <div className="input-group input-group-sm search-input-group">
+                <span className="input-group-text bg-white">
+                  <i className="fas fa-search text-muted"></i>
+                </span>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Search columns..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  autoFocus
+                />
+                {searchTerm && (
+                  <button
+                    className="btn btn-outline-secondary"
+                    type="button"
+                    onClick={() => setSearchTerm("")}
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="offcanvas-body pt-0">
@@ -301,7 +464,30 @@ const ColumnSelectorOffcanvas = ({
                     gap: "8px",
                   }}
                 >
-                  {columns.map((column, index) => {
+                  {(() => {
+                    const filteredColumns = columns.filter((column) =>
+                      searchTerm
+                        ? column.label
+                            .toLowerCase()
+                            .includes(searchTerm.toLowerCase())
+                        : true
+                    );
+
+                    if (searchTerm && filteredColumns.length === 0) {
+                      return (
+                        <div className="no-results-box">
+                          <div className="no-results-icon">
+                            <i className="fas fa-search"></i>
+                          </div>
+                          <div className="no-results-text">No Results Found</div>
+                          <div className="no-results-subtext">
+                            No columns match &quot;{searchTerm}&quot;
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return filteredColumns.map((column, index) => {
                     const pinnedPosition = isPinned(column.key);
                     const isAutoResizedColumn = isAutoResized(column.key);
 
@@ -435,7 +621,8 @@ const ColumnSelectorOffcanvas = ({
                         )}
                       </Draggable>
                     );
-                  })}
+                  });
+                  })()}
                   <div className="drop-placeholder-wrapper">
                     {provided.placeholder}
                   </div>
