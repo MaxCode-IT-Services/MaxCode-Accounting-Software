@@ -227,10 +227,22 @@ export async function handler(event) {
         0,
       );
 
-      // Include both payment receipts AND manually entered payment amounts from CreateSales
+      // Determine the regular (non-advance) payment portion.
+      // If actual Payment Receipts exist in the DB, they are the authoritative source
+      // for the regular payment — do NOT also add manualAmountReceived (which was
+      // previously derived from those same receipts and would cause double-counting).
+      // When no Payment Receipts exist, use the manually entered amount minus any
+      // advance already applied (the frontend sends the total including advance).
       const manualPaymentAmount = toNumber(manualAmountReceived);
-      const amountReceived =
-        regularReceivedAmount + advanceAdjustedTotal + manualPaymentAmount;
+      let regularPart;
+      if (regularReceivedAmount > 0) {
+        // Payment Receipts exist — use them as source of truth for regular payment.
+        regularPart = regularReceivedAmount;
+      } else {
+        // No Payment Receipts — regular portion is what user typed minus applied advance.
+        regularPart = Math.max(0, manualPaymentAmount - advanceAdjustedTotal);
+      }
+      const amountReceived = regularPart + advanceAdjustedTotal;
       const dueAmount = Math.max(0, toNumber(totalAmount) - amountReceived);
       const paymentStatus = derivePaymentStatus(totalAmount, amountReceived);
       const latestAdvanceMeta = getLatestAdvanceMeta(normalizedAppliedAdvances);

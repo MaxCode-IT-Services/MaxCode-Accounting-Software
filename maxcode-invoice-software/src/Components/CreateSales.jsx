@@ -1117,6 +1117,22 @@ const CreateSales = ({
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+
+    // When user manually edits amountReceived, sync baseRegularReceivedRef
+    // so the advance-sync useEffect does NOT overwrite the user's input.
+    if (name === "amountReceived") {
+      const enteredTotal = toNumber(value);
+      const currentAdvanceTotal = (appliedAdvances || []).reduce(
+        (sum, adv) => sum + toNumber(adv.appliedAmount),
+        0,
+      );
+      // Regular portion = total entered minus advance already applied
+      baseRegularReceivedRef.current = Math.max(
+        0,
+        enteredTotal - currentAdvanceTotal,
+      );
+    }
+
     setFormData((prev) => ({
       ...prev,
       [name]: value,
