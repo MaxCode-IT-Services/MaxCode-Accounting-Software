@@ -74,6 +74,7 @@ const calculateBalanceSheetFromTransactions = (
   let customerOverpayment = 0;
   let inventory = round2(openingBalances.inventory || 0);
   let fixedDepositAsset = 0;
+  let tdsReceivable = 0;
 
   // Process each transaction line
   for (const transaction of transactions) {
@@ -115,6 +116,8 @@ const calculateBalanceSheetFromTransactions = (
         creditNotePayable = round2(creditNotePayable + credit - debit);
       } else if (accountHead === "Fixed Deposit Asset") {
         fixedDepositAsset = round2(fixedDepositAsset + debit - credit);
+      } else if (accountHead === "TDS Receivable") {
+        tdsReceivable = round2(tdsReceivable + debit - credit);
       }
     }
   }
@@ -146,6 +149,8 @@ const calculateBalanceSheetFromTransactions = (
   }
   overdraft = round2(overdraft);
 
+  tdsReceivable = round2(Math.max(tdsReceivable, 0));
+
   // Handle customer overpayment
   if (receivables < 0) {
     customerOverpayment = round2(Math.abs(receivables));
@@ -167,7 +172,7 @@ const calculateBalanceSheetFromTransactions = (
   const cashBankTotal = round2(cashBalance + bankBalance);
   const receivablesGstTotal = round2(receivables + gstReceivable);
   const totalAssets = round2(
-    cashBankTotal + receivablesGstTotal + inventory + fixedDepositAsset,
+    cashBankTotal + receivablesGstTotal + inventory + fixedDepositAsset + tdsReceivable,
   );
 
   const payablesGstTotal = round2(payables + gstPayable);
@@ -197,6 +202,7 @@ const calculateBalanceSheetFromTransactions = (
       gstReceivable: gstReceivable,
       inventory: inventory,
       fixedDeposits: fixedDepositAsset,
+      tdsReceivable: tdsReceivable,
     },
     liabilities: {
       payables: payables,

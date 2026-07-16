@@ -398,6 +398,8 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
     "receivedAmount",
     "advanceAdjustedTotal",
     "appliedAdvances",
+    "tdsAmount",
+    "tdsPercent",
     "financialYear",
     "fiscalYear",
     "inventoryValue",
@@ -699,6 +701,9 @@ const buildLinesForInvoice = (record = {}) => {
     ),
   );
 
+  // TDS: tax deducted at source — reduces outstanding, goes to TDS Receivable
+  const tdsAmount = roundAmount(toNumber(record?.tdsAmount || 0));
+
   let paidAmount = 0;
   if (explicitPaid > 0) {
     paidAmount = roundAmount(Math.max(explicitPaid - appliedAdvance, 0));
@@ -712,7 +717,10 @@ const buildLinesForInvoice = (record = {}) => {
   }
 
   const receivedAmount = roundAmount(Math.min(paidAmount, totalAmount));
-  const outstanding = roundAmount(Math.max(totalAmount - receivedAmount, 0));
+  // Outstanding = what remains after cash received AND TDS deduction
+  const outstanding = roundAmount(
+    Math.max(totalAmount - receivedAmount - tdsAmount, 0),
+  );
 
   const lines = [];
 
@@ -721,6 +729,16 @@ const buildLinesForInvoice = (record = {}) => {
       accountHead: getPaymentAccountHead(record?.paymentMethod, "Bank Account"),
       accountType: "Asset",
       debit: receivedAmount,
+      credit: 0,
+    });
+  }
+
+  // TDS Receivable — amount recoverable from government (asset)
+  if (tdsAmount > 0) {
+    lines.push({
+      accountHead: "TDS Receivable",
+      accountType: "Asset",
+      debit: tdsAmount,
       credit: 0,
     });
   }

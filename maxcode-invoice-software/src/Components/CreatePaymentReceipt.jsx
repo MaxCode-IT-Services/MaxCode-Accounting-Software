@@ -110,7 +110,8 @@ const CreatePaymentReceipt = ({
       invoice?.taxData?.totalAmount || invoice?.totalAmount || 0,
     );
     const amountReceived = toNumber(invoice?.amountReceived || 0);
-    return Math.max(0, totalAmount - amountReceived);
+    const tdsAmount = toNumber(invoice?.tdsAmount || 0);
+    return Math.max(0, totalAmount - amountReceived - tdsAmount);
   };
 
   const clientSearchDebounceRef = useRef(null);

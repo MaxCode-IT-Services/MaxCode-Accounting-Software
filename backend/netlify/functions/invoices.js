@@ -101,12 +101,13 @@ export async function handler(event) {
       return Number.isFinite(parsed) ? parsed : 0;
     };
 
-    const derivePaymentStatus = (totalAmount, receivedAmount) => {
+    const derivePaymentStatus = (totalAmount, receivedAmount, tdsAmount = 0) => {
       const total = toNumber(totalAmount);
       const received = toNumber(receivedAmount);
+      const tds = toNumber(tdsAmount);
 
-      if (received <= 0) return "Unpaid";
-      if (total > 0 && received >= total) return "Paid";
+      if (received <= 0 && tds <= 0) return "Unpaid";
+      if (total > 0 && received + tds >= total) return "Paid";
       return "Partial";
     };
 
@@ -157,13 +158,15 @@ export async function handler(event) {
       fallbackPaymentDate,
       fallbackPaymentMethod,
       manualAmountReceived = 0,
+      tdsAmount = 0,
       skipRecalculation = false, // <-- NEW PARAMETER
     }) => {
       // Agar skipRecalculation true hai to matlab view mode hai, isliye manualAmountReceived use karo as is
       if (skipRecalculation && manualAmountReceived > 0) {
         const amountReceived = toNumber(manualAmountReceived);
-        const paymentStatus = derivePaymentStatus(totalAmount, amountReceived);
-        const dueAmount = Math.max(0, toNumber(totalAmount) - amountReceived);
+        const tds = toNumber(tdsAmount);
+        const paymentStatus = derivePaymentStatus(totalAmount, amountReceived, tds);
+        const dueAmount = Math.max(0, toNumber(totalAmount) - amountReceived - tds);
 
         return {
           amountReceived: amountReceived > 0 ? String(amountReceived) : "",
@@ -243,8 +246,9 @@ export async function handler(event) {
         regularPart = Math.max(0, manualPaymentAmount - advanceAdjustedTotal);
       }
       const amountReceived = regularPart + advanceAdjustedTotal;
-      const dueAmount = Math.max(0, toNumber(totalAmount) - amountReceived);
-      const paymentStatus = derivePaymentStatus(totalAmount, amountReceived);
+      const tds = toNumber(tdsAmount);
+      const dueAmount = Math.max(0, toNumber(totalAmount) - amountReceived - tds);
+      const paymentStatus = derivePaymentStatus(totalAmount, amountReceived, tds);
       const latestAdvanceMeta = getLatestAdvanceMeta(normalizedAppliedAdvances);
       const paymentDate =
         latestRegularReceipt?.receiptDate ||
@@ -435,6 +439,7 @@ export async function handler(event) {
           fallbackPaymentDate: invoice.paymentDate,
           fallbackPaymentMethod: invoice.paymentMethod,
           manualAmountReceived: invoice.amountReceived,
+          tdsAmount: invoice.tdsAmount,
           skipRecalculation: shouldSkipRecalculation, // <-- PASS THE PARAMETER
         });
 
@@ -1009,6 +1014,7 @@ export async function handler(event) {
         fallbackPaymentDate: invoiceData.paymentDate,
         fallbackPaymentMethod: invoiceData.paymentMethod,
         manualAmountReceived: invoiceData.amountReceived,
+        tdsAmount: invoiceData.tdsAmount,
       });
 
       const invoiceRecordForSync = {
@@ -1235,6 +1241,9 @@ export async function handler(event) {
         )
           ? invoiceData.amountReceived
           : currentInvoice.amountReceived,
+        tdsAmount: Object.prototype.hasOwnProperty.call(invoiceData, "tdsAmount")
+          ? invoiceData.tdsAmount
+          : currentInvoice.tdsAmount,
       });
 
       invoiceData.amountReceived = paymentSnapshot.amountReceived;

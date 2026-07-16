@@ -216,6 +216,7 @@ const BalanceSheet = () => {
     receivables: 0,
     gstReceivable: 0,
     inventory: 0,
+    tdsReceivable: 0,
   };
 
   const liabilities = balanceData?.liabilities || {
@@ -271,6 +272,8 @@ const BalanceSheet = () => {
           return "Closing stock value";
         case "Fixed Deposits":
           return "Fixed deposit investments held as assets";
+        case "TDS Receivable":
+          return "TDS deducted by clients — recoverable from Income Tax department (asset)";
         case "Accounts Payable (Sundry Creditors)":
           return "Amount payable to suppliers for unpaid purchases";
         case "GST Payable":
@@ -334,6 +337,14 @@ const BalanceSheet = () => {
         section: "Assets",
         account: "Fixed Deposits",
         amount: assets.fixedDeposits,
+      });
+    }
+
+    if ((assets.tdsReceivable || 0) > 0) {
+      assetRows.push({
+        section: "Assets",
+        account: "TDS Receivable",
+        amount: assets.tdsReceivable,
       });
     }
 

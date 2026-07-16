@@ -281,7 +281,8 @@ const SalesManagement = () => {
   const getTotalDueAmount = (sale) => {
     const totalAmount = parseFloat(sale.totalAmount || 0);
     const totalReceived = getTotalReceivedAmount(sale);
-    return Math.max(0, totalAmount - totalReceived);
+    const tdsAmount = parseFloat(sale.tdsAmount || 0);
+    return Math.max(0, totalAmount - totalReceived - tdsAmount);
   };
 
   // Fetch sales from API with server-side parameters
@@ -538,7 +539,7 @@ const SalesManagement = () => {
         })();
         const totalDueAmount = Math.max(
           0,
-          parseFloat(totalAmount) - totalReceivedAmount,
+          parseFloat(totalAmount) - totalReceivedAmount - parseFloat(sale.tdsAmount || 0),
         );
 
         return {

@@ -415,7 +415,7 @@ const CreateSales = ({
       0,
       baseRegularReceived + totalAdvanceAmount,
     );
-    const nextStatus = derivePaymentStatus(totalAmount, nextReceivedAmount);
+    const nextStatus = derivePaymentStatus(totalAmount, nextReceivedAmount, toNumber(formData.tdsAmount));
     const latestAdvanceMeta = getLatestAppliedAdvanceMeta(appliedAdvances);
 
     const hasRegularComponent = baseRegularReceived > 0;
@@ -562,17 +562,21 @@ const CreateSales = ({
 
   const normalizeAdvanceId = (value) => String(value || "");
 
-  const derivePaymentStatus = (invoiceTotal, receivedAmount) => {
+  const derivePaymentStatus = (invoiceTotal, receivedAmount, tdsAmount = 0) => {
     const total = toNumber(invoiceTotal);
     const received = toNumber(receivedAmount);
+    const tds = toNumber(tdsAmount);
 
-    if (received <= 0) return "Unpaid";
-    if (total > 0 && received >= total) return "Paid";
+    if (received <= 0 && tds <= 0) return "Unpaid";
+    if (total > 0 && received + tds >= total) return "Paid";
     return "Partial";
   };
 
-  const computeDueAmount = (invoiceTotal, receivedAmount) => {
-    return Math.max(0, toNumber(invoiceTotal) - toNumber(receivedAmount));
+  const computeDueAmount = (invoiceTotal, receivedAmount, tdsAmount = 0) => {
+    return Math.max(
+      0,
+      toNumber(invoiceTotal) - toNumber(receivedAmount) - toNumber(tdsAmount),
+    );
   };
 
   const escapeRegExp = (value) => {
@@ -1403,6 +1407,7 @@ const CreateSales = ({
   const dueAmount = computeDueAmount(
     taxData.totalAmount,
     formData.amountReceived,
+    formData.tdsAmount,
   );
 
   return (

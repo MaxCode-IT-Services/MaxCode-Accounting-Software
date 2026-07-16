@@ -21,6 +21,7 @@ const LedgerManagement = () => {
     bankClosingType: "Dr",
     gstNet: 0,
     gstNetType: "Dr",
+    tdsReceivable: 0,
     ledgerRows: [],
   });
   const [loading, setLoading] = useState(false);
@@ -126,6 +127,7 @@ const LedgerManagement = () => {
             bankClosingType: "Dr",
             gstNet: 0,
             gstNetType: "Dr",
+            tdsReceivable: 0,
             ledgerRows: [],
           },
         );

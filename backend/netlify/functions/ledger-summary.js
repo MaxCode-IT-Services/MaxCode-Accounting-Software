@@ -108,6 +108,7 @@ const calculateLedgerFromTransactions = (
     fdAssetCredit: 0,
     interestIncomeCredit: 0,
     fdPenaltyDebit: 0,
+    tdsReceivableDebit: 0,
     fdTransactions: [],
   };
 
@@ -170,6 +171,8 @@ const calculateLedgerFromTransactions = (
         summary.interestIncomeCredit += credit;
       } else if (accountHead === "FD Early Closure Penalty") {
         summary.fdPenaltyDebit += debit;
+      } else if (accountHead === "TDS Receivable") {
+        summary.tdsReceivableDebit += debit - credit;
       }
     }
 
@@ -227,7 +230,8 @@ const calculateLedgerFromTransactions = (
       summary.gstInputDebit +
         summary.sundryDebtorsDebit +
         summary.ownerInvestmentDebit +
-        summary.ownerWithdrawalDebit,
+        summary.ownerWithdrawalDebit +
+        summary.tdsReceivableDebit,
   );
 
   const totalCredit = round2(
@@ -266,6 +270,7 @@ const calculateLedgerFromTransactions = (
     bankClosingType,
     gstNet: round2(Math.abs(netGstBalance)),
     gstNetType: netGstType,
+    tdsReceivable: round2(Math.max(summary.tdsReceivableDebit, 0)),
     ledgerRows: [
       {
         sn: 1,
@@ -458,6 +463,15 @@ const calculateLedgerFromTransactions = (
       },
       {
         sn: 21,
+        accountName: "TDS Receivable",
+        debit: round2(Math.max(summary.tdsReceivableDebit, 0)),
+        credit: 0,
+        balance: round2(Math.max(summary.tdsReceivableDebit, 0)),
+        balanceType: "Dr",
+        notes: "TDS deducted by clients — recoverable from government (asset)",
+      },
+      {
+        sn: 22,
         accountName: "GST Payable/(Receivable)",
         debit: netGstDebit,
         credit: netGstCredit,
@@ -466,7 +480,7 @@ const calculateLedgerFromTransactions = (
         notes: "Net GST position after input set-off",
       },
       ...((summary.fdTransactions && Array.isArray(summary.fdTransactions)) ? summary.fdTransactions.map((fd, index) => ({
-        sn: 22 + index,
+        sn: 23 + index,
         accountName: `FD Transaction - ${fd.sourceLabel}`,
         debit: fd.lines.reduce((sum, line) => sum + toNumber(line.debit), 0),
         credit: fd.lines.reduce((sum, line) => sum + toNumber(line.credit), 0),
