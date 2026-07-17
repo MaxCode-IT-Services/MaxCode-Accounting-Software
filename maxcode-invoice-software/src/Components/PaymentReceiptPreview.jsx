@@ -143,6 +143,16 @@ const PaymentReceiptPreview = ({
   const companyEmailDisplay = data.companyEmail || data.email || "-";
   const companyAddressDisplay = data.companyAddress || "-";
   const amountText = formatCurrency(data.amount);
+
+  // TDS breakdown for display
+  const tdsEnabled = !!(data.tdsEnabled && Number(data.tdsAmount || 0) > 0);
+  const tdsPercentVal = Number(data.tdsPercent || 0);
+  const tdsAmountVal = Number(data.tdsAmount || 0);
+  const grossAmountVal = Number(data.grossAmount || 0);
+  const netPaidAmountVal = Number(data.amount || 0);
+
+  // When TDS is enabled, grossAmount is the original invoice amount
+  const displayInvoiceAmount = tdsEnabled && grossAmountVal > 0 ? grossAmountVal : netPaidAmountVal;
   const invoiceTermsVersion = String(data.invoiceTermsVersion || "").trim();
   const invoiceTermsSnapshot = data.invoiceTermsConditionsSnapshot;
 
@@ -1298,7 +1308,7 @@ const PaymentReceiptPreview = ({
                     </div>
 
                     <div className="full-row-item">
-                      <div className="line-label">Amount in a word</div>
+                      <div className="line-label">Amount in Words (Net Payable)</div>
                       <div className="line-value">
                         {data.amountInWords || "-"}
                       </div>
@@ -1307,8 +1317,19 @@ const PaymentReceiptPreview = ({
 
                   <div className="bottom-panel">
                     <div className="amount-field">
-                      <div className="amount-label">Amount</div>
-                      <div className="amount-box">Rs {amountText}</div>
+                      <div className="amount-label">Net Payable Amount</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div className="amount-box">Rs {amountText}</div>
+                        {tdsEnabled && (
+                          <div style={{ fontSize: "0.92em", lineHeight: 1.5, whiteSpace: "nowrap", fontWeight: 700 }}>
+                            <span style={{ color: "#000000" }}>Invoice Amount = Rs {formatCurrency(displayInvoiceAmount)}</span>
+                            <span style={{ margin: "0 8px", color: "#000000" }}>|</span>
+                            <span style={{ color: "#dc3545" }}>TDS @{tdsPercentVal}% = Rs {formatCurrency(tdsAmountVal)}</span>
+                            <span style={{ margin: "0 8px", color: "#000000" }}>|</span>
+                            <span style={{ color: "#1c7e48" }}>Net Paid Amount = Rs {formatCurrency(netPaidAmountVal)}</span>
+                          </div>
+                        )}
+                      </div>
                       <div className="amount-note">
                         This receipt confirms that the above payment has been
                         successfully received. Please read the Terms &

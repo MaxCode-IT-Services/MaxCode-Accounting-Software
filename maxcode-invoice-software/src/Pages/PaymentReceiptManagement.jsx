@@ -854,6 +854,10 @@ const PaymentReceiptManagement = () => {
       invoiceTermsVersion:
         record.invoiceTermsVersion || businessSettings.invoiceTermsVersion || "",
       invoiceTermsConditionsSnapshot: invoiceTermsSnapshot,
+      tdsEnabled: !!(record.tdsEnabled && Number(record.tdsAmount || 0) > 0),
+      tdsPercent: Number(record.tdsPercent || 0),
+      tdsAmount: Number(record.tdsAmount || 0),
+      grossAmount: Number(record.grossAmount || 0),
     };
   };
 
