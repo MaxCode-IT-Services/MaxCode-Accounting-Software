@@ -378,6 +378,11 @@ const Dashboard = () => {
       rcmTotals.paid -
       projectSummary.payoutTotal;
 
+    const totalTdsDeducted = filteredPaymentReceipts.reduce((sum, record) => {
+      if (!record.tdsEnabled) return sum;
+      return sum + toNumber(record.tdsAmount || 0);
+    }, 0);
+
     const estimatedProfit =
       salesTotals.received -
       (purchaseTotals.total + rcmTotals.total + projectSummary.payoutTotal);
@@ -391,6 +396,7 @@ const Dashboard = () => {
         invoices: filteredSales.length,
         purchases: filteredPurchases.length,
         projects: filteredProjects.length,
+        totalTdsDeducted,
       },
       salesTotals,
       purchaseTotals,
@@ -467,6 +473,22 @@ const Dashboard = () => {
 
   const moduleCards = [
     {
+      key: "fixed-deposits",
+      title: "Active Fixed Deposits",
+      value: window.__dashboardFD?.totalActiveFdBalance || 0,
+      icon: "fa-solid fa-vault",
+      route: "/admin/fixed-deposit-management",
+      format: "currency",
+    },
+    {
+      key: "projects",
+      title: "Total TDS Deducted",
+      value: summary.counts.totalTdsDeducted,
+      icon: "fas fa-calculator",
+      route: "/admin/tds-management",
+      format: "currency",
+    },
+    {
       key: "clients",
       title: "Total Active Clients",
       value: summary.counts.clients,
@@ -479,21 +501,6 @@ const Dashboard = () => {
       value: summary.counts.vendors,
       icon: "fa-solid fa-truck-field",
       route: "/admin/vendor-management",
-    },
-    {
-      key: "fixed-deposits",
-      title: "Active Fixed Deposits",
-      value: window.__dashboardFD?.totalActiveFdBalance || 0,
-      icon: "fa-solid fa-vault",
-      route: "/admin/fixed-deposit-management",
-      format: "currency",
-    },
-    {
-      key: "projects",
-      title: "Total Projects",
-      value: summary.counts.projects,
-      icon: "fa-solid fa-diagram-project",
-      route: "/admin/project-management",
     },
     {
       key: "invoices",
@@ -696,7 +703,7 @@ const Dashboard = () => {
 
       <div className="row">
         {moduleCards.map((card, index) => {
-          const cardNumber = ((index + 2) % 8) + 1;
+          const cardNumber = (index % 8) + 1;
           const cardClass = `card${cardNumber}`;
           const iconClass = `card-icon-bg${cardNumber}`;
 

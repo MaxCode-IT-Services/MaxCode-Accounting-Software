@@ -57,6 +57,10 @@ export async function handler(event) {
       amount: 1,
       adjustedAmount: 1,
       paymentMethod: 1,
+      tdsEnabled: 1,
+      tdsAmount: 1,
+      tdsPercent: 1,
+      grossAmount: 1,
       isDeleted: 1,
     };
 

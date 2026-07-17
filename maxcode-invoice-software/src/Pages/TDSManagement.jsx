@@ -141,13 +141,6 @@ const TDSManagement = () => {
       count: statistics.totalTdsAmount,
     },
     {
-      icon: "fas fa-check-circle",
-      title: "TDS Deducted",
-      key: "tdsDeducted",
-      color: "success",
-      count: statistics.tdsDeducted,
-    },
-    {
       icon: "fa-solid fa-times-circle",
       title: "TDS Pending",
       key: "tdsPending",
@@ -163,7 +156,7 @@ const TDSManagement = () => {
     },
     {
       icon: "fas fa-file-invoice-dollar",
-      title: "Total Invoices",
+      title: "Total TDS Invoice",
       key: "total",
       color: "warning",
       count: statistics.total,
@@ -173,6 +166,12 @@ const TDSManagement = () => {
       title: "Financial Period",
       key: "period",
       color: "warning",
+    },
+    {
+      icon: "fas fa-plus-circle",
+      title: "Add Record",
+      key: "addNew",
+      color: "success",
     },
   ];
 
