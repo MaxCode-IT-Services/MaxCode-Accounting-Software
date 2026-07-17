@@ -274,6 +274,8 @@ const BalanceSheet = () => {
           return "Fixed deposit investments held as assets";
         case "TDS Receivable":
           return "TDS deducted by clients — recoverable from Income Tax department (asset)";
+        case "TDS Refund (Owner Personal)":
+          return "TDS refund credited to owner's personal bank account";
         case "Accounts Payable (Sundry Creditors)":
           return "Amount payable to suppliers for unpaid purchases";
         case "GST Payable":
@@ -292,8 +294,6 @@ const BalanceSheet = () => {
           return "Balancing equity after opening capital and owner investments";
         case "Owner's Equity (Calculated)":
           return "Total closing equity calculated as Assets minus Liabilities";
-        case "Total Liabilities & Equity":
-          return "Liabilities plus equity total";
         default:
           return "";
       }
@@ -345,6 +345,14 @@ const BalanceSheet = () => {
         section: "Assets",
         account: "TDS Receivable",
         amount: assets.tdsReceivable,
+      });
+    }
+
+    if ((assets.ownerPersonalRefund || 0) > 0) {
+      assetRows.push({
+        section: "Assets",
+        account: "TDS Refund (Owner Personal)",
+        amount: assets.ownerPersonalRefund,
       });
     }
 
@@ -408,6 +416,7 @@ const BalanceSheet = () => {
       });
     }
 
+
     const equityRows = [];
 
     if (openingCapital > 0) {
@@ -455,25 +464,12 @@ const BalanceSheet = () => {
     });
 
     return [...assetRows, ...liabilityRows, ...equityRows].map(
-      (row, index) => {
-        // Calculate running balance (cumulative sum for each section)
-        let runningBalance = 0;
-        if (row.section === "Assets") {
-          runningBalance = [...assetRows].slice(0, assetRows.indexOf(row) + 1).reduce((sum, r) => sum + r.amount, 0);
-        } else if (row.section === "Liabilities") {
-          runningBalance = [...liabilityRows].slice(0, liabilityRows.indexOf(row) + 1).reduce((sum, r) => sum + r.amount, 0);
-        } else if (row.section === "Liabilities & Equity") {
-          runningBalance = [...equityRows].slice(0, equityRows.indexOf(row) + 1).reduce((sum, r) => sum + r.amount, 0);
-        }
-        
-        return {
-          ...row,
-          sn: index + 1,
-          amountFormatted: formatCurrency(row.amount),
-          runningBalance: formatCurrency(runningBalance),
-          description: getDescription(row.account, row.section, row.isTotal),
-        };
-      },
+      (row, index) => ({
+        ...row,
+        sn: index + 1,
+        amountFormatted: formatCurrency(row.amount),
+        description: getDescription(row.account, row.section, row.isTotal),
+      }),
     );
   }, [
     assets,
@@ -589,7 +585,6 @@ const BalanceSheet = () => {
     { key: "sn", label: "S.No", width: 70 },
     { key: "section", label: "Section", width: 220 },
     { key: "account", label: "Account", width: 260 },
-    { key: "description", label: "Description", width: 320 },
     {
       key: "amountFormatted",
       label: "Amount",
@@ -600,15 +595,7 @@ const BalanceSheet = () => {
         </span>
       ),
     },
-    {
-      key: "runningBalance",
-      label: "Running Balance",
-      width: 160,
-      render: (value, row) => {
-        if (!value || row?.isTotal || row?.isHeader) return "—";
-        return <span className="fw-semibold text-info">{value}</span>;
-      },
-    },
+    { key: "description", label: "Description", width: 320 },
   ];
 
   const handleRefresh = async () => {
@@ -725,8 +712,6 @@ const BalanceSheet = () => {
       </div>
 
       <ReusableTable
-        ensureCreatedByColumn={true}
-        createdByLabel="Created By"
         moduleKey="balanceSheet"
         columns={columns}
         data={filteredRows}

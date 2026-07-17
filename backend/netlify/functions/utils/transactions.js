@@ -105,6 +105,9 @@ const normalizeSourceType = (sourceType = "") => {
     case "credit-note":
     case "debit-note":
       return "credit-debit-note";
+    case "tds-claim":
+    case "tdsclaim":
+      return "tds-claim";
     default:
       return normalized;
   }
@@ -1364,12 +1367,55 @@ const buildLinesForProject = (record = {}) => {
   );
 };
 
+// TDS Claim journal entry
+// Two scenarios:
+//   1. Refund: Dr Bank/Personal Account  Cr TDS Receivable
+//   2. Adjust: TDS directly written off — Dr TDS Receivable (self-reverse) — no separate liability
+// In both cases TDS Receivable is credited (asset reduces — recovered)
+const buildLinesForTdsClaim = (record = {}) => {
+  const tdsAmount = roundAmount(toNumber(record?.tdsAmount || 0));
+  const refundAmount = roundAmount(toNumber(record?.tdsRefundAmount || 0));
+  const adjustAmount = roundAmount(toNumber(record?.tdsAdjustAmount || 0));
+  const refundAccount = String(record?.tdsRefundAccount || "").trim();
+
+  // Total claimed = refund + adjust; if neither given treat full as refund
+  const hasExplicit = refundAmount > 0 || adjustAmount > 0;
+  const effectiveRefund = hasExplicit ? Math.min(refundAmount, tdsAmount) : tdsAmount;
+  const effectiveAdjust = hasExplicit ? Math.min(adjustAmount, tdsAmount - effectiveRefund) : 0;
+
+  const lines = [];
+
+  // Refund: money received in Bank or Owner Personal Account
+  if (effectiveRefund > 0) {
+    const head = refundAccount.toLowerCase().includes("personal")
+      ? "Owner Personal Account"
+      : "Bank Account";
+    lines.push({ accountHead: head, accountType: "Asset", debit: effectiveRefund, credit: 0 });
+  }
+
+  // Adjust: TDS written off as expense (no Income Tax Payable)
+  // Dr TDS Written Off (Expense) / Cr TDS Receivable
+  if (effectiveAdjust > 0) {
+    lines.push({ accountHead: "TDS Written Off", accountType: "Expense", debit: effectiveAdjust, credit: 0 });
+  }
+
+  // Cr TDS Receivable (asset goes down — recovered/written off)
+  const totalClaimed = roundAmount(effectiveRefund + effectiveAdjust);
+  if (totalClaimed > 0) {
+    lines.push({ accountHead: "TDS Receivable", accountType: "Asset", debit: 0, credit: totalClaimed });
+  }
+
+  return lines;
+};
+
 const buildLines = (sourceType, sourceRecord) => {
   const normalizedType = normalizeSourceType(sourceType);
 
   switch (normalizedType) {
     case "invoice":
       return buildLinesForInvoice(sourceRecord);
+    case "tds-claim":
+      return buildLinesForTdsClaim(sourceRecord);
     case "purchase":
       return buildLinesForPurchase(sourceRecord);
     case "company-expense":

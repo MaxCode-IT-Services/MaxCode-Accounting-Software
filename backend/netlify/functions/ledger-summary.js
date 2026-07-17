@@ -109,6 +109,7 @@ const calculateLedgerFromTransactions = (
     interestIncomeCredit: 0,
     fdPenaltyDebit: 0,
     tdsReceivableDebit: 0,
+    ownerPersonalDebit: 0,
     fdTransactions: [],
   };
 
@@ -173,6 +174,8 @@ const calculateLedgerFromTransactions = (
         summary.fdPenaltyDebit += debit;
       } else if (accountHead === "TDS Receivable") {
         summary.tdsReceivableDebit += debit - credit;
+      } else if (accountHead === "Owner Personal Account") {
+        summary.ownerPersonalDebit += debit - credit;
       }
     }
 
@@ -231,7 +234,8 @@ const calculateLedgerFromTransactions = (
         summary.sundryDebtorsDebit +
         summary.ownerInvestmentDebit +
         summary.ownerWithdrawalDebit +
-        summary.tdsReceivableDebit,
+        summary.tdsReceivableDebit +
+        summary.ownerPersonalDebit,
   );
 
   const totalCredit = round2(
@@ -465,13 +469,22 @@ const calculateLedgerFromTransactions = (
         sn: 21,
         accountName: "TDS Receivable",
         debit: round2(Math.max(summary.tdsReceivableDebit, 0)),
-        credit: 0,
-        balance: round2(Math.max(summary.tdsReceivableDebit, 0)),
-        balanceType: "Dr",
-        notes: "TDS deducted by clients — recoverable from government (asset)",
+        credit: round2(Math.max(-summary.tdsReceivableDebit, 0)),
+        balance: round2(Math.abs(summary.tdsReceivableDebit)),
+        balanceType: summary.tdsReceivableDebit >= 0 ? "Dr" : "Cr",
+        notes: "TDS deducted by clients — recoverable from government (asset); Cr when TDS claimed/refunded",
       },
       {
         sn: 22,
+        accountName: "Owner Personal Account",
+        debit: round2(Math.max(summary.ownerPersonalDebit, 0)),
+        credit: 0,
+        balance: round2(Math.max(summary.ownerPersonalDebit, 0)),
+        balanceType: "Dr",
+        notes: "TDS refund received in owner's personal bank account",
+      },
+      {
+        sn: 23,
         accountName: "GST Payable/(Receivable)",
         debit: netGstDebit,
         credit: netGstCredit,
@@ -480,7 +493,7 @@ const calculateLedgerFromTransactions = (
         notes: "Net GST position after input set-off",
       },
       ...((summary.fdTransactions && Array.isArray(summary.fdTransactions)) ? summary.fdTransactions.map((fd, index) => ({
-        sn: 23 + index,
+        sn: 24 + index,
         accountName: `FD Transaction - ${fd.sourceLabel}`,
         debit: fd.lines.reduce((sum, line) => sum + toNumber(line.debit), 0),
         credit: fd.lines.reduce((sum, line) => sum + toNumber(line.credit), 0),

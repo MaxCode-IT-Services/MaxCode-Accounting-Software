@@ -193,25 +193,54 @@ export async function handler(event) {
             ? [
                 { invoiceId: resolvedInvoiceId },
                 { invoiceNumber: resolvedInvoiceId },
+                // Multi-invoice receipts: check invoiceAllocations array
+                { "invoiceAllocations.invoiceId": resolvedInvoiceId },
               ]
             : []),
           ...(resolvedInvoiceNumber
             ? [
                 { invoiceId: resolvedInvoiceNumber },
                 { invoiceNumber: resolvedInvoiceNumber },
+                // Multi-invoice receipts: check invoiceAllocations array
+                { "invoiceAllocations.invoiceNumber": resolvedInvoiceNumber },
               ]
             : []),
         ],
       };
 
-      const regularReceipts = receiptFilter.$or.length
+      const rawReceipts = receiptFilter.$or.length
         ? await paymentReceiptsCol.find(receiptFilter).toArray()
         : [];
 
-      const regularReceivedAmount = regularReceipts.reduce(
-        (sum, receipt) => sum + toNumber(receipt.amount),
-        0,
-      );
+      // Deduplicate by receipt _id (a receipt may match multiple $or conditions)
+      const seenReceiptIds = new Set();
+      const regularReceipts = [];
+      for (const r of rawReceipts) {
+        const key = String(r._id);
+        if (!seenReceiptIds.has(key)) {
+          seenReceiptIds.add(key);
+          regularReceipts.push(r);
+        }
+      }
+
+      // For multi-invoice receipts (have invoiceAllocations), use only the
+      // allocated amount for THIS invoice instead of the full receipt amount
+      const regularReceivedAmount = regularReceipts.reduce((sum, receipt) => {
+        const allocations = Array.isArray(receipt.invoiceAllocations)
+          ? receipt.invoiceAllocations
+          : [];
+        if (allocations.length > 0) {
+          // Find allocation for this specific invoice
+          const myAlloc = allocations.find(
+            (a) =>
+              String(a.invoiceId || "") === resolvedInvoiceId ||
+              String(a.invoiceNumber || "") === resolvedInvoiceNumber,
+          );
+          return sum + toNumber(myAlloc?.allocatedAmount || myAlloc?.amount || 0);
+        }
+        // Single-invoice receipt — use full amount
+        return sum + toNumber(receipt.amount);
+      }, 0);
 
       const latestRegularReceipt =
         regularReceipts.length > 0
@@ -521,6 +550,17 @@ export async function handler(event) {
       const filterQuery = { isDeleted: { $ne: true } };
       const params = event.queryStringParameters || {};
 
+      // TDS filter — only return invoices that have TDS deducted
+      // tdsAmount/tdsPercent may be stored as strings, so use $expr + $toDouble
+      if (params.hasTds === "true") {
+        filterQuery.$expr = {
+          $or: [
+            { $gt: [{ $toDouble: { $ifNull: ["$tdsAmount", "0"] } }, 0] },
+            { $gt: [{ $toDouble: { $ifNull: ["$tdsPercent", "0"] } }, 0] },
+          ],
+        };
+      }
+
       // Financial year filter
       if (financialYear && financialYear !== "ALL") {
         const yearRecord = await yearsCollection.findOne({
@@ -598,6 +638,8 @@ export async function handler(event) {
             "id",
             "includeDebug",
             "skipRecalculation",
+            "hasTds",
+            "_ts",
           ].includes(key)
         )
           return;
@@ -775,6 +817,118 @@ export async function handler(event) {
         });
       }
 
+      // ── Enrich invoices with payment receipt data (batch fetch, no N+1) ──────
+      // Collect all invoice IDs and numbers for a single receipts query
+      const invoiceIds = patchedInvoices.map((inv) => String(inv._id));
+      const invoiceNumbers = patchedInvoices
+        .map((inv) => String(inv.invoiceNumber || ""))
+        .filter(Boolean);
+
+      const paymentReceiptsCol = db.collection("payment_receipts");
+      const allReceipts =
+        invoiceIds.length > 0
+          ? await paymentReceiptsCol
+              .find({
+                isDeleted: { $ne: true },
+                paymentType: { $ne: "advance" },
+                $or: [
+                  { invoiceId: { $in: invoiceIds } },
+                  { invoiceNumber: { $in: [...invoiceIds, ...invoiceNumbers] } },
+                  // receipts that have invoiceAllocations referencing these invoices
+                  { "invoiceAllocations.invoiceId": { $in: invoiceIds } },
+                  { "invoiceAllocations.invoiceNumber": { $in: invoiceNumbers } },
+                ],
+              })
+              .project({
+                _id: 1,
+                invoiceId: 1,
+                invoiceNumber: 1,
+                invoiceAllocations: 1,
+                invoiceNumbers: 1,
+                amount: 1,
+                receiptNumber: 1,
+                receiptNo: 1,
+              })
+              .toArray()
+          : [];
+
+      // Build a map: invoiceId/invoiceNumber → [{ receiptNumber, allocatedAmount }]
+      // For multi-invoice receipts, use invoiceAllocations[].allocatedAmount per invoice
+      const receiptMap = {}; // key → [{ receiptNumber, amount }]
+
+      const addToMap = (key, receiptNumber, amount) => {
+        if (!key) return;
+        if (!receiptMap[key]) receiptMap[key] = [];
+        receiptMap[key].push({ receiptNumber, amount });
+      };
+
+      allReceipts.forEach((r) => {
+        const rNum = r.receiptNumber || r.receiptNo || "";
+        const allocations = Array.isArray(r.invoiceAllocations)
+          ? r.invoiceAllocations
+          : [];
+
+        if (allocations.length > 0) {
+          // Multi-invoice receipt — use per-invoice allocatedAmount
+          allocations.forEach((alloc) => {
+            const allocAmt = toNumber(alloc.allocatedAmount || alloc.amount || 0);
+            if (alloc.invoiceId) addToMap(String(alloc.invoiceId), rNum, allocAmt);
+            if (alloc.invoiceNumber) addToMap(String(alloc.invoiceNumber), rNum, allocAmt);
+          });
+        } else {
+          // Single-invoice receipt — link by invoiceId or invoiceNumber with full amount
+          const amt = toNumber(r.amount || 0);
+          if (r.invoiceId) addToMap(String(r.invoiceId), rNum, amt);
+          // Also try invoiceNumbers array
+          if (Array.isArray(r.invoiceNumbers)) {
+            r.invoiceNumbers.forEach((n) => addToMap(String(n), rNum, amt));
+          } else if (r.invoiceNumber) {
+            addToMap(String(r.invoiceNumber), rNum, amt);
+          }
+        }
+      });
+
+      // Merge receipt data into each invoice
+      for (const inv of patchedInvoices) {
+        const key1 = String(inv._id);
+        const key2 = String(inv.invoiceNumber || "");
+        // Merge entries from both keys, dedup by receiptNumber
+        const seenReceipts = new Map();
+        [...(receiptMap[key1] || []), ...(receiptMap[key2] || [])].forEach((entry) => {
+          if (!seenReceipts.has(entry.receiptNumber)) {
+            seenReceipts.set(entry.receiptNumber, entry.amount);
+          }
+        });
+
+        const regularReceiptTotal = [...seenReceipts.values()].reduce(
+          (sum, amt) => sum + amt,
+          0,
+        );
+        const regularReceiptNumbers = [...seenReceipts.keys()]
+          .filter(Boolean)
+          .join(", ");
+
+        // Advance adj receipt numbers from appliedAdvances field
+        const advanceAdjReceiptNumbers = Array.isArray(inv.appliedAdvances)
+          ? inv.appliedAdvances
+              .map(
+                (a) =>
+                  a?.receiptNumber ||
+                  a?.receiptNo ||
+                  a?.receipt ||
+                  a?.receipt_number ||
+                  "",
+              )
+              .filter(Boolean)
+              .join(", ")
+          : "";
+
+        inv.regularReceiptTotal = regularReceiptTotal;
+        inv.regularReceiptNumbers = regularReceiptNumbers;
+        inv.advanceAdjReceiptNumbers = advanceAdjReceiptNumbers;
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
       const now = Date.now();
       let cachedMeta =
         invoiceMetaCache.value && invoiceMetaCache.expiresAt > now
@@ -806,6 +960,18 @@ export async function handler(event) {
           },
           {
             $addFields: {
+              normalizedTdsAmount: {
+                $convert: {
+                  input: "$tdsAmount",
+                  to: "double",
+                  onError: 0,
+                  onNull: 0,
+                },
+              },
+            },
+          },
+          {
+            $addFields: {
               resolvedPaidAmount: {
                 $switch: {
                   branches: [
@@ -816,7 +982,8 @@ export async function handler(event) {
                           { $gt: ["$normalizedAmountReceived", 0] },
                         ],
                       },
-                      then: "$normalizedAmountReceived",
+                      // amountReceived + tdsAmount = total settled
+                      then: { $add: ["$normalizedAmountReceived", "$normalizedTdsAmount"] },
                     },
                     {
                       case: { $eq: ["$paymentStatus", "Paid"] },
@@ -824,7 +991,12 @@ export async function handler(event) {
                     },
                     {
                       case: { $eq: ["$paymentStatus", "Partial"] },
-                      then: { $divide: ["$normalizedTotalAmount", 2] },
+                      then: {
+                        $add: [
+                          { $divide: ["$normalizedTotalAmount", 2] },
+                          "$normalizedTdsAmount",
+                        ],
+                      },
                     },
                   ],
                   default: 0,
@@ -887,6 +1059,64 @@ export async function handler(event) {
       }
 
       // Return paginated response with metadata
+      // For TDS mode (hasTds=true), compute TDS-specific statistics from current page data
+      // (no separate aggregate needed — we use filterQuery which already scopes to TDS invoices)
+      let tdsStats = null;
+      if (params.hasTds === "true" && patchedInvoices.length >= 0) {
+        const tdsPipeline = [
+          { $match: { ...filterQuery } },
+          {
+            $addFields: {
+              normalizedTdsAmount: {
+                $convert: { input: "$tdsAmount", to: "double", onError: 0, onNull: 0 },
+              },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              totalRecords: { $sum: 1 },
+              totalTdsAmount: { $sum: "$normalizedTdsAmount" },
+              tdsDeducted: {
+                $sum: {
+                  $cond: [
+                    { $eq: ["$paymentStatus", "Paid"] },
+                    "$normalizedTdsAmount",
+                    0,
+                  ],
+                },
+              },
+              tdsPending: {
+                $sum: {
+                  $cond: [
+                    { $ne: ["$paymentStatus", "Paid"] },
+                    "$normalizedTdsAmount",
+                    0,
+                  ],
+                },
+              },
+              tdsClaimed: {
+                $sum: {
+                  $cond: [
+                    { $in: ["$tdsClaimStatus", ["Claimed", "Adjusted", "Partial"]] },
+                    "$normalizedTdsAmount",
+                    0,
+                  ],
+                },
+              },
+            },
+          },
+        ];
+        const tdsAggregate = await invoicesCollection.aggregate(tdsPipeline).next();
+        tdsStats = {
+          total: Number(tdsAggregate?.totalRecords || 0),
+          totalTdsAmount: Number(tdsAggregate?.totalTdsAmount || 0).toFixed(2),
+          tdsDeducted: Number(tdsAggregate?.tdsDeducted || 0).toFixed(2),
+          tdsPending: Number(tdsAggregate?.tdsPending || 0).toFixed(2),
+          tdsClaimed: Number(tdsAggregate?.tdsClaimed || 0).toFixed(2),
+        };
+      }
+
       return createResponse(
         200,
         {
@@ -897,7 +1127,7 @@ export async function handler(event) {
             totalRecords,
             totalPages: Math.ceil(totalRecords / limitNum),
           },
-          statistics: {
+          statistics: tdsStats || {
             total: cachedMeta.totalRecordsCount,
             paid: Number(cachedMeta.paidAmount || 0).toFixed(2),
             unpaid: Number(cachedMeta.unpaidAmount || 0).toFixed(2),
@@ -1086,7 +1316,7 @@ export async function handler(event) {
 
     // PUT - Update existing invoice (rest remains same)
     if (event.httpMethod === "PUT") {
-      const { id } = event.queryStringParameters || {};
+      const { id, action: putAction } = event.queryStringParameters || {};
       if (!id) {
         return createResponse(400, { error: "Invoice ID is required" }, origin);
       }
@@ -1094,6 +1324,98 @@ export async function handler(event) {
       if (!ObjectId.isValid(id)) {
         return createResponse(400, { error: "Invalid invoice ID" }, origin);
       }
+
+      // ── TDS CLAIM ACTION ──────────────────────────────────────────────────
+      if (putAction === "claim-tds") {
+        const claimData = JSON.parse(event.body || "{}");
+        const invoiceObjectId = new ObjectId(id);
+
+        const currentInvoice = await invoicesCollection.findOne({
+          _id: invoiceObjectId,
+          isDeleted: { $ne: true },
+        });
+        if (!currentInvoice) {
+          return createResponse(404, { error: "Invoice not found" }, origin);
+        }
+
+        const tdsAmount = toNumber(currentInvoice.tdsAmount || 0);
+        if (tdsAmount <= 0) {
+          return createResponse(400, { error: "No TDS amount found on this invoice" }, origin);
+        }
+
+        // Validate claim status
+        const validStatuses = ["Pending", "Claimed", "Adjusted", "Partial"];
+        const tdsClaimStatus = claimData.tdsClaimStatus || "Pending";
+        if (!validStatuses.includes(tdsClaimStatus)) {
+          return createResponse(400, { error: "Invalid TDS claim status" }, origin);
+        }
+
+        const refundAmount = Math.max(toNumber(claimData.tdsRefundAmount || 0), 0);
+        const adjustAmount = Math.max(toNumber(claimData.tdsAdjustAmount || 0), 0);
+
+        if ((tdsClaimStatus === "Claimed" || tdsClaimStatus === "Partial") && refundAmount + adjustAmount > tdsAmount + 0.01) {
+          return createResponse(400, { error: "Refund + Adjust amount cannot exceed TDS amount" }, origin);
+        }
+
+        const tdsClaimFields = {
+          tdsClaimStatus,
+          tdsClaimDate: claimData.tdsClaimDate || null,
+          tdsRefundAccount: claimData.tdsRefundAccount || "",
+          tdsRefundAmount: refundAmount,
+          tdsAdjustAmount: adjustAmount,
+          tdsClaimRemarks: claimData.tdsClaimRemarks || "",
+          updatedAt: new Date(),
+          ...getAuditFieldsFromEvent(event, "update"),
+        };
+
+        await invoicesCollection.updateOne(
+          { _id: invoiceObjectId, isDeleted: { $ne: true } },
+          { $set: tdsClaimFields },
+        );
+
+        const updatedInvoiceRecord = { ...currentInvoice, ...tdsClaimFields };
+
+        // Sync the main invoice transaction (updates TDS Receivable line)
+        await syncTransactionSnapshot({
+          db,
+          sourceCollection: "invoices",
+          sourceType: "invoice",
+          sourceRecord: updatedInvoiceRecord,
+          sourceLabel: currentInvoice.invoiceNumber || "",
+        });
+
+        // Sync the TDS claim transaction (reverses TDS Receivable when claimed/adjusted)
+        if (tdsClaimStatus === "Claimed" || tdsClaimStatus === "Adjusted" || tdsClaimStatus === "Partial") {
+          await syncTransactionSnapshot({
+            db,
+            sourceCollection: "invoices",
+            sourceType: "tds-claim",
+            sourceRecord: updatedInvoiceRecord,
+            sourceLabel: `TDS Claim - ${currentInvoice.invoiceNumber || ""}`,
+            sourceEvent: "tds_claim",
+          });
+        } else {
+          // If reset to Pending, remove any existing tds-claim transaction (soft delete)
+          await syncTransactionSnapshot({
+            db,
+            sourceCollection: "invoices",
+            sourceType: "tds-claim",
+            sourceRecord: currentInvoice,
+            sourceLabel: `TDS Claim - ${currentInvoice.invoiceNumber || ""}`,
+            sourceEvent: "tds_claim",
+            deleted: true,
+          });
+        }
+
+        invoiceMetaCache.value = null;
+        invoiceMetaCache.expiresAt = 0;
+
+        return createResponse(200, {
+          message: "TDS claim saved successfully",
+          tdsClaimStatus,
+        }, origin);
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       const invoiceData = normalizePaymentMethodsInRecord(
         JSON.parse(event.body),

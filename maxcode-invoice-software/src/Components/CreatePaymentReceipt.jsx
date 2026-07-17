@@ -27,6 +27,10 @@ const emptyForm = {
   email: "",
   address: "",
   amount: "",
+  grossAmount: "",
+  tdsEnabled: false,
+  tdsPercent: "",
+  tdsAmount: "",
   paymentMethod: "",
   bankName: "",
   chequeNumber: "",
@@ -35,10 +39,6 @@ const emptyForm = {
   paymentType: "regular",
   againstType: "",
   invoiceId: "",
-  invoiceNumber: "",
-  invoiceIds: [],
-  invoiceNumbers: [],
-  debitNoteId: "",
   debitNoteNumber: "",
   financialYear: "",
 };
@@ -105,6 +105,16 @@ const CreatePaymentReceipt = ({
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
+  // TDS auto-calculation helper
+  const recalcTdsFromPercent = (grossAmt, pct) => {
+    const gross = toNumber(grossAmt);
+    const percent = toNumber(pct);
+    if (gross <= 0 || percent <= 0) return { tdsAmount: "", amount: String(grossAmt) };
+    const tds = Math.round(gross * percent) / 100;
+    const net = Math.max(0, gross - tds);
+    return { tdsAmount: String(tds), amount: String(net) };
+  };
+
   const getInvoiceDueAmount = (invoice) => {
     const totalAmount = toNumber(
       invoice?.taxData?.totalAmount || invoice?.totalAmount || 0,
@@ -149,6 +159,15 @@ const CreatePaymentReceipt = ({
         againstTypeValue = "invoice";
       }
 
+      const editingTdsEnabled = !!(editingRecord.tdsEnabled || editingRecord.tdsPercent || editingRecord.tdsAmount);
+      const editingGrossAmount =
+        editingRecord.grossAmount !== undefined
+          ? String(editingRecord.grossAmount)
+          : editingRecord.amount !== undefined
+            ? String(editingRecord.amount)
+            : totalAllocatedAmount > 0
+              ? String(totalAllocatedAmount)
+              : "";
       setFormData({
         ...emptyForm,
         ...editingRecord,
@@ -158,6 +177,10 @@ const CreatePaymentReceipt = ({
             : totalAllocatedAmount > 0
               ? String(totalAllocatedAmount)
               : "",
+        grossAmount: editingGrossAmount,
+        tdsEnabled: editingTdsEnabled,
+        tdsPercent: editingRecord.tdsPercent ? String(editingRecord.tdsPercent) : "",
+        tdsAmount: editingRecord.tdsAmount ? String(editingRecord.tdsAmount) : "",
         clientRefId: editingRecord.clientRefId || editingRecord.clientId || "",
         clientId: editingRecord.clientId || editingRecord.clientRefId || "",
         clientName: editingRecord.clientName || "",
@@ -430,20 +453,42 @@ const CreatePaymentReceipt = ({
 
     // Only update amount if it's editing mode or the amount hasn't been manually set
     if (dueTotal > 0) {
-      setFormData((prev) => ({
-        ...prev,
-        invoiceIds: validSelectedIds,
-        invoiceNumbers: selectedOptions.map((option) => option.invoiceNumber),
-        invoiceId: validSelectedIds[0] || "",
-        invoiceNumber: selectedOptions[0]?.invoiceNumber || "",
-        amount: String(dueTotal),
-        purpose:
-          selectedOptions.length > 0
-            ? `Against Invoice ${selectedOptions.map((opt) => opt.invoiceNumber).join(", ")}`
-            : prev.purpose,
-      }));
+      setFormData((prev) => {
+        // If TDS is enabled, recalculate net from new gross
+        if (prev.tdsEnabled && toNumber(prev.tdsPercent) > 0) {
+          const calc = recalcTdsFromPercent(String(dueTotal), prev.tdsPercent);
+          return {
+            ...prev,
+            invoiceIds: validSelectedIds,
+            invoiceNumbers: selectedOptions.map((option) => option.invoiceNumber),
+            invoiceId: validSelectedIds[0] || "",
+            invoiceNumber: selectedOptions[0]?.invoiceNumber || "",
+            grossAmount: String(dueTotal),
+            tdsAmount: calc.tdsAmount,
+            amount: calc.amount || String(dueTotal),
+            purpose:
+              selectedOptions.length > 0
+                ? `Against Invoice ${selectedOptions.map((opt) => opt.invoiceNumber).join(", ")}`
+                : prev.purpose,
+          };
+        }
+        // TDS not enabled — set amount = gross
+        return {
+          ...prev,
+          invoiceIds: validSelectedIds,
+          invoiceNumbers: selectedOptions.map((option) => option.invoiceNumber),
+          invoiceId: validSelectedIds[0] || "",
+          invoiceNumber: selectedOptions[0]?.invoiceNumber || "",
+          grossAmount: String(dueTotal),
+          amount: String(dueTotal),
+          purpose:
+            selectedOptions.length > 0
+              ? `Against Invoice ${selectedOptions.map((opt) => opt.invoiceNumber).join(", ")}`
+              : prev.purpose,
+        };
+      });
     }
-  }, [invoiceOptions, formData.invoiceIds, formData.invoiceId]);
+  }, [invoiceOptions, JSON.stringify(formData.invoiceIds), formData.invoiceId]);
 
   // Auto-fill financial year and receipt number
   useEffect(() => {
@@ -588,7 +633,7 @@ const CreatePaymentReceipt = ({
     setFormData((prev) => ({
       ...prev,
       paymentType: type,
-      againstType: "",
+      againstType: "", // always blank — user selects manually
       invoiceId: "",
       invoiceNumber: "",
       invoiceIds: [],
@@ -638,32 +683,51 @@ const CreatePaymentReceipt = ({
       0,
     );
 
-    // Prepare note string
-    let note = "";
-    if (sortedSelection.length > 0) {
-      note = sortedSelection
-        .map(
-          (opt) =>
-            `₹${toNumber(opt.dueAmount || 0).toLocaleString("en-IN")} paid against Invoice ${opt.invoiceNumber}`,
-        )
-        .join(", ");
-    }
+    setFormData((prev) => {
+      const newGross = dueTotal > 0 ? dueTotal : toNumber(prev.grossAmount || prev.amount);
+      let newAmount = String(newGross);
+      let newTdsAmount = prev.tdsAmount;
+      let newTdsPct = prev.tdsPercent;
+      if (prev.tdsEnabled && toNumber(prev.tdsPercent) > 0 && newGross > 0) {
+        const calc = recalcTdsFromPercent(newGross, prev.tdsPercent);
+        newTdsAmount = calc.tdsAmount;
+        newAmount = calc.amount;
+      }
 
-    setFormData((prev) => ({
-      ...prev,
-      invoiceIds: invoiceIds,
-      invoiceNumbers: invoiceNumbers,
-      invoiceId: invoiceIds[0] || "",
-      invoiceNumber: invoiceNumbers[0] || "",
-      amount: dueTotal > 0 ? String(dueTotal) : prev.amount,
-      purpose:
-        invoiceNumbers.length > 0
-          ? `Against Invoice ${invoiceNumbers.join(", ")}`
-          : prev.paymentType === "advance"
-            ? "Advance Payment"
-            : "",
-      note: note,
-    }));
+      // Build note string with TDS info if enabled
+      let note = "";
+      if (sortedSelection.length > 0) {
+        const netAmt = toNumber(newAmount);
+        const tdsAmt = prev.tdsEnabled && toNumber(newTdsAmount) > 0 ? toNumber(newTdsAmount) : 0;
+        note = sortedSelection
+          .map((opt) => {
+            const gross = toNumber(opt.dueAmount || 0);
+            if (prev.tdsEnabled && tdsAmt > 0) {
+              return `₹${gross.toLocaleString("en-IN")} against Invoice ${opt.invoiceNumber} (TDS @${toNumber(newTdsPct)}% = ₹${tdsAmt.toLocaleString("en-IN")}, Net Paid ₹${netAmt.toLocaleString("en-IN")})`;
+            }
+            return `₹${gross.toLocaleString("en-IN")} paid against Invoice ${opt.invoiceNumber}`;
+          })
+          .join(", ");
+      }
+
+      return {
+        ...prev,
+        invoiceIds: invoiceIds,
+        invoiceNumbers: invoiceNumbers,
+        invoiceId: invoiceIds[0] || "",
+        invoiceNumber: invoiceNumbers[0] || "",
+        grossAmount: String(newGross),
+        amount: newAmount,
+        tdsAmount: newTdsAmount,
+        purpose:
+          invoiceNumbers.length > 0
+            ? `Against Invoice ${invoiceNumbers.join(", ")}`
+            : prev.paymentType === "advance"
+              ? "Advance Payment"
+              : "",
+        note: note,
+      };
+    });
   };
 
   const handleDebitNoteSelectionChange = (selectedOption) => {
@@ -796,6 +860,10 @@ const CreatePaymentReceipt = ({
       const payload = {
         ...formData,
         amount: Number(formData.amount),
+        grossAmount: Number(formData.grossAmount || formData.amount),
+        tdsEnabled: formData.tdsEnabled || false,
+        tdsPercent: formData.tdsEnabled ? Number(formData.tdsPercent || 0) : 0,
+        tdsAmount: formData.tdsEnabled ? Number(formData.tdsAmount || 0) : 0,
         invoiceIds: normalizedInvoiceIds,
         invoiceNumbers: normalizedInvoiceNumbers,
         invoiceId: normalizedInvoiceIds[0] || "",
@@ -887,13 +955,13 @@ const CreatePaymentReceipt = ({
       cursor: "pointer",
       padding: "8px 12px",
       backgroundColor: state.isSelected
-        ? "#d4edda"
+        ? "#c3e6cb"
         : state.isFocused
-          ? "#f0f8ff"
+          ? "#e9f7ef"
           : "white",
-      color: "#333",
+      color: state.isSelected ? "#155724" : "#333",
       "&:active": {
-        backgroundColor: "#c8e6d9",
+        backgroundColor: "#c3e6cb",
       },
     }),
   };
@@ -909,23 +977,37 @@ const CreatePaymentReceipt = ({
     ClearIndicator: null,
     // FIXED: Add custom Option component for better click handling
     Option: (props) => {
-      const { innerRef, innerProps, isSelected, data, isFocused } = props;
+      const { innerRef, innerProps, isSelected, data, isFocused, selectProps } = props;
       return (
         <div
           ref={innerRef}
           {...innerProps}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const currentValues = selectProps.value || [];
+            if (isSelected) {
+              // Uncheck — remove this option
+              const newValues = currentValues.filter(
+                (v) => String(v.value) !== String(data.value),
+              );
+              selectProps.onChange(newValues);
+            } else {
+              // Check — add this option
+              selectProps.onChange([...currentValues, data]);
+            }
+          }}
           style={{
             padding: "10px 12px",
             cursor: "pointer",
             backgroundColor: isSelected
-              ? "#d4edda"
+              ? "#c3e6cb"
               : isFocused
-                ? "#f0f8ff"
+                ? "#e9f7ef"
                 : "white",
             borderBottom: "1px solid #f0f0f0",
-            transition: "all 0.2s ease",
+            transition: "background-color 0.15s ease",
           }}
-          className="invoice-option"
         >
           <div style={{ display: "flex", alignItems: "center" }}>
             <input
@@ -937,6 +1019,7 @@ const CreatePaymentReceipt = ({
                 cursor: "pointer",
                 width: "16px",
                 height: "16px",
+                accentColor: "#1a7a34",
               }}
             />
             <div style={{ flex: 1 }}>
@@ -960,28 +1043,39 @@ const CreatePaymentReceipt = ({
       );
     },
     MultiValue: (props) => {
-      const { data, removeProps, children } = props;
+      const { data, removeProps, children, selectProps } = props;
       return (
         <div
           style={{
-            backgroundColor: "#e9ecef",
+            backgroundColor: "#d4edda",
             borderRadius: "4px",
             display: "inline-flex",
             alignItems: "center",
             margin: "2px",
             padding: "2px 6px",
             fontSize: "12px",
+            border: "1px solid #a8d5b5",
           }}
         >
           <span>{children}</span>
           <span
-            {...removeProps}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              // Manually trigger removal via onChange with updated selection
+              const currentValues = selectProps.value || [];
+              const newValues = currentValues.filter(
+                (v) => String(v.value) !== String(data.value),
+              );
+              selectProps.onChange(newValues);
+            }}
             style={{
               marginLeft: "6px",
               cursor: "pointer",
               fontSize: "14px",
               fontWeight: "bold",
-              color: "#666",
+              color: "#28a745",
+              lineHeight: 1,
             }}
           >
             ×
@@ -1123,8 +1217,8 @@ const CreatePaymentReceipt = ({
                           readOnly
                         />
                         {isGeneratingNumber && (
-                          <span className="input-group-text">
-                            <span className="spinner-border spinner-border-sm" />
+                          <span className="input-group-text bg-white border-start-0">
+                            <SelectRightLoader />
                           </span>
                         )}
                       </div>
@@ -1413,28 +1507,206 @@ const CreatePaymentReceipt = ({
                       )}
 
                     <div className="col-md-6">
-                      <label className="form-label">
-                        <i className="fas fa-rupee-sign me-2 text-primary"></i>
-                        Amount (₹) <span className="text-danger">*</span>
+                      <label className="form-label d-flex align-items-center justify-content-between">
+                        <span>
+                          <i className="fas fa-rupee-sign me-2 text-primary"></i>
+                          Amount (₹) <span className="text-danger">*</span>
+                        </span>
+                        {!readOnly && (
+                          <span className="d-flex align-items-center gap-1 ms-2">
+                            <span className="text-muted" style={{ fontSize: "12px", fontWeight: 400 }}>TDS Deduction</span>
+                            <div
+                              className={`form-check form-switch mb-0`}
+                              style={{ paddingLeft: "2.5em" }}
+                            >
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                role="switch"
+                                id="tdsToggle"
+                                checked={formData.tdsEnabled || false}
+                                onChange={(e) => {
+                                  const enabled = e.target.checked;
+                                  setFormData((prev) => {
+                                    if (!enabled) {
+                                      // Restore gross amount when disabling
+                                      const gross = toNumber(prev.grossAmount || prev.amount);
+                                      return {
+                                        ...prev,
+                                        tdsEnabled: false,
+                                        tdsPercent: "",
+                                        tdsAmount: "",
+                                        amount: gross > 0 ? String(gross) : prev.amount,
+                                        grossAmount: gross > 0 ? String(gross) : prev.grossAmount,
+                                      };
+                                    }
+                                    // Toggle ON — immediately recalc if tdsPercent already set
+                                    const gross = toNumber(prev.grossAmount || prev.amount);
+                                    const pct = toNumber(prev.tdsPercent || 0);
+                                    if (gross > 0 && pct > 0) {
+                                      const calc = recalcTdsFromPercent(gross, pct);
+                                      return {
+                                        ...prev,
+                                        tdsEnabled: true,
+                                        grossAmount: String(gross),
+                                        tdsAmount: calc.tdsAmount,
+                                        amount: calc.amount,
+                                      };
+                                    }
+                                    return {
+                                      ...prev,
+                                      tdsEnabled: true,
+                                      grossAmount: prev.grossAmount || prev.amount,
+                                    };
+                                  });
+                                }}
+                                style={{ cursor: "pointer" }}
+                              />
+                            </div>
+                          </span>
+                        )}
                       </label>
                       <input
                         type="number"
                         className={`form-control modern-input ${errors.amount ? "is-invalid" : ""}`}
-                        name="amount"
-                        value={formData.amount}
-                        onChange={handleChange}
+                        name="grossAmount"
+                        value={formData.tdsEnabled ? (formData.amount || "") : formData.amount}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (formData.tdsEnabled) {
+                            const calc = recalcTdsFromPercent(formData.grossAmount || val, formData.tdsPercent);
+                            setFormData((prev) => ({
+                              ...prev,
+                              grossAmount: prev.grossAmount || val,
+                              tdsAmount: calc.tdsAmount,
+                              amount: calc.amount || val,
+                            }));
+                          } else {
+                            setFormData((prev) => ({
+                              ...prev,
+                              amount: val,
+                              grossAmount: val,
+                            }));
+                          }
+                          if (errors.amount) setErrors((prev) => ({ ...prev, amount: "" }));
+                        }}
                         placeholder="0.00"
                         min="0"
                         step="0.01"
-                        readOnly={readOnly}
+                        readOnly={readOnly || formData.tdsEnabled}
                         disabled={readOnly}
                       />
+                      {formData.tdsEnabled && toNumber(formData.grossAmount) > 0 && toNumber(formData.tdsAmount) > 0 && (
+                        <div className="mt-1" style={{ fontSize: "12px", color: "#555", lineHeight: "1.6" }}>
+                          <span>Gross: <strong>₹{toNumber(formData.grossAmount).toLocaleString("en-IN")}</strong></span>
+                          <span className="mx-1 text-muted">−</span>
+                          <span className="text-danger">TDS ({formData.tdsPercent}%): <strong>₹{toNumber(formData.tdsAmount).toLocaleString("en-IN")}</strong></span>
+                          <span className="mx-1 text-muted">=</span>
+                          <span className="text-success">Net: <strong>₹{toNumber(formData.amount).toLocaleString("en-IN")}</strong></span>
+                        </div>
+                      )}
                       {errors.amount && (
                         <div className="invalid-feedback d-block">
                           {errors.amount}
                         </div>
                       )}
                     </div>
+
+                    {formData.tdsEnabled && !readOnly && (                      <>
+                        <div className="col-md-6">
+                          <label className="form-label">
+                            <i className="fas fa-percent me-2 text-warning"></i>
+                            TDS (%)
+                          </label>
+                          <input
+                            type="number"
+                            className="form-control modern-input"
+                            name="tdsPercent"
+                            value={formData.tdsPercent}
+                            onChange={(e) => {
+                              const pct = e.target.value;
+                              setFormData((prev) => {
+                                const gross = prev.grossAmount || prev.amount;
+                                const calc = recalcTdsFromPercent(gross, pct);
+                                const netAmt = toNumber(calc.amount || gross);
+                                const tdsAmt = toNumber(calc.tdsAmount || 0);
+                                // Rebuild note with updated TDS info
+                                let note = prev.note;
+                                const invNums = prev.invoiceNumbers?.length > 0
+                                  ? prev.invoiceNumbers
+                                  : prev.invoiceNumber ? [prev.invoiceNumber] : [];
+                                if (invNums.length > 0 && prev.tdsEnabled) {
+                                  const grossVal = toNumber(prev.grossAmount || prev.amount);
+                                  if (tdsAmt > 0) {
+                                    note = invNums.map((num) =>
+                                      `₹${grossVal.toLocaleString("en-IN")} against Invoice ${num} (TDS @${toNumber(pct)}% = ₹${tdsAmt.toLocaleString("en-IN")}, Net Paid ₹${netAmt.toLocaleString("en-IN")})`
+                                    ).join(", ");
+                                  } else {
+                                    note = invNums.map((num) =>
+                                      `₹${grossVal.toLocaleString("en-IN")} paid against Invoice ${num}`
+                                    ).join(", ");
+                                  }
+                                }
+                                return {
+                                  ...prev,
+                                  tdsPercent: pct,
+                                  tdsAmount: calc.tdsAmount,
+                                  amount: calc.amount || prev.grossAmount || prev.amount,
+                                  note,
+                                };
+                              });
+                            }}
+                            placeholder="e.g. 10"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                          />
+                        </div>
+                        <div className="col-md-6">
+                          <label className="form-label">
+                            <i className="fas fa-hand-holding-dollar me-2 text-warning"></i>
+                            TDS Amount (₹)
+                          </label>
+                          <input
+                            type="number"
+                            className="form-control modern-input"
+                            name="tdsAmount"
+                            value={formData.tdsAmount}
+                            onChange={(e) => {
+                              const tdsAmt = e.target.value;
+                              setFormData((prev) => {
+                                const gross = toNumber(prev.grossAmount || prev.amount);
+                                const tdsNum = toNumber(tdsAmt);
+                                const net = Math.max(0, gross - tdsNum);
+                                // Reverse calc: tdsPercent from amount
+                                const reversePct = gross > 0 && tdsNum > 0
+                                  ? parseFloat(((tdsNum / gross) * 100).toFixed(2))
+                                  : 0;
+                                const invNums = prev.invoiceNumbers?.length > 0
+                                  ? prev.invoiceNumbers
+                                  : prev.invoiceNumber ? [prev.invoiceNumber] : [];
+                                let note = prev.note;
+                                if (invNums.length > 0 && prev.tdsEnabled && tdsNum > 0) {
+                                  note = invNums.map((num) =>
+                                    `₹${gross.toLocaleString("en-IN")} against Invoice ${num} (TDS @${reversePct}% = ₹${tdsNum.toLocaleString("en-IN")}, Net Paid ₹${net.toLocaleString("en-IN")})`
+                                  ).join(", ");
+                                }
+                                return {
+                                  ...prev,
+                                  tdsAmount: tdsAmt,
+                                  tdsPercent: reversePct > 0 ? String(reversePct) : prev.tdsPercent,
+                                  amount: gross > 0 ? String(net) : prev.amount,
+                                  note,
+                                };
+                              });
+                            }}
+                            placeholder="Auto-calculated"
+                            min="0"
+                            step="0.01"
+                          />
+                        </div>
+                      </>
+                    )}
 
                     <div className="col-md-6">
                       <label className="form-label">
@@ -1462,7 +1734,7 @@ const CreatePaymentReceipt = ({
                         }
                         isClearable={!readOnly}
                         placeholder="Select Method"
-                        styles={selectStyles}
+                        styles={calmSelectStyles}
                         name="paymentMethod"
                         classNamePrefix="react-select"
                         isDisabled={readOnly}

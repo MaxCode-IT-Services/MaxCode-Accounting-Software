@@ -60,6 +60,7 @@ const API_ENDPOINTS = {
     NEXT_NUMBER: "/invoices?action=next-number",
     GET: (id) => `/invoices?id=${id}`,
     UPDATE: (id) => `/invoices?id=${id}`,
+    CLAIM_TDS: (id) => `/invoices?id=${id}&action=claim-tds`,
     DELETE: (id) => `/invoices?id=${id}`,
   },
 

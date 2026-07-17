@@ -436,6 +436,32 @@ const recalculateInvoicePaymentSummary = async (
       )
     );
   }, 0);
+
+  // Aggregate TDS from receipts linked to this invoice
+  const totalTdsFromReceipts = regularReceipts.reduce((sum, receipt) => {
+    const linked =
+      String(receipt.invoiceId || "") === resolvedInvoiceId ||
+      String(receipt.invoiceId || "") === resolvedInvoiceNumber ||
+      String(receipt.invoiceNumber || "") === resolvedInvoiceNumber ||
+      (Array.isArray(receipt.invoiceIds) && receipt.invoiceIds.includes(resolvedInvoiceId)) ||
+      (Array.isArray(receipt.invoiceNumbers) && receipt.invoiceNumbers.includes(resolvedInvoiceNumber)) ||
+      (Array.isArray(receipt.invoiceAllocations) &&
+        receipt.invoiceAllocations.some(
+          (a) =>
+            String(a.invoiceId || "") === resolvedInvoiceId ||
+            String(a.invoiceNumber || "") === resolvedInvoiceNumber,
+        ));
+    if (!linked || !receipt.tdsEnabled) return sum;
+    return sum + toNumber(receipt.tdsAmount || 0);
+  }, 0);
+
+  // Use TDS from receipts if any, otherwise preserve existing invoice TDS (set from TDS Management)
+  const invoiceTdsAmount = totalTdsFromReceipts > 0
+    ? totalTdsFromReceipts
+    : toNumber(invoice.tdsAmount || 0);
+  const invoiceTdsPercent = totalTdsFromReceipts > 0 && regularReceipts.length > 0
+    ? toNumber(regularReceipts.find((r) => r.tdsEnabled && toNumber(r.tdsPercent) > 0)?.tdsPercent || invoice.tdsPercent || 0)
+    : toNumber(invoice.tdsPercent || 0);
   const latestRegularReceipt =
     regularReceipts.length > 0
       ? regularReceipts.reduce((latest, current) => {
@@ -448,8 +474,8 @@ const recalculateInvoicePaymentSummary = async (
   const advanceAdjustedTotal = toNumber(invoice.advanceAdjustedTotal);
   const amountReceived = regularReceivedAmount + advanceAdjustedTotal;
   const totalAmount = toNumber(invoice?.taxData?.totalAmount);
-  const dueAmount = Math.max(0, totalAmount - amountReceived);
-  const paymentStatus = derivePaymentStatus(totalAmount, amountReceived);
+  const dueAmount = Math.max(0, totalAmount - amountReceived - invoiceTdsAmount);
+  const paymentStatus = derivePaymentStatus(totalAmount, amountReceived + invoiceTdsAmount);
 
   const latestAdvanceMeta = getLatestAdvanceMeta(invoice.appliedAdvances);
   const paymentDate =
@@ -462,6 +488,8 @@ const recalculateInvoicePaymentSummary = async (
   const updatedInvoiceRecord = {
     ...invoice,
     amountReceived: amountReceived > 0 ? String(amountReceived) : "",
+    tdsAmount: invoiceTdsAmount > 0 ? String(invoiceTdsAmount) : (invoice.tdsAmount || ""),
+    tdsPercent: invoiceTdsPercent > 0 ? String(invoiceTdsPercent) : (invoice.tdsPercent || ""),
     paymentStatus,
     paymentDate,
     paymentMethod,
@@ -474,6 +502,8 @@ const recalculateInvoicePaymentSummary = async (
     {
       $set: {
         amountReceived: updatedInvoiceRecord.amountReceived,
+        tdsAmount: updatedInvoiceRecord.tdsAmount,
+        tdsPercent: updatedInvoiceRecord.tdsPercent,
         paymentStatus: updatedInvoiceRecord.paymentStatus,
         paymentDate: updatedInvoiceRecord.paymentDate,
         paymentMethod: updatedInvoiceRecord.paymentMethod,
@@ -1034,6 +1064,10 @@ export async function handler(event) {
         email,
         address,
         amount,
+        grossAmount,
+        tdsEnabled,
+        tdsPercent,
+        tdsAmount: bodyTdsAmount,
         paymentMethod,
         bankName,
         chequeNumber,
@@ -1265,6 +1299,10 @@ export async function handler(event) {
         overflowAdvanceAmount = Math.max(0, numAmount - debitNoteAppliedAmount);
       }
 
+      const normalizedTdsPercent = toNumber(tdsPercent || 0);
+      const normalizedTdsAmount = toNumber(bodyTdsAmount || 0);
+      const normalizedGrossAmount = toNumber(grossAmount || amount);
+
       const regularDoc = {
         receiptNumber,
         receiptDate,
@@ -1326,6 +1364,10 @@ export async function handler(event) {
             : debitNoteNumber || "",
         debitNoteAllocatedAmount:
           normalizedAgainstType === "debit_note" ? debitNoteAppliedAmount : 0,
+        grossAmount: normalizedGrossAmount > 0 ? normalizedGrossAmount : regularDocAmount,
+        tdsEnabled: !!(tdsEnabled && normalizedTdsAmount > 0),
+        tdsPercent: normalizedTdsPercent,
+        tdsAmount: normalizedTdsAmount,
         financialYear,
         isDeleted: false,
         createdAt: now,
@@ -1432,17 +1474,11 @@ export async function handler(event) {
         await recalculateInvoicePaymentSummary(db, ref);
       }
 
-      const debitRefsToRecalc = [
-        ...(existing.paymentType !== "advance"
-          ? collectDebitNoteRefsFromReceipt(existing)
-          : []),
-        ...(updated?.paymentType !== "advance"
-          ? collectDebitNoteRefsFromReceipt(updated)
-          : []),
-      ];
-
-      for (const ref of debitRefsToRecalc) {
-        await recalculateDebitNotePaymentSummary(db, ref);
+      if (normalizedPaymentType !== "advance") {
+        const debitRefsToRecalc = collectDebitNoteRefsFromReceipt(regularDoc);
+        for (const ref of debitRefsToRecalc) {
+          await recalculateDebitNotePaymentSummary(db, ref);
+        }
       }
 
       return createResponse(
@@ -1562,6 +1598,10 @@ export async function handler(event) {
         ...(body.email !== undefined && { email: body.email }),
         ...(body.address !== undefined && { address: body.address }),
         ...(body.amount !== undefined && { amount: numAmount }),
+        ...(body.grossAmount !== undefined && { grossAmount: toNumber(body.grossAmount) }),
+        ...(body.tdsEnabled !== undefined && { tdsEnabled: !!body.tdsEnabled }),
+        ...(body.tdsPercent !== undefined && { tdsPercent: toNumber(body.tdsPercent) }),
+        ...(body.tdsAmount !== undefined && { tdsAmount: toNumber(body.tdsAmount) }),
         ...(body.paymentMethod !== undefined && {
           paymentMethod: normalizedRecord.paymentMethod,
         }),

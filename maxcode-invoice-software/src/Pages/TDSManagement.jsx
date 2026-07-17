@@ -8,7 +8,7 @@ import {
   showInfo,
 } from "../Components/ToastNotification";
 import API_ENDPOINTS from "../utils/apiEndpoints";
-import { apiGet, apiDelete, apiPost } from "../utils/api";
+import { apiGet, apiDelete, apiPost, apiPut } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 import {
   exportItemWiseExcel,
@@ -75,6 +75,19 @@ const TDSManagement = () => {
   const [invoiceToDelete, setInvoiceToDelete] = useState(null);
   const [exportingInvoices, setExportingInvoices] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+
+  // TDS Claim Modal state
+  const [showTdsClaimModal, setShowTdsClaimModal] = useState(false);
+  const [tdsClaimRecord, setTdsClaimRecord] = useState(null);
+  const [tdsClaimSaving, setTdsClaimSaving] = useState(false);
+  const [tdsClaimForm, setTdsClaimForm] = useState({
+    tdsClaimStatus: "Pending",
+    tdsClaimDate: "",
+    tdsRefundAccount: "Business Bank Account",
+    tdsRefundAmount: "",
+    tdsAdjustAmount: "",
+    tdsClaimRemarks: "",
+  });
   const [businessSettings, setBusinessSettings] = useState({
     companyName: "",
     companyAddress: "",
@@ -107,6 +120,7 @@ const TDSManagement = () => {
     totalTdsAmount: 0,
     tdsDeducted: 0,
     tdsPending: 0,
+    tdsClaimed: 0,
     totalInvoiceAmount: 0,
   });
 
@@ -141,6 +155,13 @@ const TDSManagement = () => {
       count: statistics.tdsPending,
     },
     {
+      icon: "fas fa-hand-holding-dollar",
+      title: "TDS Claimed",
+      key: "tdsClaimed",
+      color: "primary",
+      count: statistics.tdsClaimed,
+    },
+    {
       icon: "fas fa-file-invoice-dollar",
       title: "Total Invoices",
       key: "total",
@@ -152,12 +173,6 @@ const TDSManagement = () => {
       title: "Financial Period",
       key: "period",
       color: "warning",
-    },
-    {
-      icon: "fas fa-plus-circle",
-      title: "Add New",
-      key: "addNew",
-      color: "success",
     },
   ];
 
@@ -502,11 +517,17 @@ const TDSManagement = () => {
       .filter((r) => r.paymentStatus !== "Paid")
       .reduce((sum, r) => sum + parseFloat(r.tdsAmount || 0), 0);
 
+    // TDS Claimed = invoices where tdsClaimStatus is Claimed, Adjusted, or Partial
+    const tdsClaimed = data
+      .filter((r) => ["Claimed", "Adjusted", "Partial"].includes(r.tdsClaimStatus))
+      .reduce((sum, r) => sum + parseFloat(r.tdsAmount || 0), 0);
+
     const stats = {
       total: data.length,
       totalTdsAmount: totalTdsAmount.toFixed(2),
       tdsDeducted: tdsDeducted.toFixed(2),
       tdsPending: tdsPending.toFixed(2),
+      tdsClaimed: tdsClaimed.toFixed(2),
       totalInvoiceAmount: totalInvoiceAmount.toFixed(2),
     };
     setStatistics(stats);
@@ -795,6 +816,46 @@ const TDSManagement = () => {
       label: "Payment Date",
       width: 130,
     },
+    {
+      key: "tdsClaimStatus",
+      label: "TDS Claim Status",
+      width: 140,
+      render: (value) => {
+        if (!value || value === "Pending") return <span className="badge bg-warning text-dark">Pending</span>;
+        if (value === "Claimed") return <span className="badge bg-success">Claimed</span>;
+        if (value === "Adjusted") return <span className="badge bg-info">Adjusted</span>;
+        if (value === "Partial") return <span className="badge bg-primary">Partial</span>;
+        return <span className="badge bg-secondary">{value}</span>;
+      },
+    },
+    {
+      key: "tdsClaimDate",
+      label: "Claim Date",
+      width: 120,
+      render: (value) => value ? formatDateForDisplay(value) : "—",
+    },
+    {
+      key: "tdsRefundAccount",
+      label: "Refund Account",
+      width: 160,
+      render: (value) => value || "—",
+    },
+    {
+      key: "tdsRefundAmount",
+      label: "Refund Amount",
+      width: 130,
+      render: (value) => value > 0
+        ? <span className="fw-bold text-success">₹ {parseFloat(value).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+        : "—",
+    },
+    {
+      key: "tdsAdjustAmount",
+      label: "Adjusted (Tax)",
+      width: 130,
+      render: (value) => value > 0
+        ? <span className="fw-bold text-info">₹ {parseFloat(value).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+        : "—",
+    },
     { key: "createdDateTime", label: "Created Date & Time", width: 200 },
     { key: "action", label: "Actions", width: 180 },
   ];
@@ -815,6 +876,7 @@ const TDSManagement = () => {
     "paymentStatus",
     "paymentMethod",
     "placeOfSupply",
+    "tdsClaimStatus",
   ];
 
   // Filter options - dynamic for placeOfSupply
@@ -822,6 +884,7 @@ const TDSManagement = () => {
     const options = {
       paymentStatus: ["All", "Paid", "Unpaid", "Partial"],
       paymentMethod: ["All", ...new Set(records.map((r) => r.paymentMethod).filter(Boolean))],
+      tdsClaimStatus: ["All", "Pending", "Claimed", "Adjusted", "Partial"],
     };
 
     // Dynamic placeOfSupply options from records (client-side) or from dynamicFilterOptions (server-side)
@@ -893,6 +956,84 @@ const TDSManagement = () => {
           : financialPeriodMode === "halfYearly"
             ? "Half Yearly"
             : "Yearly";
+  };
+
+  // Handle TDS Claim
+  const handleOpenTdsClaim = (record) => {
+    setTdsClaimRecord(record);
+    setTdsClaimForm({
+      tdsClaimStatus: record.tdsClaimStatus || "Pending",
+      tdsClaimDate: record.tdsClaimDate ? record.tdsClaimDate.slice(0, 10) : "",
+      tdsRefundAccount: record.tdsRefundAccount || "Business Bank Account",
+      tdsRefundAmount: record.tdsRefundAmount != null ? String(record.tdsRefundAmount) : "",
+      tdsAdjustAmount: record.tdsAdjustAmount != null ? String(record.tdsAdjustAmount) : "",
+      tdsClaimRemarks: record.tdsClaimRemarks || "",
+    });
+    setShowTdsClaimModal(true);
+  };
+
+  const handleTdsClaimFormChange = (e) => {
+    const { name, value } = e.target;
+    setTdsClaimForm((prev) => {
+      const updated = { ...prev, [name]: value };
+      // Auto-fill amounts when status changes
+      if (name === "tdsClaimStatus" && tdsClaimRecord) {
+        const tdsAmt = parseFloat(tdsClaimRecord.tdsAmount || 0);
+        if (value === "Claimed") {
+          updated.tdsRefundAmount = String(tdsAmt);
+          updated.tdsAdjustAmount = "";
+        } else if (value === "Adjusted") {
+          updated.tdsRefundAmount = "";
+          updated.tdsAdjustAmount = String(tdsAmt);
+        } else if (value === "Pending") {
+          updated.tdsRefundAmount = "";
+          updated.tdsAdjustAmount = "";
+        }
+        // Partial: let user fill manually
+      }
+      return updated;
+    });
+  };
+
+  const handleSaveTdsClaim = async () => {
+    if (!tdsClaimRecord) return;
+    const id = tdsClaimRecord._id || tdsClaimRecord.id;
+
+    // Validation
+    const tdsAmount = parseFloat(tdsClaimRecord.tdsAmount || 0);
+    const refund = parseFloat(tdsClaimForm.tdsRefundAmount || 0);
+    const adjust = parseFloat(tdsClaimForm.tdsAdjustAmount || 0);
+
+    if (["Claimed", "Partial"].includes(tdsClaimForm.tdsClaimStatus)) {
+      if (refund + adjust <= 0) {
+        showError("Please enter Refund Amount or Adjust Amount");
+        return;
+      }
+      if (refund + adjust > tdsAmount + 0.01) {
+        showError(`Total claimed (₹${(refund + adjust).toFixed(2)}) cannot exceed TDS Amount (₹${tdsAmount.toFixed(2)})`);
+        return;
+      }
+    }
+
+    setTdsClaimSaving(true);
+    try {
+      await apiPut(API_ENDPOINTS.INVOICES.CLAIM_TDS(id), {
+        tdsClaimStatus: tdsClaimForm.tdsClaimStatus,
+        tdsClaimDate: tdsClaimForm.tdsClaimDate || null,
+        tdsRefundAccount: tdsClaimForm.tdsRefundAccount,
+        tdsRefundAmount: refund,
+        tdsAdjustAmount: adjust,
+        tdsClaimRemarks: tdsClaimForm.tdsClaimRemarks,
+      });
+      showSuccess("TDS Claim saved successfully!");
+      setShowTdsClaimModal(false);
+      setTdsClaimRecord(null);
+      setRefreshNonce(Date.now());
+    } catch (error) {
+      showError(error.response?.data?.error || "Failed to save TDS claim");
+    } finally {
+      setTdsClaimSaving(false);
+    }
   };
 
   // Handle view
@@ -1371,11 +1512,9 @@ const TDSManagement = () => {
           data={serverSide ? preparedData : filteredClientSideData}
           loading={loading}
           totalRecords={totalRecords}
-          onView={handleView}
-          onDelete={handleDelete}
           onRefresh={handleRefresh}
           showActions={true}
-          actions={["view", "delete"]}
+          actions={[]}
           skipDeleteConfirmation={true}
           fixedColumns={fixedColumns}
           defaultVisibleColumns={defaultVisibleColumns}
@@ -1416,6 +1555,14 @@ const TDSManagement = () => {
           }}
           customActions={(record) => (
             <>
+              <button
+                type="button"
+                className={`btn btn-sm me-1 ${record.tdsClaimStatus === "Claimed" ? "btn-success" : record.tdsClaimStatus === "Adjusted" ? "btn-info" : record.tdsClaimStatus === "Partial" ? "btn-primary" : "btn-outline-warning"}`}
+                onClick={() => handleOpenTdsClaim(record)}
+                title="Claim / Settle TDS"
+              >
+                <i className="fas fa-hand-holding-dollar"></i>
+              </button>
               <button
                 type="button"
                 className="btn btn-sm btn-outline-dark me-1"
@@ -1463,6 +1610,147 @@ const TDSManagement = () => {
         onClose={closeInvoicePreview}
         invoiceData={buildInvoiceData(previewRecord)}
       />
+
+      {/* TDS Claim Modal */}
+      {showTdsClaimModal && tdsClaimRecord && (
+        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1055 }}>
+          <div className="modal-dialog modal-lg modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title fw-bold">
+                  <i className="fas fa-hand-holding-dollar me-2 text-warning"></i>
+                  TDS Claim — Invoice #{tdsClaimRecord.invoiceNumber}
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setShowTdsClaimModal(false)} />
+              </div>
+              <div className="modal-body">
+                {/* Summary row */}
+                <div className="alert alert-info py-2 mb-3 d-flex flex-wrap gap-3">
+                  <span><strong>Invoice Amount:</strong> ₹{parseFloat(tdsClaimRecord.totalAmount || 0).toFixed(2)}</span>
+                  <span><strong>TDS ({tdsClaimRecord.tdsPercent}%):</strong> ₹{parseFloat(tdsClaimRecord.tdsAmount || 0).toFixed(2)}</span>
+                  <span><strong>Client:</strong> {tdsClaimRecord.clientName || tdsClaimRecord.businessName || "—"}</span>
+                  <span><strong>Total Received:</strong> ₹{parseFloat(tdsClaimRecord.totalReceivedAmount || tdsClaimRecord.amountReceived || 0).toFixed(2)}</span>
+                </div>
+
+                <div className="row g-3">
+                  {/* Claim Status */}
+                  <div className="col-md-6">
+                    <label className="form-label fw-semibold">TDS Claim Status <span className="text-danger">*</span></label>
+                    <select
+                      name="tdsClaimStatus"
+                      className="form-select modern-input"
+                      value={tdsClaimForm.tdsClaimStatus}
+                      onChange={handleTdsClaimFormChange}
+                    >
+                      <option value="Pending">Pending — Not yet claimed</option>
+                      <option value="Claimed">Claimed — Full refund received</option>
+                      <option value="Adjusted">Adjusted — TDS set off against tax liability</option>
+                      <option value="Partial">Partial — Partial refund / partial adjust</option>
+                    </select>
+                  </div>
+
+                  {/* Claim Date */}
+                  <div className="col-md-6">
+                    <label className="form-label fw-semibold">Claim / Refund Date</label>
+                    <input
+                      type="date"
+                      name="tdsClaimDate"
+                      className="form-control modern-input"
+                      value={tdsClaimForm.tdsClaimDate}
+                      onChange={handleTdsClaimFormChange}
+                    />
+                  </div>
+
+                  {/* Refund Amount */}
+                  {(tdsClaimForm.tdsClaimStatus === "Claimed" || tdsClaimForm.tdsClaimStatus === "Partial") && (
+                    <>
+                      <div className="col-md-6">
+                        <label className="form-label fw-semibold">Refund Amount (₹)</label>
+                        <input
+                          type="number"
+                          name="tdsRefundAmount"
+                          className="form-control modern-input"
+                          min="0"
+                          step="0.01"
+                          max={parseFloat(tdsClaimRecord.tdsAmount || 0)}
+                          placeholder="Amount refunded by IT dept"
+                          value={tdsClaimForm.tdsRefundAmount}
+                          onChange={handleTdsClaimFormChange}
+                        />
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label fw-semibold">Refund Received In</label>
+                        <select
+                          name="tdsRefundAccount"
+                          className="form-select modern-input"
+                          value={tdsClaimForm.tdsRefundAccount}
+                          onChange={handleTdsClaimFormChange}
+                        >
+                          <option value="Business Bank Account">Business Bank Account</option>
+                          <option value="Owner Personal Account">Owner Personal Account</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Adjust Amount */}
+                  {(tdsClaimForm.tdsClaimStatus === "Adjusted" || tdsClaimForm.tdsClaimStatus === "Partial") && (
+                    <div className="col-md-6">
+                      <label className="form-label fw-semibold">TDS Adjust Amount (₹)</label>
+                      <input
+                        type="number"
+                        name="tdsAdjustAmount"
+                        className="form-control modern-input"
+                        min="0"
+                        step="0.01"
+                        max={parseFloat(tdsClaimRecord.tdsAmount || 0)}
+                        placeholder="e.g. 20 (TDS) adjusted against ₹300 tax → pay ₹280"
+                        value={tdsClaimForm.tdsAdjustAmount}
+                        onChange={handleTdsClaimFormChange}
+                      />
+                    </div>
+                  )}
+
+                  {/* Remarks */}
+                  <div className="col-12">
+                    <label className="form-label fw-semibold">Remarks</label>
+                    <textarea
+                      name="tdsClaimRemarks"
+                      className="form-control modern-input"
+                      rows={2}
+                      placeholder="Optional notes (e.g. ITR acknowledgement no., refund date, etc.)"
+                      value={tdsClaimForm.tdsClaimRemarks}
+                      onChange={handleTdsClaimFormChange}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowTdsClaimModal(false)}
+                  disabled={tdsClaimSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleSaveTdsClaim}
+                  disabled={tdsClaimSaving}
+                >
+                  {tdsClaimSaving ? (
+                    <><span className="spinner-border spinner-border-sm me-1" />Saving...</>
+                  ) : (
+                    <><i className="fas fa-save me-1"></i>Save TDS Claim</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hidden divs for printing multiple invoices */}
       <div

@@ -75,6 +75,7 @@ const calculateBalanceSheetFromTransactions = (
   let inventory = round2(openingBalances.inventory || 0);
   let fixedDepositAsset = 0;
   let tdsReceivable = 0;
+  let ownerPersonalRefund = 0;
 
   // Process each transaction line
   for (const transaction of transactions) {
@@ -118,6 +119,8 @@ const calculateBalanceSheetFromTransactions = (
         fixedDepositAsset = round2(fixedDepositAsset + debit - credit);
       } else if (accountHead === "TDS Receivable") {
         tdsReceivable = round2(tdsReceivable + debit - credit);
+      } else if (accountHead === "Owner Personal Account") {
+        ownerPersonalRefund = round2(ownerPersonalRefund + debit - credit);
       }
     }
   }
@@ -150,6 +153,7 @@ const calculateBalanceSheetFromTransactions = (
   overdraft = round2(overdraft);
 
   tdsReceivable = round2(Math.max(tdsReceivable, 0));
+  ownerPersonalRefund = round2(ownerPersonalRefund);
 
   // Handle customer overpayment
   if (receivables < 0) {
@@ -172,7 +176,7 @@ const calculateBalanceSheetFromTransactions = (
   const cashBankTotal = round2(cashBalance + bankBalance);
   const receivablesGstTotal = round2(receivables + gstReceivable);
   const totalAssets = round2(
-    cashBankTotal + receivablesGstTotal + inventory + fixedDepositAsset + tdsReceivable,
+    cashBankTotal + receivablesGstTotal + inventory + fixedDepositAsset + tdsReceivable + ownerPersonalRefund,
   );
 
   const payablesGstTotal = round2(payables + gstPayable);
@@ -203,6 +207,7 @@ const calculateBalanceSheetFromTransactions = (
       inventory: inventory,
       fixedDeposits: fixedDepositAsset,
       tdsReceivable: tdsReceivable,
+      ownerPersonalRefund: ownerPersonalRefund > 0 ? ownerPersonalRefund : undefined,
     },
     liabilities: {
       payables: payables,

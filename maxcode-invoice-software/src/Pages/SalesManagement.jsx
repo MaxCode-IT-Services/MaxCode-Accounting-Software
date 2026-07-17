@@ -459,6 +459,8 @@ const SalesManagement = () => {
         const createdDate = sale.createdDate || sale.createdAt;
 
         const advanceAdjReceiptNumbers = (() => {
+          // Use backend-computed value if available
+          if (sale.advanceAdjReceiptNumbers != null) return sale.advanceAdjReceiptNumbers;
           if (
             Array.isArray(sale.appliedAdvances) &&
             sale.appliedAdvances.length
@@ -491,6 +493,14 @@ const SalesManagement = () => {
         })();
 
         const { regularReceiptTotal, regularReceiptNumbers } = (() => {
+          // Use backend-computed values if available
+          if (sale.regularReceiptTotal != null || sale.regularReceiptNumbers != null) {
+            return {
+              regularReceiptTotal: sale.regularReceiptTotal || 0,
+              regularReceiptNumbers: sale.regularReceiptNumbers || "",
+            };
+          }
+
           const candidates =
             sale.paymentReceipts ||
             sale.receipts ||
@@ -612,12 +622,14 @@ const SalesManagement = () => {
         (r) => r.paymentStatus === "Paid" || r.paymentStatus === "Partial",
       )
       .reduce((sum, r) => {
+        const tds = parseFloat(r.tdsAmount || 0);
         if (r.amountReceived !== undefined && r.amountReceived !== null) {
-          return sum + parseFloat(r.amountReceived || 0);
+          // amountReceived + TDS = total settled for this invoice
+          return sum + parseFloat(r.amountReceived || 0) + tds;
         } else if (r.paymentStatus === "Paid") {
           return sum + parseFloat(r.taxData?.totalAmount || 0);
         } else if (r.paymentStatus === "Partial") {
-          return sum + parseFloat(r.taxData?.totalAmount || 0) / 2;
+          return sum + parseFloat(r.taxData?.totalAmount || 0) / 2 + tds;
         }
         return sum;
       }, 0);
@@ -1167,9 +1179,9 @@ const SalesManagement = () => {
         showSuccess("Sales added successfully!");
       }
 
-      await fetchSales();
       setShowCreateSalesForm(false);
       setEditingRecord(null);
+      fetchSales();
     } catch (error) {
       console.error("Error saving sales:", error);
       showError(

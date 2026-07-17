@@ -742,7 +742,10 @@ const CreateSales = ({
       roundValue = 0;
     } else {
       const decimalPart = subtotalWithTax - Math.floor(subtotalWithTax);
-      if (decimalPart <= 0.5) {
+      if (decimalPart === 0) {
+        // Already a whole number — no rounding needed
+        roundValue = 0;
+      } else if (decimalPart <= 0.5) {
         // Round down: negative rounding
         roundValue = -decimalPart;
       } else {
@@ -762,9 +765,12 @@ const CreateSales = ({
       totalAmount: totalAmount.toFixed(2),
     });
 
+    // Prevent -0.00: if rounded value is effectively zero, force to 0
+    const safeRoundValue = Object.is(roundValue, -0) || Math.abs(roundValue) < 0.001 ? 0 : roundValue;
+
     setFormData((prev) => ({
       ...prev,
-      roundingAmount: roundValue.toFixed(2),
+      roundingAmount: safeRoundValue.toFixed(2),
       tdsAmount: computeTdsAmount(totalAmount, prev.tdsPercent),
     }));
   };
@@ -2114,8 +2120,7 @@ const CreateSales = ({
                         <div className="col-md-4 mb-3">
                           <label className="form-label fw-bold">
                             <i className="fas fa-file-invoice me-2 text-success"></i>
-                            CGST ({isRajasthan ? taxData.taxPercentage / 2 : 0}
-                            %)
+                            CGST ({taxData.taxPercentage / 2}%)
                           </label>
                           <div className="input-group">
                             <span
@@ -2139,8 +2144,7 @@ const CreateSales = ({
                         <div className="col-md-4 mb-3">
                           <label className="form-label fw-bold">
                             <i className="fas fa-file-invoice me-2 text-success"></i>
-                            SGST ({isRajasthan ? taxData.taxPercentage / 2 : 0}
-                            %)
+                            SGST ({taxData.taxPercentage / 2}%)
                           </label>
                           <div className="input-group">
                             <span
@@ -2207,7 +2211,12 @@ const CreateSales = ({
                               className={`form-control modern-input ${!roundingEnabled ? "bg-light" : ""}`}
                               id="roundingAmount"
                               name="roundingAmount"
-                              value={formData.roundingAmount}
+                              value={
+                                formData.roundingAmount === "-0.00" ||
+                                formData.roundingAmount === "-0"
+                                  ? "0.00"
+                                  : formData.roundingAmount
+                              }
                               onChange={(e) => {
                                 handleNumberInput(e);
                                 handleRoundingChange(e);

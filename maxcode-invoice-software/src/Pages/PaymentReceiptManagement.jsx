@@ -93,6 +93,8 @@ const PaymentReceiptManagement = () => {
     "paymentTypeBadge",
     "adjustmentStatus",
     "paymentMethod",
+    "createdByName",
+    "tdsPercentFormatted",
   ];
 
   // Utility for canonical payment method options (if available)
@@ -145,6 +147,22 @@ const PaymentReceiptManagement = () => {
     options.paymentMethod = buildPaymentMethodFilterOptions(
       records.map((r) => r.paymentMethod),
     );
+    // Created By (dropdown)
+    const createdByNames = Array.from(
+      new Set(records.map((r) => r.createdByName).filter(Boolean)),
+    );
+    options.createdByName = [
+      "All",
+      ...createdByNames.sort((a, b) => a.localeCompare(b)),
+    ];
+    // TDS % (dropdown)
+    const tdsPercents = Array.from(
+      new Set(records.map((r) => r.tdsPercentFormatted).filter((v) => v && v !== "—")),
+    );
+    options.tdsPercentFormatted = [
+      "All",
+      ...tdsPercents.sort((a, b) => parseFloat(a) - parseFloat(b)),
+    ];
     return options;
   };
 
@@ -315,6 +333,17 @@ const PaymentReceiptManagement = () => {
           invoiceNumber,
           appliedInvoiceNumber,
           paymentTypeBadge: r.paymentType === "advance" ? "Advance" : "Regular",
+          grossAmountFormatted: r.tdsEnabled && Number(r.grossAmount || 0) > 0
+            ? `₹${Number(r.grossAmount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`
+            : `₹${Number(r.amount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+          tdsPercentFormatted: r.tdsEnabled && Number(r.tdsPercent || 0) > 0
+            ? `${Number(r.tdsPercent)}%`
+            : "—",
+          tdsAmountFormatted: r.tdsEnabled && Number(r.tdsAmount || 0) > 0
+            ? `₹${Number(r.tdsAmount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`
+            : "—",
+          createdDateTime: formatDateTime(r.createdAt),
+          createdByName: r.createdByName || r.createdBy || r.createdByUserName || r.addedByName || "",
         };
       });
 
@@ -498,6 +527,45 @@ const PaymentReceiptManagement = () => {
       resizable: true,
     },
     {
+      key: "grossAmountFormatted",
+      label: "Base Amount",
+      sortable: false,
+      filterable: true,
+      filterType: "search",
+      width: 130,
+      resizable: true,
+      render: (value, row) =>
+        row?.tdsEnabled
+          ? <span className="text-muted">{value}</span>
+          : <span className="text-muted">—</span>,
+    },
+    {
+      key: "tdsPercentFormatted",
+      label: "TDS (%)",
+      sortable: false,
+      filterable: true,
+      filterType: "dropdown",
+      width: 100,
+      resizable: true,
+      render: (value, row) =>
+        row?.tdsEnabled
+          ? <span className="badge bg-warning text-dark">{value}</span>
+          : <span className="text-muted">—</span>,
+    },
+    {
+      key: "tdsAmountFormatted",
+      label: "TDS Amount",
+      sortable: false,
+      filterable: true,
+      filterType: "search",
+      width: 120,
+      resizable: true,
+      render: (value, row) =>
+        row?.tdsEnabled
+          ? <span className="text-danger fw-semibold">{value}</span>
+          : <span className="text-muted">—</span>,
+    },
+    {
       key: "availableAmountFormatted",
       label: "Advance Balance",
       sortable: false,
@@ -582,7 +650,7 @@ const PaymentReceiptManagement = () => {
       label: "Created By",
       sortable: true,
       filterable: true,
-      filterType: "search",
+      filterType: "dropdown",
       width: 160,
       resizable: true,
     },
