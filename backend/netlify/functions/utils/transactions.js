@@ -108,6 +108,9 @@ const normalizeSourceType = (sourceType = "") => {
     case "tds-claim":
     case "tdsclaim":
       return "tds-claim";
+    case "cash-bank-entry":
+    case "cashbankentry":
+      return "cash-bank-entry";
     default:
       return normalized;
   }
@@ -534,6 +537,18 @@ const buildSourceRecordForFeatures = (sourceType, sourceRecord = {}) => {
     );
   }
 
+  if (type === "cash-bank-entry") {
+    Object.assign(
+      base,
+      pickFields(sourceRecord, [
+        "entryDate",
+        "entryType",
+        "sourceName",
+        "referenceNumber",
+      ]),
+    );
+  }
+
   if (type === "project") {
     Object.assign(
       base,
@@ -578,6 +593,8 @@ const getSourceDate = (sourceRecord = {}, sourceType = "", sourceEvent = "") => 
       return sourceRecord.fundDate || sourceRecord.createdAt;
     case "owner-withdrawal":
       return sourceRecord.withdrawalDate || sourceRecord.createdAt;
+    case "cash-bank-entry":
+      return sourceRecord.entryDate || sourceRecord.createdAt;
     case "fixed-deposit":
       if (String(sourceEvent || "").toLowerCase() === "close") {
         return (
@@ -1408,6 +1425,33 @@ const buildLinesForTdsClaim = (record = {}) => {
   return lines;
 };
 
+const buildLinesForCashBankEntry = (record = {}) => {
+  const amount = roundAmount(toNumber(record?.amount || 0));
+  if (amount <= 0) return [];
+
+  const entryType = String(record?.entryType || "Bank").trim().toLowerCase();
+  const accountHead = entryType === "cash" ? "Cash Account" : "Bank Account";
+
+  // Cash/Bank entry: Debit Cash/Bank Account, Credit Other Income Account
+  return balanceLines(
+    [
+      {
+        accountHead,
+        accountType: "Asset",
+        debit: amount,
+        credit: 0,
+      },
+      {
+        accountHead: "Other Income",
+        accountType: "Income",
+        debit: 0,
+        credit: amount,
+      },
+    ],
+    [accountHead, "Other Income"],
+  );
+};
+
 const buildLines = (sourceType, sourceRecord) => {
   const normalizedType = normalizeSourceType(sourceType);
 
@@ -1436,6 +1480,8 @@ const buildLines = (sourceType, sourceRecord) => {
       return buildLinesForFixedDeposit(sourceRecord);
     case "project":
       return buildLinesForProject(sourceRecord);
+    case "cash-bank-entry":
+      return buildLinesForCashBankEntry(sourceRecord);
     default:
       return [];
   }
@@ -1509,6 +1555,8 @@ const getRecordAmount = (sourceType, sourceRecord) => {
             ),
           )
         : 0;
+    case "cash-bank-entry":
+      return roundAmount(toNumber(sourceRecord?.amount || 0));
     default:
       return roundAmount(toNumber(sourceRecord?.amount || 0));
   }

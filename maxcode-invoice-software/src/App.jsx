@@ -54,6 +54,7 @@ const CreditDebitNotesManagement = lazy(
   () => import("../src/Pages/CreditDebitNotesManagement"),
 );
 const TDSManagement = lazy(() => import("../src/Pages/TDSManagement"));
+const CashBankBook = lazy(() => import("../src/Pages/CashBankBook"));
 const LedgerManagement = lazy(() => import("../src/Pages/LedgerManagement"));
 const BooksOfAccounts = lazy(() => import("../src/Pages/BooksOfAccounts"));
 const DeveloperPayoutManagement = lazy(
@@ -447,6 +448,17 @@ const dashboardChildRoutes = (
         <PermissionRoute moduleKey="tdsManagement">
           <Suspense fallback={<Loading />}>
             <TDSManagement />
+          </Suspense>
+        </PermissionRoute>
+      }
+    />
+
+    <Route
+      path="cash-bank-book"
+      element={
+        <PermissionRoute moduleKey="cashBankBook">
+          <Suspense fallback={<Loading />}>
+            <CashBankBook />
           </Suspense>
         </PermissionRoute>
       }

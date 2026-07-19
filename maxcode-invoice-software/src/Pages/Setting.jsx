@@ -2830,11 +2830,11 @@ const Settings = () => {
 
       if (isNetworkError) {
         errMsg =
-          "Restore request server tak nahi pahunchi (Network Error). Please ensure backend Netlify functions are running and /api/backup is reachable, then retry.";
+          "Unable to connect to the server. Please ensure the backend is running and accessible, then try again.";
       }
 
       if (errMsg.includes("timeout") || errMsg.includes("server")) {
-        errMsg += "\nRestore may have timed out. Try again or contact support.";
+        errMsg += "\nThe request may have timed out. Please try again or contact support.";
       }
       showError(errMsg);
       setBackupProgress("");

@@ -275,6 +275,15 @@ const API_ENDPOINTS = {
     DELETE: (id) => `/owner-withdrawals?id=${id}`,
   },
 
+  // Cash & Bank Book endpoints
+  CASH_BANK_BOOK: {
+    LIST: "/cash-bank-book",
+    CREATE: "/cash-bank-book",
+    GET: (id) => `/cash-bank-book?id=${id}`,
+    UPDATE: (id) => `/cash-bank-book?id=${id}`,
+    DELETE: (id) => `/cash-bank-book?id=${id}`,
+  },
+
   // Payment Receipts endpoints
   PAYMENT_RECEIPTS: {
     LIST: "/payment-receipts",

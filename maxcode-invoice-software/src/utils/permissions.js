@@ -128,6 +128,14 @@ export const PERMISSION_MODULES = [
     detailed: true,
   },
   {
+    key: "cashBankBook",
+    label: "Cash & Bank Book",
+    description: "Manage miscellaneous cash and bank receipts",
+    icon: "fa-solid fa-money-check-dollar",
+    route: "/admin/cash-bank-book",
+    detailed: true,
+  },
+  {
     key: "ledgerManagement",
     label: "Ledger Management",
     description: "Manage ledgers",

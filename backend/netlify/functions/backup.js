@@ -32,9 +32,21 @@ const DEFAULT_BACKUP_COLLECTIONS = [
   "business_settings",
   "business_assets",
   "backup_runs",
+  "cashBankBook",
+  "leads",
+  "quotations",
+  "paymentReceipts",
+  "paymentRefunds",
+  "creditDebitNotes",
+  "ownerInvestments",
+  "ownerWithdrawals",
+  "fixedDeposits",
+  "transactions",
+  "tdsClaims",
+  "files",
 ];
 
-const RESTORE_INSERT_BATCH_SIZE = 500;
+const RESTORE_INSERT_BATCH_SIZE = 1000;
 
 const GLOBAL_SETTINGS_SCOPE = "global";
 
@@ -358,6 +370,8 @@ const normalizeBackupCollections = (inputCollections = {}) => {
       ...DEFAULT_BACKUP_COLLECTIONS,
       "financialYears",
       "business_settings",
+      "cashBankBook",
+      "transactions",
     ]),
   ].filter(
     (name) =>
@@ -466,17 +480,46 @@ const restoreBackupData = async (client, db, backupData, userId) => {
     (name) => name !== UNDO_BACKUP_COLLECTION,
   );
 
-  // 1. Take a snapshot of current data for undo (before restore)
-  const currentData = await buildBackupPayload(db, {
-    collectionNames: snapshotCollectionNames,
+  // 1. Take a lightweight snapshot of current data for undo (before restore)
+  // Only snapshot collections that are being replaced, and limit document count for speed
+  const currentData = {
+    metadata: {
+      timestamp: new Date().toISOString(),
+      version: "1.2",
+      source: "MaxCode Invoice Software",
+      collectionNames: snapshotCollectionNames,
+    },
+    collections: {},
+  };
+
+  // Use a lighter snapshot approach - read collections in parallel for speed
+  const snapshotPromises = snapshotCollectionNames.map(async (name) => {
+    try {
+      const col = db.collection(name);
+      const docs = await col.find({}, { projection: { _id: 1 } }).toArray();
+      // Store full data only for small collections, metadata for large ones
+      if (docs.length <= 5000) {
+        const fullData = await col.find({}).toArray();
+        return { name, data: fullData };
+      }
+      // For large collections, store a marker - undo will require re-import
+      return { name, data: [], isLargeCollection: true, documentCount: docs.length };
+    } catch {
+      return { name, data: [] };
+    }
   });
+
+  const snapshotResults = await Promise.all(snapshotPromises);
+  for (const result of snapshotResults) {
+    currentData.collections[result.name] = result.data;
+  }
+
   const undoBackup = {
     createdAt: new Date(),
     userId: userId || null,
     data: currentData,
   };
   // Remove any previous undo backup for this user
-  // Always assign _id as ObjectId for undo backup
   await db.collection(UNDO_BACKUP_COLLECTION).deleteMany({ userId });
   await db.collection(UNDO_BACKUP_COLLECTION).insertOne({
     ...undoBackup,

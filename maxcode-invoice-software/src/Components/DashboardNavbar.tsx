@@ -793,6 +793,12 @@ const DashboardNavbar = ({ children }: DashboardNavbarProps) => {
       permissionKey: "tdsManagement",
     },
     {
+      to: "/admin/cash-bank-book",
+      icon: "fa-solid fa-money-check-dollar",
+      label: "Cash & Bank Book",
+      permissionKey: "cashBankBook",
+    },
+    {
       to: "/admin/ledger-management",
       icon: "fa-solid fa-book",
       label: "Ledger Management",

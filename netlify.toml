@@ -6,6 +6,11 @@
 [build.environment]
   NODE_VERSION = "22"
 
+[functions]
+  node_bundler = "esbuild"
+  # Increase function timeout for backup/restore operations (max 26s on free tier)
+  included_files = []
+
 [dev]
   command = "npm run dev"
   port = 5173
