@@ -2,6 +2,7 @@
   command = "cd maxcode-invoice-software && npm install && npm run build && cd ../backend && npm install"
   publish = "maxcode-invoice-software/dist"
   functions = "backend/netlify/functions"
+  edge_functions = "netlify/edge-functions"
 
 [build.environment]
   NODE_VERSION = "22"
@@ -10,6 +11,13 @@
   node_bundler = "esbuild"
   # Increase function timeout for backup/restore operations (max 26s on free tier)
   included_files = []
+
+# ── Edge Functions ─────────────────────────────────────────────────────────────
+# payment-link-og: injects dynamic Open Graph meta tags for WhatsApp / Telegram
+# / Facebook link previews. Only activates for bot/crawler User-Agents.
+[[edge_functions]]
+  function = "payment-link-og"
+  path = "/*"
 
 [dev]
   command = "npm run dev"
