@@ -2,6 +2,9 @@ import dotenv from "dotenv";
 dotenv.config();
 import { MongoClient } from "mongodb";
 import { setupDb } from "./setupDb.js";
+import dns from "dns";
+
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 let cachedClient = null;
 let cachedDb = null;
