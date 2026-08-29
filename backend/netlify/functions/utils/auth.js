@@ -142,12 +142,15 @@ export function createAuthCookie(
       ? maxAgeSeconds
       : DEFAULT_COOKIE_MAX_AGE_SECONDS;
 
-  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; ${secureFlag}SameSite=Strict; Max-Age=${normalizedMaxAge}`;
+  // SameSite=None is required so the browser sends the cookie on cross-origin
+  // credentialed API requests (frontend and API on different origins in prod).
+  // None mandates Secure, which is already set via secureFlag.
+  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; ${secureFlag}SameSite=None; Max-Age=${normalizedMaxAge}`;
 }
 
 export function createClearAuthCookie() {
   const secureFlag = "Secure; ";
-  return `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; ${secureFlag}SameSite=Strict; Max-Age=0`;
+  return `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; ${secureFlag}SameSite=None; Max-Age=0`;
 }
 
 /**
