@@ -405,6 +405,7 @@ export async function handler(event) {
         const sharedSettings = await getSharedBusinessSettings(db);
         const captchaEnabled =
           getEnvBoolean(process.env.CLOUDFLARE_LOGIN_CAPTCHA_ENABLED) ??
+          Boolean(process.env.CLOUDFLARE_TURNSTILE_SITE_KEY) ??
           sharedSettings?.featureToggles?.cloudflareLoginCaptcha === true;
 
         if (captchaEnabled) {

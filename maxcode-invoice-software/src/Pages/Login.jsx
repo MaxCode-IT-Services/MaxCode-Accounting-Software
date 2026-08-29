@@ -197,10 +197,16 @@ const Login = ({ settings, onAuthSuccess }) => {
 
         if (cancelled) return;
 
-        setCaptchaEnabled(toggles.cloudflareLoginCaptcha === true);
-        setCaptchaSiteKey(
-          String(cloudflareSettings.turnstileSiteKey || "").trim(),
-        );
+        // Fall back to the build-time site key so the widget renders in
+        // production even when the API response omits it.
+        const envSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+        const apiSiteKey = String(
+          cloudflareSettings.turnstileSiteKey || "",
+        ).trim();
+        const apiEnabled = toggles.cloudflareLoginCaptcha === true;
+
+        setCaptchaEnabled(apiEnabled || Boolean(envSiteKey));
+        setCaptchaSiteKey(apiSiteKey || envSiteKey);
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load captcha settings:", error);

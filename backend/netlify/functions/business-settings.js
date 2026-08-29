@@ -1081,6 +1081,7 @@ export async function handler(event) {
           );
         const loginCaptchaEnabled =
           envTurnstileConfig.loginCaptchaEnabled ??
+          Boolean(envTurnstileConfig.siteKey) ??
           featureToggles.cloudflareLoginCaptcha === true;
 
         const loginConfig = {
