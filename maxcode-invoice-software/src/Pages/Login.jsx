@@ -210,8 +210,16 @@ const Login = ({ settings, onAuthSuccess }) => {
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load captcha settings:", error);
-          setCaptchaEnabled(false);
-          setCaptchaSiteKey("");
+          // Fall back to the build-time site key so the widget still renders
+          // even if the config API fails in production.
+          const envSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || "";
+          if (envSiteKey) {
+            setCaptchaEnabled(true);
+            setCaptchaSiteKey(envSiteKey);
+          } else {
+            setCaptchaEnabled(false);
+            setCaptchaSiteKey("");
+          }
         }
       }
     };
