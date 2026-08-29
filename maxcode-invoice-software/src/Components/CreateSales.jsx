@@ -85,6 +85,7 @@ const CreateSales = ({
     amountReceived: "",
     tdsPercent: "0",
     tdsAmount: "0",
+    description: "",
   });
 
   const [items, setItems] = useState([
@@ -361,6 +362,7 @@ const CreateSales = ({
         amountReceived: editingRecord.amountReceived || "",
         tdsPercent: editingRecord.tdsPercent || "0",
         tdsAmount: editingRecord.tdsAmount || "0",
+        description: editingRecord.description || "",
       });
       setItems(
         editingRecord.items || [
@@ -529,6 +531,7 @@ const CreateSales = ({
       amountReceived: "",
       tdsPercent: "0",
       tdsAmount: "0",
+      description: "",
     });
     setItems([
       {
@@ -2035,9 +2038,9 @@ const CreateSales = ({
                   </h6>
                 </div>
 
-                <div className="col-md-6">
+                <div className="col-md-6 d-flex">
                   <div
-                    className="card shadow-sm border-0"
+                    className="card shadow-sm border-0 h-100 w-100"
                     style={{ backgroundColor: "#f8f9fa" }}
                   >
                     <div className="card-header bg-success rounded-top-3 text-white d-flex justify-content-between align-items-center">
@@ -2249,9 +2252,9 @@ const CreateSales = ({
                   </div>
                 </div>
 
-                <div className="col-md-6">
+                <div className="col-md-6 d-flex">
                   <div
-                    className="card shadow-sm border-0"
+                    className="card shadow-sm border-0 h-100 w-100"
                     style={{ backgroundColor: "#f8f9fa" }}
                   >
                     <div className="card-header bg-success rounded-top-3 text-white">
@@ -2647,6 +2650,27 @@ const CreateSales = ({
                   </div>
                 </div>
               )}
+
+              {/* Description / Note */}
+              <div className="row mb-4">
+                <div className="col-12">
+                  <label htmlFor="description" className="form-label fw-bold">
+                    <i className="fas fa-align-left me-2 text-secondary"></i>
+                    Description / Note
+                  </label>
+                  <textarea
+                    className="form-control modern-input"
+                    id="description"
+                    name="description"
+                    rows={2}
+                    value={formData.description}
+                    onChange={handleInputChange}
+                    placeholder="Add any description or note for this sale"
+                    readOnly={isViewMode}
+                    style={{ fontWeight: "500" }}
+                  />
+                </div>
+              </div>
             </form>
           </div>
 
