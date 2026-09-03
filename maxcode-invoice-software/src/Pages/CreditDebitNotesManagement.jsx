@@ -840,7 +840,7 @@ const CreditDebitNotesManagement = () => {
       .toLowerCase()
       .includes("rajasthan");
     const cgst = isRajasthan ? Number((taxAmount / 2).toFixed(2)) : 0;
-    const sgst = isRajasthan ? Number((taxAmount / 2).toFixed(2)) : 0;
+    const sgst = isRajasthan ? Number((taxAmount - cgst).toFixed(2)) : 0;
     const igst = isRajasthan ? 0 : taxAmount;
 
     return {

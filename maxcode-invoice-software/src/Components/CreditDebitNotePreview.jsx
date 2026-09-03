@@ -309,7 +309,7 @@ const CreditDebitNotePreview = ({
     /\b08\b/.test(placeOfSupplyText);
 
   const derivedCgst = isRajasthanSupply ? toMoney(taxAmount / 2) : 0;
-  const derivedSgst = isRajasthanSupply ? toMoney(taxAmount / 2) : 0;
+  const derivedSgst = isRajasthanSupply ? toMoney(taxAmount - derivedCgst) : 0;
   const derivedIgst = isRajasthanSupply ? 0 : taxAmount;
 
   const cgst = toMoney(notePreviewData.cgst ?? derivedCgst);

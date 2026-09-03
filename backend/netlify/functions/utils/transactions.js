@@ -11,6 +11,14 @@ const roundAmount = (value) => {
   return Math.round(num * 100) / 100;
 };
 
+// Splits a GST total into CGST/SGST halves. The second half absorbs the residual
+// paisa so that cgst + sgst === totalTax exactly (never 0.01 more).
+const splitTaxHalves = (totalTax) => {
+  const total = roundAmount(totalTax);
+  const cgst = roundAmount(total / 2);
+  return { cgst, sgst: roundAmount(total - cgst) };
+};
+
 const toFiniteOrNull = (value) => {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
@@ -226,8 +234,8 @@ const deriveTaxComponentsFromPlace = (placeOfSupply, totalTax) => {
 
   if (isRajasthan) {
     // CGST + SGST split
-    const half = roundAmount(totalTax / 2);
-    return { cgst: half, sgst: half, igst: 0 };
+    const { cgst, sgst } = splitTaxHalves(totalTax);
+    return { cgst, sgst, igst: 0 };
   } else {
     // IGST only
     return { cgst: 0, sgst: 0, igst: totalTax };
@@ -306,6 +314,10 @@ const buildGstOutputLines = (
   return lines;
 };
 
+// Real-money accounts must tie to the bank/cash statement, so paise-level rounding
+// residuals are never plugged into them.
+const NON_ADJUSTABLE_ACCOUNT_HEADS = new Set(["Bank Account", "Cash Account"]);
+
 const balanceLines = (lines = [], preferredAccountHeads = []) => {
   if (!Array.isArray(lines) || lines.length === 0) return lines;
 
@@ -321,11 +333,18 @@ const balanceLines = (lines = [], preferredAccountHeads = []) => {
     return lines;
   }
 
-  const sideToAdjust = diff > 0 ? "credit" : "debit";
-  const adjustment = roundAmount(Math.abs(diff));
-  const candidates = lines.filter(
-    (line) => toNumber(line?.[sideToAdjust] || 0) > 0,
-  );
+  const getSide = (line) =>
+    toNumber(line?.debit || 0) > 0 ? "debit" : "credit";
+  // A debit surplus is cleared by shrinking a debit plug or growing a credit plug.
+  const getDelta = (line) => (getSide(line) === "debit" ? -diff : diff);
+
+  const candidates = lines.filter((line) => {
+    if (NON_ADJUSTABLE_ACCOUNT_HEADS.has(String(line?.accountHead || ""))) {
+      return false;
+    }
+    const amount = toNumber(line?.[getSide(line)] || 0);
+    return amount > 0 && amount + getDelta(line) > 0;
+  });
 
   if (candidates.length === 0) return lines;
 
@@ -339,16 +358,15 @@ const balanceLines = (lines = [], preferredAccountHeads = []) => {
 
   const targetLine =
     preferredLine ||
-    candidates.reduce((largest, current) => {
-      const currentAmount = toNumber(current?.[sideToAdjust] || 0);
-      const largestAmount = toNumber(largest?.[sideToAdjust] || 0);
-      return currentAmount >= largestAmount ? current : largest;
-    });
+    candidates.reduce((largest, current) =>
+      toNumber(current[getSide(current)]) >= toNumber(largest[getSide(largest)])
+        ? current
+        : largest,
+    );
 
-  if (!targetLine) return lines;
-
-  targetLine[sideToAdjust] = roundAmount(
-    toNumber(targetLine?.[sideToAdjust] || 0) + adjustment,
+  const side = getSide(targetLine);
+  targetLine[side] = roundAmount(
+    toNumber(targetLine[side]) + getDelta(targetLine),
   );
 
   return lines;
@@ -1165,8 +1183,7 @@ const buildLinesForRcm = (record = {}) => {
   if (totalTax === 0 && explicitTotalWithTax > 0 && taxableAmount > 0) {
     const gstRate = 0.18;
     totalTax = roundAmount(taxableAmount * gstRate);
-    cgst = roundAmount(totalTax / 2);
-    sgst = roundAmount(totalTax / 2);
+    ({ cgst, sgst } = splitTaxHalves(totalTax));
     igst = 0;
   }
 
@@ -1638,8 +1655,7 @@ export const buildTransactionSnapshot = ({
     ).toLowerCase();
     const isRajasthan = placeOfSupply.includes("rajasthan");
     if (isRajasthan) {
-      derivedCgst = roundAmount(_totalTax / 2);
-      derivedSgst = roundAmount(_totalTax / 2);
+      ({ cgst: derivedCgst, sgst: derivedSgst } = splitTaxHalves(_totalTax));
     } else {
       derivedIgst = _totalTax;
     }

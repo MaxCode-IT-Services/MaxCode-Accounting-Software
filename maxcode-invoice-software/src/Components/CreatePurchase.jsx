@@ -564,20 +564,26 @@ const CreatePurchase = ({
 
     const isRajasthan = placeOfSupplyValue.toLowerCase().includes("rajasthan");
 
+    const round2 = (value) => Math.round(value * 100) / 100;
+
     let cgst = 0,
       sgst = 0,
       igst = 0;
 
     if (isRajasthan) {
-      // CGST and SGST (split tax equally)
-      cgst = taxAmount / 2;
-      sgst = taxAmount / 2;
+      // CGST and SGST (split tax equally). The second half takes the residual
+      // paisa so that cgst + sgst always equals the total tax exactly.
+      const totalTax = round2(taxAmount);
+      cgst = round2(totalTax / 2);
+      sgst = round2(totalTax - cgst);
     } else {
       // IGST (full tax)
-      igst = taxAmount;
+      igst = round2(taxAmount);
     }
 
-    const subtotalWithTax = subtotal + taxAmount;
+    // Round off is derived from the stored 2-decimal components so that
+    // subtotal + cgst + sgst + igst + roundingAmount === totalAmount exactly.
+    const subtotalWithTax = round2(round2(subtotal) + cgst + sgst + igst);
 
     // Auto-calculate rounding to nearest integer
     let roundValue;
@@ -587,17 +593,17 @@ const CreatePurchase = ({
       // When rounding is disabled, set rounding to 0
       roundValue = 0;
     } else {
-      const decimalPart = subtotalWithTax - Math.floor(subtotalWithTax);
+      const decimalPart = round2(subtotalWithTax - Math.floor(subtotalWithTax));
       if (decimalPart <= 0.5) {
         // Round down: negative rounding
         roundValue = -decimalPart;
       } else {
         // Round up: positive rounding
-        roundValue = 1 - decimalPart;
+        roundValue = round2(1 - decimalPart);
       }
     }
 
-    const totalAmount = subtotalWithTax + roundValue;
+    const totalAmount = round2(subtotalWithTax + roundValue);
 
     setTaxData({
       subtotal: subtotal.toFixed(2),

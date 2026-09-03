@@ -370,11 +370,14 @@ const CreateRcm = ({
       0,
     );
     const taxAmount = (subtotal * toNumber(taxPercentage)) / 100;
+    const round2 = (value) => Math.round(value * 100) / 100;
     const cgst = 0;
     const sgst = 0;
-    const igst = taxAmount;
+    const igst = round2(taxAmount);
 
-    const subtotalWithTax = subtotal + taxAmount;
+    // Derived from the stored 2-decimal components so that
+    // subtotal + igst + roundingAmount === totalAmount exactly.
+    const subtotalWithTax = round2(round2(subtotal) + igst);
 
     let roundValue;
     if (manualRoundingAmount !== null && manualRoundingAmount !== undefined) {
@@ -382,15 +385,15 @@ const CreateRcm = ({
     } else if (!roundingEnabled) {
       roundValue = 0;
     } else {
-      const decimalPart = subtotalWithTax - Math.floor(subtotalWithTax);
+      const decimalPart = round2(subtotalWithTax - Math.floor(subtotalWithTax));
       if (decimalPart <= 0.5) {
         roundValue = -decimalPart;
       } else {
-        roundValue = 1 - decimalPart;
+        roundValue = round2(1 - decimalPart);
       }
     }
 
-    const totalAmount = subtotalWithTax + roundValue;
+    const totalAmount = round2(subtotalWithTax + roundValue);
 
     setTaxData({
       subtotal: subtotal.toFixed(2),
