@@ -680,13 +680,17 @@ const CompanyExpenseManagement = () => {
       disableFilter: true,
       render: (_, record) =>
         record.expenseFileLink ? (
-          <div onClick={(event) => event.stopPropagation()}>
-            <UploadedFilePreviewBox
-              fileUrl={record.expenseFileLink}
-              title="Open uploaded expense file"
-              iconClassName="fa-solid fa-file-contract"
-            />
-          </div>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-primary"
+            onClick={(event) => {
+              event.stopPropagation();
+              window.open(record.expenseFileLink, "_blank", "noopener,noreferrer");
+            }}
+            title="Open uploaded expense file"
+          >
+            <i className="fa-solid fa-file-contract"></i>
+          </button>
         ) : (
           <button
             type="button"

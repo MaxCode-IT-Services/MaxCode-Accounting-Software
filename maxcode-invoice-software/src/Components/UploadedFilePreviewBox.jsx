@@ -22,10 +22,12 @@ const UploadedFilePreviewBox = ({
   title = "Open uploaded file in new tab",
   className = "",
   iconClassName = "fa-solid fa-file-alt",
+  forceIcon = false,
+  hideLabel = false,
 }) => {
   if (!fileUrl) return null;
 
-  const imageLike = isImageLike(fileUrl, fileType);
+  const imageLike = !forceIcon && isImageLike(fileUrl, fileType);
   const label = getDisplayLabel(fileUrl, fileType);
 
   return (
@@ -51,17 +53,19 @@ const UploadedFilePreviewBox = ({
             className={`${iconClassName} text-primary`}
             style={{ fontSize: 18 }}
           ></i>
-          <span
-            style={{
-              fontSize: 9,
-              lineHeight: 1,
-              marginTop: 2,
-              color: "#6c757d",
-              fontWeight: 700,
-            }}
-          >
-            {label}
-          </span>
+          {!hideLabel && (
+            <span
+              style={{
+                fontSize: 9,
+                lineHeight: 1,
+                marginTop: 2,
+                color: "#6c757d",
+                fontWeight: 700,
+              }}
+            >
+              {label}
+            </span>
+          )}
         </div>
       )}
     </a>
