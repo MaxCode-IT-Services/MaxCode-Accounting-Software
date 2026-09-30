@@ -15,6 +15,7 @@ import {
   normalizeTermsArray,
   upsertTermsVersionDocument,
 } from "./utils/terms-versioning.js";
+import { ensureTelegramWebhook } from "./utils/payment-verification-telegram.js";
 
 const SETTINGS_COLLECTION = "business_settings";
 const ASSETS_COLLECTION = "business_assets";
@@ -33,6 +34,13 @@ const WHATSAPP_SECRET_FIELDS = [
   "appId",
   "phoneNumberId",
   "businessAccountId",
+];
+const TELEGRAM_SECRET_FIELDS = [
+  "botToken",
+  "chatId",
+  "sharedSecret",
+  "routerBotId",
+  "routerConnectionId",
 ];
 const BACKUP_SECRET_FIELDS = [
   "clientId",
@@ -121,6 +129,7 @@ const ALLOWED_FIELDS = [
   "backupSettings",
   "cloudflareSettings",
   "whatsappSettings",
+  "telegramSettings",
   "featureToggles",
 ];
 
@@ -358,6 +367,37 @@ const sanitizeWhatsAppSettings = (
   };
 };
 
+const sanitizeTelegramSettings = (value = {}, existingTelegramSettings = {}) => {
+  if (!value || typeof value !== "object") return null;
+
+  return {
+    botName: String(value.botName || "").trim(),
+    botUserName: String(value.botUserName || "").trim().replace(/^@/, ""),
+    botToken: resolveSecretForStorage(
+      value.botToken,
+      existingTelegramSettings?.botToken,
+    ),
+    chatId: resolveSecretForStorage(
+      value.chatId,
+      existingTelegramSettings?.chatId,
+    ),
+    sharedSecret: resolveSecretForStorage(
+      value.sharedSecret,
+      existingTelegramSettings?.sharedSecret,
+    ),
+    routerBotId: resolveSecretForStorage(
+      value.routerBotId,
+      existingTelegramSettings?.routerBotId,
+    ),
+    routerConnectionId: resolveSecretForStorage(
+      value.routerConnectionId,
+      existingTelegramSettings?.routerConnectionId,
+    ),
+    enabled: value.enabled === true,
+    updatedAt: new Date(),
+  };
+};
+
 const getBaseUrl = (event) => {
   const host =
     event.headers["x-forwarded-host"] || event.headers.host || "localhost:8888";
@@ -392,6 +432,7 @@ const sanitizeFeatureToggles = (value = {}) => {
     projectCredentialsAccessControl:
       value.projectCredentialsAccessControl !== false,
     publicPaymentWhatsapp: value.publicPaymentWhatsapp !== false,
+    telegramPaymentNotifications: value.telegramPaymentNotifications === true,
     cloudflareLoginCaptcha: value.cloudflareLoginCaptcha === true,
     accountingViewMode: value.accountingViewMode || "professional",
     pdfExportSinglePageColumns: value.pdfExportSinglePageColumns === true,
@@ -492,6 +533,14 @@ const sanitizeSettingsPayload = (payload = {}, existingSettings = {}) => {
         if (sanitizedWhatsAppSettings) {
           sanitized[field] = sanitizedWhatsAppSettings;
         }
+      } else if (field === "telegramSettings") {
+        const sanitizedTelegramSettings = sanitizeTelegramSettings(
+          value,
+          existingSettings?.telegramSettings || {},
+        );
+        if (sanitizedTelegramSettings) {
+          sanitized[field] = sanitizedTelegramSettings;
+        }
       } else if (field === "featureToggles") {
         const sanitizedFeatureToggles = sanitizeFeatureToggles(value);
         sanitized[field] = sanitizedFeatureToggles;
@@ -549,6 +598,7 @@ const normalizeLegacySettings = (document = {}) => {
       "cloudStorageSettings",
     ],
     whatsappSettings: ["whatsappSettings", "whatsappCloudApiSettings"],
+    telegramSettings: ["telegramSettings", "telegramBotSettings"],
   };
 
   for (const [targetField, aliases] of Object.entries(fieldAliases)) {
@@ -767,10 +817,51 @@ const mapSettingsForClient = (document, event) => {
     };
   }
 
+  if (!response.telegramSettings || typeof response.telegramSettings !== "object") {
+    response.telegramSettings = {
+      botName: "",
+      botUserName: "",
+      botToken: "",
+      chatId: "",
+      sharedSecret: "",
+      routerBotId: "",
+      routerConnectionId: "",
+      enabled: false,
+      hasBotToken: false,
+      hasChatId: false,
+      hasSharedSecret: false,
+      hasRouterBotId: false,
+      hasRouterConnectionId: false,
+    };
+  } else {
+    const telegramSettings = response.telegramSettings || {};
+    const botToken = String(telegramSettings.botToken || "").trim();
+    const chatId = String(telegramSettings.chatId || "").trim();
+    const sharedSecret = String(telegramSettings.sharedSecret || "").trim();
+    const routerBotId = String(telegramSettings.routerBotId || "").trim();
+    const routerConnectionId = String(
+      telegramSettings.routerConnectionId || "",
+    ).trim();
+    response.telegramSettings = {
+      ...telegramSettings,
+      botToken: maskSecretValue(botToken),
+      chatId: maskSecretValue(chatId),
+      sharedSecret: maskSecretValue(sharedSecret),
+      routerBotId: maskSecretValue(routerBotId),
+      routerConnectionId: maskSecretValue(routerConnectionId),
+      hasBotToken: secretExists(botToken),
+      hasChatId: secretExists(chatId),
+      hasSharedSecret: secretExists(sharedSecret),
+      hasRouterBotId: secretExists(routerBotId),
+      hasRouterConnectionId: secretExists(routerConnectionId),
+    };
+  }
+
   if (!response.featureToggles || typeof response.featureToggles !== "object") {
     response.featureToggles = {
       projectCredentialsAccessControl: true,
       publicPaymentWhatsapp: true,
+      telegramPaymentNotifications: false,
     };
   } else {
     response.featureToggles = sanitizeFeatureToggles(response.featureToggles);
@@ -1162,6 +1253,7 @@ export async function handler(event) {
           backupSettings: BACKUP_SECRET_FIELDS,
           cloudflareSettings: CLOUDFLARE_SECRET_FIELDS,
           whatsappSettings: WHATSAPP_SECRET_FIELDS,
+          telegramSettings: TELEGRAM_SECRET_FIELDS,
         };
 
         const allowedFields = allowedFieldsByScope[scope] || [];
@@ -1348,11 +1440,28 @@ export async function handler(event) {
         clientSettings.featureToggles,
       );
 
+      // Auto-register the Telegram webhook whenever Telegram is enabled.
+      // Failures are isolated so saving settings never breaks.
+      let telegramWebhook = { success: false, skipped: true };
+      try {
+        telegramWebhook = await ensureTelegramWebhook({
+          db,
+          baseUrl: getBaseUrl(event),
+        });
+      } catch (webhookError) {
+        console.error("Telegram webhook auto-register failed:", webhookError);
+        telegramWebhook = {
+          success: false,
+          error: webhookError?.message || "Webhook registration failed",
+        };
+      }
+
       return createResponse(
         200,
         {
           message: "Business settings saved successfully",
           settings: clientSettings,
+          telegramWebhook,
         },
         origin,
       );

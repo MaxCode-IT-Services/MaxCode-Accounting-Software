@@ -2,6 +2,7 @@ import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { sendPaymentVerificationNotification } from "./utils/payment-verification-whatsapp.js";
+import { sendPaymentVerificationTelegram } from "./utils/payment-verification-telegram.js";
 
 const toNumber = (value) => {
   const parsed = Number(value);
@@ -763,12 +764,30 @@ export async function handler(event) {
           };
         }
 
+        let telegramNotification = { success: false, skipped: true };
+        try {
+          telegramNotification = await sendPaymentVerificationTelegram({
+            db,
+            record: updatedRecord,
+          });
+        } catch (notificationError) {
+          console.error(
+            "Payment verification Telegram send failed:",
+            notificationError,
+          );
+          telegramNotification = {
+            success: false,
+            error: notificationError?.message || "Telegram send failed",
+          };
+        }
+
         return createResponse(
           200,
           {
             message: "Verification request submitted",
             record: projectRecord(updatedRecord),
             whatsappNotification,
+            telegramNotification,
           },
           origin,
         );

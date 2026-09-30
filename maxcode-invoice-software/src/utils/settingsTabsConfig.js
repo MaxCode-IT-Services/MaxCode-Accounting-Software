@@ -25,6 +25,11 @@ export const SETTINGS_TABS = [
     icon: "fab fa-whatsapp",
   },
   {
+    key: "telegram",
+    label: "Telegram",
+    icon: "fab fa-telegram",
+  },
+  {
     key: "cloudflare",
     label: "Cloudflare",
     icon: "fas fa-cloud",

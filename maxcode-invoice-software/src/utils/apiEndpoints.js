@@ -117,6 +117,12 @@ const API_ENDPOINTS = {
       `/business-settings?action=terms-by-version&termsKind=${encodeURIComponent(termsKind || "")}&version=${encodeURIComponent(version || "")}`,
   },
 
+  // Telegram bot setup endpoints
+  TELEGRAM: {
+    SETUP: "/telegram-setup",
+    WEBHOOK_PATH: "/api/telegram-hook",
+  },
+
   // User Settings endpoints
   SETTINGS: {
     PROFILE: "/settings",

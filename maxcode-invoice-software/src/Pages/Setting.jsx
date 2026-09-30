@@ -13,6 +13,7 @@ import PinTab from "../Components/SettingsTabs/PinTab";
 import TwoFATab from "../Components/SettingsTabs/TwoFATab";
 import BusinessTab from "../Components/SettingsTabs/BusinessTab";
 import WhatsAppCloudApiTab from "../Components/SettingsTabs/WhatsAppCloudApiTab";
+import TelegramTab from "../Components/SettingsTabs/TelegramTab";
 import CloudflareTab from "../Components/SettingsTabs/CloudflareTab";
 import TermsTab from "../Components/SettingsTabs/TermsTab";
 import HsnTab from "../Components/SettingsTabs/HsnTab";
@@ -243,6 +244,16 @@ const Settings = () => {
       founderCeoPhoneNumber: "",
       disableOtpForCredentials: false,
     },
+    telegramSettings: {
+      botName: "",
+      botUserName: "",
+      botToken: "",
+      chatId: "",
+      sharedSecret: "",
+      routerBotId: "",
+      routerConnectionId: "",
+      enabled: false,
+    },
   });
 
   const DEFAULT_SERVICE_FORM = {
@@ -285,6 +296,7 @@ const Settings = () => {
     "upiIds",
     "cloudflareSettings",
     "whatsappSettings",
+    "telegramSettings",
   ];
 
   const normalizeRole = (role = "") =>
@@ -393,9 +405,18 @@ const Settings = () => {
     phoneNumberId: false,
     businessAccountId: false,
   });
+  const [showTelegramSecret, setShowTelegramSecret] = useState({
+    botToken: false,
+    chatId: false,
+    sharedSecret: false,
+    routerBotId: false,
+    routerConnectionId: false,
+  });
+  const [isTelegramSettingUp, setIsTelegramSettingUp] = useState(false);
   const driveSecretTimersRef = useRef({});
   const cloudflareSecretTimersRef = useRef({});
   const whatsappSecretTimersRef = useRef({});
+  const telegramSecretTimersRef = useRef({});
 
   const clearSecretTimer = (timersRef, key) => {
     if (!key) return;
@@ -1552,6 +1573,45 @@ const Settings = () => {
       };
     }
 
+    const resolvedTelegramSettings =
+      settings.telegramSettings && typeof settings.telegramSettings === "object"
+        ? settings.telegramSettings
+        : null;
+
+    if (resolvedTelegramSettings) {
+      normalizedSettings.telegramSettings = {
+        botName: resolvedTelegramSettings.botName || "",
+        botUserName: resolvedTelegramSettings.botUserName || "",
+        botToken: toMaskedSecret(
+          resolvedTelegramSettings.botToken,
+          resolvedTelegramSettings.hasBotToken === true,
+        ),
+        chatId: toMaskedSecret(
+          resolvedTelegramSettings.chatId,
+          resolvedTelegramSettings.hasChatId === true,
+        ),
+        sharedSecret: toMaskedSecret(
+          resolvedTelegramSettings.sharedSecret,
+          resolvedTelegramSettings.hasSharedSecret === true,
+        ),
+        routerBotId: toMaskedSecret(
+          resolvedTelegramSettings.routerBotId,
+          resolvedTelegramSettings.hasRouterBotId === true,
+        ),
+        routerConnectionId: toMaskedSecret(
+          resolvedTelegramSettings.routerConnectionId,
+          resolvedTelegramSettings.hasRouterConnectionId === true,
+        ),
+        enabled: resolvedTelegramSettings.enabled === true,
+        hasBotToken: resolvedTelegramSettings.hasBotToken === true,
+        hasChatId: resolvedTelegramSettings.hasChatId === true,
+        hasSharedSecret: resolvedTelegramSettings.hasSharedSecret === true,
+        hasRouterBotId: resolvedTelegramSettings.hasRouterBotId === true,
+        hasRouterConnectionId:
+          resolvedTelegramSettings.hasRouterConnectionId === true,
+      };
+    }
+
     setBusinessSettings((prev) => ({
       ...prev,
       ...normalizedSettings,
@@ -1673,6 +1733,45 @@ const Settings = () => {
     }
   };
 
+  const handleTelegramChange = (field, value) => {
+    if (!isSuperAdmin) return;
+    setBusinessSettings((prev) => ({
+      ...prev,
+      telegramSettings: {
+        ...(prev.telegramSettings || {}),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleTelegramSecretInputChange = (field, value) => {
+    if (!isSuperAdmin) return;
+    setBusinessSettings((prev) => ({
+      ...prev,
+      telegramSettings: {
+        ...(prev.telegramSettings || {}),
+        [field]: value,
+      },
+    }));
+
+    if (showTelegramSecret[field]) {
+      clearSecretTimer(telegramSecretTimersRef, field);
+      telegramSecretTimersRef.current[field] = setTimeout(() => {
+        setBusinessSettings((prev) => ({
+          ...prev,
+          telegramSettings: {
+            ...(prev.telegramSettings || {}),
+            [field]: String(prev.telegramSettings?.[field] || "").trim()
+              ? SECRET_MASK
+              : "",
+          },
+        }));
+        setShowTelegramSecret((prev) => ({ ...prev, [field]: false }));
+        clearSecretTimer(telegramSecretTimersRef, field);
+      }, SECRET_AUTO_HIDE_MS);
+    }
+  };
+
   const fetchRevealedBusinessSecret = async (scope, field) => {
     const query = new URLSearchParams({
       action: "reveal-secret",
@@ -1749,6 +1848,80 @@ const Settings = () => {
     }));
 
     return revealed;
+  };
+
+  const revealTelegramField = async (field) => {
+    const currentValue = String(businessSettings?.telegramSettings?.[field] || "");
+    if (currentValue.trim() !== SECRET_MASK) return currentValue;
+    const revealed = await fetchRevealedBusinessSecret("telegramSettings", field);
+    setBusinessSettings((prev) => ({
+      ...prev,
+      telegramSettings: { ...(prev.telegramSettings || {}), [field]: revealed },
+    }));
+    return revealed;
+  };
+
+  const handleTelegramSetup = async (action) => {
+    if (!ensureSuperAdminAccess("manage Telegram webhook")) return;
+    setIsTelegramSettingUp(true);
+    try {
+      const response = await apiPost(API_ENDPOINTS.TELEGRAM.SETUP, { action });
+      if (action === "webhook-info") {
+        const info = response?.data?.info || {};
+        showInfo(
+          `Webhook: ${info.url || "not set"}\nPending updates: ${info.pending_update_count ?? 0}`,
+        );
+      } else if (action === "send-test") {
+        showSuccess("Test message sent to Telegram.");
+      } else if (action === "sync-commands") {
+        showSuccess(
+          `Command menu synced (${response?.data?.commands ?? 0} commands). Type / in Telegram to see it.`,
+        );
+      } else if (response?.data?.reason === "router-mode") {
+        showSuccess(
+          "Router mode is on. Paste this Target URL into MaxCode Telegram Webhook instead of setting Telegram webhook here.",
+        );
+      } else {
+        showSuccess("Telegram webhook registered successfully.");
+      }
+    } catch (error) {
+      showError(
+        error?.response?.data?.error || "Telegram setup request failed",
+      );
+    } finally {
+      setIsTelegramSettingUp(false);
+    }
+  };
+
+  const handleTelegramRevealToggle = async (field) => {
+    const willShow = !Boolean(showTelegramSecret[field]);
+    if (willShow) {
+      try {
+        await revealTelegramField(field);
+      } catch (error) {
+        showError(error?.response?.data?.error || "Unable to reveal value");
+        return;
+      }
+    }
+    setShowTelegramSecret((prev) => ({ ...prev, [field]: willShow }));
+    if (willShow) {
+      clearSecretTimer(telegramSecretTimersRef, field);
+      telegramSecretTimersRef.current[field] = setTimeout(() => {
+        setBusinessSettings((prev) => ({
+          ...prev,
+          telegramSettings: {
+            ...(prev.telegramSettings || {}),
+            [field]: String(prev.telegramSettings?.[field] || "").trim()
+              ? SECRET_MASK
+              : "",
+          },
+        }));
+        setShowTelegramSecret((prev) => ({ ...prev, [field]: false }));
+        clearSecretTimer(telegramSecretTimersRef, field);
+      }, SECRET_AUTO_HIDE_MS);
+    } else {
+      clearSecretTimer(telegramSecretTimersRef, field);
+    }
   };
 
   const handleDriveRevealToggle = async (field) => {
@@ -1902,6 +2075,37 @@ const Settings = () => {
     }
   };
 
+  const copyTelegramFieldValue = async (field) => {
+    try {
+      const value = await revealTelegramField(field);
+      if (!String(value || "").trim()) {
+        showError("Nothing to copy");
+        return;
+      }
+
+      await navigator.clipboard.writeText(String(value));
+      if (showTelegramSecret[field]) {
+        clearSecretTimer(telegramSecretTimersRef, field);
+        telegramSecretTimersRef.current[field] = setTimeout(() => {
+          setBusinessSettings((prev) => ({
+            ...prev,
+            telegramSettings: {
+              ...(prev.telegramSettings || {}),
+              [field]: String(prev.telegramSettings?.[field] || "").trim()
+                ? SECRET_MASK
+                : "",
+            },
+          }));
+          setShowTelegramSecret((prev) => ({ ...prev, [field]: false }));
+          clearSecretTimer(telegramSecretTimersRef, field);
+        }, SECRET_AUTO_HIDE_MS);
+      }
+      showSuccess("Copied to clipboard");
+    } catch (error) {
+      showError(error?.response?.data?.error || "Copy failed");
+    }
+  };
+
   const handleResetTermsToDefault = () => {
     if (!ensureSuperAdminAccess("reset terms")) return;
     setBusinessSettings((prev) => ({
@@ -2018,7 +2222,20 @@ const Settings = () => {
 
       localStorage.removeItem("business_settings");
 
-      showSuccess("✅ All changes saved successfully!");
+      const telegramWebhook = response?.data?.telegramWebhook;
+      if (telegramWebhook?.success) {
+        showSuccess("✅ Saved! Telegram webhook registered automatically.");
+      } else if (telegramWebhook?.reason === "local-url") {
+        showSuccess(
+          "✅ Saved! Telegram webhook will auto-register after you deploy (localhost is not reachable by Telegram).",
+        );
+      } else if (telegramWebhook?.error) {
+        showWarning(
+          `Saved, but Telegram webhook could not be set: ${telegramWebhook.error}`,
+        );
+      } else {
+        showSuccess("✅ All changes saved successfully!");
+      }
     } catch (error) {
       localStorage.removeItem("business_settings");
       showError(error?.response?.data?.error || "Failed to sync profile");
@@ -3122,6 +3339,26 @@ const Settings = () => {
           showWhatsAppSecret={showWhatsAppSecret}
           handleWhatsAppRevealToggle={handleWhatsAppRevealToggle}
           copyWhatsAppFieldValue={copyWhatsAppFieldValue}
+        />
+      );
+    }
+
+    if (activeTab === "telegram") {
+      return (
+        <TelegramTab
+          handleSaveAll={handleSaveAll}
+          isSaving={isSaving}
+          isBusinessLoading={isBusinessLoading}
+          isSuperAdmin={isSuperAdmin}
+          businessSettings={businessSettings}
+          handleTelegramChange={handleTelegramChange}
+          handleTelegramSecretInputChange={handleTelegramSecretInputChange}
+          showTelegramSecret={showTelegramSecret}
+          handleTelegramRevealToggle={handleTelegramRevealToggle}
+          copyTelegramFieldValue={copyTelegramFieldValue}
+          webhookUrl={`${window.location.origin}${API_ENDPOINTS.TELEGRAM.WEBHOOK_PATH}`}
+          onTelegramSetup={handleTelegramSetup}
+          isTelegramSettingUp={isTelegramSettingUp}
         />
       );
     }
