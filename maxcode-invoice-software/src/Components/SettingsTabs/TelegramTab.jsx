@@ -187,9 +187,6 @@ const TelegramTab = ({
                 <i className="fas fa-copy"></i>
               </button>
             </div>
-            <small className="text-muted">
-              Same Shared Secret as the Telegram Webhook Software Connection. Enables HMAC verification.
-            </small>
           </div>
           <div className="col-12">
             <label className="form-label fw-bold">Router Software URL</label>
@@ -212,9 +209,6 @@ const TelegramTab = ({
                 <i className="fas fa-copy"></i>
               </button>
             </div>
-            <small className="text-muted">
-              MaxCode Telegram Webhook software ka public URL. Neeche Target URL isi se banta hai.
-            </small>
           </div>
           <div className="col-12">
             <label className="form-label fw-bold">Target URL (paste in Router software)</label>
@@ -237,21 +231,32 @@ const TelegramTab = ({
                 <i className="fas fa-copy"></i>
               </button>
             </div>
-            <small className="text-muted">
-              Yahi URL Telegram Webhook software me Software Connection ke &quot;Target URL&quot; me paste karo. Shared Secret wahi rakho jo upar hai.
-            </small>
           </div>
           <div className="col-12">
             <div className="d-flex justify-content-between align-items-center border rounded-3 px-3 py-2">
               <div>
                 <div className="fw-bold">Enable Telegram notifications</div>
-                <small className="text-muted">
-                  Turn on to send payment verification requests to Telegram.
-                </small>
               </div>
               <div className="form-check form-switch mb-0">
                 <input className="form-check-input" type="checkbox" role="switch" checked={config.enabled === true} onChange={(e) => handleTelegramChange("enabled", e.target.checked)} disabled={!isSuperAdmin} id="telegram-enabled" />
               </div>
+            </div>
+          </div>
+
+          <div className="col-12">
+            <div className="alert alert-info mb-0 py-2 px-3">
+              <small className="text-break d-block mb-1">
+                Same Shared Secret as the Telegram Webhook Software Connection. Enables HMAC verification.
+              </small>
+              <small className="text-break d-block mb-1">
+                MaxCode Telegram Webhook software ka public URL. Neeche Target URL isi se banta hai.
+              </small>
+              <small className="text-break d-block">
+                Yahi URL Telegram Webhook software me Software Connection ke &quot;Target URL&quot; me paste karo. Shared Secret wahi rakho jo upar hai.
+              </small>
+              <small className="text-break d-block">
+                Sync Command Menu publishes the &quot;/&quot; list so typing / shows MaxCode Accounting and every feature. Run it once after changing the bot token.
+              </small>
             </div>
           </div>
 
@@ -293,9 +298,6 @@ const TelegramTab = ({
               Sync Command Menu
             </button>
           </div>
-          <small className="text-muted">
-            Sync Command Menu publishes the &quot;/&quot; list so typing <strong>/</strong> shows MaxCode Accounting and every feature. Run it once after changing the bot token.
-          </small>
         </div>
       </div>
     </div>
