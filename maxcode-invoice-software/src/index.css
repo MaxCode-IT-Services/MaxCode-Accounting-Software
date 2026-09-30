@@ -67,6 +67,30 @@ button:focus-visible {
 
 /* Global Modal Form Styling - aligned with CreateClient modern-input look */
 
+/* Bootstrap adds a coloured focus ring to every .form-control, and its
+   .is-valid/.is-invalid focus states add a stronger one. Both read as a
+   validation error on fields that are not editable, so the ring is removed
+   and replaced with a plain border change. !important is required to beat
+   Bootstrap's validation selectors. */
+.form-control:focus,
+.form-control:focus-visible,
+.form-control.is-valid:focus,
+.form-control.is-invalid:focus,
+.form-control:valid:focus,
+.form-control:invalid:focus,
+.was-validated .form-control:valid:focus,
+.was-validated .form-control:invalid:focus {
+  border-color: #ced4da !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.form-control:focus:not([readonly]):not([disabled]),
+.form-control:focus-visible:not([readonly]):not([disabled]) {
+  border-color: #007026 !important;
+  box-shadow: 0 0 0 3px rgba(0, 112, 38, 0.12) !important;
+}
+
 /* React-Select Modern Input Styling */
 .react-select__control {
   border: 2px solid #e9ecef !important;

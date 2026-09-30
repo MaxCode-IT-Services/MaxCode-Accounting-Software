@@ -1,5 +1,14 @@
 import React from "react";
 
+const DEFAULT_ROUTER_BASE_URL = "https://botreuter.maxcodehub.com";
+const ROUTER_TARGET_PATH = "/api/telegram-webhook/maxcode-accounting";
+
+/** Keeps the pasted target URL in sync with the router software URL. */
+export const buildRouterTargetUrl = (base) => {
+  const trimmed = String(base || "").trim().replace(/\/+$/, "");
+  return `${trimmed || DEFAULT_ROUTER_BASE_URL}${ROUTER_TARGET_PATH}`;
+};
+
 const getHiddenSecretInputStyle = (value = "") => {
   if (!String(value || "").trim()) return undefined;
   return {
@@ -21,6 +30,8 @@ const TelegramTab = ({
   handleTelegramRevealToggle,
   copyTelegramFieldValue,
   webhookUrl,
+  routerBaseUrl,
+  targetUrl,
   onTelegramSetup,
   isTelegramSettingUp,
 }) => {
@@ -106,31 +117,28 @@ const TelegramTab = ({
             </div>
           </div>
           <div className="col-md-6">
-            <label className="form-label fw-bold">Router Shared Secret</label>
+            <label className="form-label fw-bold">Router Connection ID</label>
             <div className="input-group">
               <input
                 type="text"
                 className="form-control modern-input"
-                value={config.sharedSecret || ""}
-                onChange={(e) => handleTelegramSecretInputChange("sharedSecret", e.target.value)}
+                value={config.routerConnectionId || ""}
+                onChange={(e) => handleTelegramSecretInputChange("routerConnectionId", e.target.value)}
                 disabled={!isSuperAdmin}
-                placeholder="Paste from Telegram Webhook connection"
+                placeholder="Paste from Telegram Webhook Software Connection"
                 style={
-                  showTelegramSecret?.sharedSecret
+                  showTelegramSecret?.routerConnectionId
                     ? undefined
-                    : getHiddenSecretInputStyle(config.sharedSecret)
+                    : getHiddenSecretInputStyle(config.routerConnectionId)
                 }
               />
-              <button className="btn btn-outline-secondary" type="button" onClick={() => handleTelegramRevealToggle("sharedSecret")} aria-label="Show or hide shared secret">
-                <i className={`fas fa-eye${showTelegramSecret?.sharedSecret ? "-slash" : ""}`}></i>
+              <button className="btn btn-outline-secondary" type="button" onClick={() => handleTelegramRevealToggle("routerConnectionId")} aria-label="Show or hide router connection id">
+                <i className={`fas fa-eye${showTelegramSecret?.routerConnectionId ? "-slash" : ""}`}></i>
               </button>
-              <button className="btn btn-outline-primary rounded-end-3" type="button" onClick={() => copyTelegramFieldValue("sharedSecret")}>
+              <button className="btn btn-outline-primary rounded-end-3" type="button" onClick={() => copyTelegramFieldValue("routerConnectionId")}>
                 <i className="fas fa-copy"></i>
               </button>
             </div>
-            <small className="text-muted">
-              Same Shared Secret as the MaxCode Telegram Webhook Software Connection. Enables HMAC verification.
-            </small>
           </div>
           <div className="col-md-6">
             <label className="form-label fw-bold">Router Bot ID</label>
@@ -156,29 +164,82 @@ const TelegramTab = ({
               </button>
             </div>
           </div>
-          <div className="col-md-6">
-            <label className="form-label fw-bold">Router Connection ID</label>
+            <div className="col-md-6">
+            <label className="form-label fw-bold">Router Shared Secret</label>
             <div className="input-group">
               <input
                 type="text"
                 className="form-control modern-input"
-                value={config.routerConnectionId || ""}
-                onChange={(e) => handleTelegramSecretInputChange("routerConnectionId", e.target.value)}
+                value={config.sharedSecret || ""}
+                onChange={(e) => handleTelegramSecretInputChange("sharedSecret", e.target.value)}
                 disabled={!isSuperAdmin}
-                placeholder="Paste from Telegram Webhook Software Connection"
+                placeholder="Paste from Telegram Webhook connection"
                 style={
-                  showTelegramSecret?.routerConnectionId
+                  showTelegramSecret?.sharedSecret
                     ? undefined
-                    : getHiddenSecretInputStyle(config.routerConnectionId)
+                    : getHiddenSecretInputStyle(config.sharedSecret)
                 }
               />
-              <button className="btn btn-outline-secondary" type="button" onClick={() => handleTelegramRevealToggle("routerConnectionId")} aria-label="Show or hide router connection id">
-                <i className={`fas fa-eye${showTelegramSecret?.routerConnectionId ? "-slash" : ""}`}></i>
+              <button className="btn btn-outline-secondary" type="button" onClick={() => handleTelegramRevealToggle("sharedSecret")} aria-label="Show or hide shared secret">
+                <i className={`fas fa-eye${showTelegramSecret?.sharedSecret ? "-slash" : ""}`}></i>
               </button>
-              <button className="btn btn-outline-primary rounded-end-3" type="button" onClick={() => copyTelegramFieldValue("routerConnectionId")}>
+              <button className="btn btn-outline-primary rounded-end-3" type="button" onClick={() => copyTelegramFieldValue("sharedSecret")}>
                 <i className="fas fa-copy"></i>
               </button>
             </div>
+            <small className="text-muted">
+              Same Shared Secret as the Telegram Webhook Software Connection. Enables HMAC verification.
+            </small>
+          </div>
+          <div className="col-12">
+            <label className="form-label fw-bold">Router Software URL</label>
+            <div className="input-group">
+              <input
+                className="form-control modern-input"
+                value={routerBaseUrl || ""}
+                onChange={(e) => handleTelegramChange("routerBaseUrl", e.target.value)}
+                disabled={!isSuperAdmin}
+                placeholder="https://botreuter.maxcodehub.com"
+              />
+              <button
+                className="btn btn-outline-primary"
+                type="button"
+                onClick={() =>
+                  navigator.clipboard?.writeText(String(routerBaseUrl || "").trim())
+                }
+                aria-label="Copy router software url"
+              >
+                <i className="fas fa-copy"></i>
+              </button>
+            </div>
+            <small className="text-muted">
+              MaxCode Telegram Webhook software ka public URL. Neeche Target URL isi se banta hai.
+            </small>
+          </div>
+          <div className="col-12">
+            <label className="form-label fw-bold">Target URL (paste in Router software)</label>
+            <div className="input-group">
+              <input
+                className="form-control modern-input"
+                value={config.targetUrl || ""}
+                onChange={(e) => handleTelegramChange("targetUrl", e.target.value)}
+                disabled={!isSuperAdmin}
+                placeholder="https://botreuter.maxcodehub.com/api/telegram-webhook/maxcode-accounting"
+              />
+              <button
+                className="btn btn-outline-primary"
+                type="button"
+                onClick={() =>
+                  navigator.clipboard?.writeText(String(config.targetUrl || "").trim())
+                }
+                aria-label="Copy target url"
+              >
+                <i className="fas fa-copy"></i>
+              </button>
+            </div>
+            <small className="text-muted">
+              Yahi URL Telegram Webhook software me Software Connection ke &quot;Target URL&quot; me paste karo. Shared Secret wahi rakho jo upar hai.
+            </small>
           </div>
           <div className="col-12">
             <div className="d-flex justify-content-between align-items-center border rounded-3 px-3 py-2">
@@ -192,23 +253,6 @@ const TelegramTab = ({
                 <input className="form-check-input" type="checkbox" role="switch" checked={config.enabled === true} onChange={(e) => handleTelegramChange("enabled", e.target.checked)} disabled={!isSuperAdmin} id="telegram-enabled" />
               </div>
             </div>
-          </div>
-
-          <div className="col-12">
-            <label className="form-label fw-bold">Webhook URL</label>
-            <div className="input-group">
-              <input className="form-control modern-input" value={webhookUrl || ""} readOnly />
-              <button
-                className="btn btn-outline-primary"
-                type="button"
-                onClick={() => navigator.clipboard?.writeText(webhookUrl || "")}
-              >
-                <i className="fas fa-copy"></i>
-              </button>
-            </div>
-            <small className="text-muted">
-              Paste this Target URL into the MaxCode Telegram Webhook Software Connection. If Shared Secret is saved, Telegram webhook stays on the router.
-            </small>
           </div>
 
           <div className="col-12 d-flex flex-wrap gap-2">

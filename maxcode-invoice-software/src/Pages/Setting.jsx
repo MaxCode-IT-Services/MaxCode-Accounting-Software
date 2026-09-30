@@ -13,7 +13,7 @@ import PinTab from "../Components/SettingsTabs/PinTab";
 import TwoFATab from "../Components/SettingsTabs/TwoFATab";
 import BusinessTab from "../Components/SettingsTabs/BusinessTab";
 import WhatsAppCloudApiTab from "../Components/SettingsTabs/WhatsAppCloudApiTab";
-import TelegramTab from "../Components/SettingsTabs/TelegramTab";
+import TelegramTab, { buildRouterTargetUrl } from "../Components/SettingsTabs/TelegramTab";
 import CloudflareTab from "../Components/SettingsTabs/CloudflareTab";
 import TermsTab from "../Components/SettingsTabs/TermsTab";
 import HsnTab from "../Components/SettingsTabs/HsnTab";
@@ -252,6 +252,9 @@ const Settings = () => {
       sharedSecret: "",
       routerBotId: "",
       routerConnectionId: "",
+      routerBaseUrl: "",
+      targetUrl: "",
+      targetUrlEdited: false,
       enabled: false,
     },
   });
@@ -1602,6 +1605,11 @@ const Settings = () => {
           resolvedTelegramSettings.routerConnectionId,
           resolvedTelegramSettings.hasRouterConnectionId === true,
         ),
+        routerBaseUrl: resolvedTelegramSettings.routerBaseUrl || "",
+        targetUrl:
+          resolvedTelegramSettings.targetUrl ||
+          buildRouterTargetUrl(resolvedTelegramSettings.routerBaseUrl),
+        targetUrlEdited: resolvedTelegramSettings.targetUrlEdited === true,
         enabled: resolvedTelegramSettings.enabled === true,
         hasBotToken: resolvedTelegramSettings.hasBotToken === true,
         hasChatId: resolvedTelegramSettings.hasChatId === true,
@@ -1740,6 +1748,13 @@ const Settings = () => {
       telegramSettings: {
         ...(prev.telegramSettings || {}),
         [field]: value,
+        // Typing the target URL by hand wins and stops auto-rebuilds.
+        ...(field === "targetUrl" ? { targetUrlEdited: true } : {}),
+        // Editing the router URL rebuilds the target URL unless the user has
+        // typed their own value, so the two can never drift apart.
+        ...(field === "routerBaseUrl" && !prev.telegramSettings?.targetUrlEdited
+          ? { targetUrl: buildRouterTargetUrl(value) }
+          : {}),
       },
     }));
   };
@@ -3357,6 +3372,11 @@ const Settings = () => {
           handleTelegramRevealToggle={handleTelegramRevealToggle}
           copyTelegramFieldValue={copyTelegramFieldValue}
           webhookUrl={`${window.location.origin}${API_ENDPOINTS.TELEGRAM.WEBHOOK_PATH}`}
+          routerBaseUrl={businessSettings?.telegramSettings?.routerBaseUrl || ""}
+          targetUrl={
+            businessSettings?.telegramSettings?.targetUrl ||
+            buildRouterTargetUrl(businessSettings?.telegramSettings?.routerBaseUrl)
+          }
           onTelegramSetup={handleTelegramSetup}
           isTelegramSettingUp={isTelegramSettingUp}
         />
@@ -3974,8 +3994,8 @@ const Settings = () => {
         }
 
         .modern-input:focus {
-          border-color: #ff0000;
-          box-shadow: 0 0 0 0.2rem rgba(255, 0, 0, 0.25);
+          border-color: var(--maxcode-primary-hover, #667eea);
+          box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.12);
           outline: none;
         }
 
