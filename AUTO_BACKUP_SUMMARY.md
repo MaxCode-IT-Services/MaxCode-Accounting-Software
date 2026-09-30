@@ -22,7 +22,7 @@
   - Automatic execution
   - Manual trigger option
   - Artifact upload for 7 days retention
-  - Success/Failure notifications
+  - Success/Failure notification
 
 ### 3. **Backup Script**
 
