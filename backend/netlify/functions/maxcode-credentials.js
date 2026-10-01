@@ -37,6 +37,7 @@ const SECRET_CUSTOM_FIELD_TYPES = [
 ];
 
 let cachedEncryptionKey = null;
+let cachedEncryptionKeyRaw = "";
 
 const isMaskedSecretValue = (value = "") =>
   String(value || "").trim() === SECRET_MASK;
@@ -55,25 +56,27 @@ const isSecretCustomFieldType = (type = "") =>
   );
 
 const getEncryptionKey = () => {
-  if (cachedEncryptionKey) return cachedEncryptionKey;
-
   const raw = String(process.env.CREDENTIALS_ENCRYPTION_KEY || "").trim();
-  if (!raw) {
-    throw new Error(
-      "CREDENTIALS_ENCRYPTION_KEY is missing. Set a strong 128-char hex key for maxcode credential encryption.",
-    );
-  }
 
-  if (!/^[a-fA-F0-9]{128}$/.test(raw)) {
+  if (raw && !/^[a-fA-F0-9]{128}$/.test(raw)) {
     throw new Error(
       "CREDENTIALS_ENCRYPTION_KEY must be exactly 128 hex characters.",
     );
   }
 
-  const keyMaterial = Buffer.from(raw, "hex");
-  const keyBuffer = crypto.createHash("sha256").update(keyMaterial).digest();
+  // Re-derive whenever the env value changes, so a key set after the first
+  // call is not silently ignored.
+  if (!cachedEncryptionKey || cachedEncryptionKeyRaw !== raw) {
+    if (!raw) {
+      throw new Error(
+        "CREDENTIALS_ENCRYPTION_KEY is missing. Set a strong 128-char hex key for maxcode credential encryption.",
+      );
+    }
+    const keyMaterial = Buffer.from(raw, "hex");
+    cachedEncryptionKey = crypto.createHash("sha256").update(keyMaterial).digest();
+    cachedEncryptionKeyRaw = raw;
+  }
 
-  cachedEncryptionKey = keyBuffer;
   return cachedEncryptionKey;
 };
 

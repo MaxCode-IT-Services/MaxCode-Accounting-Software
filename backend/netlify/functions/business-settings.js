@@ -1278,10 +1278,22 @@ export async function handler(event) {
           const encryptedValue = String(scopeValue[field] || "").trim();
           const value = decryptSecretFromStorage(encryptedValue);
           return createResponse(200, { success: true, value }, origin);
-        } catch {
+        } catch (error) {
+          // The real cause used to be swallowed here, which made a wrong
+          // CREDENTIALS_ENCRYPTION_KEY look identical to any other failure.
+          // Surfacing the reason lets the user tell "bad key" apart from
+          // "value was never encrypted".
+          console.error("[business-settings] reveal-secret failed", {
+            scope,
+            field,
+            reason: error?.message || String(error),
+          });
           return createResponse(
             500,
-            { error: "Unable to reveal secret value" },
+            {
+              error: "Unable to reveal secret value",
+              reason: error?.message || "unknown decryption error",
+            },
             origin,
           );
         }
