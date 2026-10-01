@@ -367,22 +367,12 @@ const sanitizeWhatsAppSettings = (
   };
 };
 
-const normalizeRouterBaseUrl = (value) =>
-  String(value || "")
-    .trim()
-    .replace(/\/+$/, "")
-    .replace(/\/api\/telegram-webhook.*$/i, "")
-    .slice(0, 200);
-
 const sanitizeTelegramSettings = (value = {}, existingTelegramSettings = {}) => {
   if (!value || typeof value !== "object") return null;
 
   return {
     botName: String(value.botName || "").trim(),
     botUserName: String(value.botUserName || "").trim().replace(/^@/, ""),
-    // Public base URL of the MaxCode Telegram Webhook (router) software.
-    // Not a secret, so it is stored as plain text.
-    routerBaseUrl: normalizeRouterBaseUrl(value.routerBaseUrl),
     // Full URL pasted into the router software's Software Connection.
     // Kept verbatim so a custom path or host is never rewritten.
     targetUrl: String(value.targetUrl || "")
@@ -841,7 +831,6 @@ const mapSettingsForClient = (document, event) => {
       sharedSecret: "",
       routerBotId: "",
       routerConnectionId: "",
-      routerBaseUrl: "",
       targetUrl: "",
       targetUrlEdited: false,
       enabled: false,
@@ -862,10 +851,11 @@ const mapSettingsForClient = (document, event) => {
     ).trim();
     response.telegramSettings = {
       ...telegramSettings,
-      // Older rows have no targetUrl, so derive it from the stored router URL.
+      // Older rows have no targetUrl, so fall back to this software's own
+      // receiver path. The router host is deliberately never used here.
       targetUrl:
         String(telegramSettings.targetUrl || "").trim() ||
-        `${normalizeRouterBaseUrl(telegramSettings.routerBaseUrl) || "https://botreuter.maxcodehub.com"}/api/telegram-webhook/maxcode-accounting`,
+        "https://billing.maxcode.in/api/telegram-hook",
       targetUrlEdited: telegramSettings.targetUrlEdited === true,
       botToken: maskSecretValue(botToken),
       chatId: maskSecretValue(chatId),

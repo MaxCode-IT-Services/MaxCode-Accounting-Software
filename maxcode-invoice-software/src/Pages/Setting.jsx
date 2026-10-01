@@ -252,8 +252,7 @@ const Settings = () => {
       sharedSecret: "",
       routerBotId: "",
       routerConnectionId: "",
-      routerBaseUrl: "",
-      targetUrl: "",
+      targetUrl: buildRouterTargetUrl(""),
       targetUrlEdited: false,
       enabled: false,
     },
@@ -1605,10 +1604,8 @@ const Settings = () => {
           resolvedTelegramSettings.routerConnectionId,
           resolvedTelegramSettings.hasRouterConnectionId === true,
         ),
-        routerBaseUrl: resolvedTelegramSettings.routerBaseUrl || "",
-        targetUrl:
-          resolvedTelegramSettings.targetUrl ||
-          buildRouterTargetUrl(resolvedTelegramSettings.routerBaseUrl),
+        // Falls back to this page's origin so the value is never empty.
+        targetUrl: resolvedTelegramSettings.targetUrl || buildRouterTargetUrl(""),
         targetUrlEdited: resolvedTelegramSettings.targetUrlEdited === true,
         enabled: resolvedTelegramSettings.enabled === true,
         hasBotToken: resolvedTelegramSettings.hasBotToken === true,
@@ -1748,13 +1745,10 @@ const Settings = () => {
       telegramSettings: {
         ...(prev.telegramSettings || {}),
         [field]: value,
-        // Typing the target URL by hand wins and stops auto-rebuilds.
+        // Typing the target URL by hand wins and is kept as typed.
         ...(field === "targetUrl" ? { targetUrlEdited: true } : {}),
-        // Editing the router URL rebuilds the target URL unless the user has
-        // typed their own value, so the two can never drift apart.
-        ...(field === "routerBaseUrl" && !prev.telegramSettings?.targetUrlEdited
-          ? { targetUrl: buildRouterTargetUrl(value) }
-          : {}),
+        // The two URLs live on different hosts, so changing the router URL
+        // must never rewrite the target URL.
       },
     }));
   };
@@ -3372,11 +3366,6 @@ const Settings = () => {
           handleTelegramRevealToggle={handleTelegramRevealToggle}
           copyTelegramFieldValue={copyTelegramFieldValue}
           webhookUrl={`${window.location.origin}${API_ENDPOINTS.TELEGRAM.WEBHOOK_PATH}`}
-          routerBaseUrl={businessSettings?.telegramSettings?.routerBaseUrl || ""}
-          targetUrl={
-            businessSettings?.telegramSettings?.targetUrl ||
-            buildRouterTargetUrl(businessSettings?.telegramSettings?.routerBaseUrl)
-          }
           onTelegramSetup={handleTelegramSetup}
           isTelegramSettingUp={isTelegramSettingUp}
         />

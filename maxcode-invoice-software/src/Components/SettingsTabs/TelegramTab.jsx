@@ -1,12 +1,18 @@
 import React from "react";
 
-const DEFAULT_ROUTER_BASE_URL = "https://botreuter.maxcodehub.com";
-const ROUTER_TARGET_PATH = "/api/telegram-webhook/maxcode-accounting";
+const DEFAULT_TARGET_PATH = "/api/telegram-hook";
 
-/** Keeps the pasted target URL in sync with the router software URL. */
+/**
+ * The router POSTs updates to this URL, so it must be the ACCOUNTING
+ * software's own receiver, never the router host. It is derived from the
+ * page origin so it stays correct in dev and on the live domain.
+ */
 export const buildRouterTargetUrl = (base) => {
-  const trimmed = String(base || "").trim().replace(/\/+$/, "");
-  return `${trimmed || DEFAULT_ROUTER_BASE_URL}${ROUTER_TARGET_PATH}`;
+  const origin =
+    String(base || "").trim() ||
+    (typeof window !== "undefined" && window.location?.origin) ||
+    "";
+  return `${origin.replace(/\/+$/, "")}${DEFAULT_TARGET_PATH}`;
 };
 
 const getHiddenSecretInputStyle = (value = "") => {
@@ -30,8 +36,6 @@ const TelegramTab = ({
   handleTelegramRevealToggle,
   copyTelegramFieldValue,
   webhookUrl,
-  routerBaseUrl,
-  targetUrl,
   onTelegramSetup,
   isTelegramSettingUp,
 }) => {
@@ -188,29 +192,7 @@ const TelegramTab = ({
               </button>
             </div>
           </div>
-          <div className="col-12">
-            <label className="form-label fw-bold">Router Software URL</label>
-            <div className="input-group">
-              <input
-                className="form-control modern-input"
-                value={routerBaseUrl || ""}
-                onChange={(e) => handleTelegramChange("routerBaseUrl", e.target.value)}
-                disabled={!isSuperAdmin}
-                placeholder="https://botreuter.maxcodehub.com"
-              />
-              <button
-                className="btn btn-outline-primary"
-                type="button"
-                onClick={() =>
-                  navigator.clipboard?.writeText(String(routerBaseUrl || "").trim())
-                }
-                aria-label="Copy router software url"
-              >
-                <i className="fas fa-copy"></i>
-              </button>
-            </div>
-          </div>
-          <div className="col-12">
+          <div className="col-md-6">
             <label className="form-label fw-bold">Target URL (paste in Router software)</label>
             <div className="input-group">
               <input
@@ -218,7 +200,7 @@ const TelegramTab = ({
                 value={config.targetUrl || ""}
                 onChange={(e) => handleTelegramChange("targetUrl", e.target.value)}
                 disabled={!isSuperAdmin}
-                placeholder="https://botreuter.maxcodehub.com/api/telegram-webhook/maxcode-accounting"
+                placeholder="https://billing.maxcode.in/api/telegram-hook"
               />
               <button
                 className="btn btn-outline-primary"
@@ -249,10 +231,7 @@ const TelegramTab = ({
                 Same Shared Secret as the Telegram Webhook Software Connection. Enables HMAC verification.
               </small>
               <small className="text-break d-block mb-1">
-                MaxCode Telegram Webhook software ka public URL. Neeche Target URL isi se banta hai.
-              </small>
-              <small className="text-break d-block">
-                Yahi URL Telegram Webhook software me Software Connection ke &quot;Target URL&quot; me paste karo. Shared Secret wahi rakho jo upar hai.
+                Yahi Target URL Telegram Webhook software me Software Connection ke &quot;Target URL&quot; me paste karo. Ye is Accounting software ka apna URL hai. Shared Secret wahi rakho jo upar hai.
               </small>
               <small className="text-break d-block">
                 Sync Command Menu publishes the &quot;/&quot; list so typing / shows MaxCode Accounting and every feature. Run it once after changing the bot token.
