@@ -91,14 +91,38 @@ const telegramRequest = async (botToken, method, body) => {
   return data;
 };
 
-export const sendTelegramMessage = (botToken, body) =>
-  telegramRequest(botToken, "sendMessage", body);
+/**
+ * Outbound Telegram calls must never take the whole feature down. A malformed
+ * message, a revoked token or a "query is too old" callback used to throw and
+ * leave the user with no reply at all, so every helper logs and swallows.
+ */
+const safeTelegramCall = async (label, botToken, method, body) => {
+  try {
+    // The raw Telegram payload is returned unchanged so existing callers that
+    // read `result?.result?.message_id` keep working.
+    return await telegramRequest(botToken, method, body);
+  } catch (error) {
+    console.error(`[telegram] ${label} failed:`, error?.message || error);
+    return { ok: false, description: error?.message || "telegram-failed" };
+  }
+};
 
-export const editTelegramMessage = (botToken, body) =>
-  telegramRequest(botToken, "editMessageText", body);
+export const sendTelegramMessage = async (botToken, body) =>
+  safeTelegramCall("sendMessage", botToken, "sendMessage", body);
 
-export const answerTelegramCallback = (botToken, body) =>
-  telegramRequest(botToken, "answerCallbackQuery", body);
+export const editTelegramMessage = async (botToken, body) =>
+  safeTelegramCall("editMessageText", botToken, "editMessageText", body);
+
+export const answerTelegramCallback = async (botToken, body) =>
+  safeTelegramCall("answerCallbackQuery", botToken, "answerCallbackQuery", body);
+
+/**
+ * Telegram rejects an editMessageText call whose text and markup are
+ * identical to the current ones ("message is not modified"). The wizard
+ * relies on in-place editing, so treat that case as a success.
+ */
+export const isTelegramUnchangedError = (error) =>
+  /message is not modified/i.test(String(error || ""));
 
 const isLocalUrl = (value = "") =>
   /localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(String(value || ""));

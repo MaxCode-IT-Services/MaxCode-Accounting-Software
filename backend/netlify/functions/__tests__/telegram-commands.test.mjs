@@ -13,7 +13,7 @@ globalThis.fetch = async (url, options = {}) => {
   };
 };
 
-const store = { commands: new Map(), links: [], settings: {} };
+const store = { commands: new Map(), links: [], settings: {}, clients: [] };
 let failed = 0;
 
 const ok = (label, actual, expected) => {
@@ -31,9 +31,12 @@ const makeCollection = (name) => ({
     if (name === "telegram_webhook_state") return store.commands.get(filter._id) || null;
     if (name === "payment_links") {
       return (
-        store.links.find((item) => String(item.shareUrl) === String(filter.shareUrl)) || null
+        store.links.find((item) => String(item.shareUrl) === String(filter.shareUrl)) ||
+        store.links.find((item) => String(item._id) === String(filter._id)) ||
+        null
       );
     }
+    if (name === "clients") return store.clients[0] || null;
     return null;
   },
   updateOne: async (filter, update) => {
@@ -53,8 +56,16 @@ const makeCollection = (name) => ({
     store.links.push(inserted);
     return { insertedId: inserted._id };
   },
-  find: () => ({
-    sort: () => ({ limit: () => ({ toArray: async () => store.links.slice().reverse() }) }),
+  find: (filter = {}) => ({
+    sort: () => ({
+      limit: (max) => ({
+        toArray: async () => {
+          const rows =
+            name === "clients" ? store.clients.slice() : store.links.slice().reverse();
+          return Number.isFinite(max) ? rows.slice(0, max) : rows;
+        },
+      }),
+    }),
   }),
   aggregate: () => ({
     toArray: async () => {
@@ -142,14 +153,121 @@ ok("unrelated word not guessed", JSON.stringify(cmds.extractCommand({ text: "/zz
 ok("extra words ignored", cmds.extractCommand({ text: "/createlink for Rahul" }), "maxcode_accounting_create_link");
 ok("at bot name kept", cmds.extractCommand({ text: "/createlink@MaxCodeBot" }), "maxcode_accounting_create_link");
 
+// --- saved customer picker ---------------------------------------------------
+console.log("\n## saved customer picker");
+store.clients = [
+  { _id: "a1", clientId: "C1", clientName: "Rahul Traders", businessName: "Rahul Textiles", phoneNumber: "9876543210", address: "12 MG Road" },
+  { _id: "2", clientId: "C2", clientName: "Amit Sons", businessName: "", phoneNumber: "9999999999", address: "4 Park Street" },
+];
+await cmd("/newlink");
+ok("picker shown when customers exist", state(), "pick_client");
+const pickerKb = sent.at(-1).body.reply_markup.inline_keyboard;
+ok("page holds up to 8 customers", pickerKb.length <= 9, "true");
+ok("customer button label", pickerKb[0][0].text, "Rahul Traders — Rahul Textiles");
+ok("customer button callback", pickerKb[0][0].callback_data, "mcac:client:0");
+ok("enter manually button last", pickerKb.at(-1)[0].text, "👤 Enter Manually");
+
+await press("mcac:client:0");
+ok("picking a customer goes to business_name", state(), "business_name");
+ok("name prefilled", store.commands.get(KEY).draft.clientName, "Rahul Traders");
+ok("phone prefilled", store.commands.get(KEY).draft.phoneNumber, "9876543210");
+ok("address prefilled", store.commands.get(KEY).draft.address, "12 MG Road");
+ok("client ref kept", store.commands.get(KEY).draft.clientRefId, "C1");
+const bizKb = sent.at(-1).body.reply_markup.inline_keyboard;
+ok("keep business button offered", bizKb[0][0].callback_data, "mcac:keep_business");
+ok("keep business button label", bizKb[0][0].text, "✅ Rahul Textiles");
+ok("skip still available", bizKb.at(-1)[0].callback_data, "mcac:skip");
+ok("business name shown back", lastEdit().includes("Rahul Textiles"), "true");
+
+await press("mcac:keep_business");
+ok("keeping business name advances", state(), "amount");
+ok("business name retained", store.commands.get(KEY).draft.businessName, "Rahul Textiles");
+await cmd("/cancel");
+
+// a saved customer with no business name still works
+await cmd("/newlink");
+await press("mcac:client:1");
+ok("no business name still lands on business_name", state(), "business_name");
+ok("no keep button without a business name", sent.at(-1).body.reply_markup.inline_keyboard[0][0].callback_data, "mcac:skip");
+await press("mcac:skip");
+ok("skipping goes to amount", state(), "amount");
+await cmd("/cancel");
+
+// manual entry path
+await cmd("/newlink");
+await press("mcac:manual_client");
+ok("manual button goes to client_name", state(), "client_name");
+await say("Fresh Walkin Customer");
+ok("manual name advances", state(), "business_name");
+ok("manual name recorded", store.commands.get(KEY).draft.clientName, "Fresh Walkin Customer");
+ok("manual entry clears the ref", store.commands.get(KEY).draft.clientRefId, "");
+await cmd("/cancel");
+
+// typing on the picker searches instead of creating a customer
+await cmd("/newlink");
+await say("amit");
+ok("typing searches", state(), "pick_client");
+ok("search term stored", store.commands.get(KEY).draft.clientSearch, "amit");
+ok("search narrows to one row", sent.at(-1).body.reply_markup.inline_keyboard[0][0].text, "Amit Sons");
+ok("clear search button offered", sent.at(-1).body.reply_markup.inline_keyboard.at(-2)[0].callback_data, "mcac:clients_clear");
+await press("mcac:clients_clear");
+ok("clearing restores everyone", sent.at(-1).body.reply_markup.inline_keyboard.length, store.clients.length + 1);
+ok("clear button gone", JSON.stringify(sent.at(-1).body.reply_markup.inline_keyboard.map((r) => r[0].callback_data).includes("mcac:clients_clear")), "false");
+
+await say("zzz-no-match");
+ok("no match keeps the picker", state(), "pick_client");
+ok("no match is reported", sent.filter((s) => s.method === "sendMessage").at(-1).body.text.startsWith("*🔍 No customer found"), "true");
+await cmd("/cancel");
+
+// long lists page instead of hiding customers
+store.clients = Array.from({ length: 11 }, (_, i) => ({
+  _id: `o${i}`,
+  clientId: `C${i}`,
+  clientName: `Customer ${i + 1}`,
+  businessName: "",
+}));
+await cmd("/newlink");
+let kb = sent.at(-1).body.reply_markup.inline_keyboard;
+ok("first page shows 8", kb.filter((r) => String(r[0].callback_data).startsWith("mcac:client:")).length, 8);
+ok("next button offered", kb.at(-2)[0].callback_data, "mcac:clients_page:8");
+ok("header counts the whole list", lastSend().includes("Showing 1\\-8 of 11 saved customers\\."), "true");
+await press("mcac:clients_page:8");
+kb = sent.at(-1).body.reply_markup.inline_keyboard;
+ok("second page shows the rest", kb.filter((r) => String(r[0].callback_data).startsWith("mcac:client:")).length, 3);
+ok("back button offered", kb.at(-2)[0].callback_data, "mcac:clients_page:0");
+ok("header counts page two", lastEdit().includes("9\\-11 of 11 saved customers\\."), "true");
+await press("mcac:client:10");
+ok("a customer from page two works", state(), "business_name");
+ok("last customer prefilled", store.commands.get(KEY).draft.clientName, "Customer 11");
+await cmd("/cancel");
+store.clients = [];
+
+// the wizard still works when there are no saved customers at all
+store.clients = [];
+await cmd("/newlink");
+ok("no customers skips the picker", state(), "client_name");
+await cmd("/cancel");
+
+// pressing a picker button from an old screen is rejected
+store.clients = [
+  { _id: "a1", clientId: "C1", clientName: "Rahul Traders", businessName: "Rahul Textiles", phoneNumber: "9876543210", address: "12 MG Road" },
+];
+await cmd("/newlink");
+await cmd("/cancel");
+ok("stale picker press rejected", await press("mcac:client:0"), true);
+ok("stale picker message", alert(), "Please send your answer as a message instead.");
+store.clients = [];
+
 // --- happy path with UPI buttons --------------------------------------------
 console.log("\n## happy path (button UPI + all skips)");
 await cmd("/maxcode_accounting_create_link");
-ok("step 1 prompt", lastSend().startsWith("*📝 Create Payment Link — Step 1 of 6"), "true");
+ok("step 1 prompt", lastSend().startsWith("*📝 Create Payment Link — Step 2 of 10 — MaxCode Accounting*"), "true");
 ok("state after step 1", state(), "client_name");
 
 await say("Rahul Traders");
-ok("step 2 prompt", lastSend().startsWith("*💰 Create Payment Link — Step 2 of 6"), "true");
+ok("step 2 prompt", lastSend().startsWith("*\u{1F3E2} Create Payment Link — Step 3 of 10 — MaxCode Accounting*"), "true");
+await press("mcac:skip");
+ok("business skip -> amount", state(), "amount");
 
 await say("Rs 12,500");
 ok("amount parsed with Rs/comma", state(), "upi_account");
@@ -159,42 +277,54 @@ ok("upi button advances past picker", state(), "phone");
 ok("upi account stored", store.commands.get(KEY).draft.upiId, "maxcode@icicibank");
 
 await press("mcac:skip");
-ok("phone skip -> expiry", state(), "expiry");
+ok("phone skip -> address", state(), "address");
 ok("phone blank stays blank", store.commands.get(KEY).draft.phoneNumber, undefined);
 
 await press("mcac:skip");
-ok("expiry skip -> alias", state(), "alias");
+ok("address skip -> expiry", state(), "expiry");
+
+await press("mcac:skip");
+ok("expiry skip -> note", state(), "note");
 ok("expiry defaulted", /^\d{4}-\d{2}-\d{2}$/.test(store.commands.get(KEY).draft.linkExpiry), "true");
+
+await press("mcac:skip");
+ok("note skip -> alias", state(), "alias");
 
 await press("mcac:skip");
 ok("alias skip -> confirm", state(), "confirm");
 
 await press("mcac:create");
 ok("link created", store.links.length, 1);
-ok("share url", store.links[0].shareUrl.startsWith("https://billing.maxcode.in/rahultraders"), "true");
+ok("share url", store.links[0].shareUrl.startsWith("https://pay.maxcode.in/rahultraders"), "true");
 ok("status pending", store.links[0].status, "pending");
 ok("createdBy Telegram", store.links[0].createdBy, "Telegram");
 ok("confirm msg edited into result", lastEdit().startsWith("*✅ Payment Link Created"), "true");
 ok("open button present", sent.at(-1).body.reply_markup.inline_keyboard[0][0].url, store.links[0].shareUrl);
+ok("copy button present", sent.at(-1).body.reply_markup.inline_keyboard[0][1].callback_data, `mcac:copy:${store.links[0]._id}`);
 ok("state cleared", store.commands.has(KEY), "false");
 
 // --- manual UPI + all text + confirm by text ---------------------------------
 console.log("\n## manual UPI, free text, confirm by typing");
 await cmd("/createlink");
 await say("Amit Sons");
+await press("mcac:skip");
 await say("2500");
 await press("mcac:manual_upi");
 ok("manual upi step", state(), "manual_upi");
-ok("prompt edited in place", lastEdit().startsWith("*🏦 Create Payment Link — Step 3 of 6"), "true");
+ok("prompt edited in place", lastEdit().startsWith("*\u{1F3E6} Create Payment Link — Step 5 of 10 — MaxCode Accounting*"), "true");
 
 await say("Yes Bank | amit@okaxis");
 await say("9876543210");
+await say("12 MG Road, Pune");
 await say("2027-01-31");
+await say("urgent delivery");
 await say("my custom link");
 ok("alias sanitised", store.commands.get(KEY).draft.alias, "mycustomlink");
 await say("yes");
 ok("confirm by text works", store.links.length, 2);
 ok("custom alias used", store.links[1].alias, "mycustomlink");
+ok("address stored", store.links[1].address, "12 MG Road, Pune");
+ok("note stored", store.links[1].note, "urgent delivery");
 ok("expiry end-of-day IST", new Date(store.links[1].linkExpiry).toISOString(), "2027-01-31T18:29:59.999Z");
 
 // --- single saved UPI account auto-selects -----------------------------------
@@ -202,8 +332,11 @@ console.log("\n## single saved UPI auto-selected");
 store.settings.upiIds = [store.settings.upiIds[0]];
 await cmd("/newlink");
 await say("Single Co");
+await press("mcac:skip");
 await say("100");
 ok("skips picker automatically", state(), "phone");
+await press("mcac:skip");
+await press("mcac:skip");
 await press("mcac:skip");
 await press("mcac:skip");
 await press("mcac:skip");
@@ -215,6 +348,7 @@ console.log("\n## zero saved UPI accounts");
 store.settings.upiIds = [];
 await cmd("/newlink");
 await say("No Upi Co");
+await press("mcac:skip");
 await say("700");
 ok("falls back to manual entry", state(), "manual_upi");
 await say("Bank X | x@ybank");
@@ -223,10 +357,13 @@ ok("reaches phone", state(), "phone");
 // --- invalid input handling --------------------------------------------------
 console.log("\n## invalid input handling");
 await say("junk");
-ok("phone accepts anything (free text)", state(), "expiry");
+ok("phone accepts anything (free text)", state(), "address");
+await say("12 Main Street");
+ok("address stored in draft", state(), "expiry");
 await say("32-14-99");
 ok("bad date rejected", lastSend().startsWith("*⚠️ Invalid Date"), "true");
 ok("still on expiry", state(), "expiry");
+await press("mcac:skip");
 await press("mcac:skip");
 await press("mcac:skip");
 await press("mcac:create");
@@ -234,6 +371,7 @@ ok("created after recovery", store.links.length, 4);
 
 await cmd("/newlink");
 await say("Amount Co");
+await press("mcac:skip");
 await say("not-a-number");
 ok("bad amount rejected", lastSend().startsWith("*⚠️ Invalid Amount"), "true");
 ok("still on amount", state(), "amount");
@@ -263,8 +401,11 @@ ok("still on phone", state(), "phone");
 
 await press("mcac:skip");
 await press("mcac:skip");
+await press("mcac:skip");
+await press("mcac:skip");
+await press("mcac:skip");
 await press("mcac:create");
-ok("created after stale-button recovery", store.links.length, 4);
+ok("created after stale-button recovery", store.links.length, 5);
 
 store.settings.upiIds = [
   store.settings.upiIds[0],
@@ -272,8 +413,11 @@ store.settings.upiIds = [
 ];
 await cmd("/newlink");
 await say("Revise Co");
+await press("mcac:skip");
 await say("10");
 await press("mcac:upi:1");
+await press("mcac:skip");
+await press("mcac:skip");
 await press("mcac:skip");
 await press("mcac:skip");
 await press("mcac:skip");
@@ -282,7 +426,7 @@ ok("reached confirm", state(), "confirm");
 await press("mcac:revise");
 ok("revise jumps to client_name", state(), "client_name");
 await say("New Name Co");
-ok("revise continues to amount", state(), "amount");
+ok("revise continues to business_name", state(), "business_name");
 await cmd("/cancel");
 
 // --- no active conversation --------------------------------------------------
@@ -295,7 +439,7 @@ ok("state untouched", store.commands.has(KEY), "false");
 console.log("\n## cancel and expiry");
 await cmd("/newlink");
 await say("Cancel Co");
-ok("mid-flow", state(), "amount");
+ok("mid-flow", state(), "business_name");
 await cmd("/cancel");
 ok("cancelled", store.commands.has(KEY), "false");
 ok("cancel message", lastSend().startsWith("*🚫 Cancelled"), "true");
@@ -317,7 +461,7 @@ const total = store.links.length;
 await cmd("/links");
 ok("lists newest first", lastSend().indexOf("Revise Co") === -1, "true");
 ok("footer", lastSend().includes("5 most recent"), "true");
-ok("shows a real link", /https:\/\/billing\\?\.maxcode\\?\.in\//.test(lastSend()), "true");
+ok("shows a real link", /https:\/\/pay\\?\.maxcode\\?\.in\//.test(lastSend()), "true");
 
 await cmd("/stats");
 ok("stats total count", lastSend().includes(`*Total Links:* ${total}`), "true");

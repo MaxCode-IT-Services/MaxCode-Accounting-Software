@@ -1,24 +1,42 @@
+import { ObjectId } from "mongodb";
 import {
   SOFTWARE_NAME,
   answerTelegramCallback,
   editTelegramMessage,
   escapeMarkdownV2,
   formatAmount,
+  isTelegramUnchangedError,
   sendTelegramMessage,
   telegramRequest,
 } from "./payment-verification-telegram.js";
 
 const STATE_COLLECTION = "telegram_webhook_state";
 const PAYMENT_LINKS_COLLECTION = "payment_links";
+const CLIENTS_COLLECTION = "clients";
 
 const CONVERSATION_PREFIX = "mcac";
 const CONVERSATION_SOFTWARE = "mca-cmd";
 const CONVERSATION_TTL_MINUTES = 30;
 
-const DEFAULT_DOMAIN = "https://billing.maxcode.in";
+// Share links are served from the payment domain, not the billing dashboard.
+const DEFAULT_DOMAIN = "https://pay.maxcode.in";
 
-const heading = (emoji, title) =>
-  `*${emoji} ${title}* ${escapeMarkdownV2(`— ${SOFTWARE_NAME}`)}`;
+// How many saved customers fit on one picker screen. The rest stay reachable
+// through the page buttons and the search box, so no customer is ever hidden.
+const CLIENT_PICKER_LIMIT = 8;
+// How many customers are loaded into the running task. This only bounds the
+// size of the saved conversation; paging and search cover everything below it.
+const CLIENT_SEARCH_LIMIT = 200;
+
+/**
+ * Every heading in this feature is rendered the same way: bold, and with the
+ * software name inside the bold. Previously some screens put the name outside
+ * the asterisks and some left it on its own line.
+ */
+const headingText = (title) =>
+  `*${escapeMarkdownV2(`${title} — ${SOFTWARE_NAME}`)}*`;
+
+const heading = (emoji, title) => headingText(`${emoji} ${title}`);
 
 /**
  * One entry per Telegram slash command. Every name is namespaced with the
@@ -81,19 +99,31 @@ const COMMAND_LOOKUP = (() => {
   return lookup;
 })();
 
-// Ordered wizard steps. "manual_upi" shares the upi_account slot, and
-// "confirm" is the review screen that closes the flow.
+// Ordered wizard steps. "manual_upi" shares the upi_account slot, "pick_client"
+// offers the saved customers, and "confirm" is the review screen.
 const STEPS = [
+  "pick_client",
   "client_name",
+  "business_name",
   "amount",
   "upi_account",
   "phone",
+  "address",
   "expiry",
+  "note",
   "alias",
 ];
 
 const STEP_VIEW = {
+  pick_client: {
+    emoji: "👥",
+    hint: "Pick a saved customer below, or tap Enter Manually to type the details.",
+  },
   client_name: { emoji: "📝", hint: "Send the customer name." },
+  business_name: {
+    emoji: "🏢",
+    hint: "Send the business name, or press Skip to leave it empty.",
+  },
   amount: { emoji: "💰", hint: "Send the amount, for example: 12500 or Rs 12,500" },
   upi_account: {
     emoji: "🏦",
@@ -104,13 +134,22 @@ const STEP_VIEW = {
     hint: "Send the UPI details as: Bank Name | upi@id",
   },
   phone: { emoji: "📱", hint: "Send the customer mobile number, or press Skip." },
+  address: { emoji: "📍", hint: "Send the customer address, or press Skip." },
   expiry: { emoji: "📅", hint: "Send the expiry date as YYYY-MM-DD, or press Skip." },
+  note: { emoji: "🗒️", hint: "Send a note for this payment, or press Skip." },
   alias: { emoji: "🔗", hint: "Send a link name using letters and numbers only." },
   confirm: { emoji: "✅", hint: "Review the details, then press Create Link." },
 };
 
 // Steps where the Skip button is meaningful.
-const SKIPPABLE_STEPS = new Set(["phone", "expiry", "alias"]);
+const SKIPPABLE_STEPS = new Set([
+  "business_name",
+  "phone",
+  "address",
+  "expiry",
+  "note",
+  "alias",
+]);
 
 const toNumber = (value) => {
   const cleaned = String(value || "")
@@ -362,33 +401,151 @@ export const extractCommand = ({ text } = {}) => {
 
 const stepTitle = (step) => {
   const view = STEP_VIEW[step] || STEP_VIEW.client_name;
+  // "manual_upi" occupies the upi_account slot, so it reports that step number.
   const index = STEPS.indexOf(step === "manual_upi" ? "upi_account" : step);
   const position = index === -1 ? STEPS.length : index + 1;
-  return `${view.emoji} Create Payment Link — Step ${position} of ${STEPS.length}`;
+  return `Create Payment Link — Step ${position} of ${STEPS.length}`;
+};
+
+/**
+ * Narrows the picker to one screenful of customers, honouring any search term
+ * and the current page offset. Keeping this pure makes the button layout easy
+ * to reason about: the text list and the keyboard always show the same rows.
+ */
+const pageClientOptions = (draft = {}) => {
+  const all = Array.isArray(draft.clientOptions) ? draft.clientOptions : [];
+  const searched = Boolean(String(draft.clientSearch || "").trim());
+  const matches = filterClientOptions(all, draft.clientSearch);
+  const start = Math.min(
+    Math.max(0, Number(draft.clientPage) || 0),
+    Math.max(0, matches.length - 1),
+  );
+
+  return {
+    items: matches.slice(start, start + CLIENT_PICKER_LIMIT),
+    total: matches.length,
+    start,
+    searched,
+  };
 };
 
 const buildStepView = (step, draft = {}) => {
   const view = STEP_VIEW[step] || STEP_VIEW.client_name;
   const lines = [
-    `*${escapeMarkdownV2(stepTitle(step))}*`,
-    escapeMarkdownV2(`— ${SOFTWARE_NAME}`),
+    headingText(`${view.emoji} ${stepTitle(step)}`),
     "",
     escapeMarkdownV2(view.hint),
   ];
+
+  // Picking a saved customer prefills the business name, so show it back and
+  // let the user accept it with one tap instead of typing it again.
+  if (step === "business_name" && draft.businessName) {
+    lines.push(
+      "",
+      `*${escapeMarkdownV2("Business Name:")}* ${escapeMarkdownV2(draft.businessName)}`,
+      "",
+      escapeMarkdownV2(
+        "Send a different business name to change it, tap the button below to keep it, or press Skip to leave it empty.",
+      ),
+    );
+  }
+
+  if (step === "pick_client" && (draft.clientOptions || []).length > 0) {
+    // Only the current page of customers is listed, so a long list never turns
+    // into an unreadable wall of text.
+    const page = pageClientOptions(draft);
+    lines.push(
+      "",
+      escapeMarkdownV2(
+        page.total > 1
+          ? `Showing ${page.start + 1}-${page.start + page.items.length} of ${page.total} saved customers. Type part of a name or number to search.`
+          : "Tap a customer below, or type part of a name or number to search.",
+      ),
+    );
+    for (const client of page.items) {
+      lines.push(
+        `• ${escapeMarkdownV2(
+          [client.clientName, client.businessName].filter(Boolean).join(" — ") || "-",
+        )}`,
+      );
+    }
+    if (page.searched) {
+      lines.push("", escapeMarkdownV2("Clear the search to see everyone again."));
+    }
+  }
 
   if (step === "confirm") {
     lines.push(
       "",
       `*${escapeMarkdownV2("Client:")}* ${escapeMarkdownV2(draft.clientName || "-")}`,
+      `*${escapeMarkdownV2("Business:")}* ${escapeMarkdownV2(draft.businessName || "-")}`,
       `*${escapeMarkdownV2("Amount:")}* ${escapeMarkdownV2(formatAmount(draft.amount))}`,
       `*${escapeMarkdownV2("UPI:")}* ${escapeMarkdownV2(draft.upiId || "-")}`,
       `*${escapeMarkdownV2("Phone:")}* ${escapeMarkdownV2(draft.phoneNumber || "-")}`,
+      `*${escapeMarkdownV2("Address:")}* ${escapeMarkdownV2(draft.address || "-")}`,
       `*${escapeMarkdownV2("Expiry:")}* ${escapeMarkdownV2(draft.linkExpiry || "-")}`,
+      `*${escapeMarkdownV2("Note:")}* ${escapeMarkdownV2(draft.note || "-")}`,
       `*${escapeMarkdownV2("Link name:")}* ${escapeMarkdownV2(draft.alias || "-")}`,
     );
   }
 
   const inlineKeyboard = [];
+
+  if (step === "business_name" && draft.businessName) {
+    inlineKeyboard.push([
+      {
+        text: `✅ ${draft.businessName}`.slice(0, 60),
+        callback_data: `${CONVERSATION_PREFIX}:keep_business`,
+      },
+    ]);
+  }
+
+  if (step === "pick_client") {
+    const page = pageClientOptions(draft);
+    for (const client of page.items) {
+      inlineKeyboard.push([
+        {
+          text: [client.clientName, client.businessName]
+            .filter(Boolean)
+            .join(" — ")
+            .slice(0, 60) || "Customer",
+          callback_data: `${CONVERSATION_PREFIX}:client:${client.key}`,
+        },
+      ]);
+    }
+
+    // Paging keeps every customer reachable without one huge message.
+    const navRow = [];
+    if (page.start > 0) {
+      navRow.push({
+        text: "◀️ Back",
+        callback_data: `${CONVERSATION_PREFIX}:clients_page:${Math.max(0, page.start - CLIENT_PICKER_LIMIT)}`,
+      });
+    }
+    if (page.start + page.items.length < page.total) {
+      navRow.push({
+        text: "Next ▶️",
+        callback_data: `${CONVERSATION_PREFIX}:clients_page:${page.start + CLIENT_PICKER_LIMIT}`,
+      });
+    }
+    if (navRow.length) inlineKeyboard.push(navRow);
+
+    if (page.searched) {
+      inlineKeyboard.push([
+        {
+          text: "✖️ Clear search",
+          callback_data: `${CONVERSATION_PREFIX}:clients_clear`,
+        },
+      ]);
+    }
+
+    inlineKeyboard.push([
+      {
+        text: "👤 Enter Manually",
+        callback_data: `${CONVERSATION_PREFIX}:manual_client`,
+      },
+    ]);
+  }
 
   if (step === "upi_account") {
     // The first saved account is applied automatically; buttons switch to the rest.
@@ -414,6 +571,17 @@ const buildStepView = (step, draft = {}) => {
       {
         text: "Skip",
         callback_data: `${CONVERSATION_PREFIX}:skip`,
+      },
+    ]);
+  }
+
+  // A customer picked from the saved list should still be able to change the
+  // business name, so offer it as a button instead of forcing a restart.
+  if (step === "client_name" && draft.clientRefId) {
+    inlineKeyboard.push([
+      {
+        text: "Change Business Name",
+        callback_data: `${CONVERSATION_PREFIX}:edit_business`,
       },
     ]);
   }
@@ -454,17 +622,30 @@ const pushStep = async ({ botToken, chatId, messageId, step, draft }) => {
   });
 };
 
+/**
+ * The finished-link screen. A URL button cannot be copied from the Telegram
+ * desktop app, so the raw link is also shown as selectable monospace text and a
+ * dedicated Copy Link button is offered.
+ */
 const buildCreatedMessage = (record) => ({
   text: [
-    `*✅ Payment Link Created* ${escapeMarkdownV2(`— ${SOFTWARE_NAME}`)}`,
+    headingText("✅ Payment Link Created"),
     "",
     `*${escapeMarkdownV2("Client:")}* ${escapeMarkdownV2(record.clientName || "-")}`,
+    `*${escapeMarkdownV2("Business:")}* ${escapeMarkdownV2(record.businessName || "-")}`,
     `*${escapeMarkdownV2("Amount:")}* ${escapeMarkdownV2(formatAmount(record.amount))}`,
     "",
     escapeMarkdownV2("Share this link with your customer:"),
+    `\`${escapeMarkdownV2(record.shareUrl || "-")}\``,
   ].join("\n"),
   inlineKeyboard: [
-    [{ text: "Open Payment Link", url: record.shareUrl }],
+    [
+      { text: "Open Payment Link", url: record.shareUrl },
+      {
+        text: "Copy Link",
+        callback_data: `${CONVERSATION_PREFIX}:copy:${record._id}`,
+      },
+    ],
     [{ text: "Create Another Link", callback_data: `${CONVERSATION_PREFIX}:create` }],
   ],
 });
@@ -475,11 +656,11 @@ const buildLinksMessage = (links) =>
     "",
     ...(links.length > 0
       ? links.flatMap((link, index) => [
-          `*${index + 1}.* ${escapeMarkdownV2(link.clientName || "-")}`,
+          `*${index + 1}\\.* ${escapeMarkdownV2(link.clientName || "-")}`,
           `${escapeMarkdownV2(formatAmount(link.amount))} • ${escapeMarkdownV2(
             link.status || "pending",
           )}`,
-          `${escapeMarkdownV2(link.shareUrl || "-")}`,
+          `\`${escapeMarkdownV2(link.shareUrl || "-")}\``,
           "",
         ])
       : [escapeMarkdownV2("No payment links yet."), ""]),
@@ -580,7 +761,7 @@ const cancelConversation = async ({ db, botToken, chatId }) => {
   await clearConversation(db, chatId);
 
   await sendText(botToken, chatId, [
-    `*🚫 Cancelled* ${escapeMarkdownV2(`— ${SOFTWARE_NAME}`)}`,
+    headingText("🚫 Cancelled"),
     "",
     escapeMarkdownV2(
       existing ? "The running task was stopped." : "Nothing was running.",
@@ -588,6 +769,54 @@ const cancelConversation = async ({ db, botToken, chatId }) => {
   ].join("\n"));
 
   return true;
+};
+
+/**
+ * Saved customers from the accounting software, most recently created first.
+ * The picker only needs enough to prefill the wizard, so no secrets or
+ * documents are pulled in here.
+ */
+const readClientOptions = async (db) => {
+  const docs = await db
+    .collection(CLIENTS_COLLECTION)
+    .find({ isDeleted: { $ne: true } })
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .limit(CLIENT_SEARCH_LIMIT)
+    .toArray();
+  return docs.map((doc, index) => ({
+    // A short positional key keeps the callback payload small, which Telegram
+    // caps at 64 bytes.
+    key: String(index),
+    clientRefId: String(doc.clientId || ""),
+    clientName: String(doc.clientName || "").trim(),
+    businessName: String(doc.businessName || "").trim(),
+    phoneNumber: String(doc.phoneNumber || "").trim(),
+    address: String(doc.address || "").trim(),
+  }));
+};
+
+/**
+ * Narrows the picker to customers matching what the user typed. An empty term
+ * keeps every loaded customer so the plain list still works.
+ */
+const filterClientOptions = (options, term) => {
+  const needle = String(term || "").trim().toLowerCase();
+  if (!needle) return options;
+
+  return options.filter((client) =>
+    [client.clientName, client.businessName, client.phoneNumber, client.clientRefId]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(needle)),
+  );
+};
+
+/** Turns the saved-customer step into the manual name step when it is empty. */
+const resolveClientStep = async ({ db, draft }) => {
+  const clientOptions = await readClientOptions(db);
+  const next = { ...draft, clientOptions };
+
+  if (clientOptions.length === 0) return { step: "client_name", draft: next };
+  return { step: "pick_client", draft: next };
 };
 
 /** Inserts the link exactly like the web form does, so both paths stay equal. */
@@ -605,11 +834,11 @@ const insertPaymentLink = async (db, draft) => {
 
   const now = new Date();
   const document = {
-    clientRefId: "",
+    clientRefId: String(draft.clientRefId || ""),
     clientName: String(draft.clientName || "").trim(),
     businessName: String(draft.businessName || "").trim(),
     phoneNumber: String(draft.phoneNumber || "").trim(),
-    address: "",
+    address: String(draft.address || "").trim(),
     accountName: String(draft.accountName || "").trim(),
     upiId: String(draft.upiId || "").trim().toLowerCase(),
     amount: Number(draft.amount || 0),
@@ -622,7 +851,7 @@ const insertPaymentLink = async (db, draft) => {
     failedReason: "",
     linkExpiry: toEndOfDayIst(draft.linkExpiry),
     linkStatus: "active",
-    note: "",
+    note: String(draft.note || "").trim(),
     temporaryClient: false,
     createdBy: "Telegram",
     createdAt: now,
@@ -633,13 +862,13 @@ const insertPaymentLink = async (db, draft) => {
   return { record: { ...document, _id: result?.insertedId } };
 };
 
-// Every run starts at step 1 so the customer name is always captured first.
+/** Every run offers the saved customers first, then collects the name. */
 const startWizard = async ({ db, botToken, chatId }) => {
-  const step = "client_name";
-  const draft = { clientName: "", amount: 0, upiOptions: [] };
+  const draft = { clientName: "", amount: 0, upiOptions: [], clientOptions: [] };
+  const next = await resolveClientStep({ db, draft });
 
-  await saveStep({ db, chatId, step, draft });
-  await pushStep({ botToken, chatId, messageId: null, step, draft });
+  await saveStep({ db, chatId, step: next.step, draft: next.draft });
+  await pushStep({ botToken, chatId, messageId: null, step: next.step, draft: next.draft });
 };
 
 /**
@@ -751,8 +980,42 @@ export const handleConversationMessage = async ({ db, config, message }) => {
   const { step } = state;
   const draft = { ...(state.draft || {}) };
 
+  if (step === "pick_client") {
+    // Typing here is a search, not a new customer name. An explicit Enter
+    // Manually press is what starts the manual path.
+    const term = text.trim();
+    const next = {
+      ...draft,
+      clientSearch: term,
+      clientPage: 0,
+    };
+    await moveTo({ db, botToken, chatId, messageId: null, step: "pick_client", draft: next });
+
+    if (filterClientOptions(draft.clientOptions || [], term).length === 0) {
+      await sendText(botToken, chatId, [
+        headingText("🔍 No customer found"),
+        "",
+        escapeMarkdownV2(
+          `Nothing matched "${term}". Press Clear search to see everyone, or tap Enter Manually to type a new customer.`,
+        ),
+      ].join("\n"));
+    }
+    return true;
+  }
+
   if (step === "client_name") {
-    draft.clientName = text;
+    // A saved customer was just picked, so the name is already filled in. Only
+    // ask again when it is genuinely empty.
+    if (!draft.clientName) {
+      draft.clientName = text;
+      draft.clientRefId = "";
+    }
+    await moveTo({ db, botToken, chatId, messageId: null, step: "business_name", draft });
+    return true;
+  }
+
+  if (step === "business_name") {
+    draft.businessName = text;
     await moveTo({ db, botToken, chatId, messageId: null, step: "amount", draft });
     return true;
   }
@@ -761,7 +1024,7 @@ export const handleConversationMessage = async ({ db, config, message }) => {
     const amount = parseAmount(text);
     if (amount === null) {
       await sendText(botToken, chatId, [
-        `*⚠️ Invalid Amount* ${escapeMarkdownV2(`— ${SOFTWARE_NAME}`)}`,
+        headingText("⚠️ Invalid Amount"),
         "",
         escapeMarkdownV2("Send a number greater than zero, for example: 12500"),
       ].join("\n"));
@@ -786,7 +1049,7 @@ export const handleConversationMessage = async ({ db, config, message }) => {
     const parsed = parseManualUpi(text);
     if (!parsed) {
       await sendText(botToken, chatId, [
-        `*⚠️ Invalid UPI Details* ${escapeMarkdownV2(`— ${SOFTWARE_NAME}`)}`,
+        headingText("⚠️ Invalid UPI Details"),
         "",
         escapeMarkdownV2("Send them as: Bank Name | upi@id"),
       ].join("\n"));
@@ -803,7 +1066,7 @@ export const handleConversationMessage = async ({ db, config, message }) => {
     const parsed = parseManualUpi(text);
     if (!parsed) {
       await sendText(botToken, chatId, [
-        `*⚠️ Invalid UPI Details* ${escapeMarkdownV2(`— ${SOFTWARE_NAME}`)}`,
+        headingText("⚠️ Invalid UPI Details"),
         "",
         escapeMarkdownV2("Send them as: Bank Name | upi@id"),
       ].join("\n"));
@@ -818,6 +1081,12 @@ export const handleConversationMessage = async ({ db, config, message }) => {
 
   if (step === "phone") {
     draft.phoneNumber = text;
+    await moveTo({ db, botToken, chatId, messageId: null, step: "address", draft });
+    return true;
+  }
+
+  if (step === "address") {
+    draft.address = text;
     await moveTo({ db, botToken, chatId, messageId: null, step: "expiry", draft });
     return true;
   }
@@ -826,7 +1095,7 @@ export const handleConversationMessage = async ({ db, config, message }) => {
     const raw = text.replace(/[\/\-\.]/g, "-");
     if (!isDateOnly(raw)) {
       await sendText(botToken, chatId, [
-        `*⚠️ Invalid Date* ${escapeMarkdownV2(`— ${SOFTWARE_NAME}`)}`,
+        headingText("⚠️ Invalid Date"),
         "",
         escapeMarkdownV2("Send the expiry date as YYYY-MM-DD, for example: 2026-12-31"),
       ].join("\n"));
@@ -834,6 +1103,12 @@ export const handleConversationMessage = async ({ db, config, message }) => {
     }
 
     draft.linkExpiry = raw;
+    await moveTo({ db, botToken, chatId, messageId: null, step: "note", draft });
+    return true;
+  }
+
+  if (step === "note") {
+    draft.note = text;
     await moveTo({ db, botToken, chatId, messageId: null, step: "alias", draft });
     return true;
   }
@@ -842,7 +1117,7 @@ export const handleConversationMessage = async ({ db, config, message }) => {
     draft.alias = cleanAlias(text);
     if (!draft.alias) {
       await sendText(botToken, chatId, [
-        `*⚠️ Invalid Link Name* ${escapeMarkdownV2(`— ${SOFTWARE_NAME}`)}`,
+        headingText("⚠️ Invalid Link Name"),
         "",
         escapeMarkdownV2("Use letters and numbers only."),
       ].join("\n"));
@@ -870,7 +1145,6 @@ export const handleConversationMessage = async ({ db, config, message }) => {
       });
       return true;
     }
-
     await sendText(botToken, chatId, [
       heading("❓", "Confirm or Revise"),
       "",
@@ -932,8 +1206,19 @@ export const handleCommandCallback = async ({ db, config, callbackQuery }) => {
   const callbackId = callbackQuery?.id;
   const context = { botToken, chatId, callbackId, messageId };
 
-  const answer = (text) =>
-    answerTelegramCallback(botToken, { callback_query_id: callbackId, text });
+  // Answering must never throw. Telegram discards an unanswered
+  // callback_query after a short window, and a failed answer was aborting the
+  // step transition, so a button press appeared to do nothing at all.
+  const answer = async (text) => {
+    const result = await answerTelegramCallback(botToken, {
+      callback_query_id: callbackId,
+      ...(text ? { text } : {}),
+    });
+    if (result?.ok === false) {
+      console.error("[telegram] answerCallbackQuery failed:", result?.description);
+    }
+    return result;
+  };
 
   const sendAsReply = (replyText) =>
     sendText(botToken, chatId, [
@@ -964,6 +1249,118 @@ export const handleCommandCallback = async ({ db, config, callbackQuery }) => {
   const state = await loadLiveConversation(db, chatId);
   const step = state?.step;
   const draft = { ...(state?.draft || {}) };
+
+  if (parsed.action === "clients_page" || parsed.action === "clients_clear") {
+    if (step !== "pick_client") {
+      await answer("Please send your answer as a message instead.");
+      return true;
+    }
+
+    const next = { ...draft };
+    if (parsed.action === "clients_clear") {
+      next.clientSearch = "";
+      next.clientPage = 0;
+    } else {
+      next.clientPage = Math.max(0, Number(parsed.argument) || 0);
+    }
+
+    await answer("Showing customers");
+    await moveTo({ db, botToken, chatId, messageId, step: "pick_client", draft: next });
+    return true;
+  }
+
+  if (parsed.action === "manual_client") {
+    if (step !== "pick_client") {
+      await answer("Please send your answer as a message instead.");
+      return true;
+    }
+    await answer("Enter the customer details manually");
+    await moveTo({ db, botToken, chatId, messageId, step: "client_name", draft });
+    return true;
+  }
+
+  if (parsed.action === "client") {
+    if (step !== "pick_client") {
+      await answer("Please send your answer as a message instead.");
+      return true;
+    }
+
+    const index = String(parsed.argument ?? "");
+    const options = Array.isArray(draft.clientOptions) ? draft.clientOptions : [];
+    const client = options.find((option) => option.key === index) || null;
+
+    if (!client) {
+      await answer("Please send your answer as a message instead.");
+      return true;
+    }
+
+    await answer(`${client.clientName || "Customer"} selected`);
+    // Go straight to the business name step: the name, phone and address are
+    // already filled from the saved record, so nothing else needs asking.
+    await moveTo({
+      db,
+      botToken,
+      chatId,
+      messageId,
+      step: "business_name",
+      draft: {
+        ...draft,
+        clientName: client.clientName,
+        businessName: client.businessName,
+        phoneNumber: client.phoneNumber,
+        address: client.address,
+        // Kept so the link points back at the saved customer record.
+        clientRefId: client.clientRefId,
+      },
+    });
+    return true;
+  }
+
+  if (parsed.action === "keep_business") {
+    if (step !== "business_name") {
+      await answer("Nothing to change right now.");
+      return true;
+    }
+    await answer("Business name kept");
+    await moveTo({ db, botToken, chatId, messageId, step: "amount", draft });
+    return true;
+  }
+
+  if (parsed.action === "edit_business") {
+    if (step !== "client_name") {
+      await answer("Nothing to change right now.");
+      return true;
+    }
+    await answer("Change the business name");
+    await moveTo({ db, botToken, chatId, messageId, step: "business_name", draft });
+    return true;
+  }
+
+  if (parsed.action === "copy") {
+    // A bot cannot write to the user's clipboard, so the link is sent again as
+    // a fresh selectable message that is easy to copy by hand.
+    const recordId = String(parsed.argument || "");
+    if (!ObjectId.isValid(recordId)) {
+      await answer("That link is no longer available.");
+      return true;
+    }
+
+    const record = await db
+      .collection(PAYMENT_LINKS_COLLECTION)
+      .findOne({ _id: new ObjectId(recordId), isDeleted: { $ne: true } });
+
+    if (!record?.shareUrl) {
+      await answer("That link is no longer available.");
+      return true;
+    }
+
+    await answer("Copy the link below");
+    await sendText(botToken, chatId, [
+      escapeMarkdownV2("Payment link — long-press and select Copy:"),
+      `\`${escapeMarkdownV2(record.shareUrl)}\``,
+    ].join("\n"));
+    return true;
+  }
 
   if (parsed.action === "manual_upi") {
     if (step !== "upi_account") {
@@ -1015,13 +1412,30 @@ export const handleCommandCallback = async ({ db, config, callbackQuery }) => {
       });
     }
 
+    if (step === "business_name") {
+      draft.businessName = "";
+      await moveTo({ db, botToken, chatId, messageId, step: "amount", draft });
+      return true;
+    }
+
     if (step === "phone") {
+      await moveTo({ db, botToken, chatId, messageId, step: "address", draft });
+      return true;
+    }
+
+    if (step === "address") {
       await moveTo({ db, botToken, chatId, messageId, step: "expiry", draft });
       return true;
     }
 
     if (step === "expiry") {
       draft.linkExpiry = todayIstDateOnly();
+      await moveTo({ db, botToken, chatId, messageId, step: "note", draft });
+      return true;
+    }
+
+    if (step === "note") {
+      draft.note = "";
       await moveTo({ db, botToken, chatId, messageId, step: "alias", draft });
       return true;
     }
