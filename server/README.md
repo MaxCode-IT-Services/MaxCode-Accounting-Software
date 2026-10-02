@@ -78,68 +78,47 @@ git push origin vps-server
 
 ## Google Drive Backup
 
-The server runs its own backup cron job — no GitHub Actions needed.
-Backup runs at the time you set in **Settings → Backup → Backup Time**.
+The server runs its own built-in backup cron — no GitHub Actions and no
+external cron service needed. It starts automatically with the Express server
+(`server/backup-scheduler.js`) and uses the same schedule logic as the app:
 
-### Setup (one time)
-
-```bash
-cd /var/www/maxcode/server
-bash setup-backup-cron.sh
-```
-
-### Trigger backup from anywhere (Postman / 3rd party)
-
-```bash
-curl -X POST https://your-server.com/api/backup \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_BACKUP_API_KEY"
-```
-
-Or in Postman:
-- **Method:** POST
-- **URL:** `https://your-server.com/api/backup`
-- **Header:** `X-API-Key: YOUR_BACKUP_API_KEY`
-- **Body:** (empty)
-
-The API key is in **Settings → Backup → API Key**.
-
-### Commands
-
-```bash
-# Run backup now (ignores time check)
-node backup.js --force
-
-# Run backup (only if it's time)
-node backup.js
-
-# Get the latest backup link
-node backup.js --link
-
-# Check backup settings status
-node backup.js --status
-
-# View backup logs
-tail -f /var/log/maxcode-backup.log
-```
-
-### How it works
-
-1. Server cron runs every 10 minutes and checks the app's backup settings
-2. When the time matches **Settings → Backup → Backup Time**, it runs the backup
-3. Uploads to Google Drive with a **timestamped filename** (old backups are kept)
-4. Outputs the backup link to the log
-5. You can also trigger it manually via the API endpoint above
+1. Every 30 minutes it checks the backup settings from the database
+2. When the schedule matches **Settings → Backup & Restore** (enabled,
+   frequency, backup time, day of week…), it runs the backup
+3. Uploads the FULL backup to Google Drive in **both formats**, updating the
+   same rolling files (no duplicates, no timestamped copies):
+   - `maxcode-backup-latest.bson`
+   - `maxcode-backup-latest.json`
+4. Saves the run in the app's backup history (`backup_runs` collection)
 
 ### Enable Google Drive backup
 
-In the app: **Settings → Backup → Google Drive → Enable**
+In the app: **Settings → Backup & Restore → Google Drive Auto Backup → Enable**
 
 You need to configure:
 - Google Client ID
 - Google Client Secret
 - Google Refresh Token
 - Google Drive Folder ID
+
+### Trigger a backup from outside (cron-job.org / Azure Logic Apps / Postman)
+
+The same backup can also be triggered by any external cron service via the
+`backup-cron` endpoint (also uploads BSON + JSON):
+
+```bash
+curl -X POST https://your-server.com/api/backup-cron \
+  -H "X-Api-Key: YOUR_BACKUP_API_KEY"
+```
+
+Or in cron-job.org:
+- **Method:** POST (or GET)
+- **URL:** `https://your-server.com/api/backup-cron`
+- **Header:** `X-Api-Key: YOUR_BACKUP_API_KEY`
+- **Period:** custom (e.g. every 24 hours)
+
+The API key is in **Settings → Backup → API Key** and must also be set as the
+`BACKUP_API_KEY` environment variable on the server.
 
 ## Useful Commands
 

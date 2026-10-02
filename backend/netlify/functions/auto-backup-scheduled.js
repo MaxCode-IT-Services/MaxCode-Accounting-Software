@@ -35,7 +35,7 @@ export const config = {
  * @param {string} timeStr
  * @returns {number|null}
  */
-const parseTimeToMinutes = (timeStr) => {
+export const parseTimeToMinutes = (timeStr) => {
   if (!timeStr || typeof timeStr !== "string") return null;
   const parts = timeStr.trim().split(":");
   if (parts.length !== 2) return null;
@@ -50,7 +50,7 @@ const parseTimeToMinutes = (timeStr) => {
  * and the BackupTab shows times in IST, we default to IST.
  * @returns {{ minutes: number, day: number, date: number, month: number, year: number, hour: number, weekday: number }}
  */
-const getCurrentTimeInIST = () => {
+export const getCurrentTimeInIST = () => {
   const now = new Date();
   const timezone = "Asia/Kolkata";
   try {
@@ -106,7 +106,7 @@ const getCurrentTimeInIST = () => {
  * @param {Object} now - Current time info from getCurrentTimeInTimezone()
  * @returns {boolean}
  */
-const shouldRunBackup = (settings, lastRun, nowTime) => {
+export const shouldRunBackup = (settings, lastRun, nowTime) => {
   const frequency = toTrimmedString(settings.frequency) || "daily";
   if (frequency === "manual") return false;
 

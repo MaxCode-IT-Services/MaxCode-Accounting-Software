@@ -657,7 +657,121 @@ export const getGoogleAccessToken = async (driveConfig) => {
 };
 
 /**
- * Upload backup data to Google Drive
+ * Upload a single rolling backup file to Google Drive (overwrite on each run).
+ * Searches for an existing file with the same name in the configured folder
+ * and updates it; creates a new file when none exists.
+ * @param {string} accessToken - Google OAuth access token
+ * @param {Object} driveConfig - Google Drive configuration
+ * @param {string} fileName - Drive file name (e.g. "maxcode-backup-latest.bson")
+ * @param {string} mimeType - MIME type of the file content
+ * @param {Buffer} fileBuffer - File content
+ * @returns {Promise<Object>} Upload result with fileId, fileName, fileUrl, fileSize
+ */
+const uploadSingleFileToDrive = async (
+  accessToken,
+  driveConfig,
+  fileName,
+  mimeType,
+  fileBuffer,
+) => {
+  const escapedName = fileName.replace(/'/g, "\\'");
+  const folderFilter =
+    driveConfig.folderId && driveConfig.folderId.trim()
+      ? ` and '${driveConfig.folderId.trim()}' in parents`
+      : "";
+  const searchQuery = `name='${escapedName}' and trashed=false${folderFilter}`;
+
+  const searchResponse = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQuery)}&fields=files(id,name,webViewLink,size)&pageSize=1`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  const searchPayload = await searchResponse.json().catch(() => ({}));
+  if (!searchResponse.ok) {
+    throw new Error(
+      searchPayload?.error?.message ||
+        "Failed to search existing backup file",
+    );
+  }
+
+  const existingFileId = searchPayload?.files?.[0]?.id;
+
+  const uploadUrl = existingFileId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingFileId)}?uploadType=multipart&fields=id,name,webViewLink,size`
+    : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,size";
+
+  const uploadMethod = existingFileId ? "PATCH" : "POST";
+
+  const fileMetadata = {
+    name: fileName,
+    mimeType,
+  };
+
+  if (!existingFileId && driveConfig.folderId && driveConfig.folderId.trim()) {
+    fileMetadata.parents = [driveConfig.folderId.trim()];
+  }
+
+  const boundary = `maxcode_backup_boundary_${Date.now()}`;
+  const multipartBody =
+    `--${boundary}\r\n` +
+    "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+    `${JSON.stringify(fileMetadata)}\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Type: ${mimeType}\r\n\r\n`;
+
+  // Combine metadata and file data
+  const metadataPart = Buffer.from(multipartBody, "utf-8");
+  const closingBoundary = Buffer.from(`\r\n--${boundary}--`);
+
+  const uploadBody = Buffer.concat([
+    metadataPart,
+    fileBuffer,
+    closingBoundary,
+  ]);
+
+  const uploadResponse = await fetch(uploadUrl, {
+    method: uploadMethod,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": `multipart/related; boundary=${boundary}`,
+    },
+    body: uploadBody,
+  });
+
+  // Check if response is OK before trying to parse JSON
+  const responseText = await uploadResponse.text();
+  let response;
+
+  try {
+    response = JSON.parse(responseText);
+  } catch (parseError) {
+    throw new Error("Invalid JSON response from Google Drive");
+  }
+
+  if (!uploadResponse.ok || !response?.id) {
+    throw new Error(
+      response?.error?.message ||
+        response?.error_description ||
+        `Google Drive file upload failed with status ${uploadResponse.status}`,
+    );
+  }
+
+  return {
+    success: true,
+    fileId: response.id,
+    fileName: response.name,
+    fileUrl: response.webViewLink,
+    fileSize: response.size,
+  };
+};
+
+/**
+ * Upload backup data to Google Drive (BSON only)
  * @param {Object} driveConfig - Google Drive configuration
  * @param {Object} backupData - Backup data to upload
  * @param {string} trigger - Trigger type (manual/automated)
@@ -672,109 +786,58 @@ export const uploadToGoogleDrive = async (
     const accessToken = await getGoogleAccessToken(driveConfig);
 
     // Keep a single rolling backup file (overwrite on each run)
-    const fileName = "maxcode-backup-latest.bson";
-
-    // Convert backup data to BSON buffer
     const bsonBuffer = serialize(backupData);
 
-    const escapedName = fileName.replace(/'/g, "\\'");
-    const folderFilter =
-      driveConfig.folderId && driveConfig.folderId.trim()
-        ? ` and '${driveConfig.folderId.trim()}' in parents`
-        : "";
-    const searchQuery = `name='${escapedName}' and trashed=false${folderFilter}`;
+    return await uploadSingleFileToDrive(
+      accessToken,
+      driveConfig,
+      "maxcode-backup-latest.bson",
+      "application/octet-stream",
+      bsonBuffer,
+    );
+  } catch (error) {
+    throw new Error(`Google Drive upload failed: ${error.message}`);
+  }
+};
 
-    const searchResponse = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQuery)}&fields=files(id,name,webViewLink,size)&pageSize=1`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
+/**
+ * Upload backup data to Google Drive in BOTH formats (BSON + JSON).
+ * Used by the fallback cron paths (external cron endpoint, in-server
+ * scheduler). Uses the same rolling file names as every other backup
+ * path so all triggers keep updating the very same Drive files:
+ *   - maxcode-backup-latest.bson
+ *   - maxcode-backup-latest.json
+ * @param {Object} driveConfig - Google Drive configuration
+ * @param {Object} backupData - Backup data to upload
+ * @returns {Promise<Object>} { success, bson: {fileId,fileName,fileUrl,fileSize}, json: {...} }
+ */
+export const uploadBackupToGoogleDrive = async (driveConfig, backupData) => {
+  try {
+    const accessToken = await getGoogleAccessToken(driveConfig);
+
+    const bsonBuffer = serialize(backupData);
+    const jsonBuffer = Buffer.from(
+      JSON.stringify(backupData, null, 2),
+      "utf-8",
     );
 
-    const searchPayload = await searchResponse.json().catch(() => ({}));
-    if (!searchResponse.ok) {
-      throw new Error(
-        searchPayload?.error?.message ||
-          "Failed to search existing backup file",
-      );
-    }
-
-    const existingFileId = searchPayload?.files?.[0]?.id;
-
-    const uploadUrl = existingFileId
-      ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingFileId)}?uploadType=multipart&fields=id,name,webViewLink,size`
-      : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,size";
-
-    const uploadMethod = existingFileId ? "PATCH" : "POST";
-
-    const fileMetadata = {
-      name: fileName,
-      mimeType: "application/octet-stream",
-    };
-
-    if (
-      !existingFileId &&
-      driveConfig.folderId &&
-      driveConfig.folderId.trim()
-    ) {
-      fileMetadata.parents = [driveConfig.folderId.trim()];
-    }
-
-    const boundary = `maxcode_backup_boundary_${Date.now()}`;
-    const multipartBody =
-      `--${boundary}\r\n` +
-      "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
-      `${JSON.stringify(fileMetadata)}\r\n` +
-      `--${boundary}\r\n` +
-      "Content-Type: application/octet-stream\r\n\r\n";
-
-    // Combine metadata and BSON data
-    const metadataPart = Buffer.from(multipartBody, "utf-8");
-    const closingBoundary = Buffer.from(`\r\n--${boundary}--`);
-
-    const uploadBody = Buffer.concat([
-      metadataPart,
+    const bson = await uploadSingleFileToDrive(
+      accessToken,
+      driveConfig,
+      "maxcode-backup-latest.bson",
+      "application/octet-stream",
       bsonBuffer,
-      closingBoundary,
-    ]);
+    );
 
-    const uploadResponse = await fetch(uploadUrl, {
-      method: uploadMethod,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": `multipart/related; boundary=${boundary}`,
-      },
-      body: uploadBody,
-    });
+    const json = await uploadSingleFileToDrive(
+      accessToken,
+      driveConfig,
+      "maxcode-backup-latest.json",
+      "application/json",
+      jsonBuffer,
+    );
 
-    // Check if response is OK before trying to parse JSON
-    const responseText = await uploadResponse.text();
-    let response;
-
-    try {
-      response = JSON.parse(responseText);
-    } catch (parseError) {
-      throw new Error("Invalid JSON response from Google Drive");
-    }
-
-    if (!uploadResponse.ok || !response?.id) {
-      throw new Error(
-        response?.error?.message ||
-          response?.error_description ||
-          `Google Drive file upload failed with status ${uploadResponse.status}`,
-      );
-    }
-
-    return {
-      success: true,
-      fileId: response.id,
-      fileName: response.name,
-      fileUrl: response.webViewLink,
-      fileSize: response.size,
-    };
+    return { success: true, bson, json };
   } catch (error) {
     throw new Error(`Google Drive upload failed: ${error.message}`);
   }

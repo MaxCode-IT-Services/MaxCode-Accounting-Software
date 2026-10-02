@@ -14,6 +14,7 @@ import dotenv from "dotenv";
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { startBackupScheduler } from "./backup-scheduler.js";
 
 dotenv.config({ path: join(process.cwd(), "backend", ".env") });
 dotenv.config();
@@ -110,4 +111,8 @@ app.listen(PORT, () => {
   console.log(`[server] MaxCode Accounting running on port ${PORT}`);
   console.log(`[server] API: http://localhost:${PORT}/api`);
   console.log(`[server] Frontend: http://localhost:${PORT}`);
+
+  // Fallback backup cron: runs where the Netlify scheduled function can't
+  // (Azure, DigitalOcean, VPS). Controlled by Settings → Backup & Restore.
+  startBackupScheduler();
 });

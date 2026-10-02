@@ -2,9 +2,15 @@
  * External Cron Endpoint for Google Drive Backups
  *
  * This is a regular HTTP function that can be called by external cron
- * services such as https://console.cron-job.org or any other cron provider.
+ * services such as https://console.cron-job.org or any other cron provider
+ * (Azure Logic Apps, Azure Scheduler, uptime monitors, etc.).
  *
- * URL (via Netlify redirect):
+ * Uploads the FULL backup to Google Drive in BOTH formats, updating the
+ * same rolling files used by every other backup path:
+ *   - maxcode-backup-latest.bson
+ *   - maxcode-backup-latest.json
+ *
+ * URL (via Netlify redirect or the Express server adapter):
  *   GET /api/backup-cron
  *   POST /api/backup-cron
  *
@@ -34,7 +40,7 @@ import {
   getSharedBusinessSettings,
   normalizeDriveConfigSecrets,
   buildBackupPayload,
-  uploadToGoogleDrive,
+  uploadBackupToGoogleDrive,
   getBackupStats,
   toTrimmedString,
 } from "./backup.js";
@@ -126,15 +132,16 @@ export async function handler(event) {
 
     console.log(`[backup-cron] Backup built – ${stats.totalRecords} records across ${stats.collections} collections`);
 
-    // 4. Upload to Google Drive
+    // 4. Upload to Google Drive (BSON + JSON, same rolling file names)
     console.log("[backup-cron] Uploading to Google Drive…");
-    const uploadResult = await uploadToGoogleDrive(
+    const uploadResult = await uploadBackupToGoogleDrive(
       driveConfig,
       backupData,
-      "external-cron",
     );
 
-    console.log(`[backup-cron] Uploaded – fileId=${uploadResult.fileId}`);
+    console.log(
+      `[backup-cron] Uploaded – bsonFileId=${uploadResult.bson.fileId}, jsonFileId=${uploadResult.json.fileId}`,
+    );
 
     // 5. Save backup run record
     const runRecord = {
@@ -143,10 +150,14 @@ export async function handler(event) {
       trigger: "external-cron",
       stats,
       status: "completed",
-      driveFileId: uploadResult.fileId,
-      driveFileName: uploadResult.fileName,
-      driveFileUrl: uploadResult.fileUrl,
-      driveFileSize: uploadResult.fileSize,
+      driveFileId: uploadResult.bson.fileId,
+      driveFileName: uploadResult.bson.fileName,
+      driveFileUrl: uploadResult.bson.fileUrl,
+      driveFileSize: uploadResult.bson.fileSize,
+      jsonFileId: uploadResult.json.fileId,
+      jsonFileName: uploadResult.json.fileName,
+      jsonFileUrl: uploadResult.json.fileUrl,
+      jsonFileSize: uploadResult.json.fileSize,
     };
 
     await db.collection("backup_runs").insertOne(runRecord);
