@@ -1,0 +1,79 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [vps-server]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on GitHub
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # ── Build frontend ──────────────────────────────────────────────────
+      - name: Build frontend
+        run: |
+          cd maxcode-invoice-software
+          npm ci
+          npm run build
+
+      # ── Install backend dependencies ────────────────────────────────────
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      # ── Install server dependencies ─────────────────────────────────────
+      - name: Install server dependencies
+        run: |
+          cd server
+          npm ci
+
+      # ── Deploy to server ───────────────────────────────────────────────
+      - name: Deploy to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: |
+            maxcode-invoice-software/dist/
+            backend/netlify/functions/
+            backend/package.json
+            backend/package-lock.json
+            server/
+          target: /var/www/maxcode
+          strip_components: 0
+          overwrite: true
+
+      # ── Restart server ─────────────────────────────────────────────────
+      - name: Restart server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /var/www/maxcode
+
+            # Install production dependencies (lightweight — no build tools)
+            cd backend && npm install --production --silent
+            cd ../server && npm install --production --silent
+
+            # Restart the app
+            pm2 restart maxcode || pm2 start server/ecosystem.config.js
+
+            # Save PM2 process list
+            pm2 save
+
+            echo "✅ Deployment complete"

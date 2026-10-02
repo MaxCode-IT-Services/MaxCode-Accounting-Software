@@ -1,0 +1,24 @@
+{
+  "name": "maxcode-accounting-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Express server that wraps Netlify functions for deployment to any Node.js platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "bcryptjs": "^2.4.3",
+    "busboy": "^1.6.0",
+    "dotenv": "^16.4.5",
+    "googleapis": "^171.4.0",
+    "jsonwebtoken": "^9.0.2",
+    "jszip": "^3.10.1",
+    "mongodb": "^6.3.0",
+    "qrcode": "^1.5.3",
+    "speakeasy": "^2.0.0"
+  }
+}
