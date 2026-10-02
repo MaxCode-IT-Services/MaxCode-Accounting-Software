@@ -54,6 +54,38 @@ const BACKUP_SECRET_FIELDS = [
 let loginConfigCache = null;
 let loginConfigCacheExpiresAt = 0;
 
+// Short-TTL cache for the settings GET response. Settings are read on every
+// page load; caching the mapped response for a few seconds removes the DB
+// round-trip from the critical path without serving stale data for long.
+const SETTINGS_CACHE_TTL_MS = 10 * 1000;
+let settingsCache = null;
+let settingsCacheExpiresAt = 0;
+let settingsCacheKey = "";
+
+const getCachedSettingsResponse = (userId) => {
+  const key = String(userId || "");
+  if (
+    settingsCache &&
+    settingsCacheKey === key &&
+    settingsCacheExpiresAt > Date.now()
+  ) {
+    return settingsCache;
+  }
+  return null;
+};
+
+const setCachedSettingsResponse = (userId, response) => {
+  settingsCacheKey = String(userId || "");
+  settingsCache = response;
+  settingsCacheExpiresAt = Date.now() + SETTINGS_CACHE_TTL_MS;
+};
+
+const invalidateSettingsCache = () => {
+  settingsCache = null;
+  settingsCacheKey = "";
+  settingsCacheExpiresAt = 0;
+};
+
 const getEnvBoolean = (value) => {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return null;
@@ -974,11 +1006,9 @@ async function handleAssetRequest(event, origin) {
   const { assetId, field, isNewFormat } = assetParams;
 
   if (!assetId || !field || !IMAGE_FIELDS.includes(field)) {
-    return createResponse(
-      400,
+    return createResponse(400,
       { error: "assetId and field are required" },
-      origin,
-    );
+      origin, event);
   }
 
   const { db } = await connectToDatabase();
@@ -991,7 +1021,7 @@ async function handleAssetRequest(event, origin) {
       const asset = await assetsCollection.findOne({ _id: assetObjectId });
 
       if (!asset || !asset.data) {
-        return createResponse(404, { error: "Asset not found" }, origin);
+        return createResponse(404, { error: "Asset not found" }, origin, event);
       }
 
       return {
@@ -1005,7 +1035,7 @@ async function handleAssetRequest(event, origin) {
       };
     } catch (error) {
       console.error("Error fetching asset:", error);
-      return createResponse(404, { error: "Asset not found" }, origin);
+      return createResponse(404, { error: "Asset not found" }, origin, event);
     }
   }
 
@@ -1014,7 +1044,7 @@ async function handleAssetRequest(event, origin) {
   try {
     settingsId = new ObjectId(assetId);
   } catch {
-    return createResponse(400, { error: "Invalid assetId" }, origin);
+    return createResponse(400, { error: "Invalid assetId" }, origin, event);
   }
 
   const settingsCollection = db.collection(SETTINGS_COLLECTION);
@@ -1022,14 +1052,14 @@ async function handleAssetRequest(event, origin) {
   const assetValue = settings?.[field];
 
   if (!assetValue) {
-    return createResponse(404, { error: "Asset not found" }, origin);
+    return createResponse(404, { error: "Asset not found" }, origin, event);
   }
 
   if (typeof assetValue === "string" && assetValue.startsWith("data:image/")) {
     const parsed = parseDataUrl(assetValue);
 
     if (!parsed) {
-      return createResponse(400, { error: "Invalid image data" }, origin);
+      return createResponse(400, { error: "Invalid image data" }, origin, event);
     }
 
     return {
@@ -1051,13 +1081,11 @@ async function handleAssetRequest(event, origin) {
       : "";
 
     if (nestedRef === currentRef) {
-      return createResponse(
-        404,
+      return createResponse(404,
         {
           error: "Asset data not found. Please upload image again and save.",
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (
@@ -1077,7 +1105,7 @@ async function handleAssetRequest(event, origin) {
         const parsed = parseDataUrl(nestedValue);
 
         if (!parsed) {
-          return createResponse(400, { error: "Invalid image data" }, origin);
+          return createResponse(400, { error: "Invalid image data" }, origin, event);
         }
 
         return {
@@ -1099,7 +1127,7 @@ async function handleAssetRequest(event, origin) {
     !redirectUrl.startsWith("https://") &&
     !redirectUrl.startsWith("http://")
   ) {
-    return createResponse(400, { error: "Invalid asset URL" }, origin);
+    return createResponse(400, { error: "Invalid asset URL" }, origin, event);
   }
 
   return {
@@ -1116,7 +1144,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -1137,16 +1165,14 @@ export async function handler(event) {
           loginConfigCache &&
           loginConfigCacheExpiresAt > Date.now()
         ) {
-          return createResponse(
-            200,
+          return createResponse(200,
             loginConfigCache,
             origin,
             {
               "Cache-Control": `public, max-age=${Math.floor(
                 LOGIN_CONFIG_CACHE_TTL_MS / 1000,
               )}`,
-            },
-          );
+            }, event);
         }
 
         const envTurnstileConfig = getTurnstileConfigFromEnv();
@@ -1171,7 +1197,7 @@ export async function handler(event) {
             "Cache-Control": `public, max-age=${Math.floor(
               LOGIN_CONFIG_CACHE_TTL_MS / 1000,
             )}`,
-          });
+          }, event);
         }
 
         const { db } = await connectToDatabase();
@@ -1207,7 +1233,7 @@ export async function handler(event) {
           "Cache-Control": `public, max-age=${Math.floor(
             LOGIN_CONFIG_CACHE_TTL_MS / 1000,
           )}`,
-        });
+        }, event);
       }
     }
 
@@ -1228,24 +1254,20 @@ export async function handler(event) {
         const version = String(query.version || "").trim();
 
         if (!termsKind || !version || !TERMS_SETTINGS_CONFIG[termsKind]) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "termsKind and valid version are required" },
-            origin,
-          );
+            origin, event);
         }
 
         const resolved = await getTermsForVersion(db, { termsKind, version });
 
         if (!resolved) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Terms version not found" },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(200, resolved, origin);
+        return createResponse(200, resolved, origin, event);
       }
 
       if (action === "reveal-secret") {
@@ -1253,27 +1275,23 @@ export async function handler(event) {
         // password, Drive refresh token) are super-admin-only, matching the
         // PUT restriction on changing them.
         if (!isSuperAdminRole(user?.role)) {
-          return createResponse(
-            403,
+          return createResponse(403,
             { error: "Only Super Admin can reveal secret values" },
-            origin,
-          );
+            origin, event);
         }
 
         const scope = String(query.scope || "").trim();
         const field = String(query.field || "").trim();
 
         if (!scope || !field) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "scope and field are required" },
-            origin,
-          );
+            origin, event);
         }
 
         const scopeValue = settings?.[scope];
         if (!scopeValue || typeof scopeValue !== "object") {
-          return createResponse(404, { error: "Settings not found" }, origin);
+          return createResponse(404, { error: "Settings not found" }, origin, event);
         }
 
         const allowedFieldsByScope = {
@@ -1285,7 +1303,7 @@ export async function handler(event) {
 
         const allowedFields = allowedFieldsByScope[scope] || [];
         if (!allowedFields.includes(field)) {
-          return createResponse(400, { error: "Invalid secret field" }, origin);
+          return createResponse(400, { error: "Invalid secret field" }, origin, event);
         }
 
         try {
@@ -1318,7 +1336,7 @@ export async function handler(event) {
             );
           }
 
-          return createResponse(200, { success: true, value }, origin);
+          return createResponse(200, { success: true, value }, origin, event);
         } catch (error) {
           // The real cause used to be swallowed here, which made a wrong
           // CREDENTIALS_ENCRYPTION_KEY look identical to any other failure.
@@ -1329,37 +1347,41 @@ export async function handler(event) {
             field,
             reason: error?.message || String(error),
           });
-          return createResponse(
-            500,
+          return createResponse(500,
             {
               error: "Unable to reveal secret value",
               reason: error?.message || "unknown decryption error",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
-      return createResponse(
-        200,
-        {
-          settings: mapSettingsForClient(settings, event),
-        },
-        origin,
-      );
+      const cachedSettingsResponse = getCachedSettingsResponse(user.userId);
+      if (cachedSettingsResponse) {
+        return createResponse(200, cachedSettingsResponse, origin, event);
+      }
+
+      const settingsResponse = {
+        settings: mapSettingsForClient(settings, event),
+      };
+      setCachedSettingsResponse(user.userId, settingsResponse);
+
+      return createResponse(200, settingsResponse, origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       if (!isSuperAdminRole(user?.role)) {
-        return createResponse(
-          403,
+        return createResponse(403,
           {
             error:
               "Only Super Admin can update business settings. These settings are shared for all users.",
           },
-          origin,
-        );
+          origin, event);
       }
+
+      // Settings changed — drop the cached GET response so the next read
+      // reflects the update immediately.
+      invalidateSettingsCache();
 
       const payload = event.body ? JSON.parse(event.body) : {};
 
@@ -1520,32 +1542,28 @@ export async function handler(event) {
         };
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           message: "Business settings saved successfully",
           settings: clientSettings,
           telegramWebhook,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Business settings API error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(401, { error: "Unauthorized" }, origin);
+      return createResponse(401, { error: "Unauthorized" }, origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

@@ -130,7 +130,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -152,11 +152,9 @@ export async function handler(event) {
 
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid team member ID" },
-            origin,
-          );
+            origin, event);
         }
         const teamMember = await usersCollection.findOne({
           _id: new ObjectId(id),
@@ -164,21 +162,17 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (!teamMember) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Team member not found" },
-            origin,
-          );
+            origin, event);
         }
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             ...teamMember,
             permissions: normalizePermissions(teamMember.permissions),
             pin: "",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const params = event.queryStringParameters || {};
@@ -355,8 +349,7 @@ export async function handler(event) {
         }),
       ]);
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: teamMembers.map((member) => ({
             ...member,
@@ -381,8 +374,7 @@ export async function handler(event) {
             status: ["All", ...statusValues.sort()],
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -399,24 +391,20 @@ export async function handler(event) {
       ];
       for (const field of requiredFields) {
         if (!payload[field] || payload[field].toString().trim() === "") {
-          return createResponse(400, { error: `${field} is required` }, origin);
+          return createResponse(400, { error: `${field} is required` }, origin, event);
         }
       }
 
       if (!/^\d{10}$/.test(payload.phone)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Phone must be exactly 10 digits" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!/^\d{6}$/.test(payload.pin)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "PIN must be exactly 6 digits" },
-          origin,
-        );
+          origin, event);
       }
 
       const existingPhone = await usersCollection.findOne({
@@ -425,11 +413,9 @@ export async function handler(event) {
       });
 
       if (existingPhone) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Phone already registered. Please use another phone." },
-          origin,
-        );
+          origin, event);
       }
 
       const existingEmail = await usersCollection.findOne({
@@ -438,11 +424,9 @@ export async function handler(event) {
       });
 
       if (existingEmail) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Email already registered. Please use another email." },
-          origin,
-        );
+          origin, event);
       }
 
       const hashedPin = await hashPassword(payload.pin);
@@ -450,22 +434,18 @@ export async function handler(event) {
       const role = normalizeRole(payload.role);
 
       if (!ROLE_VALUES.has(role)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Role must be one of: Team, Admin, Super Admin" },
-          origin,
-        );
+          origin, event);
       }
 
       const jwtTokenExpiryDays = parseJwtTokenExpiryDays(
         payload.jwtTokenExpiryDays,
       );
       if (!jwtTokenExpiryDays) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "JWT Token Expiry Days must be between 1 and 365" },
-          origin,
-        );
+          origin, event);
       }
 
       const newTeamMember = {
@@ -493,38 +473,32 @@ export async function handler(event) {
       };
       const result = await usersCollection.insertOne(docToInsert);
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Team member created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Team member ID is required" },
-          origin,
-        );
+          origin, event);
       }
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid team member ID" }, origin);
+        return createResponse(400, { error: "Invalid team member ID" }, origin, event);
       }
       const payload = JSON.parse(event.body || "{}");
       const memberObjectId = new ObjectId(id);
 
       if (payload.phone) {
         if (!/^\d{10}$/.test(payload.phone)) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Phone must be exactly 10 digits" },
-            origin,
-          );
+            origin, event);
         }
 
         const existingPhone = await usersCollection.findOne({
@@ -534,11 +508,9 @@ export async function handler(event) {
         });
 
         if (existingPhone) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Phone already registered with another user." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -550,11 +522,9 @@ export async function handler(event) {
         });
 
         if (existingEmail) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Email already registered with another user." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -566,22 +536,18 @@ export async function handler(event) {
 
       if (payload.showNotification !== undefined) {
         if (typeof payload.showNotification !== "boolean") {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "showNotification must be boolean" },
-            origin,
-          );
+            origin, event);
         }
       }
 
       if (payload.role !== undefined) {
         const role = normalizeRole(payload.role);
         if (!ROLE_VALUES.has(role)) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Role must be one of: Team, Admin, Super Admin" },
-            origin,
-          );
+            origin, event);
         }
         updateData.role = role;
       }
@@ -596,11 +562,9 @@ export async function handler(event) {
         );
 
         if (!jwtTokenExpiryDays) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "JWT Token Expiry Days must be between 1 and 365" },
-            origin,
-          );
+            origin, event);
         }
 
         updateData.jwtTokenExpiryDays = jwtTokenExpiryDays;
@@ -608,11 +572,9 @@ export async function handler(event) {
 
       if (payload.pin && payload.pin.trim() !== "") {
         if (!/^\d{6}$/.test(payload.pin)) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "PIN must be exactly 6 digits" },
-            origin,
-          );
+            origin, event);
         }
         updateData.pin = await hashPassword(payload.pin);
       } else {
@@ -635,27 +597,23 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Team member not found" }, origin);
+        return createResponse(404, { error: "Team member not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Team member updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Team member ID is required" },
-          origin,
-        );
+          origin, event);
       }
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid team member ID" }, origin);
+        return createResponse(400, { error: "Invalid team member ID" }, origin, event);
       }
       const result = await usersCollection.updateOne(
         {
@@ -674,38 +632,32 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Team member not found" }, origin);
+        return createResponse(404, { error: "Team member not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Team member deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Team Members API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

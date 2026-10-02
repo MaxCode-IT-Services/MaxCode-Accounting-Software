@@ -86,7 +86,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -109,31 +109,29 @@ export async function handler(event) {
       // Allow public access to staff assets (images)
       if (id && asset) {
         if (!IMAGE_FIELDS.includes(asset)) {
-          return createResponse(400, { error: "Invalid asset field" }, origin);
+          return createResponse(400, { error: "Invalid asset field" }, origin, event);
         }
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid staff ID" }, origin);
+          return createResponse(400, { error: "Invalid staff ID" }, origin, event);
         }
         const staff = await staffCollection.findOne({
           _id: new ObjectId(id),
         });
         if (!staff) {
-          return createResponse(404, { error: "Staff not found" }, origin);
+          return createResponse(404, { error: "Staff not found" }, origin, event);
         }
 
         const assetValue = staff[asset];
         if (!assetValue || typeof assetValue !== "string") {
-          return createResponse(404, { error: "Asset not found" }, origin);
+          return createResponse(404, { error: "Asset not found" }, origin, event);
         }
 
         if (assetValue.startsWith("data:image/")) {
           const parsedAsset = parseDataUrl(assetValue);
           if (!parsedAsset) {
-            return createResponse(
-              400,
+            return createResponse(400,
               { error: "Invalid asset data format" },
-              origin,
-            );
+              origin, event);
           }
 
           return {
@@ -162,7 +160,7 @@ export async function handler(event) {
           };
         }
 
-        return createResponse(400, { error: "Asset data not found" }, origin);
+        return createResponse(400, { error: "Asset data not found" }, origin, event);
       }
 
       // Require authentication for data requests (non-asset GET requests)
@@ -170,15 +168,15 @@ export async function handler(event) {
 
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid staff ID" }, origin);
+          return createResponse(400, { error: "Invalid staff ID" }, origin, event);
         }
         const staff = await staffCollection.findOne({
           _id: new ObjectId(id),
         });
         if (!staff) {
-          return createResponse(404, { error: "Staff not found" }, origin);
+          return createResponse(404, { error: "Staff not found" }, origin, event);
         }
-        return createResponse(200, mapStaffForClient(staff, event), origin);
+        return createResponse(200, mapStaffForClient(staff, event), origin, event);
       }
 
       const params = event.queryStringParameters || {};
@@ -411,8 +409,7 @@ export async function handler(event) {
         mapStaffForClient(staff, event),
       );
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: mappedStaff,
           pagination: {
@@ -437,8 +434,7 @@ export async function handler(event) {
               }
             : {}),
         },
-        origin,
-      );
+        origin, event);
     }
 
     // All non-GET requests require authentication
@@ -457,14 +453,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingPhone) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "Phone Number already registered. Please use a different number.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -474,13 +468,11 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingEmail) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error: "Email already registered. Please use a different email.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -490,14 +482,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingAadhar) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "Aadhar Number already registered. Please use a different Aadhar Number.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -508,14 +498,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingPan) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "PNA/PAN Number already registered. Please use a different PNA/PAN Number.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -530,23 +518,21 @@ export async function handler(event) {
       };
       const result = await staffCollection.insertOne(docToInsert);
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Staff created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Staff ID is required" }, origin);
+        return createResponse(400, { error: "Staff ID is required" }, origin, event);
       }
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid staff ID" }, origin);
+        return createResponse(400, { error: "Invalid staff ID" }, origin, event);
       }
       const staffData = JSON.parse(event.body);
       const staffObjectId = new ObjectId(id);
@@ -562,14 +548,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingPhone) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "Phone Number already registered with another staff member.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -580,11 +564,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingEmail) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Email already registered with another staff member." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -595,14 +577,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingAadhar) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "Aadhar Number already registered with another staff member.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -614,14 +594,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingPan) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "PNA/PAN Number already registered with another staff member.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -637,24 +615,22 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Staff not found" }, origin);
+        return createResponse(404, { error: "Staff not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Staff updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Staff ID is required" }, origin);
+        return createResponse(400, { error: "Staff ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid staff ID" }, origin);
+        return createResponse(400, { error: "Invalid staff ID" }, origin, event);
       }
       const result = await staffCollection.updateOne(
         { _id: new ObjectId(id) },
@@ -669,38 +645,32 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Staff not found" }, origin);
+        return createResponse(404, { error: "Staff not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Staff deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

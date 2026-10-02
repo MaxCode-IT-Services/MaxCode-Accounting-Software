@@ -91,7 +91,7 @@ export async function handler(event) {
     return createResponse(401, {
       success: false,
       error: "Unauthorized. Provide valid X-Api-Key header.",
-    }, origin);
+    }, origin, event);
   }
 
   try {
@@ -108,7 +108,7 @@ export async function handler(event) {
         success: false,
         message: "Google Drive backup is not enabled in settings. Enable it from the Backup settings page.",
         timestamp: new Date().toISOString(),
-      }, origin);
+      }, origin, event);
     }
 
     if (!driveConfig.clientId || !driveConfig.clientSecret || !driveConfig.refreshToken) {
@@ -116,7 +116,7 @@ export async function handler(event) {
         success: false,
         message: "Google Drive configuration is incomplete. Please configure all credentials in settings.",
         timestamp: new Date().toISOString(),
-      }, origin);
+      }, origin, event);
     }
 
     // 3. Build backup payload
@@ -157,7 +157,7 @@ export async function handler(event) {
       success: true,
       message: "Backup completed successfully",
       timestamp: new Date().toISOString(),
-    }, origin);
+    }, origin, event);
   } catch (error) {
     console.error(`[backup-cron] Error: ${error.message}`);
 
@@ -180,6 +180,6 @@ export async function handler(event) {
       success: false,
       error: `Backup failed: ${error.message}`,
       timestamp: new Date().toISOString(),
-    }, origin);
+    }, origin, event);
   }
 }

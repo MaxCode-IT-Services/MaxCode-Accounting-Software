@@ -283,7 +283,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -426,26 +426,22 @@ export async function handler(event) {
         });
 
         if (!nextNumber) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Could not generate quotation number. Please configure financial year format first.",
             },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             nextNumber,
             quotationNumber: nextNumber,
             financialYear,
             format,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (id) {
@@ -455,7 +451,7 @@ export async function handler(event) {
         });
 
         if (!quotation) {
-          return createResponse(404, { error: "Quotation not found" }, origin);
+          return createResponse(404, { error: "Quotation not found" }, origin, event);
         }
 
         const binding = await getPerformaTermsBinding();
@@ -471,11 +467,9 @@ export async function handler(event) {
           );
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           normalizeOutgoingQuotationData(hydratedQuotation),
-          origin,
-        );
+          origin, event);
       }
 
       const filterQuery = { isDeleted: { $ne: true } };
@@ -698,8 +692,7 @@ export async function handler(event) {
         quotationStatus: "Expired",
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: normalizedQuotations,
           pagination: {
@@ -722,8 +715,7 @@ export async function handler(event) {
             quotationSendVia: ["All", ...quotationSendVias.sort()],
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -749,14 +741,12 @@ export async function handler(event) {
       }
 
       if (!quotationData.quotationNumber) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "Could not generate quotation number. Please configure financial year format first.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const existingQuotation = await quotationsCollection.findOne({
@@ -765,24 +755,20 @@ export async function handler(event) {
       });
 
       if (existingQuotation) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Quotation number already exists" },
-          origin,
-        );
+          origin, event);
       }
 
       if (quotationData?.quotationUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Configure Cloudflare before uploading quotation document.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const quotationUpload = quotationData.quotationUpload;
@@ -798,11 +784,9 @@ export async function handler(event) {
         );
 
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid quotation file data" },
-            origin,
-          );
+            origin, event);
         }
 
         const uploadResult = await uploadToCloudflareStore({
@@ -835,22 +819,18 @@ export async function handler(event) {
         ...getAuditFieldsFromEvent(event, "create"),
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         { message: "Quotation created successfully", id: result.insertedId },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
 
       if (!id) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Quotation ID is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const quotationData = normalizeIncomingQuotationData(
@@ -866,20 +846,18 @@ export async function handler(event) {
       });
 
       if (!existingQuotation) {
-        return createResponse(404, { error: "Quotation not found" }, origin);
+        return createResponse(404, { error: "Quotation not found" }, origin, event);
       }
 
       if (quotationData?.quotationUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Configure Cloudflare before uploading quotation document.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const quotationUpload = quotationData.quotationUpload;
@@ -889,11 +867,9 @@ export async function handler(event) {
         );
 
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid quotation file data" },
-            origin,
-          );
+            origin, event);
         }
 
         const existingPath = existingQuotation.quotationFilePath;
@@ -939,25 +915,21 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Quotation not found" }, origin);
+        return createResponse(404, { error: "Quotation not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Quotation updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
 
       if (!id) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Quotation ID is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const quotationObjectId = new ObjectId(id);
@@ -967,20 +939,18 @@ export async function handler(event) {
       });
 
       if (!existingQuotation) {
-        return createResponse(404, { error: "Quotation not found" }, origin);
+        return createResponse(404, { error: "Quotation not found" }, origin, event);
       }
 
       if (existingQuotation.quotationFilePath) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Unable to delete quotation uploaded file.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         await deleteFromCloudflareStore({
@@ -1003,36 +973,30 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Quotation not found" }, origin);
+        return createResponse(404, { error: "Quotation not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Quotation deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

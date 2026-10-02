@@ -13,7 +13,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -123,13 +123,11 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (!withdrawal) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Owner withdrawal not found" },
-            origin,
-          );
+            origin, event);
         }
-        return createResponse(200, withdrawal, origin);
+        return createResponse(200, withdrawal, origin, event);
       }
 
       const pageNum = parseInt(page, 10) || 1;
@@ -291,8 +289,7 @@ export async function handler(event) {
         paymentMethod: "Bank Transfer",
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: withdrawals,
           pagination: {
@@ -314,8 +311,7 @@ export async function handler(event) {
             paymentMethod: ["All", ...paymentMethodValues.sort()],
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     // POST - Create new owner withdrawal record
@@ -325,7 +321,7 @@ export async function handler(event) {
       const validationError =
         await validateWithdrawalDateAgainstFinancialYear(withdrawalData);
       if (validationError) {
-        return createResponse(400, { error: validationError }, origin);
+        return createResponse(400, { error: validationError }, origin, event);
       }
 
       const newWithdrawal = {
@@ -346,26 +342,22 @@ export async function handler(event) {
         sourceLabel: newWithdrawal.entryNumber || "",
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Owner withdrawal created successfully",
           id: result.insertedId,
           ...withdrawalData,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // PUT - Update owner withdrawal record
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Owner withdrawal ID is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const withdrawalData = normalizePaymentMethodsInRecord(JSON.parse(event.body));
@@ -377,11 +369,9 @@ export async function handler(event) {
       });
 
       if (!existingRecord) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Owner withdrawal not found" },
-          origin,
-        );
+          origin, event);
       }
 
       const mergedData = {
@@ -392,7 +382,7 @@ export async function handler(event) {
       const validationError =
         await validateWithdrawalDateAgainstFinancialYear(mergedData);
       if (validationError) {
-        return createResponse(400, { error: validationError }, origin);
+        return createResponse(400, { error: validationError }, origin, event);
       }
 
       const updatedRecord = {
@@ -407,11 +397,9 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Owner withdrawal not found" },
-          origin,
-        );
+          origin, event);
       }
 
       await syncTransactionSnapshot({
@@ -422,22 +410,18 @@ export async function handler(event) {
         sourceLabel: updatedRecord.entryNumber || "",
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Owner withdrawal updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     // DELETE - Soft delete
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Owner withdrawal ID is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const existingRecord = await withdrawalsCollection.findOne({
@@ -446,11 +430,9 @@ export async function handler(event) {
       });
 
       if (!existingRecord) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Owner withdrawal not found" },
-          origin,
-        );
+          origin, event);
       }
 
       await syncTransactionSnapshot({
@@ -475,37 +457,29 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Owner withdrawal not found" },
-          origin,
-        );
+          origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Owner withdrawal deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     if (
       error.message?.includes("Invalid token") ||
       error.message?.includes("jwt")
     ) {
-      return createResponse(
-        401,
+      return createResponse(401,
         { error: "Authentication failed", message: error.message },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       { error: "Internal server error", message: error.message },
-      origin,
-    );
+      origin, event);
   }
 }

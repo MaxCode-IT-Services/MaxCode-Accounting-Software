@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 import { MongoClient } from "mongodb";
+import { gzipSync, brotliCompressSync } from "zlib";
 import { setupDb } from "./setupDb.js";
 import dns from "dns";
 
@@ -190,20 +191,55 @@ export function getCorsHeaders(origin) {
 }
 
 /**
- * Helper to create API response
+ * Helper to create API response.
+ * JSON bodies are compressed when the client accepts it — brotli first
+ * (smallest), gzip fallback. API payloads shrink ~70-85%, which is most of
+ * the perceived API latency on slow links.
  */
-export function createResponse(
-  statusCode,
+export function createResponse(statusCode,
   body,
   origin = null,
   extraHeaders = {},
-) {
+  event = null) {
+  const serialized = JSON.stringify(body);
+  const headers = {
+    ...getCorsHeaders(origin),
+    ...extraHeaders,
+  };
+
+  const acceptEncoding = String(
+    event?.headers?.["accept-encoding"] ||
+      event?.headers?.["Accept-Encoding"] ||
+      "",
+  ).toLowerCase();
+
+  if (serialized.length > 512) {
+    if (acceptEncoding.includes("br")) {
+      headers["Content-Encoding"] = "br";
+      headers.Vary = "Accept-Encoding";
+      return {
+        statusCode,
+        headers,
+        body: brotliCompressSync(Buffer.from(serialized, "utf8")).toString("base64"),
+        isBase64Encoded: true,
+      };
+    }
+
+    if (acceptEncoding.includes("gzip")) {
+      headers["Content-Encoding"] = "gzip";
+      headers.Vary = "Accept-Encoding";
+      return {
+        statusCode,
+        headers,
+        body: gzipSync(Buffer.from(serialized, "utf8")).toString("base64"),
+        isBase64Encoded: true,
+      };
+    }
+  }
+
   return {
     statusCode,
-    headers: {
-      ...getCorsHeaders(origin),
-      ...extraHeaders,
-    },
-    body: JSON.stringify(body),
+    headers,
+    body: serialized,
   };
 }

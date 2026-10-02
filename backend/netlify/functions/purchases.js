@@ -336,7 +336,7 @@ export async function handler(event) {
 
   // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -374,7 +374,7 @@ export async function handler(event) {
       // If ID is provided, return single purchase
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid purchase ID" }, origin);
+          return createResponse(400, { error: "Invalid purchase ID" }, origin, event);
         }
 
         const purchase = await purchasesCollection.findOne({
@@ -383,10 +383,10 @@ export async function handler(event) {
         });
 
         if (!purchase) {
-          return createResponse(404, { error: "Purchase not found" }, origin);
+          return createResponse(404, { error: "Purchase not found" }, origin, event);
         }
 
-        return createResponse(200, purchase, origin);
+        return createResponse(200, purchase, origin, event);
       }
 
       // Build filter query
@@ -746,8 +746,7 @@ export async function handler(event) {
       const unpaidAmount = totalAmount - paidAmount;
 
       // Return paginated response with metadata
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: purchases,
           pagination: {
@@ -775,8 +774,7 @@ export async function handler(event) {
             businessName: v.businessName,
           })),
         },
-        origin,
-      );
+        origin, event);
     }
 
     // POST - Create new purchase
@@ -786,11 +784,9 @@ export async function handler(event) {
       );
 
       if (!purchaseData.invoiceNumber) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Invoice number is required" },
-          origin,
-        );
+          origin, event);
       }
 
       // Check for duplicate invoice number (including soft-deleted records)
@@ -799,24 +795,20 @@ export async function handler(event) {
       });
 
       if (existingInvoice) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Invoice number already exists" },
-          origin,
-        );
+          origin, event);
       }
 
       if (purchaseData?.invoiceUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Configure Cloudflare before uploading purchase invoice.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const invoiceUpload = purchaseData.invoiceUpload;
@@ -835,11 +827,9 @@ export async function handler(event) {
         );
 
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid invoice file data" },
-            origin,
-          );
+            origin, event);
         }
 
         const uploadResult = await uploadToCloudflareStore({
@@ -876,29 +866,25 @@ export async function handler(event) {
         sourceLabel: purchaseRecordForSync.invoiceNumber || "",
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Purchase created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // PUT - Update existing purchase
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Purchase ID is required" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid purchase ID" }, origin);
+        return createResponse(400, { error: "Invalid purchase ID" }, origin, event);
       }
 
       const purchaseData = normalizePaymentMethodsInRecord(
@@ -914,11 +900,9 @@ export async function handler(event) {
         });
 
         if (existingInvoice) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Invoice number already exists" },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -928,20 +912,18 @@ export async function handler(event) {
       });
 
       if (!existingPurchase) {
-        return createResponse(404, { error: "Purchase not found" }, origin);
+        return createResponse(404, { error: "Purchase not found" }, origin, event);
       }
 
       if (purchaseData?.invoiceUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Configure Cloudflare before uploading purchase invoice.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const invoiceUpload = purchaseData.invoiceUpload;
@@ -964,11 +946,9 @@ export async function handler(event) {
         );
 
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid invoice file data" },
-            origin,
-          );
+            origin, event);
         }
 
         const uploadResult = await uploadToCloudflareStore({
@@ -1009,7 +989,7 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Purchase not found" }, origin);
+        return createResponse(404, { error: "Purchase not found" }, origin, event);
       }
 
       await syncTransactionSnapshot({
@@ -1020,26 +1000,22 @@ export async function handler(event) {
         sourceLabel: updatedPurchaseRecord.invoiceNumber || "",
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Purchase updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     // DELETE - Soft delete purchase
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Purchase ID is required" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid purchase ID" }, origin);
+        return createResponse(400, { error: "Invalid purchase ID" }, origin, event);
       }
 
       const purchaseObjectId = new ObjectId(id);
@@ -1049,20 +1025,18 @@ export async function handler(event) {
       });
 
       if (!purchase) {
-        return createResponse(404, { error: "Purchase not found" }, origin);
+        return createResponse(404, { error: "Purchase not found" }, origin, event);
       }
 
       if (purchase.invoiceFilePath) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Unable to delete purchase invoice file.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         await deleteFromCloudflareStore({
@@ -1093,38 +1067,32 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Purchase not found" }, origin);
+        return createResponse(404, { error: "Purchase not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Purchase deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Purchase API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

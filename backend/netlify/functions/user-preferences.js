@@ -95,7 +95,7 @@ export async function handler(event) {
 
   // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -104,7 +104,7 @@ export async function handler(event) {
     const userId = user?.id || user?._id || user?.userId;
 
     if (!userId) {
-      return createResponse(401, { error: "Unauthorized: No user ID" }, origin);
+      return createResponse(401, { error: "Unauthorized: No user ID" }, origin, event);
     }
 
     const { db } = await connectToDatabase();
@@ -275,7 +275,7 @@ export async function handler(event) {
         mergedPreferences.settingsTabs = userDoc.permissions.settingsTabs;
       }
 
-      return createResponse(200, mergedPreferences, origin);
+      return createResponse(200, mergedPreferences, origin, event);
     }
 
     // POST/PUT - Save/update user preferences
@@ -355,24 +355,20 @@ export async function handler(event) {
       });
 
       if (invalidField) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error: `Invalid value for ${invalidField}. Must be boolean or string.`,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (
         Object.keys(updateFields).length === 0 &&
         Object.keys(userUpdateFields).length === 0
       ) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "No valid preference provided" },
-          origin,
-        );
+          origin, event);
       }
 
       const existingDoc = await preferencesCollection.findOne({ userId });
@@ -409,7 +405,7 @@ export async function handler(event) {
       // Store fingerprint fields directly on users collection
       if (Object.keys(userUpdateFields).length > 0) {
         if (!userObjectId) {
-          return createResponse(400, { error: "Invalid user id" }, origin);
+          return createResponse(400, { error: "Invalid user id" }, origin, event);
         }
 
         if (
@@ -491,14 +487,12 @@ export async function handler(event) {
         );
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           message: "Preferences updated successfully",
           preferences: finalPreferences,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // DELETE - Clear user preferences (optional)
@@ -506,47 +500,39 @@ export async function handler(event) {
       const result = await preferencesCollection.deleteOne({ userId });
 
       if (result.deletedCount === 0) {
-        return createResponse(404, { error: "No preferences found" }, origin);
+        return createResponse(404, { error: "No preferences found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Preferences cleared successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("User Preferences API Error:", error);
 
     // Handle specific errors
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (error.name === "SyntaxError") {
-      return createResponse(
-        400,
+      return createResponse(400,
         { error: "Invalid JSON in request body" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

@@ -9,11 +9,11 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   if (event.httpMethod !== "GET") {
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   }
 
   try {
@@ -154,8 +154,7 @@ export async function handler(event) {
         .toArray(),
     ]);
 
-    return createResponse(
-      200,
+    return createResponse(200,
       {
         years,
         clients,
@@ -169,29 +168,24 @@ export async function handler(event) {
         projects,
         fixedDeposits,
       },
-      origin,
-    );
+      origin, event);
   } catch (error) {
     console.error("Dashboard summary error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Failed to fetch dashboard summary",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

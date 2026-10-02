@@ -272,7 +272,7 @@ export async function handler(event) {
 
   // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -382,20 +382,17 @@ export async function handler(event) {
         ).trim();
 
         if (!selfInvoiceFormat) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Self invoice number format is not configured for the selected financial year.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const nextNumber = await getNextSelfInvoiceNumber(selfInvoiceFormat);
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             nextNumber,
             selfInvoiceNumber: nextNumber,
@@ -403,14 +400,13 @@ export async function handler(event) {
               requestedFinancialYear || String(yearRecord?.financialYear || ""),
             format: selfInvoiceFormat,
           },
-          origin,
-        );
+          origin, event);
       }
 
       // If ID is provided, return single record
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid RCM ID" }, origin);
+          return createResponse(400, { error: "Invalid RCM ID" }, origin, event);
         }
 
         const record = await rcmCollection.findOne({
@@ -419,7 +415,7 @@ export async function handler(event) {
         });
 
         if (!record) {
-          return createResponse(404, { error: "RCM record not found" }, origin);
+          return createResponse(404, { error: "RCM record not found" }, origin, event);
         }
 
         const binding = await getSelfInvoiceTermsBinding();
@@ -437,7 +433,7 @@ export async function handler(event) {
           );
         }
 
-        return createResponse(200, hydratedRecord, origin);
+        return createResponse(200, hydratedRecord, origin, event);
       }
 
       // Build filter query
@@ -750,8 +746,7 @@ export async function handler(event) {
       const unpaidAmount = totalAmount - paidAmount;
 
       // Return paginated response with metadata
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: patchedRcmRecords,
           pagination: {
@@ -778,8 +773,7 @@ export async function handler(event) {
             dateRanges,
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     // POST - Create new RCM record
@@ -810,14 +804,12 @@ export async function handler(event) {
           rcmData.selfInvoiceFormat || defaultYear?.selfInvoiceFormat || "";
 
         if (!selfInvoiceFormat) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Self invoice number is required. Default financial year self invoice format not found.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         rcmData.selfInvoiceNumber =
@@ -834,11 +826,9 @@ export async function handler(event) {
       });
 
       if (existingRcm && !existingRcm.isDeleted) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Self invoice number already exists" },
-          origin,
-        );
+          origin, event);
       }
 
       // Set place of supply default
@@ -849,14 +839,12 @@ export async function handler(event) {
       if (rcmData?.rcmUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Configure Cloudflare before uploading RCM document.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const rcmUpload = rcmData.rcmUpload;
@@ -872,11 +860,9 @@ export async function handler(event) {
         );
 
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid RCM file data" },
-            origin,
-          );
+            origin, event);
         }
 
         const uploadResult = await uploadToCloudflareStore({
@@ -915,25 +901,23 @@ export async function handler(event) {
         sourceLabel: newRcm.selfInvoiceNumber || "",
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "RCM record created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // PUT - Update existing RCM record
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "RCM ID is required" }, origin);
+        return createResponse(400, { error: "RCM ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid RCM ID" }, origin);
+        return createResponse(400, { error: "Invalid RCM ID" }, origin, event);
       }
 
       const rcmData = normalizePaymentMethodsInRecord(JSON.parse(event.body));
@@ -947,7 +931,7 @@ export async function handler(event) {
       });
 
       if (!existingRcmRecord) {
-        return createResponse(404, { error: "RCM record not found" }, origin);
+        return createResponse(404, { error: "RCM record not found" }, origin, event);
       }
 
       // Check for duplicate self invoice number (excluding current record)
@@ -958,25 +942,21 @@ export async function handler(event) {
         });
 
         if (existingRcm) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Self invoice number already exists" },
-            origin,
-          );
+            origin, event);
         }
       }
 
       if (rcmData?.rcmUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Configure Cloudflare before uploading RCM document.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const rcmUpload = rcmData.rcmUpload;
@@ -986,11 +966,9 @@ export async function handler(event) {
         );
 
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid RCM file data" },
-            origin,
-          );
+            origin, event);
         }
 
         const existingPath = existingRcmRecord.rcmFilePath;
@@ -1036,7 +1014,7 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "RCM record not found" }, origin);
+        return createResponse(404, { error: "RCM record not found" }, origin, event);
       }
 
       await syncTransactionSnapshot({
@@ -1047,22 +1025,20 @@ export async function handler(event) {
         sourceLabel: updatedRcmRecord.selfInvoiceNumber || "",
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "RCM record updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     // DELETE - Soft delete RCM record
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "RCM ID is required" }, origin);
+        return createResponse(400, { error: "RCM ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid RCM ID" }, origin);
+        return createResponse(400, { error: "Invalid RCM ID" }, origin, event);
       }
 
       const rcmObjectId = new ObjectId(id);
@@ -1072,20 +1048,18 @@ export async function handler(event) {
       });
 
       if (!existingRcmRecord) {
-        return createResponse(404, { error: "RCM record not found" }, origin);
+        return createResponse(404, { error: "RCM record not found" }, origin, event);
       }
 
       if (existingRcmRecord.rcmFilePath) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Unable to delete RCM uploaded file.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         await deleteFromCloudflareStore({
@@ -1117,38 +1091,32 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "RCM record not found" }, origin);
+        return createResponse(404, { error: "RCM record not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "RCM record deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("RCM API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

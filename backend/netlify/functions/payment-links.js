@@ -323,7 +323,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -357,7 +357,7 @@ export async function handler(event) {
         );
 
         if (!normalizedAlias) {
-          return createResponse(400, { error: "Alias is required" }, origin);
+          return createResponse(400, { error: "Alias is required" }, origin, event);
         }
 
         const shareUrl = `${normalizedDomain}/${normalizedAlias}`;
@@ -372,20 +372,18 @@ export async function handler(event) {
 
         const existing = await collection.findOne(checkQuery);
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             available: !existing,
             shareUrl,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (action === "public") {
         const normalizedAlias = cleanAlias(alias);
         if (!normalizedAlias) {
-          return createResponse(400, { error: "Alias is required" }, origin);
+          return createResponse(400, { error: "Alias is required" }, origin, event);
         }
 
         const businessSettingsCollection = db.collection("business_settings");
@@ -408,15 +406,12 @@ export async function handler(event) {
         });
 
         if (!record) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Payment link not found" },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             record: projectPublicRecord(record),
             branding: {
@@ -426,8 +421,7 @@ export async function handler(event) {
               companyPhone: brandingSettings?.companyPhone || "",
             },
           },
-          origin,
-        );
+          origin, event);
       }
 
       verifyRequestToken(event);
@@ -439,14 +433,12 @@ export async function handler(event) {
 
         const record = await collection.findOne(filter);
         if (!record) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Payment link not found" },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(200, { record: projectRecord(record) }, origin);
+        return createResponse(200, { record: projectRecord(record) }, origin, event);
       }
 
       const pageNum = Math.max(1, Number(page) || 1);
@@ -577,8 +569,7 @@ export async function handler(event) {
         expired: expiredCount,
       };
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           records,
           total,
@@ -590,8 +581,7 @@ export async function handler(event) {
             totalRecords: total,
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -599,31 +589,25 @@ export async function handler(event) {
       const payload = sanitizePayload(JSON.parse(event.body || "{}"));
 
       if (!payload.clientName) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Client name is required" },
-          origin,
-        );
+          origin, event);
       }
       if (!payload.upiId) {
-        return createResponse(400, { error: "UPI ID is required" }, origin);
+        return createResponse(400, { error: "UPI ID is required" }, origin, event);
       }
       if (!payload.accountName) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Account name is required" },
-          origin,
-        );
+          origin, event);
       }
       if (!payload.alias) {
-        return createResponse(400, { error: "Alias is required" }, origin);
+        return createResponse(400, { error: "Alias is required" }, origin, event);
       }
       if (payload.amount <= 0) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Amount must be greater than 0" },
-          origin,
-        );
+          origin, event);
       }
 
       const existingAlias = await collection.findOne({
@@ -631,11 +615,9 @@ export async function handler(event) {
         isDeleted: { $ne: true },
       });
       if (existingAlias) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Payment URL already exists" },
-          origin,
-        );
+          origin, event);
       }
 
       const now = new Date();
@@ -647,15 +629,13 @@ export async function handler(event) {
       };
 
       const result = await collection.insertOne(doc);
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Payment link created successfully",
           id: String(result.insertedId),
           record: projectRecord({ ...doc, _id: result.insertedId }),
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
@@ -669,13 +649,11 @@ export async function handler(event) {
           "public-verify",
         );
         if (publicLimit.blocked) {
-          return createResponse(
-            429,
+          return createResponse(429,
             {
               error: `Too many verification attempts. Try again after ${publicLimit.retryAfter} seconds.`,
             },
-            origin,
-          );
+            origin, event);
         }
 
         const normalizedAlias = cleanAlias(alias);
@@ -683,15 +661,13 @@ export async function handler(event) {
         const enteredUtr = String(body?.utrNumber || "").trim();
 
         if (!normalizedAlias) {
-          return createResponse(400, { error: "Alias is required" }, origin);
+          return createResponse(400, { error: "Alias is required" }, origin, event);
         }
 
         if (!enteredUtr) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Transaction ID / UTR Number is required" },
-            origin,
-          );
+            origin, event);
         }
 
         const existingRecord = await collection.findOne({
@@ -700,35 +676,29 @@ export async function handler(event) {
         });
 
         if (!existingRecord) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Payment link not found" },
-            origin,
-          );
+            origin, event);
         }
 
         if (normalizeLinkStatus(existingRecord.linkStatus) === "inactive") {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error: "Payment link is disabled",
               record: projectPublicRecord(existingRecord),
             },
-            origin,
-          );
+            origin, event);
         }
 
         const currentStatus = normalizeStatus(existingRecord.status);
         if (currentStatus === "success" || currentStatus === "failed") {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error: "Payment already finalized",
               status: currentStatus,
               record: projectPublicRecord(existingRecord),
             },
-            origin,
-          );
+            origin, event);
         }
 
         const now = new Date();
@@ -751,11 +721,9 @@ export async function handler(event) {
 
         const updatedRecord = updateResult?.value ?? updateResult;
         if (!updatedRecord) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Payment link not found" },
-            origin,
-          );
+            origin, event);
         }
 
         const existingUtr = String(existingRecord?.utrNumber || "").trim();
@@ -834,16 +802,14 @@ export async function handler(event) {
           };
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             message: "Verification request submitted",
             record: projectRecord(updatedRecord),
             whatsappNotification,
             telegramNotification,
           },
-          origin,
-        );
+          origin, event);
       }
 
       verifyRequestToken(event);
@@ -854,7 +820,7 @@ export async function handler(event) {
       ).trim();
 
       if (!targetId) {
-        return createResponse(400, { error: "Valid ID is required" }, origin);
+        return createResponse(400, { error: "Valid ID is required" }, origin, event);
       }
 
       const updateMatchConditions = [{ id: targetId }];
@@ -868,31 +834,25 @@ export async function handler(event) {
       };
 
       if (!payload.clientName) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Client name is required" },
-          origin,
-        );
+          origin, event);
       }
       if (!payload.upiId) {
-        return createResponse(400, { error: "UPI ID is required" }, origin);
+        return createResponse(400, { error: "UPI ID is required" }, origin, event);
       }
       if (!payload.accountName) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Account name is required" },
-          origin,
-        );
+          origin, event);
       }
       if (!payload.alias) {
-        return createResponse(400, { error: "Alias is required" }, origin);
+        return createResponse(400, { error: "Alias is required" }, origin, event);
       }
       if (payload.amount <= 0) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Amount must be greater than 0" },
-          origin,
-        );
+          origin, event);
       }
 
       // Check duplicate alias while excluding the current record for both id types.
@@ -909,11 +869,9 @@ export async function handler(event) {
 
       const existingAlias = await collection.findOne(aliasCheckFilter);
       if (existingAlias) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Payment URL already exists" },
-          origin,
-        );
+          origin, event);
       }
 
       const now = new Date();
@@ -931,17 +889,15 @@ export async function handler(event) {
 
       const updatedRecord = result?.value ?? result;
       if (!updatedRecord) {
-        return createResponse(404, { error: "Payment link not found" }, origin);
+        return createResponse(404, { error: "Payment link not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           message: "Payment link updated successfully",
           record: projectRecord(updatedRecord),
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
@@ -950,7 +906,7 @@ export async function handler(event) {
       const targetId = String(id || "").trim();
 
       if (!targetId) {
-        return createResponse(400, { error: "Valid ID is required" }, origin);
+        return createResponse(400, { error: "Valid ID is required" }, origin, event);
       }
 
       // Build filter: try ObjectId first, then fallback to string id (for data consistency)
@@ -972,22 +928,20 @@ export async function handler(event) {
       });
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Payment link not found" }, origin);
+        return createResponse(404, { error: "Payment link not found" }, origin, event);
       }
 
-      return createResponse(200, { message: "Payment link deleted" }, origin);
+      return createResponse(200, { message: "Payment link deleted" }, origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Payment Links API Error:", error);
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

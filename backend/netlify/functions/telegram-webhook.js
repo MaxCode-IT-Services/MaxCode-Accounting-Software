@@ -393,25 +393,23 @@ export const handler = async (event) => {
   const origin = getOrigin(event);
 
   if (event.httpMethod === "GET") {
-    return createResponse(
-      200,
+    return createResponse(200,
       {
         ok: true,
         software: SOFTWARE_NAME,
         message: "MaxCode Accounting Telegram receiver is active",
         webhookPath: "/api/telegram-hook",
       },
-      origin,
-    );
+      origin, event);
   }
 
   if (event.httpMethod !== "POST") {
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   }
 
   const incoming = unwrapIncomingUpdate(event);
   if (incoming.error) {
-    return createResponse(400, { error: incoming.error }, origin);
+    return createResponse(400, { error: incoming.error }, origin, event);
   }
 
   try {
@@ -419,11 +417,9 @@ export const handler = async (event) => {
     const config = await loadTelegramConfig(db);
 
     if (!config) {
-      return createResponse(
-        200,
+      return createResponse(200,
         { ok: true, skipped: true, reason: "telegram-disabled" },
-        origin,
-      );
+        origin, event);
     }
 
     if (incoming.mode === "router") {
@@ -434,11 +430,9 @@ export const handler = async (event) => {
         console.error(
           "[telegram-webhook] sharedSecret is not configured; rejecting router webhook delivery",
         );
-        return createResponse(
-          401,
+        return createResponse(401,
           { error: "Router shared secret is not configured" },
-          origin,
-        );
+          origin, event);
       }
 
       const signature = getHeader(event.headers, "x-maxcode-signature");
@@ -449,28 +443,28 @@ export const handler = async (event) => {
           config.sharedSecret,
         )
       ) {
-        return createResponse(401, { error: "Invalid signature" }, origin);
+        return createResponse(401, { error: "Invalid signature" }, origin, event);
       }
 
       if (incoming.envelope?.source !== ROUTER_SOURCE) {
-        return createResponse(400, { error: "Unknown source" }, origin);
+        return createResponse(400, { error: "Unknown source" }, origin, event);
       }
 
       if (
         config.routerConnectionId &&
         String(incoming.envelope.connectionId || "") !== config.routerConnectionId
       ) {
-        return createResponse(200, { ok: true, ignored: true }, origin);
+        return createResponse(200, { ok: true, ignored: true }, origin, event);
       }
 
       if (
         config.routerBotId &&
         String(incoming.envelope.botId || "") !== config.routerBotId
       ) {
-        return createResponse(200, { ok: true, ignored: true }, origin);
+        return createResponse(200, { ok: true, ignored: true }, origin, event);
       }
     } else if (!isAuthorizedDirectWebhook(event)) {
-      return createResponse(401, { error: "Unauthorized" }, origin);
+      return createResponse(401, { error: "Unauthorized" }, origin, event);
     }
 
     const incomingChatId = String(
@@ -484,26 +478,22 @@ export const handler = async (event) => {
     // tied to the owner chat, so it is dropped instead of trusted.
     if (incoming.update.callback_query || incoming.update.message) {
       if (!incomingChatId) {
-        return createResponse(
-          200,
+        return createResponse(200,
           { ok: true, skipped: true, reason: "missing-chat" },
-          origin,
-        );
+          origin, event);
       }
 
       if (incomingChatId !== String(config.chatId).trim()) {
-        return createResponse(200, { ok: true, ignored: true }, origin);
+        return createResponse(200, { ok: true, ignored: true }, origin, event);
       }
     }
 
     const result = await processTelegramUpdate(db, config, incoming.update);
-    return createResponse(200, { ok: true, ...result }, origin);
+    return createResponse(200, { ok: true, ...result }, origin, event);
   } catch (error) {
     console.error("Telegram webhook error:", error);
-    return createResponse(
-      200,
+    return createResponse(200,
       { ok: false, error: error?.message || "Webhook processing failed" },
-      origin,
-    );
+      origin, event);
   }
 };

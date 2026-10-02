@@ -29,6 +29,30 @@ const FACE_AUTH_ENCRYPTION_CONTEXT = "maxcode-face-auth-v1";
 const FACE_AUTH_DISTANCE_THRESHOLD = 0.32;
 const FACE_AUTH_AVERAGE_DISTANCE_THRESHOLD = 0.38;
 
+// Short-TTL cache for session verify responses. The verify endpoint runs on
+// every app load; caching the user document for 10s removes the DB round-trip
+// from the critical path. Invalidated on login/logout/role change.
+const VERIFY_CACHE_TTL_MS = 10 * 1000;
+let verifyCache = new Map();
+
+const getCachedVerifyResponse = (key) => {
+  const entry = verifyCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    verifyCache.delete(key);
+    return null;
+  }
+  return entry.response;
+};
+
+const setCachedVerifyResponse = (key, response) => {
+  verifyCache.set(key, { response, expiresAt: Date.now() + VERIFY_CACHE_TTL_MS });
+};
+
+const invalidateVerifyCache = () => {
+  verifyCache.clear();
+};
+
 const getFaceAuthEncryptionKey = () => {
   const baseSecret = String(process.env.JWT_SECRET || "").trim();
 
@@ -237,7 +261,7 @@ export async function handler(event) {
 
   // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   // --- Rate limiting logic ---
@@ -276,13 +300,11 @@ export async function handler(event) {
         userRoleForRateLimit,
       );
       if (userLimit.blocked) {
-        return createResponse(
-          429,
+        return createResponse(429,
           {
             error: `Too many requests. Try again after ${userLimit.retryAfter} seconds.`,
           },
-          origin,
-        );
+          origin, event);
       }
     }
   }
@@ -334,40 +356,42 @@ export async function handler(event) {
             : null;
 
         if (!userQuery) {
-          return createResponse(
-            401,
+          return createResponse(401,
             { authenticated: false, error: "Invalid session payload" },
             origin,
-            { "Set-Cookie": createClearAuthCookie() },
-          );
+            { "Set-Cookie": createClearAuthCookie() }, event);
+        }
+
+        // Short-TTL cache: session verify runs on every app load, and the
+        // user document rarely changes. Caching for 10s removes the DB
+        // round-trip from the critical path.
+        const cacheKey = String(decodedToken?.userId || decodedToken?.phone || "");
+        const cachedVerify = getCachedVerifyResponse(cacheKey);
+        if (cachedVerify) {
+          return createResponse(200, cachedVerify, origin, event);
         }
 
         const user = await usersCollection.findOne(userQuery);
 
         if (!user || (user.status && user.status !== "Active")) {
-          return createResponse(
-            401,
+          return createResponse(401,
             { authenticated: false, error: "Session is not valid" },
             origin,
-            { "Set-Cookie": createClearAuthCookie() },
-          );
+            { "Set-Cookie": createClearAuthCookie() }, event);
         }
 
-        return createResponse(
-          200,
-          {
-            authenticated: true,
-            user: createAuthResponse(user, null).user,
-          },
-          origin,
-        );
+        const verifyResponse = {
+          authenticated: true,
+          user: createAuthResponse(user, null).user,
+        };
+        setCachedVerifyResponse(cacheKey, verifyResponse);
+
+        return createResponse(200, verifyResponse, origin, event);
       } catch (error) {
-        return createResponse(
-          401,
+        return createResponse(401,
           { authenticated: false, error: "Invalid or expired session" },
           origin,
-          { "Set-Cookie": createClearAuthCookie() },
-        );
+          { "Set-Cookie": createClearAuthCookie() }, event);
       }
     }
 
@@ -382,25 +406,21 @@ export async function handler(event) {
         // --- Rate limit login attempts per IP ---
         const loginLimit = await checkLoginRateLimit(ip);
         if (loginLimit.blocked) {
-          return createResponse(
-            429,
+          return createResponse(429,
             {
               error: `Too many login attempts. Try again after ${loginLimit.retryAfter} seconds.`,
             },
-            origin,
-          );
+            origin, event);
         }
 
         const { phone, pin, turnstileToken } = body;
 
         if (!phone || !pin) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error: "Email/phone and password/pin are required",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const sharedSettings = await getSharedBusinessSettings(db);
@@ -419,14 +439,12 @@ export async function handler(event) {
           ).trim();
 
           if (!turnstileSecretKey || !turnstileSiteKey) {
-            return createResponse(
-              500,
+            return createResponse(500,
               {
                 error:
                   "Cloudflare login captcha is enabled but not configured.",
               },
-              origin,
-            );
+              origin, event);
           }
         }
 
@@ -439,15 +457,13 @@ export async function handler(event) {
           });
 
           if (!captchaResult.success) {
-            return createResponse(
-              401,
+            return createResponse(401,
               {
                 error:
                   captchaResult.error ||
                   "Cloudflare verification failed. Please try again.",
               },
-              origin,
-            );
+              origin, event);
           }
         }
 
@@ -456,22 +472,20 @@ export async function handler(event) {
         const user = await usersCollection.findOne(query);
 
         if (!user) {
-          return createResponse(401, { error: "Invalid credentials" }, origin);
+          return createResponse(401, { error: "Invalid credentials" }, origin, event);
         }
 
         if (user.status && user.status !== "Active") {
-          return createResponse(
-            403,
+          return createResponse(403,
             { error: "Your account is inactive. Please contact admin." },
-            origin,
-          );
+            origin, event);
         }
 
         // Verify password or pin
         let isValidCredential = await comparePassword(pin, user.pin);
 
         if (!isValidCredential) {
-          return createResponse(401, { error: "Invalid credentials" }, origin);
+          return createResponse(401, { error: "Invalid credentials" }, origin, event);
         }
 
         // On successful login, reset rate limit for this IP
@@ -555,8 +569,7 @@ export async function handler(event) {
             "10m",
           );
 
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               message:
                 "PIN verified. Please complete second-factor verification.",
@@ -572,8 +585,7 @@ export async function handler(event) {
               usbKeyLoginEnabled:
                 usbKeyLoginEnabled === true && Boolean(usbKeyTokenHash),
             },
-            origin,
-          );
+            origin, event);
         }
 
         // Generate token
@@ -598,8 +610,7 @@ export async function handler(event) {
           { $set: { lastLogin: new Date() } },
         );
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             message: "Welcome back! Login successful",
             fingerprintLoginEnabled,
@@ -617,8 +628,7 @@ export async function handler(event) {
               token,
               tokenExpiryConfig.cookieMaxAgeSeconds,
             ),
-          },
-        );
+          }, event);
       }
 
       // VERIFY 2FA
@@ -626,26 +636,22 @@ export async function handler(event) {
         const { tempToken, twoFACode } = body;
 
         if (!tempToken || !twoFACode) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Temp token and 2FA code are required" },
-            origin,
-          );
+            origin, event);
         }
 
         let decoded;
         try {
           decoded = verifyTempToken(tempToken);
         } catch (error) {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Invalid or expired temporary token" },
-            origin,
-          );
+            origin, event);
         }
 
         if (!decoded.temp) {
-          return createResponse(401, { error: "Invalid token type" }, origin);
+          return createResponse(401, { error: "Invalid token type" }, origin, event);
         }
 
         const user = await usersCollection.findOne({
@@ -653,15 +659,13 @@ export async function handler(event) {
         });
 
         if (!user) {
-          return createResponse(401, { error: "User not found" }, origin);
+          return createResponse(401, { error: "User not found" }, origin, event);
         }
 
         if (!user.twoFactor?.enabled || !user.twoFactor?.secret) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "2FA not enabled for this account" },
-            origin,
-          );
+            origin, event);
         }
 
         // Verify TOTP token
@@ -687,7 +691,7 @@ export async function handler(event) {
           }
 
           if (!isBackupCode) {
-            return createResponse(401, { error: "Invalid 2FA code" }, origin);
+            return createResponse(401, { error: "Invalid 2FA code" }, origin, event);
           }
         }
 
@@ -713,8 +717,7 @@ export async function handler(event) {
           { $set: { lastLogin: new Date() } },
         );
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             message: "2FA verified. Login successful!",
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
@@ -725,8 +728,7 @@ export async function handler(event) {
               token,
               tokenExpiryConfig.cookieMaxAgeSeconds,
             ),
-          },
-        );
+          }, event);
       }
 
       // VERIFY FINGERPRINT (used as alternative second factor when enabled on user account)
@@ -734,26 +736,22 @@ export async function handler(event) {
         const { tempToken } = body;
 
         if (!tempToken) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Temporary token is required" },
-            origin,
-          );
+            origin, event);
         }
 
         let decoded;
         try {
           decoded = verifyTempToken(tempToken);
         } catch {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Invalid or expired temporary token" },
-            origin,
-          );
+            origin, event);
         }
 
         if (!decoded?.temp) {
-          return createResponse(401, { error: "Invalid token type" }, origin);
+          return createResponse(401, { error: "Invalid token type" }, origin, event);
         }
 
         const user = await usersCollection.findOne({
@@ -761,7 +759,7 @@ export async function handler(event) {
         });
 
         if (!user) {
-          return createResponse(401, { error: "User not found" }, origin);
+          return createResponse(401, { error: "User not found" }, origin, event);
         }
 
         let isFingerprintEnabled = user?.fingerprintLoginEnabled === true;
@@ -792,19 +790,15 @@ export async function handler(event) {
         }
 
         if (!isFingerprintEnabled) {
-          return createResponse(
-            403,
+          return createResponse(403,
             { error: "Fingerprint login is not enabled for this account" },
-            origin,
-          );
+            origin, event);
         }
 
         if (biometricCredentialIds.length === 0) {
-          return createResponse(
-            403,
+          return createResponse(403,
             { error: "No fingerprint credential registered for this account" },
-            origin,
-          );
+            origin, event);
         }
 
         const actorName = await resolveActorName(user);
@@ -827,8 +821,7 @@ export async function handler(event) {
           { $set: { lastLogin: new Date() } },
         );
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             message: "Fingerprint verified. Login successful!",
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
@@ -839,8 +832,7 @@ export async function handler(event) {
               token,
               tokenExpiryConfig.cookieMaxAgeSeconds,
             ),
-          },
-        );
+          }, event);
       }
 
       // VERIFY USB KEY (encrypted token from MaxCode-Accounting.sec file)
@@ -848,26 +840,22 @@ export async function handler(event) {
         const { tempToken, descriptor } = body;
 
         if (!tempToken || !Array.isArray(descriptor)) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Temporary token and face descriptor are required" },
-            origin,
-          );
+            origin, event);
         }
 
         let decoded;
         try {
           decoded = verifyTempToken(tempToken);
         } catch {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Invalid or expired temporary token" },
-            origin,
-          );
+            origin, event);
         }
 
         if (!decoded?.temp) {
-          return createResponse(401, { error: "Invalid token type" }, origin);
+          return createResponse(401, { error: "Invalid token type" }, origin, event);
         }
 
         const user = await usersCollection.findOne({
@@ -875,7 +863,7 @@ export async function handler(event) {
         });
 
         if (!user) {
-          return createResponse(401, { error: "User not found" }, origin);
+          return createResponse(401, { error: "User not found" }, origin, event);
         }
 
         let faceAuthEnabled = user?.faceAuthEnabled === true;
@@ -896,20 +884,16 @@ export async function handler(event) {
         }
 
         if (!faceAuthEnabled || !faceAuthProfile) {
-          return createResponse(
-            403,
+          return createResponse(403,
             { error: "Face authentication is not enabled for this account" },
-            origin,
-          );
+            origin, event);
         }
 
         const incomingDescriptor = normalizeDescriptor(descriptor);
         if (incomingDescriptor.length < 64) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid face descriptor payload" },
-            origin,
-          );
+            origin, event);
         }
 
         let storedDescriptors = [];
@@ -918,19 +902,15 @@ export async function handler(event) {
             .map((item) => normalizeDescriptor(item))
             .filter((item) => item.length === incomingDescriptor.length);
         } catch {
-          return createResponse(
-            500,
+          return createResponse(500,
             { error: "Stored face profile is unreadable. Re-enroll face auth." },
-            origin,
-          );
+            origin, event);
         }
 
         if (storedDescriptors.length === 0) {
-          return createResponse(
-            403,
+          return createResponse(403,
             { error: "No valid face profile found. Please re-setup face auth." },
-            origin,
-          );
+            origin, event);
         }
 
         const distances = storedDescriptors
@@ -938,11 +918,9 @@ export async function handler(event) {
           .filter((distance) => Number.isFinite(distance));
 
         if (distances.length === 0) {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Face does not match. Please try again." },
-            origin,
-          );
+            origin, event);
         }
 
         const sortedDistances = distances.sort((first, second) => first - second);
@@ -958,11 +936,9 @@ export async function handler(event) {
           bestDistance > FACE_AUTH_DISTANCE_THRESHOLD ||
           averageBestDistances > FACE_AUTH_AVERAGE_DISTANCE_THRESHOLD
         ) {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Face does not match. Please try again." },
-            origin,
-          );
+            origin, event);
         }
 
         const actorName = await resolveActorName(user);
@@ -985,8 +961,7 @@ export async function handler(event) {
           { $set: { lastLogin: new Date() } },
         );
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             message: "Face authentication verified. Login successful!",
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
@@ -997,8 +972,7 @@ export async function handler(event) {
               token,
               tokenExpiryConfig.cookieMaxAgeSeconds,
             ),
-          },
-        );
+          }, event);
       }
 
       // VERIFY USB KEY (encrypted token from MaxCode-Accounting.sec file)
@@ -1006,26 +980,22 @@ export async function handler(event) {
         const { tempToken, usbToken } = body;
 
         if (!tempToken || !usbToken) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Temporary token and USB key token are required" },
-            origin,
-          );
+            origin, event);
         }
 
         let decoded;
         try {
           decoded = verifyTempToken(tempToken);
         } catch {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Invalid or expired temporary token" },
-            origin,
-          );
+            origin, event);
         }
 
         if (!decoded?.temp) {
-          return createResponse(401, { error: "Invalid token type" }, origin);
+          return createResponse(401, { error: "Invalid token type" }, origin, event);
         }
 
         const user = await usersCollection.findOne({
@@ -1033,7 +1003,7 @@ export async function handler(event) {
         });
 
         if (!user) {
-          return createResponse(401, { error: "User not found" }, origin);
+          return createResponse(401, { error: "User not found" }, origin, event);
         }
 
         let usbKeyLoginEnabled = user?.usbKeyLoginEnabled === true;
@@ -1054,11 +1024,9 @@ export async function handler(event) {
         }
 
         if (!usbKeyLoginEnabled || !usbKeyTokenHash) {
-          return createResponse(
-            403,
+          return createResponse(403,
             { error: "USB key login is not enabled for this account" },
-            origin,
-          );
+            origin, event);
         }
 
         const incomingHash = crypto
@@ -1074,11 +1042,9 @@ export async function handler(event) {
           crypto.timingSafeEqual(storedBuffer, incomingBuffer);
 
         if (!hashMatches) {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Invalid USB security key" },
-            origin,
-          );
+            origin, event);
         }
 
         const actorName = await resolveActorName(user);
@@ -1101,8 +1067,7 @@ export async function handler(event) {
           { $set: { lastLogin: new Date() } },
         );
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             message: "USB key verified. Login successful!",
             ...createAuthResponse(user, token, tokenExpiryConfig.jwtExpiresIn),
@@ -1113,8 +1078,7 @@ export async function handler(event) {
               token,
               tokenExpiryConfig.cookieMaxAgeSeconds,
             ),
-          },
-        );
+          }, event);
       }
 
       // REGISTER — creating users through this action requires an
@@ -1123,24 +1087,20 @@ export async function handler(event) {
       if (action === "register") {
         const registerLimit = await checkLoginRateLimit(ip);
         if (registerLimit.blocked) {
-          return createResponse(
-            429,
+          return createResponse(429,
             {
               error: `Too many attempts. Try again after ${registerLimit.retryAfter} seconds.`,
             },
-            origin,
-          );
+            origin, event);
         }
 
         let registerActor = null;
         try {
           registerActor = verifyRequestToken(event);
         } catch {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Only a logged-in Super Admin can register users" },
-            origin,
-          );
+            origin, event);
         }
 
         const registerActorRole = String(registerActor?.role || "")
@@ -1151,11 +1111,9 @@ export async function handler(event) {
           registerActorRole !== "super-admin" &&
           registerActorRole !== "superadmin"
         ) {
-          return createResponse(
-            403,
+          return createResponse(403,
             { error: "Only Super Admin can register users" },
-            origin,
-          );
+            origin, event);
         }
 
         const { name, phone, pin, role } = body;
@@ -1170,20 +1128,18 @@ export async function handler(event) {
             throw new Error("Either pin is required");
           }
         } catch (error) {
-          return createResponse(400, { error: error.message }, origin);
+          return createResponse(400, { error: error.message }, origin, event);
         }
 
         // Check if user already exists
         const existingUser = await usersCollection.findOne({ phone });
 
         if (existingUser) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error: "User with this phone already exists",
             },
-            origin,
-          );
+            origin, event);
         }
 
         // Hash password or pin
@@ -1217,8 +1173,7 @@ export async function handler(event) {
           tokenExpiryConfig.jwtExpiresIn,
         );
 
-        return createResponse(
-          201,
+        return createResponse(201,
           {
             message: "Registration successful",
             ...createAuthResponse(
@@ -1233,21 +1188,21 @@ export async function handler(event) {
               token,
               tokenExpiryConfig.cookieMaxAgeSeconds,
             ),
-          },
-        );
+          }, event);
       }
 
       if (action === "logout") {
+        invalidateVerifyCache();
         return createResponse(200, { message: "Logout successful" }, origin, {
           "Set-Cookie": createClearAuthCookie(),
-        });
+        }, event);
       }
 
       // LOGOUT
       // if (action === "logout") {
       //   // With JWT, logout is handled client-side by removing the token
       //   // Optionally, you could maintain a token blacklist in the database
-      //   return createResponse(200, { message: "Logout successful" });
+      //   return createResponse(200, { message: "Logout successful" }, event);
       // }
 
       // CHANGE PASSWORD/PIN — only the logged-in user may change their own
@@ -1256,72 +1211,60 @@ export async function handler(event) {
       if (action === "change-password") {
         const changeLimit = await checkLoginRateLimit(ip);
         if (changeLimit.blocked) {
-          return createResponse(
-            429,
+          return createResponse(429,
             {
               error: `Too many attempts. Try again after ${changeLimit.retryAfter} seconds.`,
             },
-            origin,
-          );
+            origin, event);
         }
 
         let changeActor = null;
         try {
           changeActor = verifyRequestToken(event);
         } catch {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Login required to change your PIN" },
-            origin,
-          );
+            origin, event);
         }
 
         const { phone, oldPin, newPin } = body;
 
         if (!phone) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Phone is required" },
-            origin,
-          );
+            origin, event);
         }
 
         if (
           String(changeActor?.phone || "").trim() !== String(phone).trim()
         ) {
-          return createResponse(
-            403,
+          return createResponse(403,
             { error: "You can only change the PIN for your own account" },
-            origin,
-          );
+            origin, event);
         }
 
         if (!oldPin || !newPin) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error: "Old and new pin are required",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const query = { phone };
         const user = await usersCollection.findOne(query);
 
         if (!user) {
-          return createResponse(404, { error: "User not found" }, origin);
+          return createResponse(404, { error: "User not found" }, origin, event);
         }
 
         // Verify old password/pin
         let isValid = await comparePassword(oldPin, user.pin);
 
         if (!isValid) {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Invalid old password/pin" },
-            origin,
-          );
+            origin, event);
         }
 
         // Hash and update new password/pin
@@ -1334,28 +1277,24 @@ export async function handler(event) {
           { $set: updateFields },
         );
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             message: "Password/PIN changed successfully",
           },
-          origin,
-        );
+          origin, event);
       }
 
-      return createResponse(400, { error: "Invalid action" }, origin);
+      return createResponse(400, { error: "Invalid action" }, origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Auth API Error:", error);
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

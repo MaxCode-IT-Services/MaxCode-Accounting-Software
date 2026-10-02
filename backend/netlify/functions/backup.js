@@ -841,7 +841,7 @@ export async function handler(event) {
 
   // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -856,13 +856,11 @@ export async function handler(event) {
       const isApiKeyAuthorized = hasValidBackupApiKey(event);
 
       if (!isApiKeyAuthorized) {
-        return createResponse(
-          401,
+        return createResponse(401,
           {
             error: "Unauthorized. Provide valid X-API-Key header.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const { db } = await connectToDatabase();
@@ -872,15 +870,13 @@ export async function handler(event) {
         frequency: "daily",
       };
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           success: true,
           backupSettings: maskDriveConfigForResponse(backupSettings),
           timestamp: new Date().toISOString(),
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (method === "GET") {
@@ -890,13 +886,11 @@ export async function handler(event) {
         try {
           validateJwtAccess(event);
         } catch {
-          return createResponse(
-            401,
+          return createResponse(401,
             {
               error: "Unauthorized. Provide valid Bearer token or X-API-Key.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -909,15 +903,13 @@ export async function handler(event) {
 
       if (acceptHeader.includes("application/json")) {
         // Return JSON format using createResponse (which handles CORS)
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             success: true,
             data: backupData,
             stats,
           },
-          origin,
-        );
+          origin, event);
       } else {
         // Return BSON format
         const bsonBuffer = serialize(backupData);
@@ -940,7 +932,7 @@ export async function handler(event) {
       const action = toTrimmedString(body.action).toLowerCase();
 
       if (!action) {
-        return createResponse(400, { error: "Action is required" }, origin);
+        return createResponse(400, { error: "Action is required" }, origin, event);
       }
 
       let user = null;
@@ -959,11 +951,9 @@ export async function handler(event) {
           .collection(UNDO_BACKUP_COLLECTION)
           .findOne({ userId: user.userId });
         if (!undoDoc) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "No undo backup available." },
-            origin,
-          );
+            origin, event);
         }
         const createdAt = new Date(undoDoc.createdAt);
         const now = new Date();
@@ -973,7 +963,7 @@ export async function handler(event) {
           await db
             .collection(UNDO_BACKUP_COLLECTION)
             .deleteOne({ _id: undoDoc._id });
-          return createResponse(400, { error: "Undo period expired." }, origin);
+          return createResponse(400, { error: "Undo period expired." }, origin, event);
         }
         // Restore the undo backup
         await restoreBackupData(client, db, undoDoc.data, user.userId);
@@ -986,14 +976,12 @@ export async function handler(event) {
               ? new ObjectId(undoDoc._id)
               : undoDoc._id,
         });
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             success: true,
             message: "Import undone. Data restored to pre-import state.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       // --- Check Undo Import Availability ---
@@ -1004,7 +992,7 @@ export async function handler(event) {
           .collection(UNDO_BACKUP_COLLECTION)
           .findOne({ userId: user.userId });
         if (!undoDoc) {
-          return createResponse(200, { available: false }, origin);
+          return createResponse(200, { available: false }, origin, event);
         }
         const createdAt = new Date(undoDoc.createdAt);
         const now = new Date();
@@ -1019,18 +1007,16 @@ export async function handler(event) {
                 ? new ObjectId(undoDoc._id)
                 : undoDoc._id,
           });
-          return createResponse(200, { available: false }, origin);
+          return createResponse(200, { available: false }, origin, event);
         }
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             available: true,
             expiresAt: new Date(
               createdAt.getTime() + UNDO_BACKUP_EXPIRY_HOURS * 60 * 60 * 1000,
             ).toISOString(),
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (action === "restore") {
@@ -1054,24 +1040,20 @@ export async function handler(event) {
           // Handle JSON format
           backupData = body.backupData;
         } else {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Invalid backup file format. Please provide a valid backup file.",
             },
-            origin,
-          );
+            origin, event);
         }
         if (
           !backupData?.collections ||
           typeof backupData.collections !== "object"
         ) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid backup file structure" },
-            origin,
-          );
+            origin, event);
         }
         const restorePayload = {
           ...backupData,
@@ -1090,15 +1072,13 @@ export async function handler(event) {
           user.userId,
         );
         const stats = getBackupStats(restored);
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             success: true,
             message: "Backup restored successfully",
             stats,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (action === "test-drive-config") {
@@ -1117,14 +1097,12 @@ export async function handler(event) {
         const validation = validateDriveConfigPayload(resolvedDriveConfig);
 
         if (!validation.valid) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               success: false,
               error: validation.error,
             },
-            origin,
-          );
+            origin, event);
         }
 
         // Actually test the Google Drive connection
@@ -1132,24 +1110,20 @@ export async function handler(event) {
           const testResult =
             await testGoogleDriveConnection(resolvedDriveConfig);
 
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               success: true,
               message: "Google Drive connection successful",
               user: testResult.user,
             },
-            origin,
-          );
+            origin, event);
         } catch (error) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               success: false,
               error: error.message,
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -1178,16 +1152,14 @@ export async function handler(event) {
             status: "completed-local-only",
           });
 
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               success: true,
               message:
                 "Manual backup completed (local only - Google Drive not enabled)",
               stats,
             },
-            origin,
-          );
+            origin, event);
         }
 
         // Create backup data
@@ -1215,8 +1187,7 @@ export async function handler(event) {
             driveFileSize: uploadResult.fileSize,
           });
 
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               success: true,
               message: `Backup uploaded to Google Drive successfully`,
@@ -1227,8 +1198,7 @@ export async function handler(event) {
                 fileSize: uploadResult.fileSize,
               },
             },
-            origin,
-          );
+            origin, event);
         } catch (error) {
           // Save backup run with error status
           await db.collection("backup_runs").insertOne({
@@ -1240,15 +1210,13 @@ export async function handler(event) {
             error: error.message,
           });
 
-          return createResponse(
-            500,
+          return createResponse(500,
             {
               success: false,
               error: `Backup created but upload failed: ${error.message}`,
               stats,
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -1258,14 +1226,12 @@ export async function handler(event) {
         const isApiKeyAuthorized = hasValidBackupApiKey(event);
 
         if (!isApiKeyAuthorized) {
-          return createResponse(
-            401,
+          return createResponse(401,
             {
               error:
                 "Unauthorized. Valid X-API-Key required for automated backups.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         // Get backup settings from database (first user or system-wide settings)
@@ -1277,14 +1243,12 @@ export async function handler(event) {
 
         // Check if Google Drive backup is enabled
         if (!driveConfig || !driveConfig.enabled) {
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               success: false,
               message: "Google Drive backup is not enabled in settings",
             },
-            origin,
-          );
+            origin, event);
         }
 
         // Create backup data
@@ -1312,15 +1276,13 @@ export async function handler(event) {
             driveFileSize: uploadResult.fileSize,
           });
 
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               success: true,
               message: "Backup completed successfully",
               timestamp: new Date().toISOString(),
             },
-            origin,
-          );
+            origin, event);
         } catch (error) {
           // Save backup run with error status
           await db.collection("backup_runs").insertOne({
@@ -1332,43 +1294,37 @@ export async function handler(event) {
             error: error.message,
           });
 
-          return createResponse(
-            500,
+          return createResponse(500,
             {
               success: false,
               error: `Automated backup failed: ${error.message}`,
               timestamp: new Date().toISOString(),
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
-      return createResponse(400, { error: "Invalid action" }, origin);
+      return createResponse(400, { error: "Invalid action" }, origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     const normalizedError = String(error?.message || "").toLowerCase();
     if (normalizedError === "forbidden") {
-      return createResponse(
-        403,
+      return createResponse(403,
         {
           error: "Forbidden",
           message: "Only Super Admin can perform this action.",
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         success: false,
         error: "Failed to create backup",
         timestamp: new Date().toISOString(),
       },
-      origin,
-    );
+      origin, event);
   }
 }

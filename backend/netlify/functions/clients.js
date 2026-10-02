@@ -32,7 +32,7 @@ export async function handler(event) {
 
   // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -68,14 +68,12 @@ export async function handler(event) {
         });
 
         if (!generatedClientId) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "A valid 10-digit phone number and minimum 2-letter client name are required.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const existingClient = await clientsCollection.findOne({
@@ -83,14 +81,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             clientId: generatedClientId,
             exists: Boolean(existingClient),
           },
-          origin,
-        );
+          origin, event);
       }
 
       // If ID is provided, return single client
@@ -100,9 +96,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (!client) {
-          return createResponse(404, { error: "Client not found" }, origin);
+          return createResponse(404, { error: "Client not found" }, origin, event);
         }
-        return createResponse(200, client, origin);
+        return createResponse(200, client, origin, event);
       }
 
       // Build filter query
@@ -335,8 +331,7 @@ export async function handler(event) {
       }
 
       // Return paginated response with metadata
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: clients,
           pagination: {
@@ -362,8 +357,7 @@ export async function handler(event) {
               }
             : {}),
         },
-        origin,
-      );
+        origin, event);
     }
 
     // GET - Statistics endpoint
@@ -392,8 +386,7 @@ export async function handler(event) {
         isDeleted: { $ne: true },
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           total: totalRecords,
           active: totalActive,
@@ -401,8 +394,7 @@ export async function handler(event) {
           withGST: totalWithGST,
           withoutGST: totalWithoutGST,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // POST - Create new client
@@ -416,14 +408,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingClientId) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "Client ID already exists. Please use a different Client ID.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -434,14 +424,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingPhone) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "Phone Number already registered. Please use a different number.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -452,11 +440,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingGSTIN) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "GSTIN already registered with another client." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -467,21 +453,19 @@ export async function handler(event) {
         ...getAuditFieldsFromEvent(event, "create"),
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Client created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // PUT - Update existing client
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Client ID is required" }, origin);
+        return createResponse(400, { error: "Client ID is required" }, origin, event);
       }
 
       const clientData = JSON.parse(event.body);
@@ -495,14 +479,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingClientId) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "Client ID already exists. Please use a different Client ID.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -514,11 +496,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingPhone) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Phone Number already registered with another client." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -530,11 +510,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingGSTIN) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "GSTIN already registered with another client." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -550,21 +528,19 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Client not found" }, origin);
+        return createResponse(404, { error: "Client not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Client updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     // DELETE - Soft delete client (mark as deleted instead of removing)
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Client ID is required" }, origin);
+        return createResponse(400, { error: "Client ID is required" }, origin, event);
       }
 
       const result = await clientsCollection.updateOne(
@@ -580,39 +556,33 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Client not found" }, origin);
+        return createResponse(404, { error: "Client not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Client deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("API Error:", error);
 
     // Handle authentication errors
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

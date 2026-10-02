@@ -817,7 +817,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -825,7 +825,7 @@ export async function handler(event) {
     const actor = resolveActorFromToken(decoded);
 
     if (!actor.userId) {
-      return createResponse(401, { error: "Unauthorized" }, origin);
+      return createResponse(401, { error: "Unauthorized" }, origin, event);
     }
 
     const { db } = await connectToDatabase();
@@ -972,8 +972,7 @@ export async function handler(event) {
         ],
       };
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: rows.map((row) =>
             shapeRequestRow({
@@ -992,12 +991,11 @@ export async function handler(event) {
             totalPages: Math.max(Math.ceil(totalRecords / limit), 1),
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod !== "POST") {
-      return createResponse(405, { error: "Method not allowed" }, origin);
+      return createResponse(405, { error: "Method not allowed" }, origin, event);
     }
 
     const payload = event.body ? JSON.parse(event.body) : {};
@@ -1006,7 +1004,7 @@ export async function handler(event) {
       .toLowerCase();
 
     if (!["send", "resend", "verify"].includes(action)) {
-      return createResponse(400, { error: "Invalid action" }, origin);
+      return createResponse(400, { error: "Invalid action" }, origin, event);
     }
 
     if (action === "verify") {
@@ -1016,19 +1014,15 @@ export async function handler(event) {
         .slice(0, OTP_DIGITS);
 
       if (!requestId || !ObjectId.isValid(requestId)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Valid requestId is required" },
-          origin,
-        );
+          origin, event);
       }
 
       if (otp.length !== OTP_DIGITS) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Enter a valid 6 digit OTP" },
-          origin,
-        );
+          origin, event);
       }
 
       const now = new Date();
@@ -1037,40 +1031,34 @@ export async function handler(event) {
       });
 
       if (!requestDoc) {
-        return createResponse(404, { error: "OTP request not found" }, origin);
+        return createResponse(404, { error: "OTP request not found" }, origin, event);
       }
 
       if (String(requestDoc.requestedById || "") !== actor.userId) {
-        return createResponse(
-          403,
+        return createResponse(403,
           { error: "You are not allowed to verify this OTP" },
-          origin,
-        );
+          origin, event);
       }
 
       if (
         requestDoc.resendLockedUntil &&
         new Date(requestDoc.resendLockedUntil) > now
       ) {
-        return createResponse(
-          429,
+        return createResponse(429,
           {
             error: "OTP resend limit reached. Try again after lock period.",
             resendLockedUntil: toIso(requestDoc.resendLockedUntil),
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (requestDoc.blockedUntil && new Date(requestDoc.blockedUntil) > now) {
-        return createResponse(
-          429,
+        return createResponse(429,
           {
             error: "Too many wrong OTP attempts. Please wait before retry.",
             blockedUntil: toIso(requestDoc.blockedUntil),
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (!requestDoc.otpExpiresAt || new Date(requestDoc.otpExpiresAt) < now) {
@@ -1085,27 +1073,23 @@ export async function handler(event) {
           },
         );
 
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error: "OTP expired. Please resend OTP.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (
         requestDoc.otpVerifyWindowUntil &&
         new Date(requestDoc.otpVerifyWindowUntil) < now
       ) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error: "OTP verification window expired. Please resend OTP.",
             code: "OTP_REQUIRES_RESEND_AFTER_1_MIN",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const actualHash = buildOtpHash(otp, String(requestDoc.otpSalt || ""));
@@ -1142,8 +1126,7 @@ export async function handler(event) {
           },
         );
 
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               wrongAttemptCount >= MAX_WRONG_ATTEMPTS
@@ -1152,8 +1135,7 @@ export async function handler(event) {
             wrongAttemptCount,
             blockedUntil: toIso(setData.blockedUntil),
           },
-          origin,
-        );
+          origin, event);
       }
 
       const grantToken = crypto.randomBytes(32).toString("hex");
@@ -1198,8 +1180,7 @@ export async function handler(event) {
         },
       );
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           success: true,
           message: "OTP verified successfully",
@@ -1209,8 +1190,7 @@ export async function handler(event) {
           credentialId: requestDoc.credentialId,
           validUntil: toIso(expiresAt),
         },
-        origin,
-      );
+        origin, event);
     }
 
     const requestId = String(payload.requestId || "").trim();
@@ -1218,24 +1198,20 @@ export async function handler(event) {
     let requestDoc = null;
     if (action === "resend") {
       if (!requestId || !ObjectId.isValid(requestId)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Valid requestId is required" },
-          origin,
-        );
+          origin, event);
       }
 
       requestDoc = await otpRequests.findOne({ _id: new ObjectId(requestId) });
       if (!requestDoc) {
-        return createResponse(404, { error: "OTP request not found" }, origin);
+        return createResponse(404, { error: "OTP request not found" }, origin, event);
       }
 
       if (String(requestDoc.requestedById || "") !== actor.userId) {
-        return createResponse(
-          403,
+        return createResponse(403,
           { error: "You are not allowed to resend this OTP" },
-          origin,
-        );
+          origin, event);
       }
     }
 
@@ -1243,14 +1219,12 @@ export async function handler(event) {
     const waConfig = await getWhatsAppConfig(db);
 
     if (!waConfig.accessToken || !waConfig.phoneNumberId) {
-      return createResponse(
-        400,
+      return createResponse(400,
         {
           error:
             "WhatsApp Cloud API is not configured. Please complete settings first.",
         },
-        origin,
-      );
+        origin, event);
     }
 
     let resolvedRequest = requestDoc;
@@ -1269,11 +1243,9 @@ export async function handler(event) {
         .toLowerCase();
 
       if (!["view", "edit"].includes(operation)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "operation must be view or edit" },
-          origin,
-        );
+          origin, event);
       }
 
       if (
@@ -1281,23 +1253,21 @@ export async function handler(event) {
           credentialType,
         )
       ) {
-        return createResponse(400, { error: "Invalid credentialType" }, origin);
+        return createResponse(400, { error: "Invalid credentialType" }, origin, event);
       }
 
       if (!credentialId) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "credentialId is required" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!purpose) {
-        return createResponse(400, { error: "Purpose is required" }, origin);
+        return createResponse(400, { error: "Purpose is required" }, origin, event);
       }
 
       if (!["founder", "client", "both"].includes(recipientMode)) {
-        return createResponse(400, { error: "Invalid recipient mode" }, origin);
+        return createResponse(400, { error: "Invalid recipient mode" }, origin, event);
       }
 
       const latest = await otpRequests.findOne(
@@ -1317,14 +1287,12 @@ export async function handler(event) {
         latest?.resendLockedUntil &&
         new Date(latest.resendLockedUntil) > now
       ) {
-        return createResponse(
-          429,
+        return createResponse(429,
           {
             error: "Send limit reached. Please wait 30 minutes.",
             resendLockedUntil: toIso(latest.resendLockedUntil),
           },
-          origin,
-        );
+          origin, event);
       }
 
       const selectedClientId = String(
@@ -1487,19 +1455,16 @@ export async function handler(event) {
           },
         );
 
-        return createResponse(
-          502,
+        return createResponse(502,
           {
             error: "OTP could not be delivered to all selected recipients",
             dispatchResults,
             requestId: String(resolvedRequest._id),
           },
-          origin,
-        );
+          origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           success: true,
           message: "OTP sent successfully",
@@ -1510,40 +1475,35 @@ export async function handler(event) {
           sendCount: resolvedRequest.sendCount,
           maxSends: MAX_TOTAL_SENDS,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (!resolvedRequest) {
-      return createResponse(404, { error: "OTP request not found" }, origin);
+      return createResponse(404, { error: "OTP request not found" }, origin, event);
     }
 
     if (
       resolvedRequest.resendLockedUntil &&
       new Date(resolvedRequest.resendLockedUntil) > now
     ) {
-      return createResponse(
-        429,
+      return createResponse(429,
         {
           error: "Send limit reached. Please wait 30 minutes.",
           resendLockedUntil: toIso(resolvedRequest.resendLockedUntil),
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (
       resolvedRequest.resendAvailableAt &&
       new Date(resolvedRequest.resendAvailableAt) > now
     ) {
-      return createResponse(
-        429,
+      return createResponse(429,
         {
           error: "Resend will be available after cooldown",
           resendAvailableAt: toIso(resolvedRequest.resendAvailableAt),
         },
-        origin,
-      );
+        origin, event);
     }
 
     const currentCount = Number(resolvedRequest.sendCount || 1);
@@ -1568,16 +1528,14 @@ export async function handler(event) {
         },
       );
 
-      return createResponse(
-        429,
+      return createResponse(429,
         {
           error: "Maximum resend limit reached. Try again after 30 minutes.",
           resendLockedUntil: toIso(resendLockedUntil),
           sendCount: currentCount,
           maxSends: MAX_TOTAL_SENDS,
         },
-        origin,
-      );
+        origin, event);
     }
 
     const otp = generateOtp();
@@ -1658,8 +1616,7 @@ export async function handler(event) {
     );
 
     if (!allSent) {
-      return createResponse(
-        502,
+      return createResponse(502,
         {
           error: "OTP could not be resent to all selected recipients",
           dispatchResults,
@@ -1667,12 +1624,10 @@ export async function handler(event) {
           sendCount: nextSendCount,
           maxSends: MAX_TOTAL_SENDS,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      200,
+    return createResponse(200,
       {
         success: true,
         message: "OTP resent successfully",
@@ -1683,8 +1638,7 @@ export async function handler(event) {
         sendCount: nextSendCount,
         maxSends: MAX_TOTAL_SENDS,
       },
-      origin,
-    );
+      origin, event);
   } catch (error) {
     console.error("OTP access API error:", error);
 
@@ -1693,16 +1647,14 @@ export async function handler(event) {
         .toLowerCase()
         .includes("token")
     ) {
-      return createResponse(401, { error: "Unauthorized" }, origin);
+      return createResponse(401, { error: "Unauthorized" }, origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error?.message || "Unknown error",
       },
-      origin,
-    );
+      origin, event);
   }
 }

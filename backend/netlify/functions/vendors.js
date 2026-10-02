@@ -19,7 +19,7 @@ export async function handler(event) {
 
   // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -50,16 +50,16 @@ export async function handler(event) {
       // If ID is provided, return single vendor
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid vendor ID" }, origin);
+          return createResponse(400, { error: "Invalid vendor ID" }, origin, event);
         }
         const vendor = await vendorsCollection.findOne({
           _id: new ObjectId(id),
           isDeleted: { $ne: true },
         });
         if (!vendor) {
-          return createResponse(404, { error: "Vendor not found" }, origin);
+          return createResponse(404, { error: "Vendor not found" }, origin, event);
         }
-        return createResponse(200, vendor, origin);
+        return createResponse(200, vendor, origin, event);
       }
 
       // Build filter query
@@ -297,8 +297,7 @@ export async function handler(event) {
       }
 
       // Return paginated response with metadata
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: vendors,
           pagination: {
@@ -324,8 +323,7 @@ export async function handler(event) {
               }
             : {}),
         },
-        origin,
-      );
+        origin, event);
     }
 
     // GET - Statistics endpoint
@@ -354,8 +352,7 @@ export async function handler(event) {
         isDeleted: { $ne: true },
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           total: totalRecords,
           active: totalActive,
@@ -363,8 +360,7 @@ export async function handler(event) {
           withGST: totalWithGST,
           withoutGST: totalWithoutGST,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // POST - Create new vendor
@@ -378,14 +374,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingPhone) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "Phone Number already registered. Please use a different number.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -396,11 +390,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingGSTIN) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "GSTIN already registered with another vendor." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -411,14 +403,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingEmail) {
-          return createResponse(
-            409,
+          return createResponse(409,
             {
               error:
                 "Email already registered. Please use a different email address.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -432,24 +422,22 @@ export async function handler(event) {
       };
       const result = await vendorsCollection.insertOne(docToInsert);
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Vendor created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // PUT - Update existing vendor
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Vendor ID is required" }, origin);
+        return createResponse(400, { error: "Vendor ID is required" }, origin, event);
       }
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid vendor ID" }, origin);
+        return createResponse(400, { error: "Invalid vendor ID" }, origin, event);
       }
       const vendorData = JSON.parse(event.body);
       const vendorObjectId = new ObjectId(id);
@@ -462,11 +450,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingPhone) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Phone Number already registered with another vendor." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -478,11 +464,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingGSTIN) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "GSTIN already registered with another vendor." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -494,11 +478,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existingEmail) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Email already registered with another vendor." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -514,24 +496,22 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Vendor not found" }, origin);
+        return createResponse(404, { error: "Vendor not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Vendor updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     // DELETE - Soft delete vendor (mark as deleted instead of removing)
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Vendor ID is required" }, origin);
+        return createResponse(400, { error: "Vendor ID is required" }, origin, event);
       }
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid vendor ID" }, origin);
+        return createResponse(400, { error: "Invalid vendor ID" }, origin, event);
       }
       const result = await vendorsCollection.updateOne(
         { _id: new ObjectId(id) },
@@ -546,39 +526,33 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Vendor not found" }, origin);
+        return createResponse(404, { error: "Vendor not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Vendor deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("API Error:", error);
 
     // Handle authentication errors
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

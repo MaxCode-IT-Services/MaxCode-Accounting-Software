@@ -22,7 +22,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -39,7 +39,7 @@ export async function handler(event) {
         .toLowerCase();
 
       if (action !== "resync-credit-debit-notes") {
-        return createResponse(400, { error: "Invalid action" }, origin);
+        return createResponse(400, { error: "Invalid action" }, origin, event);
       }
 
       const notesCollection = db.collection("creditDebitNotes");
@@ -57,7 +57,7 @@ export async function handler(event) {
       }
       if (noteId) {
         if (!ObjectId.isValid(noteId)) {
-          return createResponse(400, { error: "Invalid noteId" }, origin);
+          return createResponse(400, { error: "Invalid noteId" }, origin, event);
         }
         noteQuery._id = new ObjectId(noteId);
       }
@@ -83,20 +83,18 @@ export async function handler(event) {
         }
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           message: "Credit/Debit Note transactions resynced successfully",
           totalNotes: notes.length,
           synced,
           deleted,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod !== "GET") {
-      return createResponse(405, { error: "Method not allowed" }, origin);
+      return createResponse(405, { error: "Method not allowed" }, origin, event);
     }
 
     const {
@@ -112,17 +110,17 @@ export async function handler(event) {
 
     if (id) {
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid transaction ID" }, origin);
+        return createResponse(400, { error: "Invalid transaction ID" }, origin, event);
       }
 
       const transaction = await transactionsCollection.findOne({
         _id: new ObjectId(id),
       });
       if (!transaction) {
-        return createResponse(404, { error: "Transaction not found" }, origin);
+        return createResponse(404, { error: "Transaction not found" }, origin, event);
       }
 
-      return createResponse(200, flattenTransaction(transaction), origin);
+      return createResponse(200, flattenTransaction(transaction), origin, event);
     }
 
     const query = {};
@@ -166,8 +164,7 @@ export async function handler(event) {
       .limit(limitNum)
       .toArray();
 
-    return createResponse(
-      200,
+    return createResponse(200,
       {
         data: rows.map(flattenTransaction),
         pagination: {
@@ -177,17 +174,14 @@ export async function handler(event) {
           totalPages: Math.ceil(totalRecords / limitNum),
         },
       },
-      origin,
-    );
+      origin, event);
   } catch (error) {
     console.error("Transactions API Error:", error);
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

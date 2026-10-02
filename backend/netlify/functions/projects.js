@@ -255,7 +255,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -408,31 +408,27 @@ export async function handler(event) {
         });
 
         if (!nextNumber) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Could not generate project ID. Please configure financial year format first.",
             },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             nextNumber,
             projectId: nextNumber,
             financialYear,
             format,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid project ID" }, origin);
+          return createResponse(400, { error: "Invalid project ID" }, origin, event);
         }
 
         const projectRecord = await projectsCollection.findOne({
@@ -441,14 +437,12 @@ export async function handler(event) {
         });
 
         if (!projectRecord) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Project record not found" },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(200, projectRecord, origin);
+        return createResponse(200, projectRecord, origin, event);
       }
 
       const normalizedView = String(view || "")
@@ -834,8 +828,7 @@ export async function handler(event) {
         );
         const totalPayout = Number(payoutBuckets.totalPayout || 0);
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             data: rows,
             pagination: {
@@ -881,8 +874,7 @@ export async function handler(event) {
               ],
             },
           },
-          origin,
-        );
+          origin, event);
       }
 
       const params = event.queryStringParameters || {};
@@ -1376,8 +1368,7 @@ export async function handler(event) {
         totalRemainingAmount: 0,
       };
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: projectRecords,
           pagination: {
@@ -1408,8 +1399,7 @@ export async function handler(event) {
             ],
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -1433,22 +1423,18 @@ export async function handler(event) {
       }
 
       if (!projectData.projectId) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "Could not generate project ID. Please configure financial year format first.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (!projectData.projectDate) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Project Date is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const defaultFinancialYear = await yearsCollection.findOne({
@@ -1458,14 +1444,12 @@ export async function handler(event) {
       });
 
       if (!defaultFinancialYear?.startDate || !defaultFinancialYear?.endDate) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "Default financial year not configured. Please set a default financial year first.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (
@@ -1474,13 +1458,11 @@ export async function handler(event) {
           defaultFinancialYear,
         )
       ) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error: `Project Date must be between ${defaultFinancialYear.startDate} and ${defaultFinancialYear.endDate} (Default Financial Year: ${defaultFinancialYear.financialYear})`,
           },
-          origin,
-        );
+          origin, event);
       }
 
       const existing = await projectsCollection.findOne({
@@ -1489,24 +1471,20 @@ export async function handler(event) {
       });
 
       if (existing) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Project ID already exists" },
-          origin,
-        );
+          origin, event);
       }
 
       if (projectData?.projectAgreementUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Configure Cloudflare before uploading project agreement.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const agreementUpload = projectData.projectAgreementUpload;
@@ -1522,11 +1500,9 @@ export async function handler(event) {
         );
 
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid project agreement file data" },
-            origin,
-          );
+            origin, event);
         }
 
         const uploadResult = await uploadToCloudflareStore({
@@ -1565,24 +1541,22 @@ export async function handler(event) {
         sourceLabel: projectData.projectId || "",
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Project record created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Project ID is required" }, origin);
+        return createResponse(400, { error: "Project ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid project ID" }, origin);
+        return createResponse(400, { error: "Invalid project ID" }, origin, event);
       }
 
       const projectData = normalizePaymentMethodsInRecord(
@@ -1596,19 +1570,15 @@ export async function handler(event) {
       });
 
       if (!existingProjectRecord) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Project record not found" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!projectData.projectDate) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Project Date is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const defaultFinancialYear = await yearsCollection.findOne({
@@ -1618,14 +1588,12 @@ export async function handler(event) {
       });
 
       if (!defaultFinancialYear?.startDate || !defaultFinancialYear?.endDate) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "Default financial year not configured. Please set a default financial year first.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (
@@ -1634,13 +1602,11 @@ export async function handler(event) {
           defaultFinancialYear,
         )
       ) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error: `Project Date must be between ${defaultFinancialYear.startDate} and ${defaultFinancialYear.endDate} (Default Financial Year: ${defaultFinancialYear.financialYear})`,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (projectData.projectId) {
@@ -1651,25 +1617,21 @@ export async function handler(event) {
         });
 
         if (existing) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Project ID already exists" },
-            origin,
-          );
+            origin, event);
         }
       }
 
       if (projectData?.projectAgreementUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Configure Cloudflare before uploading project agreement.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const agreementUpload = projectData.projectAgreementUpload;
@@ -1679,11 +1641,9 @@ export async function handler(event) {
         );
 
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid project agreement file data" },
-            origin,
-          );
+            origin, event);
         }
 
         const existingPath = existingProjectRecord.projectAgreementFilePath;
@@ -1728,11 +1688,9 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Project record not found" },
-          origin,
-        );
+          origin, event);
       }
 
       const updatedProjectRecord = await projectsCollection.findOne({
@@ -1749,21 +1707,19 @@ export async function handler(event) {
         });
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Project record updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Project ID is required" }, origin);
+        return createResponse(400, { error: "Project ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid project ID" }, origin);
+        return createResponse(400, { error: "Invalid project ID" }, origin, event);
       }
 
       const projectObjectId = new ObjectId(id);
@@ -1773,24 +1729,20 @@ export async function handler(event) {
       });
 
       if (!existingProjectRecord) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Project record not found" },
-          origin,
-        );
+          origin, event);
       }
 
       if (existingProjectRecord.projectAgreementFilePath) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Unable to delete project agreement file.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         await deleteFromCloudflareStore({
@@ -1813,11 +1765,9 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Project record not found" },
-          origin,
-        );
+          origin, event);
       }
 
       await syncTransactionSnapshot({
@@ -1829,35 +1779,29 @@ export async function handler(event) {
         deleted: true,
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Project record deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Projects API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

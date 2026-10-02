@@ -1433,7 +1433,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -1487,25 +1487,21 @@ export async function handler(event) {
 
     if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
       if (cloudflareSettingsLoadError) {
-        return createResponse(
-          503,
+        return createResponse(503,
           {
             error:
               cloudflareSettingsLoadError.message ||
               "Unable to load Cloudflare settings.",
           },
-          origin,
-        );
+          origin, event);
       }
 
-      return createResponse(
-        400,
+      return createResponse(400,
         {
           error:
             "Cloudflare configuration is missing on server. Configure it in Settings.",
         },
-        origin,
-      );
+        origin, event);
     }
 
     const cloudCacheKey = getCloudCacheKey(
@@ -1570,11 +1566,9 @@ export async function handler(event) {
 
         const normalizedTargetPath = normalizePathForMatch(decodedFilePath);
         if (!normalizedTargetPath) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "filePath is required for file download." },
-            origin,
-          );
+            origin, event);
         }
 
         const targetRow = allCloudRows.find((row) => {
@@ -1583,7 +1577,7 @@ export async function handler(event) {
         });
 
         if (!targetRow) {
-          return createResponse(404, { error: "File not found." }, origin);
+          return createResponse(404, { error: "File not found." }, origin, event);
         }
 
         const downloaded = await downloadFromCloudflareStore({
@@ -1609,11 +1603,9 @@ export async function handler(event) {
       if (String(action || "").toLowerCase() === "download-folder-zip") {
         const folderPath = String(query.folderPath || "").trim();
         if (!folderPath) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "folderPath is required for zip download." },
-            origin,
-          );
+            origin, event);
         }
 
         const matchingRows = allCloudRows.filter((row) => {
@@ -1622,11 +1614,9 @@ export async function handler(event) {
         });
 
         if (!matchingRows.length) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "No files found in selected folder." },
-            origin,
-          );
+            origin, event);
         }
 
         const normalizedFolderPath = normalizePathForMatch(folderPath);
@@ -1694,13 +1684,11 @@ export async function handler(event) {
             String(row.filePath || "") === normalizedPath,
         );
         if (!single) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "File record not found" },
-            origin,
-          );
+            origin, event);
         }
-        return createResponse(200, single, origin);
+        return createResponse(200, single, origin, event);
       }
 
       if (folderName && folderName !== "All") {
@@ -1841,8 +1829,7 @@ export async function handler(event) {
         stats.totalSizeBytes += Number(row.fileSizeBytes) || 0;
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: rows,
           pagination: {
@@ -1870,8 +1857,7 @@ export async function handler(event) {
             source: "cloud-only",
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -1912,26 +1898,22 @@ export async function handler(event) {
           });
 
           invalidateCloudListCache();
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               message: "Temporary upload cleanup completed",
               retentionMinutes: Math.round(retentionMs / (60 * 1000)),
               forceAll,
               ...cleanup,
             },
-            origin,
-          );
+            origin, event);
         }
 
         if (action === "cancel-upload") {
           const uploadId = String(body.uploadId || query.uploadId || "").trim();
           if (!uploadId) {
-            return createResponse(
-              400,
+            return createResponse(400,
               { error: "uploadId is required" },
-              origin,
-            );
+              origin, event);
           }
 
           markUploadCancelled(uploadId);
@@ -1958,32 +1940,28 @@ export async function handler(event) {
 
           invalidateCloudListCache();
 
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               message: "Upload cancelled successfully",
               uploadId,
               deletedChunks,
             },
-            origin,
-          );
+            origin, event);
         }
 
         if (action === "upload-status") {
           const uploadId = String(body.uploadId || "").trim();
           if (!uploadId) {
-            return createResponse(
-              400,
+            return createResponse(400,
               { error: "uploadId is required" },
-              origin,
-            );
+              origin, event);
           }
           const uploadedChunks = await getChunkedUploadStatus({
             storeUrl: cloudflareSettings.storeUrl,
             password: cloudflareSettings.password,
             uploadId,
           });
-          return createResponse(200, { uploadedChunks }, origin);
+          return createResponse(200, { uploadedChunks }, origin, event);
         }
 
         if (action === "upload-chunk") {
@@ -1995,19 +1973,15 @@ export async function handler(event) {
             Number.isNaN(metadata.chunkIndex) ||
             Number.isNaN(metadata.chunkCount)
           ) {
-            return createResponse(
-              400,
+            return createResponse(400,
               { error: "Missing chunk upload metadata" },
-              origin,
-            );
+              origin, event);
           }
 
           if (isUploadCancelled(metadata.uploadId)) {
-            return createResponse(
-              409,
+            return createResponse(409,
               { error: "Upload has been cancelled" },
-              origin,
-            );
+              origin, event);
           }
 
           const requestBody = event.body || "";
@@ -2016,11 +1990,9 @@ export async function handler(event) {
             : Buffer.from(requestBody || "", "utf8");
 
           if (!chunkBuffer.length) {
-            return createResponse(
-              400,
+            return createResponse(400,
               { error: "Chunk payload is empty" },
-              origin,
-            );
+              origin, event);
           }
 
           const chunkObjectPath = buildUploadChunkPath(
@@ -2037,16 +2009,14 @@ export async function handler(event) {
             fileBuffer: chunkBuffer,
           });
 
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               message: "Chunk uploaded successfully",
               uploadId: metadata.uploadId,
               chunkIndex: metadata.chunkIndex,
               chunkCount: metadata.chunkCount,
             },
-            origin,
-          );
+            origin, event);
         }
 
         if (action === "complete-upload") {
@@ -2060,21 +2030,17 @@ export async function handler(event) {
           const fileSizeBytes = Number(body.fileSizeBytes || 0);
 
           if (!uploadId || !filePath || !fileName || !chunkCount) {
-            return createResponse(
-              400,
+            return createResponse(400,
               {
                 error: "uploadId, filePath, fileName, chunkCount are required",
               },
-              origin,
-            );
+              origin, event);
           }
 
           if (isUploadCancelled(uploadId)) {
-            return createResponse(
-              409,
+            return createResponse(409,
               { error: "Upload has been cancelled" },
-              origin,
-            );
+              origin, event);
           }
 
           const chunkBuffers = [];
@@ -2131,8 +2097,7 @@ export async function handler(event) {
 
           invalidateCloudListCache();
 
-          return createResponse(
-            201,
+          return createResponse(201,
             {
               message: "Chunked upload merged successfully",
               data: {
@@ -2155,13 +2120,12 @@ export async function handler(event) {
                 status: "Active",
               },
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
       if (!["upload", "upload-files", "upload-folder"].includes(action)) {
-        return createResponse(400, { error: "Unsupported action" }, origin);
+        return createResponse(400, { error: "Unsupported action" }, origin, event);
       }
 
       const uploadDate = parseUploadDate(body.uploadDate);
@@ -2181,11 +2145,9 @@ export async function handler(event) {
         const fileDataBase64 = String(body.fileDataBase64 || "").trim();
         const requestedFileName = String(body.fileName || "").trim();
         if (!requestedFileName || !fileDataBase64) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "File name and file data are required" },
-            origin,
-          );
+            origin, event);
         }
 
         const fileName = safeFileName(requestedFileName);
@@ -2205,7 +2167,7 @@ export async function handler(event) {
         });
         const fileBuffer = decodedUpload.buffer;
         if (!fileBuffer.length) {
-          return createResponse(400, { error: "Invalid file data" }, origin);
+          return createResponse(400, { error: "Invalid file data" }, origin, event);
         }
 
         const uploadResult = await uploadToCloudflareStore({
@@ -2219,8 +2181,7 @@ export async function handler(event) {
 
         invalidateCloudListCache();
 
-        return createResponse(
-          201,
+        return createResponse(201,
           {
             message: "File uploaded successfully",
             data: {
@@ -2246,18 +2207,15 @@ export async function handler(event) {
               status: "Active",
             },
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (action === "upload-files") {
         const files = Array.isArray(body.files) ? body.files : [];
         if (files.length === 0) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "At least one file is required" },
-            origin,
-          );
+            origin, event);
         }
 
         const preparedFiles = files
@@ -2277,7 +2235,7 @@ export async function handler(event) {
           .filter((item) => item.fileName && item.fileDataBase64);
 
         if (!preparedFiles.length) {
-          return createResponse(400, { error: "No valid files found" }, origin);
+          return createResponse(400, { error: "No valid files found" }, origin, event);
         }
 
         const fullPaths = preparedFiles.map(
@@ -2287,11 +2245,9 @@ export async function handler(event) {
         for (const path of fullPaths) {
           const key = path.toLowerCase();
           if (seen.has(key)) {
-            return createResponse(
-              409,
+            return createResponse(409,
               { error: `Duplicate file name in selection: ${path}` },
-              origin,
-            );
+              origin, event);
           }
           seen.add(key);
         }
@@ -2309,11 +2265,9 @@ export async function handler(event) {
           });
           const fileBuffer = decodedUpload.buffer;
           if (!fileBuffer.length) {
-            return createResponse(
-              400,
+            return createResponse(400,
               { error: `Invalid file data for: ${item.fileName}` },
-              origin,
-            );
+              origin, event);
           }
 
           const uploadResult = await uploadToCloudflareStore({
@@ -2350,25 +2304,21 @@ export async function handler(event) {
         }
 
         invalidateCloudListCache();
-        return createResponse(
-          201,
+        return createResponse(201,
           {
             message: `${uploaded.length} files uploaded successfully`,
             data: uploaded,
           },
-          origin,
-        );
+          origin, event);
       }
 
       const folderFiles = Array.isArray(body.folderFiles)
         ? body.folderFiles
         : [];
       if (!folderFiles.length) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Folder files are required" },
-          origin,
-        );
+          origin, event);
       }
 
       const preparedFiles = folderFiles
@@ -2388,11 +2338,9 @@ export async function handler(event) {
         .filter((item) => item.relativePath && item.fileDataBase64);
 
       if (!preparedFiles.length) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "No valid files found in selected folder" },
-          origin,
-        );
+          origin, event);
       }
 
       const fullFolderPaths = preparedFiles.map(
@@ -2402,11 +2350,9 @@ export async function handler(event) {
       for (const path of fullFolderPaths) {
         const key = path.toLowerCase();
         if (seen.has(key)) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: `Duplicate file in selected folder payload: ${path}` },
-            origin,
-          );
+            origin, event);
         }
         seen.add(key);
       }
@@ -2435,11 +2381,9 @@ export async function handler(event) {
         });
         const fileBuffer = decodedUpload.buffer;
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: `Invalid file data in folder item: ${item.relativePath}` },
-            origin,
-          );
+            origin, event);
         }
 
         const uploadResult = await uploadToCloudflareStore({
@@ -2479,20 +2423,18 @@ export async function handler(event) {
       }
 
       invalidateCloudListCache();
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: `Folder uploaded successfully (${uploaded.length} files)`,
           data: uploaded,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = query;
       if (!id) {
-        return createResponse(400, { error: "File id is required" }, origin);
+        return createResponse(400, { error: "File id is required" }, origin, event);
       }
 
       const decodedId = (() => {
@@ -2510,7 +2452,7 @@ export async function handler(event) {
         .replace(/^\/+/, "")
         .trim();
       if (!cleanedPath) {
-        return createResponse(400, { error: "Invalid file id/path" }, origin);
+        return createResponse(400, { error: "Invalid file id/path" }, origin, event);
       }
 
       await deleteFromCloudflareStore({
@@ -2520,17 +2462,15 @@ export async function handler(event) {
       });
 
       invalidateCloudListCache();
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "File deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = query;
       if (!id) {
-        return createResponse(400, { error: "File id is required" }, origin);
+        return createResponse(400, { error: "File id is required" }, origin, event);
       }
 
       const body = parsedBody;
@@ -2538,11 +2478,9 @@ export async function handler(event) {
       if (Object.prototype.hasOwnProperty.call(body, "fileName")) {
         const nextName = safeFileName(body.fileName || "");
         if (!nextName) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "File name is required" },
-            origin,
-          );
+            origin, event);
         }
         updates.fileName = nextName;
       }
@@ -2550,11 +2488,9 @@ export async function handler(event) {
         updates.folderName = ensureFolder(body.folderName, "general");
       }
       if (!Object.keys(updates).length) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "No valid fields to update" },
-          origin,
-        );
+          origin, event);
       }
 
       const decodedId = (() => {
@@ -2572,7 +2508,7 @@ export async function handler(event) {
         .replace(/^\/+/, "")
         .trim();
       if (!cleanedOldPath) {
-        return createResponse(400, { error: "Invalid cloud file id" }, origin);
+        return createResponse(400, { error: "Invalid cloud file id" }, origin, event);
       }
 
       const allCloudRows = await getCloudRows();
@@ -2591,7 +2527,7 @@ export async function handler(event) {
           objectPath: cleanedOldPath,
         }))
       ) {
-        return createResponse(404, { error: "File record not found" }, origin);
+        return createResponse(404, { error: "File record not found" }, origin, event);
       }
 
       const oldSegments = cleanedOldPath.split("/").filter(Boolean);
@@ -2609,11 +2545,9 @@ export async function handler(event) {
             String(row.filePath || "").toLowerCase() === nextPath.toLowerCase(),
         );
         if (duplicateCloud) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: `File already exists with name: ${nextPath}` },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -2634,8 +2568,7 @@ export async function handler(event) {
       }
 
       invalidateCloudListCache();
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           message: "Cloud file updated successfully",
           data: {
@@ -2657,11 +2590,10 @@ export async function handler(event) {
             status: "Active",
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Files API error:", error);
 
@@ -2670,7 +2602,7 @@ export async function handler(event) {
         .toLowerCase()
         .includes("token")
     ) {
-      return createResponse(401, { error: "Unauthorized" }, origin);
+      return createResponse(401, { error: "Unauthorized" }, origin, event);
     }
 
     if (
@@ -2678,23 +2610,19 @@ export async function handler(event) {
         .toLowerCase()
         .includes("rename")
     ) {
-      return createResponse(
-        409,
+      return createResponse(409,
         {
           error: "Rename failed",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

@@ -116,7 +116,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -147,9 +147,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (!entry) {
-          return createResponse(404, { error: "Cash & Bank entry not found" }, origin);
+          return createResponse(404, { error: "Cash & Bank entry not found" }, origin, event);
         }
-        return createResponse(200, entry, origin);
+        return createResponse(200, entry, origin, event);
       }
 
       const pageNum = parseInt(page, 10) || 1;
@@ -291,8 +291,7 @@ export async function handler(event) {
         ])
         .toArray();
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: entries,
           pagination: {
@@ -314,8 +313,7 @@ export async function handler(event) {
             sourceName: ["All", ...sourceNameValues.sort()],
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     // POST - Create new cash/bank entry
@@ -324,7 +322,7 @@ export async function handler(event) {
 
       const validationError = await validateDateAgainstFinancialYear(entryData, yearsCollection);
       if (validationError) {
-        return createResponse(400, { error: validationError }, origin);
+        return createResponse(400, { error: validationError }, origin, event);
       }
 
       // Resolve financial year if not set
@@ -362,22 +360,20 @@ export async function handler(event) {
         sourceLabel: newEntry.entryNumber || "",
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Cash & Bank entry created successfully",
           id: result.insertedId,
           ...entryData,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // PUT - Update existing entry
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Entry ID is required" }, origin);
+        return createResponse(400, { error: "Entry ID is required" }, origin, event);
       }
 
       const entryData = normalizePaymentMethodsInRecord(JSON.parse(event.body));
@@ -389,14 +385,14 @@ export async function handler(event) {
       });
 
       if (!existingRecord) {
-        return createResponse(404, { error: "Cash & Bank entry not found" }, origin);
+        return createResponse(404, { error: "Cash & Bank entry not found" }, origin, event);
       }
 
       const mergedData = { ...existingRecord, ...updateData };
 
       const validationError = await validateDateAgainstFinancialYear(mergedData, yearsCollection);
       if (validationError) {
-        return createResponse(400, { error: validationError }, origin);
+        return createResponse(400, { error: validationError }, origin, event);
       }
 
       const updatedRecord = {
@@ -412,7 +408,7 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Cash & Bank entry not found" }, origin);
+        return createResponse(404, { error: "Cash & Bank entry not found" }, origin, event);
       }
 
       // Sync to transactions for balance sheet
@@ -424,14 +420,14 @@ export async function handler(event) {
         sourceLabel: updatedRecord.entryNumber || "",
       });
 
-      return createResponse(200, { message: "Cash & Bank entry updated successfully" }, origin);
+      return createResponse(200, { message: "Cash & Bank entry updated successfully" }, origin, event);
     }
 
     // DELETE - Soft delete
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Entry ID is required" }, origin);
+        return createResponse(400, { error: "Entry ID is required" }, origin, event);
       }
 
       const existingRecord = await cbCollection.findOne({
@@ -440,7 +436,7 @@ export async function handler(event) {
       });
 
       if (!existingRecord) {
-        return createResponse(404, { error: "Cash & Bank entry not found" }, origin);
+        return createResponse(404, { error: "Cash & Bank entry not found" }, origin, event);
       }
 
       const result = await cbCollection.updateOne(
@@ -456,7 +452,7 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Cash & Bank entry not found" }, origin);
+        return createResponse(404, { error: "Cash & Bank entry not found" }, origin, event);
       }
 
       // Sync deletion to transactions
@@ -469,15 +465,15 @@ export async function handler(event) {
         deleted: true,
       });
 
-      return createResponse(200, { message: "Cash & Bank entry deleted successfully" }, origin);
+      return createResponse(200, { message: "Cash & Bank entry deleted successfully" }, origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Cash & Bank Book API Error:", error);
     if (error.message === "Unauthorized") {
-      return createResponse(401, { error: "Unauthorized" }, origin);
+      return createResponse(401, { error: "Unauthorized" }, origin, event);
     }
-    return createResponse(500, { error: "Internal server error" }, origin);
+    return createResponse(500, { error: "Internal server error" }, origin, event);
   }
 }

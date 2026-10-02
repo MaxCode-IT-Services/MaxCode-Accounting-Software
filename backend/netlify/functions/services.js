@@ -11,7 +11,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -212,31 +212,27 @@ export async function handler(event) {
         });
 
         if (!nextNumber) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Could not generate service number. Please configure financial year format first.",
             },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             nextNumber,
             serviceNumber: nextNumber,
             financialYear,
             format,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid service ID" }, origin);
+          return createResponse(400, { error: "Invalid service ID" }, origin, event);
         }
 
         const serviceRecord = await servicesCollection.findOne({
@@ -245,14 +241,12 @@ export async function handler(event) {
         });
 
         if (!serviceRecord) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Service record not found" },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(200, serviceRecord, origin);
+        return createResponse(200, serviceRecord, origin, event);
       }
 
       const params = event.queryStringParameters || {};
@@ -586,8 +580,7 @@ export async function handler(event) {
         },
       );
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: serviceRecords,
           services: serviceRecords,
@@ -615,8 +608,7 @@ export async function handler(event) {
             clientId: client.clientId,
           })),
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -638,14 +630,12 @@ export async function handler(event) {
       }
 
       if (!serviceData.serviceNumber) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "Could not generate service number. Please configure financial year format first.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const existing = await servicesCollection.findOne({
@@ -653,11 +643,9 @@ export async function handler(event) {
       });
 
       if (existing) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Service number already exists" },
-          origin,
-        );
+          origin, event);
       }
 
       // Always assign _id as ObjectId
@@ -670,24 +658,22 @@ export async function handler(event) {
       };
       const result = await servicesCollection.insertOne(docToInsert);
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Services record created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Service ID is required" }, origin);
+        return createResponse(400, { error: "Service ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid service ID" }, origin);
+        return createResponse(400, { error: "Invalid service ID" }, origin, event);
       }
 
       const serviceData = JSON.parse(event.body || "{}");
@@ -699,11 +685,9 @@ export async function handler(event) {
         });
 
         if (existing && String(existing._id) !== String(id)) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Service number already exists" },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -719,28 +703,24 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Service record not found" },
-          origin,
-        );
+          origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Services record updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Service ID is required" }, origin);
+        return createResponse(400, { error: "Service ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid service ID" }, origin);
+        return createResponse(400, { error: "Invalid service ID" }, origin, event);
       }
 
       const result = await servicesCollection.updateOne(
@@ -756,42 +736,34 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Service record not found" },
-          origin,
-        );
+          origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Services record deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Services API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

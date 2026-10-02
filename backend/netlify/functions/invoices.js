@@ -25,7 +25,7 @@ export async function handler(event) {
 
   // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -369,20 +369,17 @@ export async function handler(event) {
         ).trim();
 
         if (!invoiceFormat) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Invoice number format is not configured for the selected financial year.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const nextNumber = await getNextInvoiceNumber(invoiceFormat);
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             nextNumber,
             invoiceNumber: nextNumber,
@@ -390,14 +387,13 @@ export async function handler(event) {
               requestedFinancialYear || String(yearRecord?.financialYear || ""),
             format: invoiceFormat,
           },
-          origin,
-        );
+          origin, event);
       }
 
       // If ID is provided, return single invoice
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid invoice ID" }, origin);
+          return createResponse(400, { error: "Invalid invoice ID" }, origin, event);
         }
 
         const invoice = await invoicesCollection.findOne({
@@ -406,7 +402,7 @@ export async function handler(event) {
         });
 
         if (!invoice) {
-          return createResponse(404, { error: "Invoice not found" }, origin);
+          return createResponse(404, { error: "Invoice not found" }, origin, event);
         }
 
         const paymentReceiptsCol = db.collection("payment_receipts");
@@ -543,7 +539,7 @@ export async function handler(event) {
             : {}),
         };
 
-        return createResponse(200, responseInvoice, origin);
+        return createResponse(200, responseInvoice, origin, event);
       }
 
       // Build filter query (rest of the code remains same)
@@ -1117,8 +1113,7 @@ export async function handler(event) {
         };
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: patchedInvoices,
           pagination: {
@@ -1149,8 +1144,7 @@ export async function handler(event) {
               }
             : {}),
         },
-        origin,
-      );
+        origin, event);
     }
 
     // POST - Create new invoice (rest remains same)
@@ -1182,14 +1176,12 @@ export async function handler(event) {
           invoiceData.invoiceFormat || defaultYear?.invoiceFormat || "";
 
         if (!invoiceFormat) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Invoice number is required. Default financial year invoice format not found.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         invoiceData.invoiceNumber = await getNextInvoiceNumber(invoiceFormat);
@@ -1205,11 +1197,9 @@ export async function handler(event) {
       });
 
       if (existingInvoice && !existingInvoice.isDeleted) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Invoice number already exists" },
-          origin,
-        );
+          origin, event);
       }
 
       const binding = await getInvoiceTermsBinding();
@@ -1304,25 +1294,23 @@ export async function handler(event) {
       invoiceMetaCache.value = null;
       invoiceMetaCache.expiresAt = 0;
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Invoice created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // PUT - Update existing invoice (rest remains same)
     if (event.httpMethod === "PUT") {
       const { id, action: putAction } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Invoice ID is required" }, origin);
+        return createResponse(400, { error: "Invoice ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid invoice ID" }, origin);
+        return createResponse(400, { error: "Invalid invoice ID" }, origin, event);
       }
 
       // ── TDS CLAIM ACTION ──────────────────────────────────────────────────
@@ -1335,26 +1323,26 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (!currentInvoice) {
-          return createResponse(404, { error: "Invoice not found" }, origin);
+          return createResponse(404, { error: "Invoice not found" }, origin, event);
         }
 
         const tdsAmount = toNumber(currentInvoice.tdsAmount || 0);
         if (tdsAmount <= 0) {
-          return createResponse(400, { error: "No TDS amount found on this invoice" }, origin);
+          return createResponse(400, { error: "No TDS amount found on this invoice" }, origin, event);
         }
 
         // Validate claim status
         const validStatuses = ["Pending", "Claimed", "Adjusted", "Partial"];
         const tdsClaimStatus = claimData.tdsClaimStatus || "Pending";
         if (!validStatuses.includes(tdsClaimStatus)) {
-          return createResponse(400, { error: "Invalid TDS claim status" }, origin);
+          return createResponse(400, { error: "Invalid TDS claim status" }, origin, event);
         }
 
         const refundAmount = Math.max(toNumber(claimData.tdsRefundAmount || 0), 0);
         const adjustAmount = Math.max(toNumber(claimData.tdsAdjustAmount || 0), 0);
 
         if ((tdsClaimStatus === "Claimed" || tdsClaimStatus === "Partial") && refundAmount + adjustAmount > tdsAmount + 0.01) {
-          return createResponse(400, { error: "Refund + Adjust amount cannot exceed TDS amount" }, origin);
+          return createResponse(400, { error: "Refund + Adjust amount cannot exceed TDS amount" }, origin, event);
         }
 
         const tdsClaimFields = {
@@ -1413,7 +1401,7 @@ export async function handler(event) {
         return createResponse(200, {
           message: "TDS claim saved successfully",
           tdsClaimStatus,
-        }, origin);
+        }, origin, event);
       }
       // ─────────────────────────────────────────────────────────────────────
 
@@ -1429,7 +1417,7 @@ export async function handler(event) {
       });
 
       if (!currentInvoice) {
-        return createResponse(404, { error: "Invoice not found" }, origin);
+        return createResponse(404, { error: "Invoice not found" }, origin, event);
       }
 
       // Check for duplicate invoice number (excluding current record)
@@ -1440,11 +1428,9 @@ export async function handler(event) {
         });
 
         if (existingInvoice) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Invoice number already exists" },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -1607,7 +1593,7 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Invoice not found" }, origin);
+        return createResponse(404, { error: "Invoice not found" }, origin, event);
       }
 
       await syncTransactionSnapshot({
@@ -1621,22 +1607,20 @@ export async function handler(event) {
       invoiceMetaCache.value = null;
       invoiceMetaCache.expiresAt = 0;
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Invoice updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     // DELETE - Soft delete invoice
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Invoice ID is required" }, origin);
+        return createResponse(400, { error: "Invoice ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid invoice ID" }, origin);
+        return createResponse(400, { error: "Invalid invoice ID" }, origin, event);
       }
 
       const currentInvoice = await invoicesCollection.findOne({
@@ -1645,7 +1629,7 @@ export async function handler(event) {
       });
 
       if (!currentInvoice) {
-        return createResponse(404, { error: "Invoice not found" }, origin);
+        return createResponse(404, { error: "Invoice not found" }, origin, event);
       }
 
       const result = await invoicesCollection.updateOne(
@@ -1661,7 +1645,7 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Invoice not found" }, origin);
+        return createResponse(404, { error: "Invoice not found" }, origin, event);
       }
 
       await syncTransactionSnapshot({
@@ -1676,35 +1660,29 @@ export async function handler(event) {
       invoiceMetaCache.value = null;
       invoiceMetaCache.expiresAt = 0;
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Invoice deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Invoice API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

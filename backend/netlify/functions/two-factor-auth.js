@@ -61,7 +61,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -74,8 +74,7 @@ export async function handler(event) {
         _id: new ObjectId(user.userId),
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           twoFactorEnabled: userData?.twoFactor?.enabled || false,
           hasBackupCodes: !!(
@@ -83,8 +82,7 @@ export async function handler(event) {
             userData.twoFactor.backupCodes.length > 0
           ),
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -126,8 +124,7 @@ export async function handler(event) {
           { upsert: true },
         );
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             success: true,
             qrCode, // Data URL of QR code
@@ -135,8 +132,7 @@ export async function handler(event) {
             backupCodes, // Show to user during setup
             message: "Scan QR code with your authenticator app",
           },
-          origin,
-        );
+          origin, event);
       }
 
       // Verify TOTP token
@@ -144,7 +140,7 @@ export async function handler(event) {
         const { token } = payload;
 
         if (!token || token.length !== 6 || !/^\d+$/.test(token)) {
-          return createResponse(400, { error: "Invalid token format" }, origin);
+          return createResponse(400, { error: "Invalid token format" }, origin, event);
         }
 
         const userObjectId = new ObjectId(user.userId);
@@ -154,27 +150,23 @@ export async function handler(event) {
 
         const tempSecret = userData?.twoFactor?.tempSecret;
         if (!tempSecret) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "2FA not setup. Generate secret first." },
-            origin,
-          );
+            origin, event);
         }
 
         const isValid = verifyTOTPToken(tempSecret, token);
         if (!isValid) {
-          return createResponse(401, { error: "Invalid 2FA token" }, origin);
+          return createResponse(401, { error: "Invalid 2FA token" }, origin, event);
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             success: true,
             verified: true,
             message: "Token verified successfully",
           },
-          origin,
-        );
+          origin, event);
       }
 
       // Enable 2FA (save verified secret)
@@ -188,30 +180,24 @@ export async function handler(event) {
 
         const tempSecret = userData?.twoFactor?.tempSecret;
         if (!tempSecret) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Temporary secret not found. Generate 2FA first." },
-            origin,
-          );
+            origin, event);
         }
 
         if (!token || token.length !== 6 || !/^\d+$/.test(token)) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error: "Please provide 6-digit code from your authenticator app",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const isValid = verifyTOTPToken(tempSecret, token);
         if (!isValid) {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Invalid authenticator code. Please try again." },
-            origin,
-          );
+            origin, event);
         }
 
         const backupCodes = userData?.twoFactor?.tempBackupCodes || [];
@@ -233,8 +219,7 @@ export async function handler(event) {
           },
         );
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             success: true,
             message: "Two-factor authentication enabled successfully!",
@@ -242,8 +227,7 @@ export async function handler(event) {
             instruction:
               "Save these backup codes in a safe place. Use them if you lose access to your authenticator app.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       // Disable 2FA
@@ -251,11 +235,9 @@ export async function handler(event) {
         const { verificationToken } = payload;
 
         if (!verificationToken || verificationToken.length !== 6) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Verification token required" },
-            origin,
-          );
+            origin, event);
         }
 
         const userData = await usersCollection.findOne({
@@ -263,7 +245,7 @@ export async function handler(event) {
         });
 
         if (!userData?.twoFactor?.enabled) {
-          return createResponse(400, { error: "2FA not enabled" }, origin);
+          return createResponse(400, { error: "2FA not enabled" }, origin, event);
         }
 
         const isValid = verifyTOTPToken(
@@ -284,18 +266,14 @@ export async function handler(event) {
               },
             );
           } else {
-            return createResponse(
-              401,
+            return createResponse(401,
               { error: "Invalid verification code" },
-              origin,
-            );
+              origin, event);
           }
         } else if (!isValid) {
-          return createResponse(
-            401,
+          return createResponse(401,
             { error: "Invalid verification code" },
-            origin,
-          );
+            origin, event);
         }
 
         // Disable 2FA
@@ -310,29 +288,25 @@ export async function handler(event) {
           },
         );
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             success: true,
             message: "Two-factor authentication disabled",
           },
-          origin,
-        );
+          origin, event);
       }
 
-      return createResponse(400, { error: "Invalid action" }, origin);
+      return createResponse(400, { error: "Invalid action" }, origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("2FA error:", error);
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "2FA operation failed",
         message: error.message,
       },
-      event.headers.origin || event.headers.Origin,
-    );
+      event.headers.origin || event.headers.Origin, event);
   }
 }

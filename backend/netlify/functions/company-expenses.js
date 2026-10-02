@@ -257,7 +257,7 @@ export async function handler(event) {
 
   // Handle CORS preflight
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -402,32 +402,28 @@ export async function handler(event) {
         });
 
         if (!nextNumber) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Could not generate expense number. Please configure financial year format first.",
             },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             nextNumber,
             expenseNumber: nextNumber,
             financialYear,
             format,
           },
-          origin,
-        );
+          origin, event);
       }
 
       // If ID is provided, return single expense
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid expense ID" }, origin);
+          return createResponse(400, { error: "Invalid expense ID" }, origin, event);
         }
 
         const expense = await expensesCollection.findOne({
@@ -436,10 +432,10 @@ export async function handler(event) {
         });
 
         if (!expense) {
-          return createResponse(404, { error: "Expense not found" }, origin);
+          return createResponse(404, { error: "Expense not found" }, origin, event);
         }
 
-        return createResponse(200, expense, origin);
+        return createResponse(200, expense, origin, event);
       }
 
       // Build filter query
@@ -728,8 +724,7 @@ export async function handler(event) {
       const unpaidAmount = totalAmount - paidAmount;
 
       // Return paginated response with metadata
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: expenses,
           pagination: {
@@ -756,8 +751,7 @@ export async function handler(event) {
             dateRanges,
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     // POST - Create new expense
@@ -775,14 +769,12 @@ export async function handler(event) {
       }
 
       if (!expenseData.financialYear) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "Financial year is required. Default financial year not found.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (!expenseData.expenseNumber) {
@@ -792,14 +784,12 @@ export async function handler(event) {
         });
 
         if (!expenseData.expenseNumber) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Could not generate expense number. Please check financial year configuration.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -809,11 +799,9 @@ export async function handler(event) {
       });
 
       if (existingExpense && !existingExpense.isDeleted) {
-        return createResponse(
-          409,
+        return createResponse(409,
           { error: "Expense number already exists" },
-          origin,
-        );
+          origin, event);
       }
 
       // Normalize amount and tax data
@@ -842,14 +830,12 @@ export async function handler(event) {
       if (expenseData?.expenseUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Configure Cloudflare before uploading expense document.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const expenseUpload = expenseData.expenseUpload;
@@ -865,11 +851,9 @@ export async function handler(event) {
         );
 
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid expense file data" },
-            origin,
-          );
+            origin, event);
         }
 
         const uploadResult = await uploadToCloudflareStore({
@@ -900,25 +884,23 @@ export async function handler(event) {
         sourceLabel: normalizedExpense.expenseNumber || "",
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Company expense created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // PUT - Update existing expense
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Expense ID is required" }, origin);
+        return createResponse(400, { error: "Expense ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid expense ID" }, origin);
+        return createResponse(400, { error: "Invalid expense ID" }, origin, event);
       }
 
       const expenseData = normalizePaymentMethodsInRecord(
@@ -932,7 +914,7 @@ export async function handler(event) {
       });
 
       if (!existingExpenseRecord) {
-        return createResponse(404, { error: "Expense not found" }, origin);
+        return createResponse(404, { error: "Expense not found" }, origin, event);
       }
 
       // Check for duplicate expense number (excluding current record)
@@ -943,11 +925,9 @@ export async function handler(event) {
         });
 
         if (existingExpense) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Expense number already exists" },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -957,14 +937,12 @@ export async function handler(event) {
       if (expenseData?.expenseUpload?.fileDataBase64) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Configure Cloudflare before uploading expense document.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const expenseUpload = expenseData.expenseUpload;
@@ -974,11 +952,9 @@ export async function handler(event) {
         );
 
         if (!fileBuffer.length) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid expense file data" },
-            origin,
-          );
+            origin, event);
         }
 
         const existingPath = existingExpenseRecord.expenseFilePath;
@@ -1043,7 +1019,7 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Expense not found" }, origin);
+        return createResponse(404, { error: "Expense not found" }, origin, event);
       }
 
       await syncTransactionSnapshot({
@@ -1054,22 +1030,20 @@ export async function handler(event) {
         sourceLabel: updatedExpenseRecord.expenseNumber || "",
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Company expense updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     // DELETE - Soft delete expense
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Expense ID is required" }, origin);
+        return createResponse(400, { error: "Expense ID is required" }, origin, event);
       }
 
       if (!ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Invalid expense ID" }, origin);
+        return createResponse(400, { error: "Invalid expense ID" }, origin, event);
       }
 
       const expenseObjectId = new ObjectId(id);
@@ -1079,20 +1053,18 @@ export async function handler(event) {
       });
 
       if (!existingExpenseRecord) {
-        return createResponse(404, { error: "Expense not found" }, origin);
+        return createResponse(404, { error: "Expense not found" }, origin, event);
       }
 
       if (existingExpenseRecord.expenseFilePath) {
         const cloudflareSettings = await getCloudflareSettingsFromDatabase(db);
         if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Cloudflare settings missing. Unable to delete expense uploaded file.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         await deleteFromCloudflareStore({
@@ -1124,38 +1096,32 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Expense not found" }, origin);
+        return createResponse(404, { error: "Expense not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Company expense deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Company Expense API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

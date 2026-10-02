@@ -236,7 +236,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -281,14 +281,12 @@ export async function handler(event) {
             format,
             financialYear: resolvedYear,
           });
-          return createResponse(
-            200,
+          return createResponse(200,
             { fdNumber: nextNumber, financialYear: resolvedYear, format },
-            origin,
-          );
+            origin, event);
         } catch (error) {
           console.error("Error generating next FD number:", error);
-          return createResponse(500, { error: "Failed to generate next FD number" }, origin);
+          return createResponse(500, { error: "Failed to generate next FD number" }, origin, event);
         }
       }
 
@@ -299,9 +297,9 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (!fd) {
-          return createResponse(404, { error: "Fixed Deposit not found" }, origin);
+          return createResponse(404, { error: "Fixed Deposit not found" }, origin, event);
         }
-        return createResponse(200, fd, origin);
+        return createResponse(200, fd, origin, event);
       }
 
       // Fetch list with pagination and filters
@@ -427,8 +425,7 @@ export async function handler(event) {
         fdStatus: "Closed",
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: fds,
           pagination: {
@@ -452,8 +449,7 @@ export async function handler(event) {
             transferredFromAccountType: ["All", ...accountTypes.sort()],
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -461,7 +457,7 @@ export async function handler(event) {
 
       const validationError = await validateFdDateAgainstFinancialYear(fdData, yearsCollection);
       if (validationError) {
-        return createResponse(400, { error: validationError }, origin);
+        return createResponse(400, { error: validationError }, origin, event);
       }
 
       const { financialYear: resolvedYear, format } = await resolveFdNumberContext({
@@ -501,21 +497,19 @@ export async function handler(event) {
         sourceEvent: "open",
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Fixed Deposit created successfully",
           id: newFd._id,
           fdNumber: newFd.fdNumber,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Fixed Deposit ID is required" }, origin);
+        return createResponse(400, { error: "Fixed Deposit ID is required" }, origin, event);
       }
 
       const fdData = normalizePaymentMethodsInRecord(JSON.parse(event.body));
@@ -526,7 +520,7 @@ export async function handler(event) {
       });
 
       if (!existingRecord) {
-        return createResponse(404, { error: "Fixed Deposit not found" }, origin);
+        return createResponse(404, { error: "Fixed Deposit not found" }, origin, event);
       }
 
       const mergedData = {
@@ -536,7 +530,7 @@ export async function handler(event) {
 
       const validationError = await validateFdDateAgainstFinancialYear(mergedData, yearsCollection);
       if (validationError) {
-        return createResponse(400, { error: validationError }, origin);
+        return createResponse(400, { error: validationError }, origin, event);
       }
 
       const closureValidationError = await validateClosureDateAgainstFinancialYear(
@@ -544,7 +538,7 @@ export async function handler(event) {
         yearsCollection,
       );
       if (closureValidationError) {
-        return createResponse(400, { error: closureValidationError }, origin);
+        return createResponse(400, { error: closureValidationError }, origin, event);
       }
 
       const normalizedData = normalizeFdRecord(mergedData);
@@ -597,13 +591,13 @@ export async function handler(event) {
         });
       }
 
-      return createResponse(200, { message: "Fixed Deposit updated successfully" }, origin);
+      return createResponse(200, { message: "Fixed Deposit updated successfully" }, origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Fixed Deposit ID is required" }, origin);
+        return createResponse(400, { error: "Fixed Deposit ID is required" }, origin, event);
       }
 
       const existingRecord = await fdCollection.findOne({
@@ -612,7 +606,7 @@ export async function handler(event) {
       });
 
       if (!existingRecord) {
-        return createResponse(404, { error: "Fixed Deposit not found" }, origin);
+        return createResponse(404, { error: "Fixed Deposit not found" }, origin, event);
       }
 
       // Sync deletion
@@ -637,15 +631,15 @@ export async function handler(event) {
         },
       );
 
-      return createResponse(200, { message: "Fixed Deposit deleted successfully" }, origin);
+      return createResponse(200, { message: "Fixed Deposit deleted successfully" }, origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     if (error.message?.includes("Invalid token") || error.message?.includes("jwt")) {
-      return createResponse(401, { error: "Unauthorized" }, origin);
+      return createResponse(401, { error: "Unauthorized" }, origin, event);
     }
     console.error("Fixed Deposits API Error:", error);
-    return createResponse(500, { error: "Internal server error" }, origin);
+    return createResponse(500, { error: "Internal server error" }, origin, event);
   }
 }

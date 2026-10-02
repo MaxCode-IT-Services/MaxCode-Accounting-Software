@@ -21,20 +21,20 @@ export const handler = async (event) => {
   const origin = getBaseUrl(event);
 
   if (event.httpMethod !== "POST") {
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   }
 
   try {
     verifyRequestToken(event);
   } catch (error) {
-    return createResponse(401, { error: error?.message || "Unauthorized" }, origin);
+    return createResponse(401, { error: error?.message || "Unauthorized" }, origin, event);
   }
 
   let body = {};
   try {
     body = JSON.parse(event.body || "{}");
   } catch {
-    return createResponse(400, { error: "Invalid JSON body" }, origin);
+    return createResponse(400, { error: "Invalid JSON body" }, origin, event);
   }
 
   const action = String(body.action || "set-webhook").trim();
@@ -44,19 +44,16 @@ export const handler = async (event) => {
     const config = await loadTelegramCredentials(db);
 
     if (!config) {
-      return createResponse(
-        400,
+      return createResponse(400,
         { error: "Bot token or chat id is missing. Save Telegram settings first." },
-        origin,
-      );
+        origin, event);
     }
 
     const webhookUrl = getWebhookUrl(event);
 
     if (action === "set-webhook") {
       if (config.sharedSecret) {
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             success: true,
             skipped: true,
@@ -65,8 +62,7 @@ export const handler = async (event) => {
             message:
               "Router mode is enabled. Paste this Target URL into MaxCode Telegram Webhook instead of setting Telegram's webhook here.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const secretToken = String(
@@ -79,35 +75,29 @@ export const handler = async (event) => {
       if (secretToken) payload.secret_token = secretToken;
 
       const result = await telegramRequest(config.botToken, "setWebhook", payload);
-      return createResponse(
-        200,
+      return createResponse(200,
         { success: true, webhookUrl, result: result?.result ?? true },
-        origin,
-      );
+        origin, event);
     }
 
     if (action === "delete-webhook") {
       const result = await telegramRequest(config.botToken, "deleteWebhook", {});
-      return createResponse(200, { success: true, result: result?.result ?? true }, origin);
+      return createResponse(200, { success: true, result: result?.result ?? true }, origin, event);
     }
 
     if (action === "webhook-info") {
       const result = await telegramRequest(config.botToken, "getWebhookInfo", {});
-      return createResponse(
-        200,
+      return createResponse(200,
         { success: true, webhookUrl, info: result?.result || {} },
-        origin,
-      );
+        origin, event);
     }
 
     if (action === "sync-commands") {
       // Publishes the "/" menu so Telegram lists the software and its features.
       const result = await syncBotCommands(config.botToken);
-      return createResponse(
-        200,
+      return createResponse(200,
         { success: true, commands: result.commands },
-        origin,
-      );
+        origin, event);
     }
 
     if (action === "send-test") {
@@ -115,20 +105,16 @@ export const handler = async (event) => {
         chat_id: config.chatId,
         text: "✅ MaxCode Telegram notifications are connected successfully.",
       });
-      return createResponse(
-        200,
+      return createResponse(200,
         { success: true, messageId: result?.result?.message_id || null },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(400, { error: "Unknown action" }, origin);
+    return createResponse(400, { error: "Unknown action" }, origin, event);
   } catch (error) {
     console.error("Telegram setup error:", error);
-    return createResponse(
-      500,
+    return createResponse(500,
       { error: error?.message || "Telegram setup failed" },
-      origin,
-    );
+      origin, event);
   }
 };

@@ -357,7 +357,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -367,7 +367,7 @@ export async function handler(event) {
     const transactionsCollection = db.collection("transactions");
 
     if (event.httpMethod !== "GET") {
-      return createResponse(405, { error: "Method not allowed" }, origin);
+      return createResponse(405, { error: "Method not allowed" }, origin, event);
     }
 
     const params = event.queryStringParameters || {};
@@ -389,16 +389,14 @@ export async function handler(event) {
       openingBalances,
     );
 
-    return createResponse(200, result, origin);
+    return createResponse(200, result, origin, event);
   } catch (error) {
     console.error("Profit & Loss Summary API Error:", error);
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

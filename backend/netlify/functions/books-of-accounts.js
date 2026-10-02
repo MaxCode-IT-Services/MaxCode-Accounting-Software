@@ -630,14 +630,14 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
     verifyRequestToken(event);
 
     if (event.httpMethod !== "GET") {
-      return createResponse(405, { error: "Method not allowed" }, origin);
+      return createResponse(405, { error: "Method not allowed" }, origin, event);
     }
 
     const { db } = await connectToDatabase();
@@ -885,8 +885,7 @@ export async function handler(event) {
 
     const paginatedRecords = filteredRecords.slice(skip, skip + limitNum);
 
-    return createResponse(
-      200,
+    return createResponse(200,
       {
         data: paginatedRecords,
         pagination: {
@@ -908,29 +907,24 @@ export async function handler(event) {
           gstin: gstins,
         },
       },
-      origin,
-    );
+      origin, event);
   } catch (error) {
     console.error("Books of Accounts API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

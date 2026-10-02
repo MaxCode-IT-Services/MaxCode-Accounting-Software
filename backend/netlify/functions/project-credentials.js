@@ -417,7 +417,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -457,11 +457,11 @@ export async function handler(event) {
           .toLowerCase();
 
         if (!normalizedId || !ObjectId.isValid(normalizedId)) {
-          return createResponse(400, { error: "Valid ID is required" }, origin);
+          return createResponse(400, { error: "Valid ID is required" }, origin, event);
         }
 
         if (!field) {
-          return createResponse(400, { error: "field is required" }, origin);
+          return createResponse(400, { error: "field is required" }, origin, event);
         }
 
         try {
@@ -489,11 +489,9 @@ export async function handler(event) {
             });
           }
         } catch (error) {
-          return createResponse(
-            403,
+          return createResponse(403,
             { error: error?.message || "OTP access validation failed" },
-            origin,
-          );
+            origin, event);
         }
 
         const record = await collection.findOne({
@@ -502,7 +500,7 @@ export async function handler(event) {
         });
 
         if (!record) {
-          return createResponse(404, { error: "Record not found" }, origin);
+          return createResponse(404, { error: "Record not found" }, origin, event);
         }
 
         try {
@@ -529,28 +527,24 @@ export async function handler(event) {
             );
           }
 
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               success: true,
               field,
               key: revealed.key,
               value: revealed.value,
             },
-            origin,
-          );
+            origin, event);
         } catch (error) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: error?.message || "Unable to reveal secret" },
-            origin,
-          );
+            origin, event);
         }
       }
 
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid record ID" }, origin);
+          return createResponse(400, { error: "Invalid record ID" }, origin, event);
         }
 
         const record = await collection.findOne({
@@ -559,10 +553,10 @@ export async function handler(event) {
         });
 
         if (!record) {
-          return createResponse(404, { error: "Record not found" }, origin);
+          return createResponse(404, { error: "Record not found" }, origin, event);
         }
 
-        return createResponse(200, sanitizeRecordForResponse(record), origin);
+        return createResponse(200, sanitizeRecordForResponse(record), origin, event);
       }
 
       const params = event.queryStringParameters || {};
@@ -756,8 +750,7 @@ export async function handler(event) {
         ],
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: sanitizedData,
           pagination: {
@@ -777,8 +770,7 @@ export async function handler(event) {
             clientName: ["All", ...clientNameValues.sort()],
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -830,45 +822,35 @@ export async function handler(event) {
       );
 
       if (unresolvedMaskedSecrets.length > 0) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error: `Please re-enter values for: ${unresolvedMaskedSecrets.join(", ")}`,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (!normalizedPayload.clientRefId) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Select Client is required" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!normalizedPayload.clientName) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Client Name is required" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!normalizedPayload.businessName) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Business Name is required" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!normalizedPayload.projectName) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Project Name is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const existingRecord = await collection.findOne({
@@ -878,14 +860,12 @@ export async function handler(event) {
       });
 
       if (existingRecord) {
-        return createResponse(
-          409,
+        return createResponse(409,
           {
             error:
               "Credentials for this client and project already exist. Please edit existing record.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const result = await collection.insertOne({
@@ -895,20 +875,18 @@ export async function handler(event) {
         ...getAuditFieldsFromEvent(event, "create"),
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Project credentials created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id || !ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Valid ID is required" }, origin);
+        return createResponse(400, { error: "Valid ID is required" }, origin, event);
       }
 
       const payload = JSON.parse(event.body || "{}");
@@ -919,7 +897,7 @@ export async function handler(event) {
       });
 
       if (!currentRecord) {
-        return createResponse(404, { error: "Record not found" }, origin);
+        return createResponse(404, { error: "Record not found" }, origin, event);
       }
 
       const normalizedPayload = {
@@ -971,45 +949,35 @@ export async function handler(event) {
       );
 
       if (unresolvedMaskedSecrets.length > 0) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error: `Please re-enter values for: ${unresolvedMaskedSecrets.join(", ")}`,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (!normalizedPayload.clientRefId) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Select Client is required" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!normalizedPayload.clientName) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Client Name is required" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!normalizedPayload.businessName) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Business Name is required" },
-          origin,
-        );
+          origin, event);
       }
 
       if (!normalizedPayload.projectName) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Project Name is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const duplicate = await collection.findOne({
@@ -1020,14 +988,12 @@ export async function handler(event) {
       });
 
       if (duplicate) {
-        return createResponse(
-          409,
+        return createResponse(409,
           {
             error:
               "Credentials for this client and project already exist. Please use different project name.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const result = await collection.updateOne(
@@ -1048,20 +1014,18 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Record not found" }, origin);
+        return createResponse(404, { error: "Record not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Project credentials updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id || !ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Valid ID is required" }, origin);
+        return createResponse(400, { error: "Valid ID is required" }, origin, event);
       }
 
       const result = await collection.updateOne(
@@ -1076,39 +1040,33 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Record not found" }, origin);
+        return createResponse(404, { error: "Record not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Project credentials deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Project Credentials API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(401, { error: "Unauthorized" }, origin);
+      return createResponse(401, { error: "Unauthorized" }, origin, event);
     }
 
     if (error.name === "SyntaxError") {
-      return createResponse(
-        400,
+      return createResponse(400,
         { error: "Invalid JSON in request body" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

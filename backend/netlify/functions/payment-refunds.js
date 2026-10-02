@@ -133,7 +133,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -183,27 +183,23 @@ export async function handler(event) {
         );
 
         if (!nextNumber) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Unable to generate refund number." },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             nextNumber,
             refundNumber: nextNumber,
             financialYear: resolvedFinancialYear,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid refund ID" }, origin);
+          return createResponse(400, { error: "Invalid refund ID" }, origin, event);
         }
 
         const refund = await refundsCollection.findOne({
@@ -212,10 +208,10 @@ export async function handler(event) {
         });
 
         if (!refund) {
-          return createResponse(404, { error: "Refund not found" }, origin);
+          return createResponse(404, { error: "Refund not found" }, origin, event);
         }
 
-        return createResponse(200, refund, origin);
+        return createResponse(200, refund, origin, event);
       }
 
       const filterQuery = { isDeleted: { $ne: true } };
@@ -415,8 +411,7 @@ export async function handler(event) {
 
       const totals = totalsAggregation?.[0] || {};
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           records,
           total: totalCount,
@@ -438,8 +433,7 @@ export async function handler(event) {
               }
             : {}),
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -447,7 +441,7 @@ export async function handler(event) {
       try {
         body = JSON.parse(event.body || "{}");
       } catch {
-        return createResponse(400, { error: "Invalid JSON body" }, origin);
+        return createResponse(400, { error: "Invalid JSON body" }, origin, event);
       }
 
       const refundNumber = String(body.refundNumber || "").trim();
@@ -465,14 +459,12 @@ export async function handler(event) {
         refundAmount <= 0 ||
         !refundMethod
       ) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "Refund Number, Refund Date, Client Name, Advance Receipt and Refund Amount are required.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const duplicateRefund = await refundsCollection.findOne({
@@ -481,14 +473,12 @@ export async function handler(event) {
       });
 
       if (duplicateRefund) {
-        return createResponse(
-          409,
+        return createResponse(409,
           {
             error:
               "Refund Number already exists. Please use a different number.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const sourceReceipt = await loadAdvanceReceipt(
@@ -497,22 +487,18 @@ export async function handler(event) {
       );
 
       if (!sourceReceipt) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Advance receipt not found" },
-          origin,
-        );
+          origin, event);
       }
 
       const availableAmount = getAdvanceRemainingAmount(sourceReceipt);
       if (refundAmount > availableAmount) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error: `Refund amount cannot exceed the remaining advance balance of ₹${availableAmount.toFixed(2)}.`,
           },
-          origin,
-        );
+          origin, event);
       }
 
       const now = new Date();
@@ -563,27 +549,25 @@ export async function handler(event) {
         sourceLabel: refundDoc.refundNumber || "",
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Refund created successfully",
           id: insertResult.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id || !ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Valid refund ID is required" }, origin);
+        return createResponse(400, { error: "Valid refund ID is required" }, origin, event);
       }
 
       let body;
       try {
         body = JSON.parse(event.body || "{}");
       } catch {
-        return createResponse(400, { error: "Invalid JSON body" }, origin);
+        return createResponse(400, { error: "Invalid JSON body" }, origin, event);
       }
 
       const existing = await refundsCollection.findOne({
@@ -592,7 +576,7 @@ export async function handler(event) {
       });
 
       if (!existing) {
-        return createResponse(404, { error: "Refund not found" }, origin);
+        return createResponse(404, { error: "Refund not found" }, origin, event);
       }
 
       const sourceReceipt = await loadAdvanceReceipt(
@@ -601,11 +585,9 @@ export async function handler(event) {
       );
 
       if (!sourceReceipt) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Source advance receipt not found" },
-          origin,
-        );
+          origin, event);
       }
 
       const nextRefundAmount =
@@ -622,11 +604,9 @@ export async function handler(event) {
       ).trim();
 
       if (!nextRefundNumber || !nextRefundDate || nextRefundAmount <= 0 || !nextRefundMethod) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Refund Number, Refund Date, Refund Method and Amount are required." },
-          origin,
-        );
+          origin, event);
       }
 
       const duplicateRefund = await refundsCollection.findOne({
@@ -636,14 +616,12 @@ export async function handler(event) {
       });
 
       if (duplicateRefund) {
-        return createResponse(
-          409,
+        return createResponse(409,
           {
             error:
               "Refund Number already exists. Please use a different number.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const currentRefundTotal = toNumber(sourceReceipt.refundedAmount || 0);
@@ -659,13 +637,11 @@ export async function handler(event) {
       );
 
       if (nextRefundAmount > availableAfterRelease) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error: `Refund amount cannot exceed the remaining advance balance of ₹${availableAfterRelease.toFixed(2)}.`,
           },
-          origin,
-        );
+          origin, event);
       }
 
       const now = new Date();
@@ -734,20 +710,18 @@ export async function handler(event) {
         isDeleted: { $ne: true },
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           message: "Refund updated successfully",
           ...refreshed,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id || !ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Valid refund ID is required" }, origin);
+        return createResponse(400, { error: "Valid refund ID is required" }, origin, event);
       }
 
       const existing = await refundsCollection.findOne({
@@ -756,7 +730,7 @@ export async function handler(event) {
       });
 
       if (!existing) {
-        return createResponse(404, { error: "Refund not found" }, origin);
+        return createResponse(404, { error: "Refund not found" }, origin, event);
       }
 
       const sourceReceipt = await loadAdvanceReceipt(
@@ -765,11 +739,9 @@ export async function handler(event) {
       );
 
       if (!sourceReceipt) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Source advance receipt not found" },
-          origin,
-        );
+          origin, event);
       }
 
       const refundAmount = toNumber(existing.amount || 0);
@@ -809,29 +781,23 @@ export async function handler(event) {
         },
       );
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Refund deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Refund API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         { error: "Unauthorized", message: error.message },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       { error: "Internal server error", message: error.message },
-      origin,
-    );
+      origin, event);
   }
 }

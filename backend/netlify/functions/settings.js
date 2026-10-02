@@ -52,7 +52,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -60,7 +60,7 @@ export async function handler(event) {
     const userQuery = getAuthenticatedUserQuery(decodedToken);
 
     if (!userQuery) {
-      return createResponse(401, { error: "Unauthorized" }, origin);
+      return createResponse(401, { error: "Unauthorized" }, origin, event);
     }
 
     const { db } = await connectToDatabase();
@@ -69,18 +69,16 @@ export async function handler(event) {
     const currentUser = await usersCollection.findOne(userQuery);
 
     if (!currentUser) {
-      return createResponse(404, { error: "User not found" }, origin);
+      return createResponse(404, { error: "User not found" }, origin, event);
     }
 
     if (event.httpMethod === "GET") {
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           profile: buildProfileResponse(currentUser),
           user: sanitizeUser(currentUser),
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
@@ -92,19 +90,15 @@ export async function handler(event) {
         const newPin = toTrimmedString(body.newPin);
 
         if (!/^\d{6}$/.test(oldPin) || !/^\d{6}$/.test(newPin)) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Old PIN and New PIN must be exactly 6 digits" },
-            origin,
-          );
+            origin, event);
         }
 
         if (oldPin === newPin) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "New PIN cannot be same as old PIN" },
-            origin,
-          );
+            origin, event);
         }
 
         const isOldPinValid = await comparePassword(
@@ -113,7 +107,7 @@ export async function handler(event) {
         );
 
         if (!isOldPinValid) {
-          return createResponse(401, { error: "Invalid old PIN" }, origin);
+          return createResponse(401, { error: "Invalid old PIN" }, origin, event);
         }
 
         const hashedPin = await hashPassword(newPin);
@@ -129,11 +123,9 @@ export async function handler(event) {
           },
         );
 
-        return createResponse(
-          200,
+        return createResponse(200,
           { message: "PIN updated successfully" },
-          origin,
-        );
+          origin, event);
       }
 
       const updates = {};
@@ -147,22 +139,18 @@ export async function handler(event) {
       if (Object.prototype.hasOwnProperty.call(updates, "phone")) {
         updates.phone = updates.phone.replace(/\D/g, "").slice(0, 10);
         if (updates.phone && !/^\d{10}$/.test(updates.phone)) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Phone number must be exactly 10 digits" },
-            origin,
-          );
+            origin, event);
         }
       }
 
       if (Object.prototype.hasOwnProperty.call(updates, "email")) {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (updates.email && !emailRegex.test(updates.email)) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Please provide a valid email address" },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -186,11 +174,9 @@ export async function handler(event) {
         });
 
         if (existingPhoneUser) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Phone number already in use by another user" },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -204,20 +190,16 @@ export async function handler(event) {
         });
 
         if (existingEmailUser) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Email already in use by another user" },
-            origin,
-          );
+            origin, event);
         }
       }
 
       if (Object.keys(updates).length === 0) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "No valid fields to update" },
-          origin,
-        );
+          origin, event);
       }
 
       updates.updatedAt = new Date();
@@ -235,39 +217,33 @@ export async function handler(event) {
         _id: currentUser._id,
       });
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           message: "Profile updated successfully",
           profile: buildProfileResponse(updatedUser),
           user: sanitizeUser(updatedUser),
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Settings API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

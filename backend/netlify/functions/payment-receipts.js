@@ -630,7 +630,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -683,11 +683,9 @@ export async function handler(event) {
         }
 
         const nextNumber = await getNextReceiptNumber(col, receiptNumberPrefix);
-        return createResponse(
-          200,
+        return createResponse(200,
           { nextNumber, receiptNumber: nextNumber },
-          origin,
-        );
+          origin, event);
       }
 
       // ── available-advances: unapplied/partial advances for a client ──────
@@ -695,11 +693,9 @@ export async function handler(event) {
         const normalizedClientRefId = String(clientRefId || "").trim();
         const normalizedClientId = String(clientId || "").trim();
         if (!normalizedClientRefId && !normalizedClientId) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "clientRefId or clientId is required" },
-            origin,
-          );
+            origin, event);
         }
         const clientMatch = [
           ...(normalizedClientRefId
@@ -758,20 +754,16 @@ export async function handler(event) {
           financialYear: a.financialYear || "",
           note: a.note || "",
         }));
-        return createResponse(
-          200,
+        return createResponse(200,
           { advances: result, total: result.length },
-          origin,
-        );
+          origin, event);
       }
 
       if (action === "available-debit-notes") {
         if (!clientRefId) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "clientRefId is required" },
-            origin,
-          );
+            origin, event);
         }
 
         const notes = await db
@@ -807,21 +799,21 @@ export async function handler(event) {
           })
           .filter((note) => note.dueAmount > 0);
 
-        return createResponse(200, { records, total: records.length }, origin);
+        return createResponse(200, { records, total: records.length }, origin, event);
       }
 
       // ── single record ────────────────────────────────────────────────────
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid ID" }, origin);
+          return createResponse(400, { error: "Invalid ID" }, origin, event);
         }
         const doc = await col.findOne({
           _id: new ObjectId(id),
           isDeleted: { $ne: true },
         });
         if (!doc)
-          return createResponse(404, { error: "Receipt not found" }, origin);
-        return createResponse(200, doc, origin);
+          return createResponse(404, { error: "Receipt not found" }, origin, event);
+        return createResponse(200, doc, origin, event);
       }
 
       // ── list ─────────────────────────────────────────────────────────────
@@ -1030,8 +1022,7 @@ export async function handler(event) {
         invoiceAllocations: r.invoiceAllocations || [],
       }));
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           records: mappedRecords,
           total: totalCount,
@@ -1040,8 +1031,7 @@ export async function handler(event) {
           statistics,
           meta,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // ── POST ─────────────────────────────────────────────────────────────────
@@ -1050,7 +1040,7 @@ export async function handler(event) {
       try {
         body = JSON.parse(event.body || "{}");
       } catch {
-        return createResponse(400, { error: "Invalid JSON body" }, origin);
+        return createResponse(400, { error: "Invalid JSON body" }, origin, event);
       }
 
       const {
@@ -1086,29 +1076,23 @@ export async function handler(event) {
 
       // Validation
       if (!clientRefId && !clientName) {
-        return createResponse(400, { error: "Client is required" }, origin);
+        return createResponse(400, { error: "Client is required" }, origin, event);
       }
       if (!receiptDate) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Receipt date is required" },
-          origin,
-        );
+          origin, event);
       }
       const numAmount = Number(amount);
       if (!amount || isNaN(numAmount) || numAmount <= 0) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Amount must be a positive number" },
-          origin,
-        );
+          origin, event);
       }
       if (!paymentMethod) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Payment method is required" },
-          origin,
-        );
+          origin, event);
       }
 
       // Validate againstType for regular payments
@@ -1120,11 +1104,9 @@ export async function handler(event) {
         : "regular";
 
       if (normalizedPaymentTypeForValidation === "regular" && !againstType) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Against Type is required for regular payment receipts" },
-          origin,
-        );
+          origin, event);
       }
 
       // Get financial year
@@ -1226,14 +1208,12 @@ export async function handler(event) {
         overflowAdvanceAmount = allocationResult.remainingAmount;
 
         if (regularDocAmount <= 0) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Selected invoice(s) already paid or no due amount available for allocation.",
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -1242,14 +1222,12 @@ export async function handler(event) {
         normalizedAgainstType === "debit_note"
       ) {
         if (!debitNoteId && !debitNoteNumber) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Debit note selection is required for debit note receipts.",
             },
-            origin,
-          );
+            origin, event);
         }
 
         const debitNotesCol = db.collection("creditDebitNotes");
@@ -1263,20 +1241,16 @@ export async function handler(event) {
         } else if (debitNoteNumber) {
           debitNoteQuery.noteNumber = debitNoteNumber;
         } else {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid debit note reference" },
-            origin,
-          );
+            origin, event);
         }
 
         selectedDebitNote = await debitNotesCol.findOne(debitNoteQuery);
         if (!selectedDebitNote) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Debit note not found for this client" },
-            origin,
-          );
+            origin, event);
         }
 
         const debitNoteTotal = toNumber(
@@ -1287,11 +1261,9 @@ export async function handler(event) {
         );
         const debitNoteDue = Math.max(0, debitNoteTotal - debitNoteReceived);
         if (debitNoteDue <= 0) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Selected debit note is already fully paid." },
-            origin,
-          );
+            origin, event);
         }
 
         debitNoteAppliedAmount = Math.min(numAmount, debitNoteDue);
@@ -1481,29 +1453,27 @@ export async function handler(event) {
         }
       }
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           ...createdDocs[0],
           createdRecords: createdDocs,
           autoAdvanceCreated: createdDocs.length > 1,
         },
-        origin,
-      );
+        origin, event);
     }
 
     // ── PUT ──────────────────────────────────────────────────────────────────
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id || !ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Valid ID is required" }, origin);
+        return createResponse(400, { error: "Valid ID is required" }, origin, event);
       }
 
       let body;
       try {
         body = JSON.parse(event.body || "{}");
       } catch {
-        return createResponse(400, { error: "Invalid JSON body" }, origin);
+        return createResponse(400, { error: "Invalid JSON body" }, origin, event);
       }
 
       const existing = await col.findOne({
@@ -1511,7 +1481,7 @@ export async function handler(event) {
         isDeleted: { $ne: true },
       });
       if (!existing) {
-        return createResponse(404, { error: "Receipt not found" }, origin);
+        return createResponse(404, { error: "Receipt not found" }, origin, event);
       }
 
       const auditFields = getAuditFieldsFromEvent(event, "update");
@@ -1678,18 +1648,16 @@ export async function handler(event) {
         await recalculateInvoicePaymentSummary(db, ref);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { ...updated, id: String(updated._id) },
-        origin,
-      );
+        origin, event);
     }
 
     // ── DELETE ───────────────────────────────────────────────────────────────
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id || !ObjectId.isValid(id)) {
-        return createResponse(400, { error: "Valid ID is required" }, origin);
+        return createResponse(400, { error: "Valid ID is required" }, origin, event);
       }
 
       const existing = await col.findOne({
@@ -1697,7 +1665,7 @@ export async function handler(event) {
         isDeleted: { $ne: true },
       });
       if (!existing) {
-        return createResponse(404, { error: "Receipt not found" }, origin);
+        return createResponse(404, { error: "Receipt not found" }, origin, event);
       }
 
       // Prevent deletion of advance receipts that have already been applied to invoices
@@ -1705,14 +1673,12 @@ export async function handler(event) {
         existing.paymentType === "advance" &&
         Number(existing.adjustedAmount || 0) + Number(existing.refundedAmount || 0) > 0
       ) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "Cannot delete an advance payment that has already been applied to an invoice or refunded. Please reverse the adjustment or refund first.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const auditFields = getAuditFieldsFromEvent(event, "delete");
@@ -1751,26 +1717,22 @@ export async function handler(event) {
         }
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Receipt deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Payment receipts handler error:", error);
     if (
       error?.message?.includes("Unauthorized") ||
       error?.message?.includes("JWT")
     ) {
-      return createResponse(
-        401,
+      return createResponse(401,
         { error: "Unauthorized" },
-        error?.origin || "",
-      );
+        error?.origin || "", event);
     }
-    return createResponse(500, { error: "Internal server error" }, "");
+    return createResponse(500, { error: "Internal server error" }, "", event);
   }
 }

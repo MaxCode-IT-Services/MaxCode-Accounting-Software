@@ -7,11 +7,7 @@ import {
   Routes,
   useLocation,
 } from "react-router-dom";
-import { Player } from "@lottiefiles/react-lottie-player";
 import AdminDashboardLayout from "../src/Components/DashboardLayout";
-import Home from "../src/Home";
-import PrivacyPolicy from "./PrivacyPolicy";
-import Login from "../src/Pages/Login";
 import {
   hasModuleAccess,
   getStoredUserInfo,
@@ -19,6 +15,13 @@ import {
   getRoleRoutePrefix,
 } from "../src/utils/permissions";
 import { verifyServerSession } from "../src/utils/api";
+
+// Lazy load public route components — they are large and only needed when
+// the user navigates to them. Keeping them out of the main chunk lets the
+// app shell render immediately.
+const Home = lazy(() => import("../src/Home"));
+const PrivacyPolicy = lazy(() => import("./PrivacyPolicy"));
+const Login = lazy(() => import("../src/Pages/Login"));
 
 // Lazy load User Dashboard pages
 const AdminDashboard = lazy(() => import("../src/Pages/Dashboard.jsx"));
@@ -130,12 +133,7 @@ export const Loading = () => {
       <div className="preloader-stage" aria-hidden="true"></div>
       <div className="preloader-panel" role="status" aria-live="polite">
         <div className="preloader-chip" aria-hidden="true">
-          <Player
-            autoplay
-            loop
-            src="/Json/loading3.json"
-            className="preloader-lottie"
-          />
+          <div className="preloader-spinner" />
         </div>
         <p className="preloader-title text-success">MaxCode IT Services</p>
         <p className="preloader-subtitle">
@@ -648,8 +646,22 @@ const App = () => {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route
+          path="/"
+          element={
+            <Suspense fallback={<Loading />}>
+              <Home />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/privacy-policy"
+          element={
+            <Suspense fallback={<Loading />}>
+              <PrivacyPolicy />
+            </Suspense>
+          }
+        />
         <Route
           path="/:paymentAlias"
           element={

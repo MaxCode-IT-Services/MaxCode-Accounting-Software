@@ -224,7 +224,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -253,7 +253,7 @@ export async function handler(event) {
 
       const cachedResponse = notificationResponseCache.get(cacheKey);
       if (cachedResponse && cachedResponse.expiresAt > Date.now()) {
-        return createResponse(200, cachedResponse.payload, origin);
+        return createResponse(200, cachedResponse.payload, origin, event);
       }
 
       let loggedInUser = null;
@@ -264,15 +264,13 @@ export async function handler(event) {
         );
 
         if (loggedInUser?.showNotification === false) {
-          return createResponse(
-            200,
+          return createResponse(200,
             {
               dateKey,
               unreadCount: 0,
               notifications: [],
             },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -489,7 +487,7 @@ export async function handler(event) {
         expiresAt: Date.now() + NOTIFICATION_RESPONSE_CACHE_TTL_MS,
       });
 
-      return createResponse(200, responsePayload, origin);
+      return createResponse(200, responsePayload, origin, event);
     }
 
     if (event.httpMethod === "PATCH") {
@@ -499,11 +497,9 @@ export async function handler(event) {
       const currentUserId = resolveCurrentUserId(decodedToken);
 
       if (!currentUserId) {
-        return createResponse(
-          401,
+        return createResponse(401,
           { error: "Unauthorized: user id missing in token" },
-          origin,
-        );
+          origin, event);
       }
 
       let actor = null;
@@ -550,22 +546,18 @@ export async function handler(event) {
           );
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             message: "All notifications marked as read",
             markedCount: unreadNotifications.length,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (!id || !ObjectId.isValid(id)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Valid notification id is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const shouldRead = read !== false;
@@ -610,14 +602,12 @@ export async function handler(event) {
       }
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Notification not found" }, origin);
+        return createResponse(404, { error: "Notification not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Notification updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
@@ -625,11 +615,9 @@ export async function handler(event) {
       const { id } = event.queryStringParameters || {};
 
       if (!id || !ObjectId.isValid(id)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Valid notification id is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const result = await notificationsCollection.updateOne(
@@ -647,38 +635,32 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Notification not found" }, origin);
+        return createResponse(404, { error: "Notification not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Notification deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Notification API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

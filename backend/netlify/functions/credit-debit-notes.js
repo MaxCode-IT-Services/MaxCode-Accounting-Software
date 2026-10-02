@@ -87,7 +87,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -233,11 +233,9 @@ export async function handler(event) {
           event.queryStringParameters?.clientRefId || "",
         ).trim();
         if (!clientRefId) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "clientRefId is required" },
-            origin,
-          );
+            origin, event);
         }
 
         const debitNotes = await notesCollection
@@ -272,7 +270,7 @@ export async function handler(event) {
           })
           .filter((note) => note.dueAmount > 0);
 
-        return createResponse(200, { records, total: records.length }, origin);
+        return createResponse(200, { records, total: records.length }, origin, event);
       }
 
       if (action === "next-number") {
@@ -309,18 +307,15 @@ export async function handler(event) {
           requestedNoteType,
         );
         if (!nextNumber) {
-          return createResponse(
-            400,
+          return createResponse(400,
             {
               error:
                 "Unable to generate note number for the selected financial year.",
             },
-            origin,
-          );
+            origin, event);
         }
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             nextNumber,
             noteNumber: nextNumber,
@@ -328,8 +323,7 @@ export async function handler(event) {
             noteType: requestedNoteType,
             format: nextNumber.replace(/\d+$/, "001"),
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (action === "check-duplicate") {
@@ -338,11 +332,9 @@ export async function handler(event) {
         ).trim();
 
         if (!requestedNoteNumber) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Note number is required for duplicate check" },
-            origin,
-          );
+            origin, event);
         }
 
         const existingNote = await notesCollection.findOne({
@@ -350,14 +342,12 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
 
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             exists: Boolean(existingNote),
             noteNumber: requestedNoteNumber,
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (id) {
@@ -367,7 +357,7 @@ export async function handler(event) {
         });
 
         if (!note) {
-          return createResponse(404, { error: "Note not found" }, origin);
+          return createResponse(404, { error: "Note not found" }, origin, event);
         }
 
         const binding = await getNoteTermsBinding();
@@ -385,7 +375,7 @@ export async function handler(event) {
           );
         }
 
-        return createResponse(200, hydratedNote, origin);
+        return createResponse(200, hydratedNote, origin, event);
       }
 
       const filterQuery = { isDeleted: { $ne: true } };
@@ -615,8 +605,7 @@ export async function handler(event) {
         }
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: patchedNotes,
           pagination: {
@@ -641,8 +630,7 @@ export async function handler(event) {
               }
             : {}),
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -665,25 +653,21 @@ export async function handler(event) {
         !noteDate ||
         Number.isNaN(noteDate.getTime())
       ) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "Note Number, Note Type, Client Name, and Note Date are required.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (normalizedItems.length === 0) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "At least one valid item with name, quantity and price is required.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const duplicateNote = await notesCollection.findOne({
@@ -692,13 +676,11 @@ export async function handler(event) {
       });
 
       if (duplicateNote) {
-        return createResponse(
-          409,
+        return createResponse(409,
           {
             error: "Note Number already exists. Please use a different number.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const itemsAmount = sumItemsAmount(normalizedItems);
@@ -797,20 +779,18 @@ export async function handler(event) {
         }
       }
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Note created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Note ID is required" }, origin);
+        return createResponse(400, { error: "Note ID is required" }, origin, event);
       }
 
       const noteData = JSON.parse(event.body || "{}");
@@ -833,25 +813,21 @@ export async function handler(event) {
         !noteDate ||
         Number.isNaN(noteDate.getTime())
       ) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "Note Number, Note Type, Client Name, and Note Date are required.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       if (normalizedItems.length === 0) {
-        return createResponse(
-          400,
+        return createResponse(400,
           {
             error:
               "At least one valid item with name, quantity and price is required.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const duplicateNote = await notesCollection.findOne({
@@ -861,13 +837,11 @@ export async function handler(event) {
       });
 
       if (duplicateNote) {
-        return createResponse(
-          409,
+        return createResponse(409,
           {
             error: "Note Number already exists. Please use a different number.",
           },
-          origin,
-        );
+          origin, event);
       }
 
       const currentNote = await notesCollection.findOne({
@@ -962,7 +936,7 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Note not found" }, origin);
+        return createResponse(404, { error: "Note not found" }, origin, event);
       }
 
       await syncTransactionSnapshot({
@@ -1006,11 +980,9 @@ export async function handler(event) {
 
         const shouldApplyNewAdvances = noteType === "Debit Note";
         if (!shouldApplyNewAdvances) {
-          return createResponse(
-            200,
+          return createResponse(200,
             { message: "Note updated successfully" },
-            origin,
-          );
+            origin, event);
         }
 
         for (const advance of normalizedAppliedAdvances) {
@@ -1040,17 +1012,15 @@ export async function handler(event) {
         }
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Note updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(400, { error: "Note ID is required" }, origin);
+        return createResponse(400, { error: "Note ID is required" }, origin, event);
       }
 
       const noteObjectId = new ObjectId(id);
@@ -1060,7 +1030,7 @@ export async function handler(event) {
       });
 
       if (!existingNote) {
-        return createResponse(404, { error: "Note not found" }, origin);
+        return createResponse(404, { error: "Note not found" }, origin, event);
       }
 
       await syncTransactionSnapshot({
@@ -1085,38 +1055,32 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Note not found" }, origin);
+        return createResponse(404, { error: "Note not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Note deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

@@ -17,7 +17,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -58,23 +58,19 @@ export async function handler(event) {
 
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(
-            400,
+          return createResponse(400,
             { error: "Invalid Financial Year ID" },
-            origin,
-          );
+            origin, event);
         }
         const yearRecord = await yearsCollection.findOne({
           _id: new ObjectId(id),
         });
         if (!yearRecord) {
-          return createResponse(
-            404,
+          return createResponse(404,
             { error: "Financial year not found" },
-            origin,
-          );
+            origin, event);
         }
-        return createResponse(200, yearRecord, origin);
+        return createResponse(200, yearRecord, origin, event);
       }
 
       const hasServerSideParams = [
@@ -103,7 +99,7 @@ export async function handler(event) {
           };
         }
 
-        return createResponse(200, years, origin);
+        return createResponse(200, years, origin, event);
       }
 
       const filterQuery = { isDeleted: { $ne: true } };
@@ -329,8 +325,7 @@ export async function handler(event) {
         ]);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: years,
           years,
@@ -356,8 +351,7 @@ export async function handler(event) {
               }
             : {}),
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -451,7 +445,7 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existing) {
-          return createResponse(409, { error: check.message }, origin);
+          return createResponse(409, { error: check.message }, origin, event);
         }
       }
 
@@ -478,31 +472,25 @@ export async function handler(event) {
       };
       const result = await yearsCollection.insertOne(docToInsert);
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Financial year created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Financial Year ID is required" },
-          origin,
-        );
+          origin, event);
       }
       if (!ObjectId.isValid(id)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Invalid Financial Year ID" },
-          origin,
-        );
+          origin, event);
       }
       const payload = JSON.parse(event.body || "{}");
       const yearObjectId = new ObjectId(id);
@@ -596,7 +584,7 @@ export async function handler(event) {
           isDeleted: { $ne: true },
         });
         if (existing) {
-          return createResponse(409, { error: check.message }, origin);
+          return createResponse(409, { error: check.message }, origin, event);
         }
       }
 
@@ -634,35 +622,27 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Financial year not found" },
-          origin,
-        );
+          origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Financial year updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
       if (!id) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Financial Year ID is required" },
-          origin,
-        );
+          origin, event);
       }
       if (!ObjectId.isValid(id)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Invalid Financial Year ID" },
-          origin,
-        );
+          origin, event);
       }
       const result = await yearsCollection.updateOne(
         { _id: new ObjectId(id) },
@@ -677,42 +657,34 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(
-          404,
+        return createResponse(404,
           { error: "Financial year not found" },
-          origin,
-        );
+          origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Financial year deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Financial Year API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }

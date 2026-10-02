@@ -16,7 +16,7 @@ export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
   if (event.httpMethod === "OPTIONS") {
-    return createResponse(200, {}, origin);
+    return createResponse(200, {}, origin, event);
   }
 
   try {
@@ -44,7 +44,7 @@ export async function handler(event) {
 
       if (id) {
         if (!ObjectId.isValid(id)) {
-          return createResponse(400, { error: "Invalid lead ID" }, origin);
+          return createResponse(400, { error: "Invalid lead ID" }, origin, event);
         }
 
         const lead = await leadsCollection.findOne({
@@ -53,10 +53,10 @@ export async function handler(event) {
         });
 
         if (!lead) {
-          return createResponse(404, { error: "Lead not found" }, origin);
+          return createResponse(404, { error: "Lead not found" }, origin, event);
         }
 
-        return createResponse(200, lead, origin);
+        return createResponse(200, lead, origin, event);
       }
 
       const params = event.queryStringParameters || {};
@@ -182,8 +182,7 @@ export async function handler(event) {
         .toArray();
 
       if (!shouldIncludeMeta) {
-        return createResponse(
-          200,
+        return createResponse(200,
           {
             data: leads,
             pagination: {
@@ -193,8 +192,7 @@ export async function handler(event) {
               totalPages: Math.ceil(totalRecords / limitNum),
             },
           },
-          origin,
-        );
+          origin, event);
       }
 
       const [
@@ -289,8 +287,7 @@ export async function handler(event) {
         };
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         {
           data: leads,
           pagination: {
@@ -317,8 +314,7 @@ export async function handler(event) {
             status: ["All", ...statusValues.sort()],
           },
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "POST") {
@@ -331,11 +327,9 @@ export async function handler(event) {
         });
 
         if (existingPhone) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Phone Number already exists in lead list." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -349,25 +343,21 @@ export async function handler(event) {
         ...getAuditFieldsFromEvent(event, "create"),
       });
 
-      return createResponse(
-        201,
+      return createResponse(201,
         {
           message: "Lead created successfully",
           id: result.insertedId,
         },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "PUT") {
       const { id } = event.queryStringParameters || {};
 
       if (!id || !ObjectId.isValid(id)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Valid lead ID is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const leadData = JSON.parse(event.body || "{}");
@@ -381,11 +371,9 @@ export async function handler(event) {
         });
 
         if (existingPhone) {
-          return createResponse(
-            409,
+          return createResponse(409,
             { error: "Phone Number already exists in lead list." },
-            origin,
-          );
+            origin, event);
         }
       }
 
@@ -401,25 +389,21 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Lead not found" }, origin);
+        return createResponse(404, { error: "Lead not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Lead updated successfully" },
-        origin,
-      );
+        origin, event);
     }
 
     if (event.httpMethod === "DELETE") {
       const { id } = event.queryStringParameters || {};
 
       if (!id || !ObjectId.isValid(id)) {
-        return createResponse(
-          400,
+        return createResponse(400,
           { error: "Valid lead ID is required" },
-          origin,
-        );
+          origin, event);
       }
 
       const result = await leadsCollection.updateOne(
@@ -435,38 +419,32 @@ export async function handler(event) {
       );
 
       if (result.matchedCount === 0) {
-        return createResponse(404, { error: "Lead not found" }, origin);
+        return createResponse(404, { error: "Lead not found" }, origin, event);
       }
 
-      return createResponse(
-        200,
+      return createResponse(200,
         { message: "Lead deleted successfully" },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(405, { error: "Method not allowed" }, origin);
+    return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Lead API Error:", error);
 
     if (error.message.includes("token") || error.message.includes("Token")) {
-      return createResponse(
-        401,
+      return createResponse(401,
         {
           error: "Unauthorized",
           message: error.message,
         },
-        origin,
-      );
+        origin, event);
     }
 
-    return createResponse(
-      500,
+    return createResponse(500,
       {
         error: "Internal server error",
         message: error.message,
       },
-      origin,
-    );
+      origin, event);
   }
 }
