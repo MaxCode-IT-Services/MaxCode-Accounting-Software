@@ -7,6 +7,10 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = "1d";
 const AUTH_COOKIE_NAME = "maxcode_auth_token";
 const DEFAULT_COOKIE_MAX_AGE_SECONDS = 24 * 60 * 60;
+// Full session tokens and 2FA-pending tokens use different audiences, so a
+// temp token can never be presented as a session token (or vice versa).
+const FULL_TOKEN_AUDIENCE = "MaxCode IT Services Clients & Teams";
+const TEMP_TOKEN_AUDIENCE = "MaxCode IT Services 2FA Pending";
 
 if (!JWT_SECRET || String(JWT_SECRET).trim().length < 32) {
   throw new Error(
@@ -77,22 +81,48 @@ export function generateToken(payload, expiresIn = JWT_EXPIRES_IN) {
  * Generate Temporary Token (for 2FA verification, etc)
  */
 export function generateTempToken(payload, expiresIn = "5m") {
-  return jwt.sign(payload, JWT_SECRET, {
-    expiresIn,
-    issuer: "MaxCode IT Services",
-  });
+  return jwt.sign(
+    { ...payload, temp: true },
+    JWT_SECRET,
+    {
+      expiresIn,
+      issuer: "MaxCode IT Services",
+      audience: TEMP_TOKEN_AUDIENCE,
+    },
+  );
 }
 
 /**
- * Verify JWT token
+ * Verify JWT token (full session tokens only — 2FA-pending temp tokens are
+ * rejected here so they can never be used against ordinary endpoints).
  */
 export function verifyToken(token) {
   try {
     return jwt.verify(token, JWT_SECRET, {
       issuer: "MaxCode IT Services",
+      audience: FULL_TOKEN_AUDIENCE,
     });
   } catch (error) {
     throw new Error("Invalid or expired token");
+  }
+}
+
+/**
+ * Verify a 2FA-pending temp token. Used only by the auth verify-* actions;
+ * carries the dedicated temp audience plus an explicit temp claim.
+ */
+export function verifyTempToken(token) {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET, {
+      issuer: "MaxCode IT Services",
+      audience: TEMP_TOKEN_AUDIENCE,
+    });
+    if (decoded.temp !== true) {
+      throw new Error("Not a temp token");
+    }
+    return decoded;
+  } catch (error) {
+    throw new Error("Invalid or expired verification token");
   }
 }
 

@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import {
   generateToken,
   generateTempToken,
+  verifyTempToken,
   verifyToken,
   verifyRequestToken,
   hashPassword,
@@ -634,7 +635,7 @@ export async function handler(event) {
 
         let decoded;
         try {
-          decoded = verifyToken(tempToken);
+          decoded = verifyTempToken(tempToken);
         } catch (error) {
           return createResponse(
             401,
@@ -742,7 +743,7 @@ export async function handler(event) {
 
         let decoded;
         try {
-          decoded = verifyToken(tempToken);
+          decoded = verifyTempToken(tempToken);
         } catch {
           return createResponse(
             401,
@@ -856,7 +857,7 @@ export async function handler(event) {
 
         let decoded;
         try {
-          decoded = verifyToken(tempToken);
+          decoded = verifyTempToken(tempToken);
         } catch {
           return createResponse(
             401,
@@ -1014,7 +1015,7 @@ export async function handler(event) {
 
         let decoded;
         try {
-          decoded = verifyToken(tempToken);
+          decoded = verifyTempToken(tempToken);
         } catch {
           return createResponse(
             401,
@@ -1116,8 +1117,47 @@ export async function handler(event) {
         );
       }
 
-      // REGISTER
+      // REGISTER — creating users through this action requires an
+      // authenticated Super Admin. Left open, anyone could self-register with
+      // any role (including super-admin) and take over the account.
       if (action === "register") {
+        const registerLimit = await checkLoginRateLimit(ip);
+        if (registerLimit.blocked) {
+          return createResponse(
+            429,
+            {
+              error: `Too many attempts. Try again after ${registerLimit.retryAfter} seconds.`,
+            },
+            origin,
+          );
+        }
+
+        let registerActor = null;
+        try {
+          registerActor = verifyRequestToken(event);
+        } catch {
+          return createResponse(
+            401,
+            { error: "Only a logged-in Super Admin can register users" },
+            origin,
+          );
+        }
+
+        const registerActorRole = String(registerActor?.role || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[_\s]+/g, "-");
+        if (
+          registerActorRole !== "super-admin" &&
+          registerActorRole !== "superadmin"
+        ) {
+          return createResponse(
+            403,
+            { error: "Only Super Admin can register users" },
+            origin,
+          );
+        }
+
         const { name, phone, pin, role } = body;
 
         // Validate required fields
@@ -1210,14 +1250,48 @@ export async function handler(event) {
       //   return createResponse(200, { message: "Logout successful" });
       // }
 
-      // CHANGE PASSWORD/PIN
+      // CHANGE PASSWORD/PIN — only the logged-in user may change their own
+      // PIN, and the request is rate limited like login so the old-PIN check
+      // cannot be brute forced.
       if (action === "change-password") {
+        const changeLimit = await checkLoginRateLimit(ip);
+        if (changeLimit.blocked) {
+          return createResponse(
+            429,
+            {
+              error: `Too many attempts. Try again after ${changeLimit.retryAfter} seconds.`,
+            },
+            origin,
+          );
+        }
+
+        let changeActor = null;
+        try {
+          changeActor = verifyRequestToken(event);
+        } catch {
+          return createResponse(
+            401,
+            { error: "Login required to change your PIN" },
+            origin,
+          );
+        }
+
         const { phone, oldPin, newPin } = body;
 
-        if (!email && !phone) {
+        if (!phone) {
           return createResponse(
             400,
-            { error: "Email or phone is required" },
+            { error: "Phone is required" },
+            origin,
+          );
+        }
+
+        if (
+          String(changeActor?.phone || "").trim() !== String(phone).trim()
+        ) {
+          return createResponse(
+            403,
+            { error: "You can only change the PIN for your own account" },
             origin,
           );
         }

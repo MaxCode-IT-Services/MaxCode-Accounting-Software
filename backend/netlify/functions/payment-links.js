@@ -1,8 +1,17 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
+import {
+  checkPublicActionRateLimit,
+  getClientIp,
+} from "./utils/rate-limit.js";
 import { sendPaymentVerificationNotification } from "./utils/payment-verification-whatsapp.js";
 import { sendPaymentVerificationTelegram } from "./utils/payment-verification-telegram.js";
+
+// Escaped so a search term can never inject regex operators ($regex PCRE
+// backtracking) or broaden the match beyond what the user typed.
+const escapeRegExp = (value = "") =>
+  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const toNumber = (value) => {
   const parsed = Number(value);
@@ -283,6 +292,33 @@ const projectRecord = (record = {}) => {
   };
 };
 
+// Fields the public payment page needs. Everything else (customer phone,
+// address, internal ids, UTR, audit fields) stays server-side — the alias is
+// the only thing a visitor should need to know.
+const PUBLIC_RECORD_FIELDS = [
+  "alias",
+  "shareUrl",
+  "clientName",
+  "businessName",
+  "amount",
+  "status",
+  "linkStatus",
+  "linkExpiry",
+  "paymentDate",
+  "note",
+  "failedReason",
+  "accountName",
+  "upiId",
+];
+
+const projectPublicRecord = (record = {}) => {
+  const projected = {};
+  PUBLIC_RECORD_FIELDS.forEach((field) => {
+    if (record[field] !== undefined) projected[field] = record[field];
+  });
+  return projectRecord(projected);
+};
+
 export async function handler(event) {
   const origin = event.headers.origin || event.headers.Origin;
 
@@ -382,7 +418,7 @@ export async function handler(event) {
         return createResponse(
           200,
           {
-            record: projectRecord(record),
+            record: projectPublicRecord(record),
             branding: {
               companyName:
                 brandingSettings?.companyName || "MaxCode IT Services",
@@ -422,13 +458,14 @@ export async function handler(event) {
       };
 
       if (search) {
+        const escapedSearch = escapeRegExp(search);
         query.$or = [
-          { alias: { $regex: search, $options: "i" } },
-          { clientName: { $regex: search, $options: "i" } },
-          { businessName: { $regex: search, $options: "i" } },
-          { phoneNumber: { $regex: search, $options: "i" } },
-          { upiId: { $regex: search, $options: "i" } },
-          { accountName: { $regex: search, $options: "i" } },
+          { alias: { $regex: escapedSearch, $options: "i" } },
+          { clientName: { $regex: escapedSearch, $options: "i" } },
+          { businessName: { $regex: escapedSearch, $options: "i" } },
+          { phoneNumber: { $regex: escapedSearch, $options: "i" } },
+          { upiId: { $regex: escapedSearch, $options: "i" } },
+          { accountName: { $regex: escapedSearch, $options: "i" } },
         ];
       }
 
@@ -625,6 +662,22 @@ export async function handler(event) {
       const { action, alias } = event.queryStringParameters || {};
 
       if (action === "public-verify") {
+        // Unauthenticated endpoint: throttle per IP so a visitor cannot flood
+        // the owner's WhatsApp/Telegram with fake UTR submissions.
+        const publicLimit = await checkPublicActionRateLimit(
+          getClientIp(event),
+          "public-verify",
+        );
+        if (publicLimit.blocked) {
+          return createResponse(
+            429,
+            {
+              error: `Too many verification attempts. Try again after ${publicLimit.retryAfter} seconds.`,
+            },
+            origin,
+          );
+        }
+
         const normalizedAlias = cleanAlias(alias);
         const body = JSON.parse(event.body || "{}");
         const enteredUtr = String(body?.utrNumber || "").trim();
@@ -659,7 +712,7 @@ export async function handler(event) {
             409,
             {
               error: "Payment link is disabled",
-              record: projectRecord(existingRecord),
+              record: projectPublicRecord(existingRecord),
             },
             origin,
           );
@@ -672,7 +725,7 @@ export async function handler(event) {
             {
               error: "Payment already finalized",
               status: currentStatus,
-              record: projectRecord(existingRecord),
+              record: projectPublicRecord(existingRecord),
             },
             origin,
           );

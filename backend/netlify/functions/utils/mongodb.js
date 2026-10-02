@@ -172,15 +172,21 @@ export function getCorsHeaders(origin) {
     "http://127.0.0.1:5174",
   ];
 
-  // Only allow if origin is in allowedOrigins, else set to 'null'
-  const corsOrigin = allowedOrigins.includes(origin) ? origin : "null";
-
-  return {
-    "Access-Control-Allow-Origin": corsOrigin,
+  // Only echo an allow-listed origin. Unknown origins must get no ACAO header
+  // at all — echoing the literal "null" together with Allow-Credentials would
+  // let sandboxed iframes (Origin: null) read credentialed responses.
+  const headers = {
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Api-Key",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
     "Access-Control-Allow-Credentials": "true",
+    Vary: "Origin",
   };
+
+  if (origin && allowedOrigins.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+
+  return headers;
 }
 
 /**

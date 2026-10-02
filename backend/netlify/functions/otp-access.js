@@ -186,9 +186,10 @@ const buildOtpHash = (otp = "", salt = "") => {
 };
 
 const generateOtp = () => {
+  // crypto.randomInt instead of Math.random: OTPs must come from a CSPRNG.
   const min = 10 ** (OTP_DIGITS - 1);
-  const max = 10 ** OTP_DIGITS - 1;
-  return String(Math.floor(min + Math.random() * (max - min + 1)));
+  const max = 10 ** OTP_DIGITS;
+  return String(crypto.randomInt(min, max));
 };
 
 const normalizePhoneToWhatsApp = (value = "") => {

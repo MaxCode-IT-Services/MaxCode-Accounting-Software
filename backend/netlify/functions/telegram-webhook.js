@@ -75,14 +75,26 @@ const verifyRouterSignature = (rawBody, header, secret) => {
 
 const isAuthorizedDirectWebhook = (event) => {
   const expected = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
-  if (!expected) return true;
+  if (!expected) {
+    // Fail closed. A webhook without a shared secret would let anyone forge
+    // payment status updates, so unauthenticated deliveries are rejected and
+    // the deployment must set TELEGRAM_WEBHOOK_SECRET (registerWebhook sends
+    // it to Telegram as secret_token automatically).
+    console.error(
+      "[telegram-webhook] TELEGRAM_WEBHOOK_SECRET is not configured; rejecting direct webhook delivery",
+    );
+    return false;
+  }
 
   const headerSecret = getHeader(
     event.headers,
     "x-telegram-bot-api-secret-token",
   );
   const querySecret = String(event.queryStringParameters?.secret || "").trim();
-  return headerSecret === expected || querySecret === expected;
+  const headerOk =
+    headerSecret && timingSafeEqualStrings(headerSecret, expected);
+  const queryOk = querySecret && timingSafeEqualStrings(querySecret, expected);
+  return Boolean(headerOk || queryOk);
 };
 
 const unwrapIncomingUpdate = (event) => {
@@ -170,6 +182,19 @@ const handleCallbackQuery = async (db, config, callbackQuery) => {
 
   if (!parsed) {
     return { handled: false, ignored: true };
+  }
+
+  // A callback that does not come from the owner chat (or that carries no
+  // message context at all, which a forged update can omit) must never touch
+  // a payment record, so verify before any mutation.
+  if (
+    !chatId ||
+    String(chatId).trim() !== String(config.chatId || "").trim()
+  ) {
+    console.error(
+      "[telegram-webhook] callback_query rejected: chat id missing or does not match the owner chat",
+    );
+    return { handled: true, ignored: true };
   }
 
   const { recordId, action } = parsed;
@@ -402,17 +427,29 @@ export const handler = async (event) => {
     }
 
     if (incoming.mode === "router") {
+      // Fail closed: without a shared secret the signature cannot be checked
+      // and anyone could post updates as the router. Configure sharedSecret
+      // in Telegram settings (the router signs payloads with the same value).
+      if (!config.sharedSecret) {
+        console.error(
+          "[telegram-webhook] sharedSecret is not configured; rejecting router webhook delivery",
+        );
+        return createResponse(
+          401,
+          { error: "Router shared secret is not configured" },
+          origin,
+        );
+      }
+
       const signature = getHeader(event.headers, "x-maxcode-signature");
-      if (config.sharedSecret) {
-        if (
-          !verifyRouterSignature(
-            incoming.rawBody,
-            signature,
-            config.sharedSecret,
-          )
-        ) {
-          return createResponse(401, { error: "Invalid signature" }, origin);
-        }
+      if (
+        !verifyRouterSignature(
+          incoming.rawBody,
+          signature,
+          config.sharedSecret,
+        )
+      ) {
+        return createResponse(401, { error: "Invalid signature" }, origin);
       }
 
       if (incoming.envelope?.source !== ROUTER_SOURCE) {
@@ -442,8 +479,21 @@ export const handler = async (event) => {
         "",
     ).trim();
 
-    if (incomingChatId && incomingChatId !== String(config.chatId).trim()) {
-      return createResponse(200, { ok: true, ignored: true }, origin);
+    // Every update this handler processes (callback_query / message) carries
+    // a chat in real Telegram traffic. An update without one can never be
+    // tied to the owner chat, so it is dropped instead of trusted.
+    if (incoming.update.callback_query || incoming.update.message) {
+      if (!incomingChatId) {
+        return createResponse(
+          200,
+          { ok: true, skipped: true, reason: "missing-chat" },
+          origin,
+        );
+      }
+
+      if (incomingChatId !== String(config.chatId).trim()) {
+        return createResponse(200, { ok: true, ignored: true }, origin);
+      }
     }
 
     const result = await processTelegramUpdate(db, config, incoming.update);

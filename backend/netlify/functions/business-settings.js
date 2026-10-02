@@ -5,6 +5,7 @@ import {
   decryptSecretFromStorage,
   encryptSecretForStorage,
   isEncryptedSecret,
+  rotateEncryptedSecret,
 } from "./utils/secret-crypto.js";
 import {
   TERMS_SETTINGS_CONFIG,
@@ -151,7 +152,9 @@ const resolveSecretForStorage = (incomingValue, existingValue = "") => {
     if (existing && !isEncryptedSecret(existing)) {
       return encryptSecretForStorage(existing);
     }
-    return existing;
+    // Re-encrypt values that still use a previous key, so a rotated
+    // CREDENTIALS_ENCRYPTION_KEY can be dropped without losing the secret.
+    return isEncryptedSecret(existing) ? rotateEncryptedSecret(existing) : existing;
   }
 
   // Empty string means explicit clear by user.
@@ -1246,6 +1249,17 @@ export async function handler(event) {
       }
 
       if (action === "reveal-secret") {
+        // Decrypted integration secrets (bot token, WhatsApp token, storage
+        // password, Drive refresh token) are super-admin-only, matching the
+        // PUT restriction on changing them.
+        if (!isSuperAdminRole(user?.role)) {
+          return createResponse(
+            403,
+            { error: "Only Super Admin can reveal secret values" },
+            origin,
+          );
+        }
+
         const scope = String(query.scope || "").trim();
         const field = String(query.field || "").trim();
 
@@ -1277,6 +1291,33 @@ export async function handler(event) {
         try {
           const encryptedValue = String(scopeValue[field] || "").trim();
           const value = decryptSecretFromStorage(encryptedValue);
+
+          // Move old-key ciphertext onto the current key so a rotated
+          // CREDENTIALS_ENCRYPTION_KEY can be dropped without data loss.
+          try {
+            const rotatedValue = rotateEncryptedSecret(encryptedValue);
+            if (
+              rotatedValue &&
+              rotatedValue !== encryptedValue &&
+              settings?._id
+            ) {
+              await settingsCollection.updateOne(
+                { _id: settings._id },
+                {
+                  $set: {
+                    [`${scope}.${field}`]: rotatedValue,
+                    updatedAt: new Date(),
+                  },
+                },
+              );
+            }
+          } catch (rotationError) {
+            console.error(
+              "[business-settings] secret rotation failed:",
+              rotationError?.message || rotationError,
+            );
+          }
+
           return createResponse(200, { success: true, value }, origin);
         } catch (error) {
           // The real cause used to be swallowed here, which made a wrong
@@ -1322,10 +1363,8 @@ export async function handler(event) {
 
       const payload = event.body ? JSON.parse(event.body) : {};
 
-      console.log(
-        "[BUSINESS-SETTINGS PUT] Received payload:",
-        JSON.stringify(payload),
-      );
+      // Never log the incoming payload here: it carries unmasked secret
+      // values before sanitisation, and function logs are broadly readable.
 
       const existingSharedSettings = await getSharedSettings(
         settingsCollection,

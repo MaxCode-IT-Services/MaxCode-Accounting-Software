@@ -1,10 +1,14 @@
 import { connectToDatabase, createResponse } from "./utils/mongodb.js";
 import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
-import crypto from "crypto";
+import {
+  decryptSecretFromStorage,
+  encryptSecretForStorage,
+  isEncryptedSecret,
+  rotateEncryptedSecret,
+} from "./utils/secret-crypto.js";
 
 const SECRET_MASK = "********";
-const ENCRYPTED_PREFIX = "enc:v1:";
 const SENSITIVE_FIELDS = [
   "hostOrIp",
   "serverRootUsername",
@@ -36,9 +40,6 @@ const SECRET_CUSTOM_FIELD_TYPES = [
   "user-id",
 ];
 
-let cachedEncryptionKey = null;
-let cachedEncryptionKeyRaw = "";
-
 const isMaskedSecretValue = (value = "") =>
   String(value || "").trim() === SECRET_MASK;
 
@@ -55,75 +56,44 @@ const isSecretCustomFieldType = (type = "") =>
       .toLowerCase(),
   );
 
-const getEncryptionKey = () => {
-  const raw = String(process.env.CREDENTIALS_ENCRYPTION_KEY || "").trim();
-
-  if (raw && !/^[a-fA-F0-9]{128}$/.test(raw)) {
-    throw new Error(
-      "CREDENTIALS_ENCRYPTION_KEY must be exactly 128 hex characters.",
-    );
-  }
-
-  // Re-derive whenever the env value changes, so a key set after the first
-  // call is not silently ignored.
-  if (!cachedEncryptionKey || cachedEncryptionKeyRaw !== raw) {
-    if (!raw) {
-      throw new Error(
-        "CREDENTIALS_ENCRYPTION_KEY is missing. Set a strong 128-char hex key for project credential encryption.",
-      );
-    }
-    const keyMaterial = Buffer.from(raw, "hex");
-    cachedEncryptionKey = crypto.createHash("sha256").update(keyMaterial).digest();
-    cachedEncryptionKeyRaw = raw;
-  }
-
-  return cachedEncryptionKey;
-};
-
-const encryptSecretValue = (value = "") => {
-  const normalized = String(value || "").trim();
+// Keeps a preserved (masked) secret decryptable across key rotations: legacy
+// plaintext gets encrypted, values on a previous key get re-encrypted onto
+// the current one, and current-key values pass through unchanged.
+const preserveSecretForStorage = (existingValue = "") => {
+  const normalized = String(existingValue || "").trim();
   if (!normalized) return "";
-  if (normalized.startsWith(ENCRYPTED_PREFIX)) return normalized;
-
-  const key = getEncryptionKey();
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-  const encrypted = Buffer.concat([
-    cipher.update(normalized, "utf8"),
-    cipher.final(),
-  ]);
-  const tag = cipher.getAuthTag();
-
-  return `${ENCRYPTED_PREFIX}${iv.toString("base64")}:${tag.toString("base64")}:${encrypted.toString("base64")}`;
+  if (isEncryptedSecret(normalized)) return rotateEncryptedSecret(normalized);
+  return encryptSecretForStorage(normalized);
 };
 
-const decryptSecretValue = (value = "") => {
-  const normalized = String(value || "").trim();
-  if (!normalized) return "";
-  if (!normalized.startsWith(ENCRYPTED_PREFIX)) return normalized;
+const escapeRegExp = (value = "") =>
+  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  const payload = normalized.slice(ENCRYPTED_PREFIX.length);
-  const parts = payload.split(":");
-  if (parts.length !== 3) {
-    throw new Error("Invalid encrypted secret format");
-  }
-
-  const [ivBase64, tagBase64, encryptedBase64] = parts;
-  const key = getEncryptionKey();
-  const iv = Buffer.from(ivBase64, "base64");
-  const tag = Buffer.from(tagBase64, "base64");
-  const encrypted = Buffer.from(encryptedBase64, "base64");
-
-  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(tag);
-
-  const decrypted = Buffer.concat([
-    decipher.update(encrypted),
-    decipher.final(),
-  ]);
-
-  return decrypted.toString("utf8").trim();
-};
+// Only these query params may drive server-side field filters; anything else
+// is ignored instead of becoming a $regex on an arbitrary field.
+const FILTERABLE_KEYS = new Set([
+  "clientName",
+  "businessName",
+  "projectName",
+  "websiteGithubRepoName",
+  "websiteGithubUrl",
+  "websiteLink",
+  "appGithubRepoName",
+  "appGithubUrl",
+  "androidAppLink",
+  "iosRepoName",
+  "iosRepoUrl",
+  "iosAppLink",
+  "serverName",
+  "serverPortNumber",
+  "serverRootUsername",
+  "serverUsername",
+  "databaseName",
+  "databasePortNumber",
+  "databaseRootUsername",
+  "databaseId",
+  "appUsername",
+]);
 
 const applySecretProtection = (nextPayload, existingRecord = null) => {
   const protectedPayload = { ...nextPayload };
@@ -138,7 +108,7 @@ const applySecretProtection = (nextPayload, existingRecord = null) => {
     ).trim();
 
     if (isMaskedSecretValue(incomingValue)) {
-      protectedPayload[field] = existingValue;
+      protectedPayload[field] = preserveSecretForStorage(existingValue);
       return;
     }
 
@@ -147,7 +117,7 @@ const applySecretProtection = (nextPayload, existingRecord = null) => {
       return;
     }
 
-    protectedPayload[field] = encryptSecretValue(incomingValue);
+    protectedPayload[field] = encryptSecretForStorage(incomingValue);
   });
 
   const previousCustomFields = Array.isArray(existingRecord?.customFields)
@@ -201,7 +171,7 @@ const applySecretProtection = (nextPayload, existingRecord = null) => {
         const existingValue = String(previousField?.value || "").trim();
 
         if (isMaskedSecretValue(incomingValue)) {
-          return { ...field, value: existingValue };
+          return { ...field, value: preserveSecretForStorage(existingValue) };
         }
 
         if (!incomingValue) {
@@ -210,7 +180,7 @@ const applySecretProtection = (nextPayload, existingRecord = null) => {
 
         return {
           ...field,
-          value: encryptSecretValue(incomingValue),
+          value: encryptSecretForStorage(incomingValue),
         };
       })
     : [];
@@ -272,7 +242,7 @@ const revealSecretValueFromRecord = ({ record, field, customFieldId }) => {
 
     return {
       key: normalizedField,
-      value: decryptSecretValue(rawValue || ""),
+      value: decryptSecretFromStorage(rawValue || ""),
     };
   }
 
@@ -297,8 +267,38 @@ const revealSecretValueFromRecord = ({ record, field, customFieldId }) => {
 
   return {
     key: normalizedCustomFieldId,
-    value: decryptSecretValue(customField.value || ""),
+    value: decryptSecretFromStorage(customField.value || ""),
   };
+};
+
+/**
+ * Re-encrypts every secret that still depends on a previous key onto the
+ * current one. Called after a successful reveal so old-key ciphertext is
+ * migrated lazily and the previous key can eventually be dropped.
+ */
+const buildSecretRotationUpdates = (record) => {
+  const updates = {};
+
+  SENSITIVE_FIELDS.forEach((field) => {
+    (LEGACY_SENSITIVE_ALIASES[field] || [field]).forEach((key) => {
+      const current = String(record?.[key] || "").trim();
+      if (!current) return;
+      const rotated = rotateEncryptedSecret(current);
+      if (rotated !== current) updates[key] = rotated;
+    });
+  });
+
+  (Array.isArray(record?.customFields) ? record.customFields : []).forEach(
+    (field, index) => {
+      if (!isSecretCustomFieldType(field?.type)) return;
+      const current = String(field?.value || "").trim();
+      if (!current) return;
+      const rotated = rotateEncryptedSecret(current);
+      if (rotated !== current) updates[`customFields.${index}.value`] = rotated;
+    },
+  );
+
+  return updates;
 };
 
 const normalizeCustomFields = (fields = []) => {
@@ -512,6 +512,23 @@ export async function handler(event) {
             customFieldId,
           });
 
+          // Move old-key ciphertext onto the current key so the previous
+          // key can be dropped without losing access to the secret.
+          try {
+            const rotationUpdates = buildSecretRotationUpdates(record);
+            if (Object.keys(rotationUpdates).length > 0) {
+              await collection.updateOne(
+                { _id: record._id },
+                { $set: { ...rotationUpdates, updatedAt: new Date() } },
+              );
+            }
+          } catch (rotationError) {
+            console.error(
+              "[project-credentials] secret rotation failed:",
+              rotationError?.message || rotationError,
+            );
+          }
+
           return createResponse(
             200,
             {
@@ -588,7 +605,12 @@ export async function handler(event) {
           return;
         }
 
-        filterQuery[key] = { $regex: String(value).trim(), $options: "i" };
+        if (!FILTERABLE_KEYS.has(key)) return;
+
+        filterQuery[key] = {
+          $regex: escapeRegExp(String(value).trim()),
+          $options: "i",
+        };
       });
 
       if (filter) {
@@ -636,30 +658,31 @@ export async function handler(event) {
       }
 
       if (search) {
+        const escapedSearch = escapeRegExp(search);
         filterQuery.$and = filterQuery.$and || [];
         filterQuery.$and.push({
           $or: [
-            { clientName: { $regex: search, $options: "i" } },
-            { businessName: { $regex: search, $options: "i" } },
-            { projectName: { $regex: search, $options: "i" } },
-            { websiteGithubRepoName: { $regex: search, $options: "i" } },
-            { websiteGithubUrl: { $regex: search, $options: "i" } },
-            { websiteLink: { $regex: search, $options: "i" } },
-            { appGithubRepoName: { $regex: search, $options: "i" } },
-            { appGithubUrl: { $regex: search, $options: "i" } },
-            { androidAppLink: { $regex: search, $options: "i" } },
-            { iosRepoName: { $regex: search, $options: "i" } },
-            { iosRepoUrl: { $regex: search, $options: "i" } },
-            { iosAppLink: { $regex: search, $options: "i" } },
-            { serverName: { $regex: search, $options: "i" } },
-            { serverPortNumber: { $regex: search, $options: "i" } },
-            { serverRootUsername: { $regex: search, $options: "i" } },
-            { serverUsername: { $regex: search, $options: "i" } },
-            { databaseName: { $regex: search, $options: "i" } },
-            { databasePortNumber: { $regex: search, $options: "i" } },
-            { databaseRootUsername: { $regex: search, $options: "i" } },
-            { databaseId: { $regex: search, $options: "i" } },
-            { appUsername: { $regex: search, $options: "i" } },
+            { clientName: { $regex: escapedSearch, $options: "i" } },
+            { businessName: { $regex: escapedSearch, $options: "i" } },
+            { projectName: { $regex: escapedSearch, $options: "i" } },
+            { websiteGithubRepoName: { $regex: escapedSearch, $options: "i" } },
+            { websiteGithubUrl: { $regex: escapedSearch, $options: "i" } },
+            { websiteLink: { $regex: escapedSearch, $options: "i" } },
+            { appGithubRepoName: { $regex: escapedSearch, $options: "i" } },
+            { appGithubUrl: { $regex: escapedSearch, $options: "i" } },
+            { androidAppLink: { $regex: escapedSearch, $options: "i" } },
+            { iosRepoName: { $regex: escapedSearch, $options: "i" } },
+            { iosRepoUrl: { $regex: escapedSearch, $options: "i" } },
+            { iosAppLink: { $regex: escapedSearch, $options: "i" } },
+            { serverName: { $regex: escapedSearch, $options: "i" } },
+            { serverPortNumber: { $regex: escapedSearch, $options: "i" } },
+            { serverRootUsername: { $regex: escapedSearch, $options: "i" } },
+            { serverUsername: { $regex: escapedSearch, $options: "i" } },
+            { databaseName: { $regex: escapedSearch, $options: "i" } },
+            { databasePortNumber: { $regex: escapedSearch, $options: "i" } },
+            { databaseRootUsername: { $regex: escapedSearch, $options: "i" } },
+            { databaseId: { $regex: escapedSearch, $options: "i" } },
+            { appUsername: { $regex: escapedSearch, $options: "i" } },
           ],
         });
       }

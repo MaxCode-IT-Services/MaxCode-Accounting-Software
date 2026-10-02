@@ -1454,7 +1454,15 @@ export async function handler(event) {
     }
 
     const eventSettings = getCloudflareSettingsFromEvent(event, parsedBody);
-    let cloudflareSettings = mergeCloudflareSettings(eventSettings);
+    // Client-supplied store URLs are never trusted with credentials: the
+    // storage password is sent to whichever storeUrl the server resolves, so
+    // a user could otherwise point it at their own server (SSRF + credential
+    // theft). Only the default folder hint is accepted from the request; the
+    // store URL, public domain and password always come from the database or
+    // environment below.
+    let cloudflareSettings = mergeCloudflareSettings({
+      defaultFolder: eventSettings?.defaultFolder,
+    });
     let cloudflareSettingsLoadError = null;
 
     if (!cloudflareSettings?.storeUrl || !cloudflareSettings?.password) {

@@ -122,9 +122,9 @@ const alert = () =>
 
 // --- command parsing ---------------------------------------------------------
 console.log("\n## command parsing");
-ok("alias create_payment_link", cmds.extractCommand({ text: "/create_payment_link" }), "maxcode_accounting_create_link");
-ok("canonical + @botname", cmds.extractCommand({ text: "/maxcode_accounting_create_link@MyBot" }), "maxcode_accounting_create_link");
-ok("short alias createlink", cmds.extractCommand({ text: "/createlink" }), "maxcode_accounting_create_link");
+ok("alias create_payment_link", cmds.extractCommand({ text: "/create_payment_link" }), "accounting_create_link");
+ok("canonical + @botname", cmds.extractCommand({ text: "/accounting_create_link@MyBot" }), "accounting_create_link");
+ok("short alias createlink", cmds.extractCommand({ text: "/createlink" }), "accounting_create_link");
 ok("plain text ignored", JSON.stringify(cmds.extractCommand({ text: "hello" })), '""');
 ok("unknown slash ignored", JSON.stringify(cmds.extractCommand({ text: "/nope" })), '""');
 
@@ -132,26 +132,28 @@ ok("unknown slash ignored", JSON.stringify(cmds.extractCommand({ text: "/nope" }
 console.log("\n## forgiving spellings");
 ok(
   "software path + feature",
-  cmds.extractCommand({ text: "/maxcode-accounting/createlink" }),
-  "maxcode_accounting_create_link",
+  cmds.extractCommand({ text: "/accounting/createlink" }),
+  "accounting_create_link",
 );
 ok(
   "software path + full feature",
-  cmds.extractCommand({ text: "/Maxcode-Accounting/Create-Payment-Link" }),
-  "maxcode_accounting_create_link",
+  cmds.extractCommand({ text: "/Accounting/Create-Payment-Link" }),
+  "accounting_create_link",
 );
-ok("dash form", cmds.extractCommand({ text: "/maxcode-accounting/create-link" }), "maxcode_accounting_create_link");
-ok("underscore software only", cmds.extractCommand({ text: "/maxcode-accounting" }), "maxcode_accounting");
-ok("trailing feature wins", cmds.extractCommand({ text: "/maxcode_accounting/stats" }), "maxcode_accounting_stats");
-ok("links path", cmds.extractCommand({ text: "/maxcode-accounting/links" }), "maxcode_accounting_links");
-ok("cancel path", cmds.extractCommand({ text: "/maxcode-accounting/cancel" }), "maxcode_accounting_cancel");
-ok("typo createlnk", cmds.extractCommand({ text: "/createlnk" }), "maxcode_accounting_create_link");
-ok("typo hel", cmds.extractCommand({ text: "/halp" }), "maxcode_accounting_help");
-ok("trailing typo still matched", cmds.extractCommand({ text: "/statsx" }), "maxcode_accounting_stats");
+ok("dash form", cmds.extractCommand({ text: "/accounting/create-link" }), "accounting_create_link");
+ok("underscore software only", cmds.extractCommand({ text: "/accounting" }), "accounting");
+ok("trailing feature wins", cmds.extractCommand({ text: "/accounting/status" }), "accounting_status");
+ok("links path", cmds.extractCommand({ text: "/accounting/links" }), "accounting_links");
+ok("cancel path", cmds.extractCommand({ text: "/accounting/cancel" }), "accounting_cancel");
+ok("typo createlnk", cmds.extractCommand({ text: "/createlnk" }), "accounting_create_link");
+ok("typo hel", cmds.extractCommand({ text: "/halp" }), "accounting_help");
+ok("trailing typo still matched", cmds.extractCommand({ text: "/statsx" }), "accounting_status");
 ok("three letter word not guessed", JSON.stringify(cmds.extractCommand({ text: "/lnk" })), '""');
 ok("unrelated word not guessed", JSON.stringify(cmds.extractCommand({ text: "/zzzzzz" })), '""');
-ok("extra words ignored", cmds.extractCommand({ text: "/createlink for Rahul" }), "maxcode_accounting_create_link");
-ok("at bot name kept", cmds.extractCommand({ text: "/createlink@MaxCodeBot" }), "maxcode_accounting_create_link");
+ok("extra words ignored", cmds.extractCommand({ text: "/createlink for Rahul" }), "accounting_create_link");
+ok("at bot name kept", cmds.extractCommand({ text: "/createlink@MaxCodeBot" }), "accounting_create_link");
+ok("old statistics alias removed", JSON.stringify(cmds.extractCommand({ text: "/statistics" })), '""');
+ok("old maxcode command gone", JSON.stringify(cmds.extractCommand({ text: "/maxcode_accounting_stats" })), '""');
 
 // --- saved customer picker ---------------------------------------------------
 console.log("\n## saved customer picker");
@@ -260,7 +262,7 @@ store.clients = [];
 
 // --- happy path with UPI buttons --------------------------------------------
 console.log("\n## happy path (button UPI + all skips)");
-await cmd("/maxcode_accounting_create_link");
+await cmd("/accounting_create_link");
 ok("step 1 prompt", lastSend().startsWith("*📝 Create Payment Link — Step 2 of 10 — MaxCode Accounting*"), "true");
 ok("state after step 1", state(), "client_name");
 
@@ -463,12 +465,12 @@ ok("lists newest first", lastSend().indexOf("Revise Co") === -1, "true");
 ok("footer", lastSend().includes("5 most recent"), "true");
 ok("shows a real link", /https:\/\/pay\\?\.maxcode\\?\.in\//.test(lastSend()), "true");
 
-await cmd("/stats");
+await cmd("/status");
 ok("stats total count", lastSend().includes(`*Total Links:* ${total}`), "true");
 ok("stats by status", lastSend().includes(`• Pending: ${total}`), "true");
 
 await cmd("/help");
-ok("help lists all commands", lastSend().includes("/maxcode\\_accounting\\_create\\_link"), "true");
+ok("help lists all commands", lastSend().includes("/accounting\\_create\\_link"), "true");
 
 const sync = await cmds.syncBotCommands("TEST");
 ok("sync returns count", sync.commands, 6);

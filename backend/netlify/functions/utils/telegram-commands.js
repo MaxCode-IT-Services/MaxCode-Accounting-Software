@@ -39,11 +39,11 @@ const headingText = (title) =>
 const heading = (emoji, title) => headingText(`${emoji} ${title}`);
 
 /**
- * One entry per Telegram slash command. Every name is namespaced with the
- * software name so other products sharing the router never collide.
+ * One entry per Telegram slash command. Every name is namespaced under
+ * "accounting" so other products sharing the router never collide.
  */
 const FEATURES = {
-  maxcode_accounting_create_link: {
+  accounting_create_link: {
     title: "Create Payment Link",
     description: "Create a customer payment link step by step",
     aliases: [
@@ -56,30 +56,30 @@ const FEATURES = {
       "paymentlink",
     ],
   },
-  maxcode_accounting_links: {
+  accounting_links: {
     title: "List Payment Links",
     description: "Show the 5 most recent payment links",
     aliases: ["links", "list_links", "listlinks"],
   },
-  maxcode_accounting_stats: {
-    title: "Payment Link Stats",
+  accounting_status: {
+    title: "Payment Link Status",
     description: "Totals and counts by status",
-    aliases: ["stats", "statistics", "status"],
+    aliases: ["status"],
   },
-  maxcode_accounting_help: {
+  accounting_help: {
     title: "Help / Command List",
     description: "Show every available Telegram command",
     aliases: ["help", "start", "menu"],
   },
-  maxcode_accounting_cancel: {
+  accounting_cancel: {
     title: "Cancel Current Task",
     description: "Stop the running step-by-step task",
     aliases: ["cancel", "stop", "abort"],
   },
 };
 
-// Entry point: /maxcode_accounting lists the software features.
-const SOFTWARE_COMMAND = "maxcode_accounting";
+// Entry point: /accounting lists the software features.
+const SOFTWARE_COMMAND = "accounting";
 const SOFTWARE_MENU_DESCRIPTION = "MaxCode Accounting features menu";
 
 const CANONICAL_COMMANDS = Object.entries(FEATURES).map(([command, feature]) => ({
@@ -287,7 +287,7 @@ const editText = async (botToken, chatId, messageId, text, extra = {}) => {
 
 /**
  * Users type commands in many ways: "/createlink", "/create_link",
- * "/maxcode-accounting/create-payment-link". This turns any of those into
+ * "/accounting/create-payment-link". This turns any of those into
  * lowercase underscore words so one lookup covers every spelling.
  */
 const normalizeCommandName = (value) =>
@@ -365,8 +365,8 @@ const resolveCommand = (rawName) => {
  * Accepted shapes:
  *   /createlink
  *   /create_link  extra words are ignored
- *   /maxcode-accounting/create-payment-link
- *   /maxcode_accounting@MyBot
+ *   /accounting/create-payment-link
+ *   /accounting@MyBot
  */
 export const extractCommand = ({ text } = {}) => {
   const raw = String(text || "").trim();
@@ -381,7 +381,7 @@ export const extractCommand = ({ text } = {}) => {
   if (!parts.length) return "";
 
   // In a path a feature always wins over the plain software menu, so
-  // /maxcode-accounting/createlink runs the wizard and not the menu.
+  // /accounting/createlink runs the wizard and not the menu.
   if (isPath || parts.length > 1) {
     let softwareFallback = "";
     for (const part of parts) {
@@ -410,7 +410,7 @@ const stepTitle = (step) => {
 /**
  * Narrows the picker to one screenful of customers, honouring any search term
  * and the current page offset. Keeping this pure makes the button layout easy
- * to reason about: the text list and the keyboard always show the same rows.
+ * to reason about: the keyboard is the only place customers are listed.
  */
 const pageClientOptions = (draft = {}) => {
   const all = Array.isArray(draft.clientOptions) ? draft.clientOptions : [];
@@ -451,8 +451,7 @@ const buildStepView = (step, draft = {}) => {
   }
 
   if (step === "pick_client" && (draft.clientOptions || []).length > 0) {
-    // Only the current page of customers is listed, so a long list never turns
-    // into an unreadable wall of text.
+    // Customers appear only as buttons, never as a typed list in the message.
     const page = pageClientOptions(draft);
     lines.push(
       "",
@@ -462,13 +461,6 @@ const buildStepView = (step, draft = {}) => {
           : "Tap a customer below, or type part of a name or number to search.",
       ),
     );
-    for (const client of page.items) {
-      lines.push(
-        `• ${escapeMarkdownV2(
-          [client.clientName, client.businessName].filter(Boolean).join(" — ") || "-",
-        )}`,
-      );
-    }
     if (page.searched) {
       lines.push("", escapeMarkdownV2("Clear the search to see everyone again."));
     }
@@ -669,7 +661,7 @@ const buildLinksMessage = (links) =>
 
 const buildStatsMessage = ({ total, groups }) =>
   [
-    heading("📊", "Payment Link Stats"),
+    heading("📊", "Payment Link Status"),
     "",
     `*Total Links:* ${total}`,
     "",
@@ -695,10 +687,10 @@ const buildHelpMessage = () =>
     `   ${escapeMarkdownV2(SOFTWARE_MENU_DESCRIPTION)}`,
     "",
     escapeMarkdownV2(
-      "Short forms also work: /createlink, /links, /stats, /cancel.",
+      "Short forms also work: /createlink, /links, /status, /cancel.",
     ),
     escapeMarkdownV2(
-      "Write it however you like — /maxcode-accounting/create-link also works.",
+      "Write it however you like — /accounting/create-link also works.",
     ),
   ].join("\n");
 
@@ -709,7 +701,7 @@ const buildSoftwareMenuMessage = () => ({
     escapeMarkdownV2("Pick the work you want to do:"),
   ].join("\n"),
   inlineKeyboard: CANONICAL_COMMANDS.filter(
-    (entry) => entry.command !== "maxcode_accounting_cancel",
+    (entry) => entry.command !== "accounting_cancel",
   ).map((entry) => [
     {
       text: entry.description,
@@ -1167,21 +1159,21 @@ export const handleCommandMessage = async ({ db, config, message }) => {
   const command = extractCommand({ text });
   if (!command) return false;
 
-  if (command === "maxcode_accounting_cancel") {
+  if (command === "accounting_cancel") {
     return cancelConversation({ db, botToken, chatId });
   }
 
-  if (command === "maxcode_accounting_links") {
+  if (command === "accounting_links") {
     await showLinks({ db, botToken, chatId });
     return true;
   }
 
-  if (command === "maxcode_accounting_stats") {
+  if (command === "accounting_status") {
     await showStats({ db, botToken, chatId });
     return true;
   }
 
-  if (command === "maxcode_accounting_help") {
+  if (command === "accounting_help") {
     await showHelp({ botToken, chatId });
     return true;
   }
@@ -1230,15 +1222,15 @@ export const handleCommandCallback = async ({ db, config, callbackQuery }) => {
   // Software menu buttons start the chosen feature straight away.
   if (parsed.action === "menu") {
     await answer("Starting");
-    if (parsed.argument === "maxcode_accounting_create_link") {
+    if (parsed.argument === "accounting_create_link") {
       await startWizard({ db, botToken, chatId });
       return true;
     }
-    if (parsed.argument === "maxcode_accounting_links") {
+    if (parsed.argument === "accounting_links") {
       await showLinks({ db, botToken, chatId });
       return true;
     }
-    if (parsed.argument === "maxcode_accounting_stats") {
+    if (parsed.argument === "accounting_status") {
       await showStats({ db, botToken, chatId });
       return true;
     }
