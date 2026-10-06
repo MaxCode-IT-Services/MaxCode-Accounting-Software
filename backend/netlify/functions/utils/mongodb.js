@@ -1,7 +1,6 @@
 import dotenv from "dotenv";
 dotenv.config();
 import { MongoClient } from "mongodb";
-import { gzipSync, brotliCompressSync } from "zlib";
 import { setupDb } from "./setupDb.js";
 import dns from "dns";
 
@@ -192,54 +191,52 @@ export function getCorsHeaders(origin) {
 
 /**
  * Helper to create API response.
- * JSON bodies are compressed when the client accepts it — brotli first
- * (smallest), gzip fallback. API payloads shrink ~70-85%, which is most of
- * the perceived API latency on slow links.
+ *
+ * Callers historically pass the whole `event` as the `extraHeaders`
+ * argument, so this MUST ignore anything that is not a plain header value:
+ * spreading the event put its own `headers` map (and `body`, `httpMethod`,
+ * ...) into the response headers, and the Netlify/Go wrapper then failed the
+ * whole invocation with
+ *   error decoding lambda response: invalid type "map[string]interface {}"
+ *   for "headers" key "headers"
+ * which took every endpoint (including login) down with a 502.
+ *
+ * Only scalar (string / number / boolean) values are forwarded as headers,
+ * and the event's own field names are never treated as header names.
  */
+const EVENT_FIELD_NAMES = new Set([
+  "headers",
+  "body",
+  "httpMethod",
+  "path",
+  "rawPath",
+  "queryStringParameters",
+  "multiValueQueryStringParameters",
+  "pathParameters",
+  "stageVariables",
+  "requestContext",
+  "isBase64Encoded",
+  "rawQuery",
+  "cookies",
+  "multiValueHeaders",
+]);
+
 export function createResponse(statusCode,
   body,
   origin = null,
-  extraHeaders = {},
-  event = null) {
-  const serialized = JSON.stringify(body);
-  const headers = {
-    ...getCorsHeaders(origin),
-    ...extraHeaders,
-  };
+  extraHeaders = {}) {
+  const headers = { ...getCorsHeaders(origin) };
 
-  const acceptEncoding = String(
-    event?.headers?.["accept-encoding"] ||
-      event?.headers?.["Accept-Encoding"] ||
-      "",
-  ).toLowerCase();
-
-  if (serialized.length > 512) {
-    if (acceptEncoding.includes("br")) {
-      headers["Content-Encoding"] = "br";
-      headers.Vary = "Accept-Encoding";
-      return {
-        statusCode,
-        headers,
-        body: brotliCompressSync(Buffer.from(serialized, "utf8")).toString("base64"),
-        isBase64Encoded: true,
-      };
-    }
-
-    if (acceptEncoding.includes("gzip")) {
-      headers["Content-Encoding"] = "gzip";
-      headers.Vary = "Accept-Encoding";
-      return {
-        statusCode,
-        headers,
-        body: gzipSync(Buffer.from(serialized, "utf8")).toString("base64"),
-        isBase64Encoded: true,
-      };
-    }
+  for (const [key, value] of Object.entries(extraHeaders || {})) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === "object" || typeof value === "function") continue;
+    if (EVENT_FIELD_NAMES.has(key)) continue;
+    headers[key] = String(value);
   }
 
   return {
     statusCode,
     headers,
-    body: serialized,
+    body: JSON.stringify(body),
   };
 }
