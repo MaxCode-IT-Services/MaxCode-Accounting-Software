@@ -7,6 +7,12 @@ import {
   Routes,
   useLocation,
 } from "react-router-dom";
+// The preloader animation is decorative. Loading the Lottie player lazily keeps
+// ~200 KB of runtime out of the entry bundle, so the app's first paint is not
+// blocked waiting for an animation that only shows for a moment.
+const LottiePlayer = lazy(() =>
+  import("@lottiefiles/react-lottie-player").then((m) => ({ default: m.Player })),
+);
 import AdminDashboardLayout from "../src/Components/DashboardLayout";
 import {
   hasModuleAccess,
@@ -121,7 +127,16 @@ export const Loading = () => {
 
     animationId = requestAnimationFrame(animate);
 
+    // requestAnimationFrame does not fire in background tabs or some embedded
+    // webviews, which would leave the progress bar frozen at 0%. Finish it on a
+    // timer as well so the bar always completes.
+    const finishTimer = setTimeout(() => {
+      loaderProgressSnapshot = 100;
+      setProgressValue(100);
+    }, LOADER_DURATION_MS + 400);
+
     return () => {
+      clearTimeout(finishTimer);
       if (animationId) {
         cancelAnimationFrame(animationId);
       }
@@ -133,7 +148,14 @@ export const Loading = () => {
       <div className="preloader-stage" aria-hidden="true"></div>
       <div className="preloader-panel" role="status" aria-live="polite">
         <div className="preloader-chip" aria-hidden="true">
-          <div className="preloader-spinner" />
+          <Suspense fallback={null}>
+            <LottiePlayer
+              autoplay
+              loop
+              src="/Json/loading3.json"
+              className="preloader-lottie"
+            />
+          </Suspense>
         </div>
         <p className="preloader-title text-success">MaxCode IT Services</p>
         <p className="preloader-subtitle">
