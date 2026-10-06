@@ -239,25 +239,12 @@ const TelegramTab = ({
             </div>
           </div>
 
+          {/* The bot's webhook is registered in the Telegram Webhook Software's
+              bot connection (one bot can serve several softwares), so this tab
+              deliberately does not offer Set Webhook / Webhook Info — the
+              router owns that registration, exactly like it owns the command
+              menu below. */}
           <div className="col-12 d-flex flex-wrap gap-2">
-            <button
-              className="btn btn-primary fw-bold"
-              type="button"
-              disabled={!isSuperAdmin || isTelegramSettingUp}
-              onClick={() => onTelegramSetup?.("set-webhook")}
-            >
-              <i className="fas fa-link me-1"></i>
-              {isTelegramSettingUp ? "Working..." : "Set Webhook"}
-            </button>
-            <button
-              className="btn btn-outline-secondary fw-bold"
-              type="button"
-              disabled={!isSuperAdmin || isTelegramSettingUp}
-              onClick={() => onTelegramSetup?.("webhook-info")}
-            >
-              <i className="fas fa-circle-info me-1"></i>
-              Webhook Info
-            </button>
             <button
               className="btn btn-outline-success fw-bold"
               type="button"
