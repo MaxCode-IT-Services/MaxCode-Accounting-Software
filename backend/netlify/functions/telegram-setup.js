@@ -5,7 +5,10 @@ import {
   sendTelegramMessage,
   telegramRequest,
 } from "./utils/payment-verification-telegram.js";
-import { syncBotCommands } from "./utils/telegram-commands.js";
+import {
+  registerCommandsWithRouter,
+  buildMenuCommands,
+} from "./utils/telegram-commands.js";
 
 const getBaseUrl = (event) => {
   const headers = event.headers || {};
@@ -93,10 +96,20 @@ export const handler = async (event) => {
     }
 
     if (action === "sync-commands") {
-      // Publishes the "/" menu so Telegram lists the software and its features.
-      const result = await syncBotCommands(config.botToken);
+      // Register our commands with the shared Telegram Webhook software
+      // instead of Telegram: it publishes ONE combined menu for the bot, so
+      // syncing here can never erase another software's commands.
+      const result = await registerCommandsWithRouter(
+        config,
+        buildMenuCommands(),
+      );
       return createResponse(200,
-        { success: true, commands: result.commands },
+        {
+          success: true,
+          // `commands` keeps the existing toast's count working.
+          commands: result.registered ?? result.menuCount ?? 0,
+          ...result,
+        },
         origin, event);
     }
 

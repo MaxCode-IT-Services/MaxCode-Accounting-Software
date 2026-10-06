@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { ObjectId } from "mongodb";
 import {
   SOFTWARE_NAME,
@@ -1476,21 +1477,119 @@ export const handleCommandCallback = async ({ db, config, callbackQuery }) => {
 };
 
 /**
- * Publishes the command list so Telegram's "/" menu shows the software name
- * and every feature. Safe to call on every save.
+ * This software's contribution to the bot's "/" menu.
  */
-export const syncBotCommands = async (botToken) => {
-  const commands = [
-    { command: SOFTWARE_COMMAND, description: SOFTWARE_MENU_DESCRIPTION },
-    ...CANONICAL_COMMANDS,
-  ];
+export const buildMenuCommands = () => [
+  { command: SOFTWARE_COMMAND, description: SOFTWARE_MENU_DESCRIPTION },
+  ...CANONICAL_COMMANDS,
+];
 
-  await telegramRequest(botToken, "setMyCommands", {
+// The shared Telegram Webhook software owns the bot's single command menu.
+// Telegram's setMyCommands REPLACES the whole list, so calling it directly
+// from here erased every other linked software's commands — and any sync in
+// another software erased ours. Register our list with the router instead:
+// it merges every connection's commands and publishes the union once.
+const DEFAULT_ROUTER_URL = "https://botrouter.maxcodehub.com";
+
+// Server-side request guard: https only, public host only.
+const isPublicHttpsUrl = (value) => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password) return false;
+    const host = url.hostname.toLowerCase();
+    if (
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      host.endsWith(".local") ||
+      host.endsWith(".internal")
+    ) {
+      return false;
+    }
+    const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (v4) {
+      const [a, b] = v4.slice(1).map(Number);
+      if ([a, b].some((n) => Number.isNaN(n) || n > 255)) return false;
+      if (a === 0 || a === 10 || a === 127) return false;
+      if (a === 169 && b === 254) return false;
+      if (a === 172 && b >= 16 && b <= 31) return false;
+      if (a === 192 && b === 168) return false;
+      if (a === 100 && b >= 64 && b <= 127) return false;
+      if (a >= 224) return false;
+      return true;
+    }
+    if (host.includes(":")) return false;
+    return host.includes(".");
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Register this software's commands with the shared Telegram Webhook
+ * software over the same HMAC contract it uses when forwarding updates to us.
+ * Throws a descriptive error; the caller decides how to surface it.
+ */
+export const registerCommandsWithRouter = async (config, commands) => {
+  const routerBase = String(
+    process.env.MAXCODE_ROUTER_URL || DEFAULT_ROUTER_URL,
+  )
+    .trim()
+    .replace(/\/+$/, "");
+  if (!isPublicHttpsUrl(routerBase)) {
+    throw new Error(
+      "The Telegram Webhook Software URL is not a public https address; commands were not registered.",
+    );
+  }
+  const connectionId = String(config?.routerConnectionId || "").trim();
+  const sharedSecret = String(config?.sharedSecret || "").trim();
+  if (!connectionId) {
+    throw new Error(
+      "Router Connection ID is missing — fill the router fields in Settings → Telegram and save first.",
+    );
+  }
+  if (!sharedSecret) {
+    throw new Error(
+      "Router Shared Secret is missing — fill the router fields in Settings → Telegram and save first.",
+    );
+  }
+
+  const body = JSON.stringify({
+    connectionId,
+    botId: String(config?.routerBotId || "").trim(),
     commands,
-    scope: { type: "default" },
   });
+  const signature = `sha256=${crypto
+    .createHmac("sha256", sharedSecret)
+    .update(body)
+    .digest("hex")}`;
 
-  return { commands: commands.length };
+  let response;
+  try {
+    response = await fetch(`${routerBase}/api/software-commands`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-maxcode-signature": signature,
+      },
+      body,
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (error) {
+    if (error?.name === "TimeoutError" || error?.name === "AbortError") {
+      throw new Error(
+        "The Telegram Webhook Software did not respond within 15 seconds — commands were not changed.",
+      );
+    }
+    throw new Error(
+      `The Telegram Webhook Software is unreachable: ${error?.message || "connection failed"}`,
+    );
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error || `The router responded with ${response.status}`);
+  }
+  return data;
 };
 
 export { FEATURES, SOFTWARE_COMMAND, CONVERSATION_PREFIX };
