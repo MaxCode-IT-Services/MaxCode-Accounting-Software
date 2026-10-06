@@ -60,12 +60,12 @@ const FEATURES = {
   accounting_links: {
     title: "List Payment Links",
     description: "Show the 5 most recent payment links",
-    aliases: ["links", "list_links", "listlinks"],
+    aliases: ["links", "list_links", "listlinks", "recentlink", "recentlinks"],
   },
   accounting_status: {
     title: "Payment Link Status",
     description: "Totals and counts by status",
-    aliases: ["status"],
+    aliases: ["status", "linkstatus", "link_status"],
   },
   accounting_help: {
     title: "Help / Command List",
@@ -82,6 +82,21 @@ const FEATURES = {
 // Entry point: /accounting lists the software features.
 const SOFTWARE_COMMAND = "accounting";
 const SOFTWARE_MENU_DESCRIPTION = "MaxCode Accounting features menu";
+
+/**
+ * What appears in Telegram's "/" menu — short names so the menu stays tidy.
+ * Each name resolves to its canonical accounting_* command through the alias
+ * table above, so dispatch is unchanged. Descriptions stay PLAIN: the router
+ * prefixes them with the connection's Software Name, which is what renders
+ * as "Accounting | Create Payment Link" in the menu.
+ */
+const MENU_COMMANDS = [
+  { command: "accounting", description: "Features menu" },
+  { command: "createlink", description: "Create Payment Link" },
+  { command: "recentlink", description: "Recent Payment Link" },
+  { command: "linkstatus", description: "Link Status" },
+  { command: "cancel", description: "Cancel Current Task" },
+];
 
 const CANONICAL_COMMANDS = Object.entries(FEATURES).map(([command, feature]) => ({
   command,
@@ -679,19 +694,16 @@ const buildHelpMessage = () =>
   [
     heading("📖", "Commands"),
     "",
-    ...CANONICAL_COMMANDS.flatMap((entry) => [
+    ...MENU_COMMANDS.flatMap((entry) => [
       `/${escapeMarkdownV2(entry.command)}`,
       `   ${escapeMarkdownV2(entry.description)}`,
     ]),
     "",
-    `/${escapeMarkdownV2(SOFTWARE_COMMAND)}`,
-    `   ${escapeMarkdownV2(SOFTWARE_MENU_DESCRIPTION)}`,
-    "",
     escapeMarkdownV2(
-      "Short forms also work: /createlink, /links, /status, /cancel.",
+      "Typed aliases still work: /newlink, /links, /listlinks, /stop.",
     ),
     escapeMarkdownV2(
-      "Write it however you like — /accounting/create-link also works.",
+      "Full paths work too — /accounting/createlink starts the same wizard.",
     ),
   ].join("\n");
 
@@ -1479,10 +1491,8 @@ export const handleCommandCallback = async ({ db, config, callbackQuery }) => {
 /**
  * This software's contribution to the bot's "/" menu.
  */
-export const buildMenuCommands = () => [
-  { command: SOFTWARE_COMMAND, description: SOFTWARE_MENU_DESCRIPTION },
-  ...CANONICAL_COMMANDS,
-];
+export const buildMenuCommands = () =>
+  MENU_COMMANDS.map(({ command, description }) => ({ command, description }));
 
 // The shared Telegram Webhook software owns the bot's single command menu.
 // Telegram's setMyCommands REPLACES the whole list, so calling it directly
@@ -1557,10 +1567,10 @@ export const registerCommandsWithRouter = async (config, commands) => {
     connectionId,
     botId: String(config?.routerBotId || "").trim(),
     commands,
-    // Drop the legacy maxcode_* names from earlier builds: they stay in the
-    // menu as unclaimed entries forever otherwise, next to the shortened
-    // accounting_* ones this build registers.
-    retirePrefixes: ["maxcode_"],
+    // Drop the legacy maxcode_* names from earlier builds (and the long
+    // accounting_* names) so the shared menu keeps exactly one short set
+    // instead of old and new names side by side.
+    retirePrefixes: ["maxcode_", "accounting_"],
   });
   const signature = `sha256=${crypto
     .createHmac("sha256", sharedSecret)

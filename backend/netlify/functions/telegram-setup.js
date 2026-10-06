@@ -116,7 +116,10 @@ export const handler = async (event) => {
     if (action === "send-test") {
       const result = await sendTelegramMessage(config.botToken, {
         chat_id: config.chatId,
-        text: "✅ MaxCode Telegram notifications are connected successfully.",
+        // Same shape as every other message: bold "emoji Title — Software"
+        // heading, then a plain line — matching the NotifyFlow style.
+        text: "*✅ MaxCode Accounting Telegram connected*\n\nPayment notifications will arrive in this chat",
+        parse_mode: "MarkdownV2",
       });
       return createResponse(200,
         { success: true, messageId: result?.result?.message_id || null },
