@@ -1557,6 +1557,10 @@ export const registerCommandsWithRouter = async (config, commands) => {
     connectionId,
     botId: String(config?.routerBotId || "").trim(),
     commands,
+    // Drop the legacy maxcode_* names from earlier builds: they stay in the
+    // menu as unclaimed entries forever otherwise, next to the shortened
+    // accounting_* ones this build registers.
+    retirePrefixes: ["maxcode_"],
   });
   const signature = `sha256=${crypto
     .createHmac("sha256", sharedSecret)
