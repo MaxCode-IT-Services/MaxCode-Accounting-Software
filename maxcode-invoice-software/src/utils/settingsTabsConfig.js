@@ -45,6 +45,11 @@ export const SETTINGS_TABS = [
     icon: "fas fa-tags",
   },
   {
+    key: "paymentMethods",
+    label: "Payment Methods Charge",
+    icon: "fas fa-credit-card",
+  },
+  {
     key: "upiId",
     label: "UPI ID",
     icon: "fas fa-qrcode",

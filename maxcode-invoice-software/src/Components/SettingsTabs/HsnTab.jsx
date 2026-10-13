@@ -1,5 +1,6 @@
 import React from "react";
 import ConfirmationModal from "../ConfirmationModal";
+import MasterTabStyle from "./MasterTabStyle";
 
 const HsnTab = ({
   serviceSearch,
@@ -24,51 +25,79 @@ const HsnTab = ({
   confirmDeleteServices,
   handleBulkDeleteServices,
 }) => {
+  const totalServices = filteredServices.length;
+  const activeServices = filteredServices.filter(
+    (service) => getServiceStatus(service) === "active",
+  ).length;
+  const inactiveServices = totalServices - activeServices;
+  const selectedCount = selectedServices.length;
+
   return (
     <div className="business-details-container">
+      <MasterTabStyle />
+
       <div className="row g-4">
         <div className="col-12">
-          <div className="card border-0 shadow-sm rounded-4 p-0 bg-white overflow-hidden">
-            <div className="px-4 py-3 border-bottom bg-success">
-              <h5 className="fw-bold mb-1 text-white">
-                Service Master & HSN Codes
-              </h5>
-              <p className="text-uppercase text-white mb-0">
-                Global inventory of services and tax codes
-              </p>
+          <div className="is2-shell">
+            <div className="is2-topband">
+              <div className="d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-3">
+                <div className="is2-title-wrap">
+                  <span className="is2-icon">
+                    <i className="fas fa-tags"></i>
+                  </span>
+                  <div>
+                    <h5 className="is2-title">Service Master & HSN Codes</h5>
+                    <p className="is2-subtitle">
+                      Global inventory of services and tax codes
+                    </p>
+                  </div>
+                </div>
+
+                <div className="is2-pills">
+                  <span className="is2-pill">Total: {totalServices}</span>
+                  <span className="is2-pill">Active: {activeServices}</span>
+                  <span className="is2-pill">Inactive: {inactiveServices}</span>
+                  {selectedCount > 0 && (
+                    <span className="is2-pill">Selected: {selectedCount}</span>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="premium-controls p-4 border-bottom m-0">
-              <div className="premium-search-box">
-                <i className="fas fa-search"></i>
-                <input
-                  type="text"
-                  placeholder="Search services..."
-                  value={serviceSearch}
-                  onChange={(e) => setServiceSearch(e.target.value)}
-                />
-              </div>
-              <div className="d-flex gap-2">
-                {selectedServices.length > 0 && (
+            <div className="is2-controls">
+              <div className="d-flex flex-column flex-md-row gap-2 gap-md-3 align-items-stretch align-items-md-center">
+                <div className="is2-search flex-grow-1">
+                  <i className="fas fa-search"></i>
+                  <input
+                    type="text"
+                    placeholder="Search services..."
+                    value={serviceSearch}
+                    onChange={(e) => setServiceSearch(e.target.value)}
+                  />
+                </div>
+
+                <div className="d-flex gap-2">
+                  {selectedServices.length > 0 && (
+                    <button
+                      onClick={() => setConfirmDeleteServices(selectedServices)}
+                      className="p-btn btn-lg p-btn-danger is2-btn"
+                    >
+                      <i className="fas fa-trash"></i> Delete Selected (
+                      {selectedServices.length})
+                    </button>
+                  )}
                   <button
-                    onClick={() => setConfirmDeleteServices(selectedServices)}
-                    className="p-btn p-btn-danger"
+                    onClick={openAddServiceModal}
+                    disabled={!isSuperAdmin}
+                    className="btn btn-lg btn-success is2-btn is2-add-btn"
                   >
-                    <i className="fas fa-trash"></i> Delete Selected (
-                    {selectedServices.length})
+                    <i className="fas fa-plus-circle"></i> Add New Row
                   </button>
-                )}
-                <button
-                  onClick={openAddServiceModal}
-                  disabled={!isSuperAdmin}
-                  className="btn btn-primary"
-                >
-                  <i className="fas fa-plus-circle"></i> Add New Row
-                </button>
+                </div>
               </div>
             </div>
 
-            <div className="premium-table-container border-0 rounded-0">
+            <div className="is2-table">
               <div className="table-responsive">
                 <table className="premium-table">
                   <thead>
@@ -78,8 +107,7 @@ const HsnTab = ({
                           type="checkbox"
                           className="custom-checkbox"
                           checked={
-                            selectedServices.length ===
-                              filteredServices.length &&
+                            selectedServices.length === filteredServices.length &&
                             filteredServices.length > 0
                           }
                           onChange={toggleSelectAll}
@@ -142,7 +170,7 @@ const HsnTab = ({
                                 className="btn btn-sm btn-outline-success me-1"
                                 title="Edit"
                               >
-                                <i class="fas fa-edit"></i>
+                                <i className="fas fa-edit"></i>
                               </button>
                               <button
                                 onClick={() =>
@@ -162,8 +190,8 @@ const HsnTab = ({
                   </tbody>
                 </table>
                 {filteredServices.length === 0 && (
-                  <div className="empty-state">
-                    <i className="fas fa-table"></i>
+                  <div className="is2-empty">
+                    <i className="fas fa-inbox"></i>
                     <h3>No Services Found</h3>
                     <p>Add your standard billing items above.</p>
                   </div>
@@ -181,7 +209,7 @@ const HsnTab = ({
         >
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content rounded-4 border-0 shadow-lg">
-              <div className="modal-header">
+              <div className="modal-header is2-modal-head">
                 <h5 className="modal-title fw-bold">
                   {editingServiceId ? "Edit Service" : "Add New Service"}
                 </h5>
@@ -193,7 +221,9 @@ const HsnTab = ({
               </div>
               <div className="modal-body">
                 <div className="mb-3">
-                  <label className="form-label fw-bold">Service Name</label>
+                  <label className="form-label fw-bold text-success">
+                    Service Name
+                  </label>
                   <input
                     className="form-control modern-input"
                     value={serviceFormData.name}
@@ -204,7 +234,9 @@ const HsnTab = ({
                   />
                 </div>
                 <div className="mb-3">
-                  <label className="form-label fw-bold">HSN / SAC Code</label>
+                  <label className="form-label fw-bold text-success">
+                    HSN / SAC Code
+                  </label>
                   <input
                     className="form-control modern-input"
                     value={serviceFormData.hsnCode}
@@ -215,17 +247,17 @@ const HsnTab = ({
                   />
                 </div>
               </div>
-              <div className="modal-footer">
+              <div className="modal-footer is2-modal-footer">
                 <button
                   type="button"
-                  className="btn btn-light text-white"
+                  className="btn btn-secondary"
                   onClick={closeServiceModal}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  className="btn btn-primary"
+                  className="btn btn-success is2-add-btn"
                   onClick={saveService}
                 >
                   {editingServiceId ? "Update" : "Save"}

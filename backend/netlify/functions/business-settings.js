@@ -158,6 +158,7 @@ const ALLOWED_FIELDS = [
   "creditDebitNoteTermsVersion",
   "services",
   "upiIds",
+  "paymentMethodCharges",
   "interestedServices",
   "backupSettings",
   "cloudflareSettings",
@@ -480,6 +481,23 @@ const sanitizeFeatureToggles = (value = {}) => {
   };
 };
 
+const toChargeNumber = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return parsed;
+};
+
+// Thrown when the payload is structurally valid JSON but semantically
+// unusable. The PUT handler turns this into a 400 with the message intact,
+// so the client sees what to fix instead of a generic 500.
+class SettingsValidationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "SettingsValidationError";
+    this.statusCode = 400;
+  }
+}
+
 const sanitizeSettingsPayload = (payload = {}, existingSettings = {}) => {
   const normalizedPayload = { ...payload };
 
@@ -549,6 +567,42 @@ const sanitizeSettingsPayload = (payload = {}, existingSettings = {}) => {
                 : null,
           }))
           .filter((item) => item.accountName && item.upiId);
+      } else if (field === "paymentMethodCharges" && Array.isArray(value)) {
+        const invalidRows = [];
+        sanitized[field] = value
+          .map((item, index) => {
+            const name = item?.name ? String(item.name).trim() : "";
+            if (!name) invalidRows.push(index + 1);
+            return {
+              id: item?.id ? String(item.id) : Date.now().toString(),
+              name,
+              status: item?.status === "inactive" ? "inactive" : "active",
+              // Each fee is optional – an empty/zero value means "Nil".
+              processingFeeEnabled: item?.processingFeeEnabled === true,
+              processingFeePercent: toChargeNumber(item?.processingFeePercent),
+              processingFeeCap: toChargeNumber(item?.processingFeeCap),
+              mdrEnabled: item?.mdrEnabled === true,
+              mdrPercent: toChargeNumber(item?.mdrPercent),
+              mdrCap: toChargeNumber(item?.mdrCap),
+              // "extra" = customer pays it on top of the amount,
+              // "included" = already part of the collected amount.
+              chargeMode:
+                item?.chargeMode === "included" ? "included" : "extra",
+              isDeleted: item?.isDeleted === true,
+              deletedAt:
+                item?.isDeleted === true && item?.deletedAt
+                  ? new Date(item.deletedAt)
+                  : null,
+            };
+          });
+
+        // Dropping a nameless row silently used to delete the user's data with
+        // no feedback. Reject the whole save instead so nothing is lost.
+        if (invalidRows.length > 0) {
+          throw new SettingsValidationError(
+            `Payment method name is required (row ${invalidRows.join(", ")}). Nothing was saved.`,
+          );
+        }
       } else if (field === "backupSettings") {
         const sanitizedBackupSettings = sanitizeBackupSettings(
           value,
@@ -631,6 +685,11 @@ const normalizeLegacySettings = (document = {}) => {
     ],
     services: ["services", "serviceMaster", "serviceList"],
     upiIds: ["upiIds", "upiIdMaster", "upiList", "upiAccounts"],
+    paymentMethodCharges: [
+      "paymentMethodCharges",
+      "paymentMethods",
+      "paymentMethodMaster",
+    ],
     backupSettings: ["backupSettings", "driveConfig", "googleDriveConfig"],
     cloudflareSettings: [
       "cloudflareSettings",
@@ -711,6 +770,10 @@ const mapSettingsForClient = (document, event) => {
 
   if (!Array.isArray(response.upiIds)) {
     response.upiIds = [];
+  }
+
+  if (!Array.isArray(response.paymentMethodCharges)) {
+    response.paymentMethodCharges = [];
   }
 
   Object.values(TERMS_SETTINGS_CONFIG).forEach((config) => {
@@ -1554,6 +1617,14 @@ export async function handler(event) {
     return createResponse(405, { error: "Method not allowed" }, origin, event);
   } catch (error) {
     console.error("Business settings API error:", error);
+
+    if (error.name === "SettingsValidationError" || error.statusCode === 400) {
+      return createResponse(400,
+        {
+          error: error.message,
+        },
+        origin, event);
+    }
 
     if (error.message.includes("token") || error.message.includes("Token")) {
       return createResponse(401, { error: "Unauthorized" }, origin, event);

@@ -17,6 +17,7 @@ import TelegramTab, { buildRouterTargetUrl } from "../Components/SettingsTabs/Te
 import CloudflareTab from "../Components/SettingsTabs/CloudflareTab";
 import TermsTab from "../Components/SettingsTabs/TermsTab";
 import HsnTab from "../Components/SettingsTabs/HsnTab";
+import PaymentMethodsTab from "../Components/SettingsTabs/PaymentMethodsTab";
 import UpiIdTab from "../Components/SettingsTabs/UpiIdTab";
 import BackupTab from "../Components/SettingsTabs/BackupTab";
 import InterestedServiceTab from "../Components/SettingsTabs/InterestedServiceTab";
@@ -220,6 +221,9 @@ const Settings = () => {
     // UPI IDs Master
     upiIds: [],
 
+    // Payment Methods Charge Master
+    paymentMethodCharges: [],
+
     // Cloud Master Sync
     dbSyncEnabled: false,
     mongoConnectionString: "",
@@ -270,6 +274,18 @@ const Settings = () => {
     status: "active",
   };
 
+  const DEFAULT_PAYMENT_METHOD_FORM = {
+    name: "",
+    processingFeeEnabled: false,
+    processingFeePercent: "",
+    processingFeeCap: "",
+    mdrEnabled: false,
+    mdrPercent: "",
+    mdrCap: "",
+    chargeMode: "extra",
+    status: "active",
+  };
+
   const BUSINESS_DETAILS_FIELDS = [
     "profilePhotoUrl",
     "logoUrl",
@@ -296,6 +312,7 @@ const Settings = () => {
     "creditDebitNoteTermsConditions",
     "creditDebitNoteTermsVersion",
     "upiIds",
+    "paymentMethodCharges",
     "cloudflareSettings",
     "whatsappSettings",
     "telegramSettings",
@@ -332,6 +349,18 @@ const Settings = () => {
   const [upiSearch, setUpiSearch] = useState("");
   const [selectedUpiIds, setSelectedUpiIds] = useState([]);
   const [confirmDeleteUpiIds, setConfirmDeleteUpiIds] = useState([]);
+
+  // Payment Methods Charge State
+  const [isPaymentMethodModalOpen, setIsPaymentMethodModalOpen] =
+    useState(false);
+  const [editingPaymentMethodId, setEditingPaymentMethodId] = useState(null);
+  const [paymentMethodFormData, setPaymentMethodFormData] = useState(
+    DEFAULT_PAYMENT_METHOD_FORM,
+  );
+  const [paymentMethodSearch, setPaymentMethodSearch] = useState("");
+  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState([]);
+  const [confirmDeletePaymentMethods, setConfirmDeletePaymentMethods] =
+    useState([]);
 
   // Interested Services State
   const [isInterestedServiceModalOpen, setIsInterestedServiceModalOpen] =
@@ -1494,6 +1523,20 @@ const Settings = () => {
       normalizedSettings.upiIds = resolvedUpiIds;
     }
 
+    const resolvedPaymentMethodCharges = Array.isArray(
+      settings.paymentMethodCharges,
+    )
+      ? settings.paymentMethodCharges
+      : Array.isArray(settings.paymentMethods)
+        ? settings.paymentMethods
+        : Array.isArray(settings.paymentMethodMaster)
+          ? settings.paymentMethodMaster
+          : null;
+
+    if (resolvedPaymentMethodCharges) {
+      normalizedSettings.paymentMethodCharges = resolvedPaymentMethodCharges;
+    }
+
     const resolvedBackupSettings =
       settings.backupSettings ||
       settings.driveConfig ||
@@ -2269,6 +2312,7 @@ const Settings = () => {
 
   const getServiceStatus = (service) => service.status || "active";
   const getUpiStatus = (upi) => upi.status || "active";
+  const getPaymentMethodStatus = (method) => method.status || "active";
 
   const openAddServiceModal = () => {
     if (!ensureSuperAdminAccess("add service")) return;
@@ -2642,6 +2686,261 @@ const Settings = () => {
       await syncUpiIdsToBackend(updated);
       showSuccess(
         `UPI account marked as ${updatedStatus === "active" ? "Active" : "Inactive"}`,
+      );
+    } catch (error) {
+      showError(error?.response?.data?.error || "Failed to update status");
+    }
+  };
+
+  // Payment Methods Charge Functions
+  // Empty/zero percent is stored as 0 so the row reads as "Nil".
+  const toChargeNumber = (value) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) return 0;
+    return parsed;
+  };
+
+  const syncPaymentMethodsToBackend = async (nextMethods) => {
+    if (!ensureSuperAdminAccess("update payment methods")) return null;
+
+    // No silent filtering here: a nameless row is rejected by the API with a
+    // 400 so the user is told, instead of the row disappearing on save.
+    const normalizedMethods = nextMethods.map((method) => ({
+      id: String(method.id),
+      name: method.name?.trim() || "",
+      status: getPaymentMethodStatus(method),
+      processingFeeEnabled: method.processingFeeEnabled === true,
+      processingFeePercent: toChargeNumber(method.processingFeePercent),
+      processingFeeCap: toChargeNumber(method.processingFeeCap),
+      mdrEnabled: method.mdrEnabled === true,
+      mdrPercent: toChargeNumber(method.mdrPercent),
+      mdrCap: toChargeNumber(method.mdrCap),
+      chargeMode: method.chargeMode === "included" ? "included" : "extra",
+      isDeleted: method.isDeleted === true,
+      deletedAt: method.isDeleted
+        ? method.deletedAt || new Date().toISOString()
+        : null,
+    }));
+
+    const response = await apiPut(API_ENDPOINTS.BUSINESS_SETTINGS.UPDATE, {
+      paymentMethodCharges: normalizedMethods,
+    });
+
+    const remoteMethods = response?.data?.settings?.paymentMethodCharges;
+    if (Array.isArray(remoteMethods)) {
+      handleBusinessChange("paymentMethodCharges", remoteMethods);
+      return remoteMethods;
+    }
+
+    handleBusinessChange("paymentMethodCharges", normalizedMethods);
+    return normalizedMethods;
+  };
+
+  const openAddPaymentMethodModal = () => {
+    if (!ensureSuperAdminAccess("add payment method")) return;
+
+    setEditingPaymentMethodId(null);
+    setPaymentMethodFormData(DEFAULT_PAYMENT_METHOD_FORM);
+    setIsPaymentMethodModalOpen(true);
+  };
+
+  const openEditPaymentMethodModal = (method) => {
+    if (!ensureSuperAdminAccess("edit payment method")) return;
+
+    setEditingPaymentMethodId(method.id);
+    setPaymentMethodFormData({
+      name: method.name || "",
+      processingFeeEnabled: method.processingFeeEnabled === true,
+      processingFeePercent: toChargeNumber(method.processingFeePercent) || "",
+      processingFeeCap: toChargeNumber(method.processingFeeCap) || "",
+      mdrEnabled: method.mdrEnabled === true,
+      mdrPercent: toChargeNumber(method.mdrPercent) || "",
+      mdrCap: toChargeNumber(method.mdrCap) || "",
+      chargeMode: method.chargeMode === "included" ? "included" : "extra",
+      status: getPaymentMethodStatus(method),
+    });
+    setIsPaymentMethodModalOpen(true);
+  };
+
+  const closePaymentMethodModal = () => {
+    setIsPaymentMethodModalOpen(false);
+    setEditingPaymentMethodId(null);
+    setPaymentMethodFormData(DEFAULT_PAYMENT_METHOD_FORM);
+  };
+
+  const handlePaymentMethodFormChange = (field, value) => {
+    setPaymentMethodFormData((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const savePaymentMethod = async () => {
+    if (!ensureSuperAdminAccess("save payment method")) return;
+
+    const methodName = paymentMethodFormData.name.trim();
+
+    if (!methodName) {
+      showError("Please enter payment method name");
+      return;
+    }
+
+    if (
+      paymentMethodFormData.processingFeeEnabled &&
+      !(toChargeNumber(paymentMethodFormData.processingFeePercent) > 0)
+    ) {
+      showError("Please enter processing fee percentage or switch it to Nil");
+      return;
+    }
+
+    if (
+      paymentMethodFormData.mdrEnabled &&
+      !(toChargeNumber(paymentMethodFormData.mdrPercent) > 0)
+    ) {
+      showError("Please enter MDR percentage or switch it to Nil");
+      return;
+    }
+
+    const payload = {
+      name: methodName,
+      processingFeeEnabled: paymentMethodFormData.processingFeeEnabled,
+      processingFeePercent: toChargeNumber(
+        paymentMethodFormData.processingFeePercent,
+      ),
+      processingFeeCap: toChargeNumber(paymentMethodFormData.processingFeeCap),
+      mdrEnabled: paymentMethodFormData.mdrEnabled,
+      mdrPercent: toChargeNumber(paymentMethodFormData.mdrPercent),
+      mdrCap: toChargeNumber(paymentMethodFormData.mdrCap),
+      chargeMode: paymentMethodFormData.chargeMode,
+      status: paymentMethodFormData.status,
+    };
+
+    if (editingPaymentMethodId) {
+      const updated = (businessSettings.paymentMethodCharges || []).map(
+        (method) =>
+          method.id === editingPaymentMethodId
+            ? {
+                ...method,
+                ...payload,
+                isDeleted: false,
+                deletedAt: null,
+              }
+            : method,
+      );
+
+      try {
+        await syncPaymentMethodsToBackend(updated);
+        showSuccess("Payment method updated successfully");
+      } catch (error) {
+        showError(
+          error?.response?.data?.error || "Failed to update payment method",
+        );
+        return;
+      }
+    } else {
+      const newMethod = {
+        id: Date.now().toString(),
+        ...payload,
+        isDeleted: false,
+        deletedAt: null,
+      };
+
+      try {
+        await syncPaymentMethodsToBackend([
+          ...(businessSettings.paymentMethodCharges || []),
+          newMethod,
+        ]);
+        showSuccess("Payment method added successfully");
+      } catch (error) {
+        showError(
+          error?.response?.data?.error || "Failed to add payment method",
+        );
+        return;
+      }
+    }
+
+    closePaymentMethodModal();
+  };
+
+  const handleBulkDeletePaymentMethods = async () => {
+    if (!ensureSuperAdminAccess("remove selected payment methods")) return;
+    if (confirmDeletePaymentMethods.length === 0) return;
+
+    const updated = (businessSettings.paymentMethodCharges || []).map(
+      (method) =>
+        confirmDeletePaymentMethods.includes(method.id)
+          ? {
+              ...method,
+              status: "inactive",
+              isDeleted: true,
+              deletedAt: new Date().toISOString(),
+            }
+          : method,
+    );
+
+    try {
+      await syncPaymentMethodsToBackend(updated);
+      showSuccess(
+        `${confirmDeletePaymentMethods.length} payment method(s) deleted`,
+      );
+      setConfirmDeletePaymentMethods([]);
+      setSelectedPaymentMethods([]);
+    } catch (error) {
+      showError(
+        error?.response?.data?.error || "Failed to delete payment methods",
+      );
+    }
+  };
+
+  const filteredPaymentMethods = (
+    businessSettings.paymentMethodCharges || []
+  ).filter((method) => {
+    if (method.isDeleted === true) return false;
+    return String(method.name || "")
+      .toLowerCase()
+      .includes(paymentMethodSearch.toLowerCase());
+  });
+
+  const toggleSelectAllPaymentMethods = () => {
+    if (selectedPaymentMethods.length === filteredPaymentMethods.length) {
+      setSelectedPaymentMethods([]);
+    } else {
+      setSelectedPaymentMethods(filteredPaymentMethods.map((m) => m.id));
+    }
+  };
+
+  const toggleSelectPaymentMethodRow = (id) => {
+    setSelectedPaymentMethods((prev) =>
+      prev.includes(id) ? prev.filter((itemId) => itemId !== id) : [...prev, id],
+    );
+  };
+
+  const togglePaymentMethodStatus = async (id) => {
+    if (!ensureSuperAdminAccess("change payment method status")) return;
+
+    let updatedStatus = "inactive";
+    const updated = (businessSettings.paymentMethodCharges || []).map(
+      (method) =>
+        method.id === id
+          ? {
+              ...method,
+              status:
+                getPaymentMethodStatus(method) === "active"
+                  ? "inactive"
+                  : "active",
+            }
+          : method,
+    );
+
+    const target = updated.find((method) => method.id === id);
+    if (target) {
+      updatedStatus = getPaymentMethodStatus(target);
+    }
+
+    try {
+      await syncPaymentMethodsToBackend(updated);
+      showSuccess(
+        `Payment method marked as ${updatedStatus === "active" ? "Active" : "Inactive"}`,
       );
     } catch (error) {
       showError(error?.response?.data?.error || "Failed to update status");
@@ -3429,6 +3728,33 @@ const Settings = () => {
           saveService={saveService}
           confirmDeleteServices={confirmDeleteServices}
           handleBulkDeleteServices={handleBulkDeleteServices}
+        />
+      );
+    }
+
+    if (activeTab === "paymentMethods") {
+      return (
+        <PaymentMethodsTab
+          paymentMethodSearch={paymentMethodSearch}
+          setPaymentMethodSearch={setPaymentMethodSearch}
+          selectedPaymentMethods={selectedPaymentMethods}
+          setConfirmDeletePaymentMethods={setConfirmDeletePaymentMethods}
+          openAddPaymentMethodModal={openAddPaymentMethodModal}
+          isSuperAdmin={isSuperAdmin}
+          filteredPaymentMethods={filteredPaymentMethods}
+          toggleSelectAllPaymentMethods={toggleSelectAllPaymentMethods}
+          toggleSelectPaymentMethodRow={toggleSelectPaymentMethodRow}
+          getPaymentMethodStatus={getPaymentMethodStatus}
+          togglePaymentMethodStatus={togglePaymentMethodStatus}
+          openEditPaymentMethodModal={openEditPaymentMethodModal}
+          isPaymentMethodModalOpen={isPaymentMethodModalOpen}
+          editingPaymentMethodId={editingPaymentMethodId}
+          closePaymentMethodModal={closePaymentMethodModal}
+          paymentMethodFormData={paymentMethodFormData}
+          handlePaymentMethodFormChange={handlePaymentMethodFormChange}
+          savePaymentMethod={savePaymentMethod}
+          confirmDeletePaymentMethods={confirmDeletePaymentMethods}
+          handleBulkDeletePaymentMethods={handleBulkDeletePaymentMethods}
         />
       );
     }

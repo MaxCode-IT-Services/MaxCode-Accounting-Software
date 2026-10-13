@@ -1,5 +1,6 @@
 import React from "react";
 import ConfirmationModal from "../ConfirmationModal";
+import MasterTabStyle from "./MasterTabStyle";
 
 const UpiIdTab = ({
   upiIds,
@@ -24,6 +25,13 @@ const UpiIdTab = ({
   confirmDeleteUpiIds,
   handleBulkDeleteUpiIds,
 }) => {
+  const totalUpiIds = filteredUpiIds.length;
+  const activeUpiIds = filteredUpiIds.filter(
+    (upi) => getUpiStatus(upi) === "active",
+  ).length;
+  const inactiveUpiIds = totalUpiIds - activeUpiIds;
+  const selectedCount = selectedUpiIds.length;
+
   const selectedUpiDetails = confirmDeleteUpiIds
     .map((id) => (upiIds || []).find((item) => item.id === id))
     .filter(Boolean);
@@ -53,47 +61,70 @@ const UpiIdTab = ({
 
   return (
     <div className="business-details-container">
+      <MasterTabStyle />
+
       <div className="row g-4">
         <div className="col-12">
-          <div className="card border-0 shadow-sm rounded-4 p-0 bg-white overflow-hidden">
-            <div className="px-4 py-3 border-bottom bg-success">
-              <h5 className="fw-bold mb-1 text-white">UPI ID Master</h5>
-              <p className="text-uppercase text-white mb-0">
-                Global list of payment UPI accounts
-              </p>
+          <div className="is2-shell">
+            <div className="is2-topband">
+              <div className="d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-3">
+                <div className="is2-title-wrap">
+                  <span className="is2-icon">
+                    <i className="fas fa-qrcode"></i>
+                  </span>
+                  <div>
+                    <h5 className="is2-title">UPI ID Master</h5>
+                    <p className="is2-subtitle">
+                      Global list of payment UPI accounts
+                    </p>
+                  </div>
+                </div>
+
+                <div className="is2-pills">
+                  <span className="is2-pill">Total: {totalUpiIds}</span>
+                  <span className="is2-pill">Active: {activeUpiIds}</span>
+                  <span className="is2-pill">Inactive: {inactiveUpiIds}</span>
+                  {selectedCount > 0 && (
+                    <span className="is2-pill">Selected: {selectedCount}</span>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="premium-controls p-4 border-bottom m-0">
-              <div className="premium-search-box">
-                <i className="fas fa-search"></i>
-                <input
-                  type="text"
-                  placeholder="Search UPI accounts..."
-                  value={upiSearch}
-                  onChange={(e) => setUpiSearch(e.target.value)}
-                />
-              </div>
-              <div className="d-flex gap-2">
-                {selectedUpiIds.length > 0 && (
+            <div className="is2-controls">
+              <div className="d-flex flex-column flex-md-row gap-2 gap-md-3 align-items-stretch align-items-md-center">
+                <div className="is2-search flex-grow-1">
+                  <i className="fas fa-search"></i>
+                  <input
+                    type="text"
+                    placeholder="Search UPI accounts..."
+                    value={upiSearch}
+                    onChange={(e) => setUpiSearch(e.target.value)}
+                  />
+                </div>
+
+                <div className="d-flex gap-2">
+                  {selectedUpiIds.length > 0 && (
+                    <button
+                      onClick={() => setConfirmDeleteUpiIds(selectedUpiIds)}
+                      className="p-btn btn-lg p-btn-danger is2-btn"
+                    >
+                      <i className="fas fa-trash"></i> Delete Selected (
+                      {selectedUpiIds.length})
+                    </button>
+                  )}
                   <button
-                    onClick={() => setConfirmDeleteUpiIds(selectedUpiIds)}
-                    className="p-btn p-btn-danger"
+                    onClick={openAddUpiModal}
+                    disabled={!isSuperAdmin}
+                    className="btn btn-lg btn-success is2-btn is2-add-btn"
                   >
-                    <i className="fas fa-trash"></i> Delete Selected (
-                    {selectedUpiIds.length})
+                    <i className="fas fa-plus-circle"></i> Add New Row
                   </button>
-                )}
-                <button
-                  onClick={openAddUpiModal}
-                  disabled={!isSuperAdmin}
-                  className="btn btn-primary"
-                >
-                  <i className="fas fa-plus-circle"></i> Add New Row
-                </button>
+                </div>
               </div>
             </div>
 
-            <div className="premium-table-container border-0 rounded-0">
+            <div className="is2-table">
               <div className="table-responsive">
                 <table className="premium-table">
                   <thead>
@@ -184,8 +215,8 @@ const UpiIdTab = ({
                   </tbody>
                 </table>
                 {filteredUpiIds.length === 0 && (
-                  <div className="empty-state">
-                    <i className="fas fa-table"></i>
+                  <div className="is2-empty">
+                    <i className="fas fa-inbox"></i>
                     <h3>No UPI Accounts Found</h3>
                     <p>Add UPI account details above.</p>
                   </div>
@@ -203,7 +234,7 @@ const UpiIdTab = ({
         >
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content rounded-4 border-0 shadow-lg">
-              <div className="modal-header">
+              <div className="modal-header is2-modal-head">
                 <h5 className="modal-title fw-bold">
                   {editingUpiId ? "Edit UPI Account" : "Add New UPI Account"}
                 </h5>
@@ -215,7 +246,9 @@ const UpiIdTab = ({
               </div>
               <div className="modal-body">
                 <div className="mb-3">
-                  <label className="form-label fw-bold">Account Name</label>
+                  <label className="form-label fw-bold text-success">
+                    Account Name
+                  </label>
                   <input
                     className="form-control modern-input"
                     value={upiFormData.accountName}
@@ -226,7 +259,9 @@ const UpiIdTab = ({
                   />
                 </div>
                 <div className="mb-3">
-                  <label className="form-label fw-bold">UPI ID</label>
+                  <label className="form-label fw-bold text-success">
+                    UPI ID
+                  </label>
                   <input
                     className="form-control modern-input"
                     value={upiFormData.upiId}
@@ -237,7 +272,9 @@ const UpiIdTab = ({
                   />
                 </div>
                 <div className="mb-3">
-                  <label className="form-label fw-bold">Status</label>
+                  <label className="form-label fw-bold text-success">
+                    Status
+                  </label>
                   <select
                     className="form-select modern-input"
                     value={upiFormData.status}
@@ -250,17 +287,17 @@ const UpiIdTab = ({
                   </select>
                 </div>
               </div>
-              <div className="modal-footer">
+              <div className="modal-footer is2-modal-footer">
                 <button
                   type="button"
-                  className="btn btn-light text-white"
+                  className="btn btn-secondary"
                   onClick={closeUpiModal}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  className="btn btn-primary"
+                  className="btn btn-success is2-add-btn"
                   onClick={saveUpi}
                 >
                   {editingUpiId ? "Update" : "Save"}

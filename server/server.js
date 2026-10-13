@@ -9,15 +9,12 @@
  *
  * Build happens on GitHub Actions — the server only serves pre-built files.
  */
+import "./load-env.js";
 import express from "express";
-import dotenv from "dotenv";
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { startBackupScheduler } from "./backup-scheduler.js";
-
-dotenv.config({ path: join(process.cwd(), "backend", ".env") });
-dotenv.config();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -36,7 +33,7 @@ async function loadFunctions() {
   for (const file of files) {
     const name = file.replace(".js", "");
     try {
-      const module = await import(join(FUNCTIONS_DIR, file));
+      const module = await import(pathToFileURL(join(FUNCTIONS_DIR, file)).href);
       if (typeof module.handler === "function") {
         functionHandlers.set(name, module.handler);
       }
