@@ -84,6 +84,73 @@ const MasterTabStyle = () => (
       font-size: 0.74rem;
     }
 
+    .is2-pill-btn {
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .is2-pill-btn:hover {
+      background: #198754;
+      color: #fff;
+      border-color: #198754;
+    }
+
+    .is2-pill-warn {
+      background: #fff4e5;
+      border-color: #ffd8a8;
+      color: #b45309;
+    }
+
+    /* Version picker inside the history modal */
+    .pm-version-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .pm-version-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      width: 100%;
+      text-align: left;
+      padding: 0.7rem 0.9rem;
+      border: 1px solid #e3efe8;
+      border-radius: 12px;
+      background: #fbfefc;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .pm-version-item:hover {
+      border-color: #198754;
+      background: #f2fbf6;
+    }
+
+    .pm-version-item.is-selected {
+      border-color: #198754;
+      background: #eaf7f0;
+    }
+
+    .pm-version-main {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .pm-version-tag {
+      font-weight: 800;
+      color: #1f3a2b;
+      font-size: 0.9rem;
+    }
+
+    .pm-version-meta {
+      font-size: 0.75rem;
+      color: #7d938a;
+      white-space: nowrap;
+    }
+
     .is2-controls {
       padding: 1rem 1.2rem;
       border-bottom: 1px solid #eaf6ef;

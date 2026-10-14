@@ -72,9 +72,26 @@ const PaymentMethodsTab = ({
   savePaymentMethod,
   confirmDeletePaymentMethods,
   handleBulkDeletePaymentMethods,
+  chargeVersion,
+  openChargeHistoryModal,
+  isChargeHistoryOpen,
+  chargeHistory,
+  isChargeHistoryLoading,
+  onCloseChargeHistory,
+  onSelectChargeVersion,
+  viewedChargeVersion,
+  viewedChargeRows,
+  onReturnToCurrentVersion,
 }) => {
-  const totalMethods = filteredPaymentMethods.length;
-  const activeMethods = filteredPaymentMethods.filter(
+  // While an old version is selected the table shows that version's rates and
+  // every editing action is disabled, so history can never be mistaken for the
+  // live configuration.
+  const isViewingHistory = Boolean(viewedChargeVersion);
+  const tableRows = isViewingHistory ? viewedChargeRows : filteredPaymentMethods;
+  const tableIsReadOnly = isViewingHistory || !isSuperAdmin;
+
+  const totalMethods = tableRows.length;
+  const activeMethods = tableRows.filter(
     (method) => getPaymentMethodStatus(method) === "active",
   ).length;
   const inactiveMethods = totalMethods - activeMethods;
@@ -127,10 +144,38 @@ const PaymentMethodsTab = ({
                 </div>
 
                 <div className="is2-pills">
+                  {isViewingHistory ? (
+                    <>
+                      <span className="is2-pill is2-pill-warn">
+                        Viewing: {viewedChargeVersion}
+                      </span>
+                      <button
+                        type="button"
+                        className="is2-pill is2-pill-btn"
+                        onClick={onReturnToCurrentVersion}
+                      >
+                        <i className="fas fa-undo me-1"></i> Back to Current
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="is2-pill">
+                        Version: {chargeVersion || "V1.0.0"}
+                      </span>
+                      <button
+                        type="button"
+                        className="is2-pill is2-pill-btn"
+                        onClick={openChargeHistoryModal}
+                        title="View past pricing versions"
+                      >
+                        <i className="fas fa-history me-1"></i> History
+                      </button>
+                    </>
+                  )}
                   <span className="is2-pill">Total: {totalMethods}</span>
                   <span className="is2-pill">Active: {activeMethods}</span>
                   <span className="is2-pill">Inactive: {inactiveMethods}</span>
-                  {selectedCount > 0 && (
+                  {!isViewingHistory && selectedCount > 0 && (
                     <span className="is2-pill">Selected: {selectedCount}</span>
                   )}
                 </div>
@@ -145,12 +190,13 @@ const PaymentMethodsTab = ({
                     type="text"
                     placeholder="Search payment methods..."
                     value={paymentMethodSearch}
+                    disabled={isViewingHistory}
                     onChange={(e) => setPaymentMethodSearch(e.target.value)}
                   />
                 </div>
 
                 <div className="d-flex gap-2">
-                  {selectedPaymentMethods.length > 0 && (
+                  {!isViewingHistory && selectedPaymentMethods.length > 0 && (
                     <button
                       onClick={() =>
                         setConfirmDeletePaymentMethods(selectedPaymentMethods)
@@ -163,7 +209,7 @@ const PaymentMethodsTab = ({
                   )}
                   <button
                     onClick={openAddPaymentMethodModal}
-                    disabled={!isSuperAdmin}
+                    disabled={tableIsReadOnly}
                     className="btn btn-lg btn-success is2-btn is2-add-btn"
                   >
                     <i className="fas fa-plus-circle"></i> Add Payment Method
@@ -182,10 +228,12 @@ const PaymentMethodsTab = ({
                           type="checkbox"
                           className="custom-checkbox"
                           checked={
+                            !isViewingHistory &&
                             selectedPaymentMethods.length ===
                               filteredPaymentMethods.length &&
                             filteredPaymentMethods.length > 0
                           }
+                          disabled={isViewingHistory}
                           onChange={toggleSelectAllPaymentMethods}
                         />
                       </th>
@@ -198,7 +246,7 @@ const PaymentMethodsTab = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredPaymentMethods.map((method) => {
+                    {tableRows.map((method) => {
                       const isActive =
                         getPaymentMethodStatus(method) === "active";
                       const processingNil = isFeeNil(
@@ -223,9 +271,11 @@ const PaymentMethodsTab = ({
                             <input
                               type="checkbox"
                               className="custom-checkbox"
-                              checked={selectedPaymentMethods.includes(
-                                method.id,
-                              )}
+                              checked={
+                                !isViewingHistory &&
+                                selectedPaymentMethods.includes(method.id)
+                              }
+                              disabled={isViewingHistory}
                               onChange={() =>
                                 toggleSelectPaymentMethodRow(method.id)
                               }
@@ -284,7 +334,7 @@ const PaymentMethodsTab = ({
                                   onChange={() =>
                                     togglePaymentMethodStatus(method.id)
                                   }
-                                  disabled={!isSuperAdmin}
+                                  disabled={tableIsReadOnly}
                                 />
                                 <span className="status-slider"></span>
                               </label>
@@ -301,7 +351,7 @@ const PaymentMethodsTab = ({
                                 onClick={() =>
                                   openEditPaymentMethodModal(method)
                                 }
-                                disabled={!isSuperAdmin}
+                                disabled={tableIsReadOnly}
                                 className="btn btn-sm btn-outline-success me-1"
                                 title="Edit"
                               >
@@ -311,7 +361,7 @@ const PaymentMethodsTab = ({
                                 onClick={() =>
                                   setConfirmDeletePaymentMethods([method.id])
                                 }
-                                disabled={!isSuperAdmin}
+                                disabled={tableIsReadOnly}
                                 className="btn btn-sm btn-outline-danger me-1"
                                 title="Delete"
                               >
@@ -324,11 +374,15 @@ const PaymentMethodsTab = ({
                     })}
                   </tbody>
                 </table>
-                {filteredPaymentMethods.length === 0 && (
+                {tableRows.length === 0 && (
                   <div className="is2-empty">
                     <i className="fas fa-inbox"></i>
                     <h3>No Payment Methods Found</h3>
-                    <p>Add a payment method and its charges above.</p>
+                    <p>
+                      {isViewingHistory
+                        ? `No methods recorded in ${viewedChargeVersion}.`
+                        : "Add a payment method and its charges above."}
+                    </p>
                   </div>
                 )}
               </div>
@@ -639,6 +693,88 @@ const PaymentMethodsTab = ({
         variant="danger"
         confirmationText="delete"
       />
+
+      {isChargeHistoryOpen && (
+        <div
+          className="modal fade show d-block"
+          style={{ backgroundColor: "rgba(0,0,0,0.7)", zIndex: 1100 }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content rounded-4 border-0 shadow-lg">
+              <div className="modal-header is2-modal-head">
+                <h5 className="modal-title fw-bold">
+                  <i className="fas fa-history me-2"></i>
+                  Payment Charges — Version History
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={onCloseChargeHistory}
+                ></button>
+              </div>
+              <div className="modal-body">
+                {isChargeHistoryLoading ? (
+                  <p className="text-muted mb-0">Loading versions…</p>
+                ) : chargeHistory.length === 0 ? (
+                  <p className="text-muted mb-0">
+                    No version history yet. A new version is created whenever
+                    the charges change.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-muted small mb-3">
+                      Select a version to view its charges in the table.
+                    </p>
+                    <div className="pm-version-list">
+                      {chargeHistory.map((entry) => {
+                        const isCurrent = entry.version === chargeVersion;
+                        const isSelected =
+                          entry.version === viewedChargeVersion;
+
+                        return (
+                          <button
+                            type="button"
+                            key={entry.version}
+                            className={`pm-version-item ${isSelected ? "is-selected" : ""}`}
+                            onClick={() => onSelectChargeVersion(entry.version)}
+                          >
+                            <span className="pm-version-main">
+                              <span className="pm-version-tag">
+                                {entry.version}
+                              </span>
+                              {isCurrent && (
+                                <span className="badge bg-success">
+                                  Current
+                                </span>
+                              )}
+                            </span>
+                            <span className="pm-version-meta">
+                              {(entry.charges || []).length} method
+                              {(entry.charges || []).length === 1 ? "" : "s"}
+                              {entry.createdAt
+                                ? ` · ${new Date(entry.createdAt).toLocaleDateString("en-IN")}`
+                                : ""}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="modal-footer is2-modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={onCloseChargeHistory}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -379,6 +379,12 @@ const Settings = () => {
   const [selectedPaymentMethods, setSelectedPaymentMethods] = useState([]);
   const [confirmDeletePaymentMethods, setConfirmDeletePaymentMethods] =
     useState([]);
+  // Version history of the charge table, so old pricing stays inspectable.
+  const [chargeHistoryOpen, setChargeHistoryOpen] = useState(false);
+  const [chargeHistory, setChargeHistory] = useState([]);
+  const [chargeHistoryLoading, setChargeHistoryLoading] = useState(false);
+  // Which past version the table is currently showing ("" = live/current).
+  const [viewedChargeVersion, setViewedChargeVersion] = useState("");
 
   // Interested Services State
   const [isInterestedServiceModalOpen, setIsInterestedServiceModalOpen] =
@@ -1553,6 +1559,11 @@ const Settings = () => {
 
     if (resolvedPaymentMethodCharges) {
       normalizedSettings.paymentMethodCharges = resolvedPaymentMethodCharges;
+    }
+
+    if (settings.paymentMethodChargesVersion) {
+      normalizedSettings.paymentMethodChargesVersion =
+        settings.paymentMethodChargesVersion;
     }
 
     const resolvedBackupSettings =
@@ -2942,6 +2953,54 @@ const Settings = () => {
     );
   };
 
+  const openChargeHistoryModal = async () => {
+    setChargeHistoryOpen(true);
+    setChargeHistoryLoading(true);
+
+    try {
+      const response = await apiGet(
+        API_ENDPOINTS.BUSINESS_SETTINGS.PAYMENT_CHARGE_HISTORY,
+      );
+      setChargeHistory(response?.data?.versions || []);
+    } catch (error) {
+      showError(
+        error?.response?.data?.error || "Failed to load charge history",
+      );
+      setChargeHistory([]);
+    } finally {
+      setChargeHistoryLoading(false);
+    }
+  };
+
+  // Selecting a version closes the modal and swaps the main table over to that
+  // version's charges. The rows are read-only until the user returns to the
+  // current version.
+  const handleSelectChargeVersion = (version) => {
+    if (!version) return;
+
+    const entry = chargeHistory.find((item) => item.version === version);
+    if (!entry) return;
+
+    setViewedChargeVersion(version);
+    setChargeHistoryOpen(false);
+    setSelectedPaymentMethods([]);
+    setConfirmDeletePaymentMethods([]);
+  };
+
+  const handleReturnToCurrentVersion = () => {
+    setViewedChargeVersion("");
+    setSelectedPaymentMethods([]);
+  };
+
+  // Rows shown while an old version is selected.
+  const viewedChargeRows = viewedChargeVersion
+    ? (chargeHistory.find((item) => item.version === viewedChargeVersion)
+        ?.charges || []).map((row) => ({
+        ...row,
+        isDeleted: false,
+      }))
+    : [];
+
   const togglePaymentMethodStatus = async (id) => {
     if (!ensureSuperAdminAccess("change payment method status")) return;
 
@@ -3782,6 +3841,16 @@ const Settings = () => {
           savePaymentMethod={savePaymentMethod}
           confirmDeletePaymentMethods={confirmDeletePaymentMethods}
           handleBulkDeletePaymentMethods={handleBulkDeletePaymentMethods}
+          chargeVersion={businessSettings.paymentMethodChargesVersion}
+          openChargeHistoryModal={openChargeHistoryModal}
+          isChargeHistoryOpen={chargeHistoryOpen}
+          chargeHistory={chargeHistory}
+          isChargeHistoryLoading={chargeHistoryLoading}
+          onCloseChargeHistory={() => setChargeHistoryOpen(false)}
+          onSelectChargeVersion={handleSelectChargeVersion}
+          viewedChargeVersion={viewedChargeVersion}
+          viewedChargeRows={viewedChargeRows}
+          onReturnToCurrentVersion={handleReturnToCurrentVersion}
         />
       );
     }

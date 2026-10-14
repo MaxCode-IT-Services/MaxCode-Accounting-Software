@@ -115,6 +115,10 @@ const API_ENDPOINTS = {
     UPDATE: "/business-settings",
     TERMS_BY_VERSION: (termsKind, version) =>
       `/business-settings?action=terms-by-version&termsKind=${encodeURIComponent(termsKind || "")}&version=${encodeURIComponent(version || "")}`,
+    PAYMENT_CHARGE_HISTORY:
+      "/business-settings?action=payment-method-charges-history",
+    PAYMENT_CHARGE_BY_VERSION: (version) =>
+      `/business-settings?action=payment-method-charges-by-version&version=${encodeURIComponent(version || "")}`,
   },
 
   // Telegram bot setup endpoints
