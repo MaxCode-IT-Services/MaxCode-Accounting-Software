@@ -19,12 +19,14 @@ const formatPercent = (value) => {
 // A fee is "Nil" whenever it is switched off or has no percentage.
 const isFeeNil = (enabled, percent) => !enabled || !(Number(percent) > 0);
 
-const describeFee = (enabled, percent, cap) => {
+const describeFee = (enabled, percent, cap, minAmount) => {
   if (isFeeNil(enabled, percent)) return "Nil";
   const percentLabel = `${formatPercent(percent)}%`;
-  return Number(cap) > 0 ? `${percentLabel} (max ${formatAmount(cap)})` : percentLabel;
+  const capLabel = Number(cap) > 0 ? ` (max ${formatAmount(cap)})` : "";
+  const thresholdLabel =
+    Number(minAmount) > 0 ? ` above ${formatAmount(minAmount)}` : "";
+  return `${percentLabel}${capLabel}${thresholdLabel}`;
 };
-
 // Keeps only digits and at most one decimal point, so the field behaves as a
 // numeric entry without the spinner/scroll quirks of input[type=number].
 const sanitizeNumericInput = (value) => {
@@ -242,6 +244,7 @@ const PaymentMethodsTab = ({
                                 method.processingFeeEnabled,
                                 method.processingFeePercent,
                                 method.processingFeeCap,
+                                method.processingFeeMinAmount,
                               )}
                             </span>
                           </td>
@@ -255,6 +258,7 @@ const PaymentMethodsTab = ({
                                 method.mdrEnabled,
                                 method.mdrPercent,
                                 method.mdrCap,
+                                method.mdrMinAmount,
                               )}
                             </span>
                           </td>
@@ -427,7 +431,7 @@ const PaymentMethodsTab = ({
                     </div>
                   </div>
                   <div className="row g-2">
-                    <div className="col-6">
+                    <div className="col-md-4">
                       <div className="input-group">
                         <input
                           type="text"
@@ -446,7 +450,7 @@ const PaymentMethodsTab = ({
                         <span className="input-group-text px-3">%</span>
                       </div>
                     </div>
-                    <div className="col-6">
+                    <div className="col-md-4">
                       <div className="input-group">
                         <span className="input-group-text px-3">₹</span>
                         <input
@@ -461,7 +465,26 @@ const PaymentMethodsTab = ({
                               sanitizeNumericInput(e.target.value),
                             )
                           }
-                          placeholder="Max cap (0 = no cap)"
+                          placeholder="Max cap"
+                        />
+                      </div>
+                    </div>
+                    <div className="col-md-4">
+                      <div className="input-group">
+                        <span className="input-group-text px-3">₹</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="form-control modern-input"
+                          value={paymentMethodFormData.processingFeeMinAmount}
+                          disabled={!paymentMethodFormData.processingFeeEnabled}
+                          onChange={(e) =>
+                            handlePaymentMethodFormChange(
+                              "processingFeeMinAmount",
+                              sanitizeNumericInput(e.target.value),
+                            )
+                          }
+                          placeholder="Apply above"
                         />
                       </div>
                     </div>
@@ -500,7 +523,7 @@ const PaymentMethodsTab = ({
                     </div>
                   </div>
                   <div className="row g-2">
-                    <div className="col-6">
+                    <div className="col-md-4">
                       <div className="input-group">
                         <input
                           type="text"
@@ -519,7 +542,7 @@ const PaymentMethodsTab = ({
                         <span className="input-group-text px-3">%</span>
                       </div>
                     </div>
-                    <div className="col-6">
+                    <div className="col-md-4">
                       <div className="input-group">
                         <span className="input-group-text px-3">₹</span>
                         <input
@@ -534,7 +557,26 @@ const PaymentMethodsTab = ({
                               sanitizeNumericInput(e.target.value),
                             )
                           }
-                          placeholder="Max cap (0 = no cap)"
+                          placeholder="Max cap"
+                        />
+                      </div>
+                    </div>
+                    <div className="col-md-4">
+                      <div className="input-group">
+                        <span className="input-group-text px-3">₹</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="form-control modern-input"
+                          value={paymentMethodFormData.mdrMinAmount}
+                          disabled={!paymentMethodFormData.mdrEnabled}
+                          onChange={(e) =>
+                            handlePaymentMethodFormChange(
+                              "mdrMinAmount",
+                              sanitizeNumericInput(e.target.value),
+                            )
+                          }
+                          placeholder="Apply above"
                         />
                       </div>
                     </div>

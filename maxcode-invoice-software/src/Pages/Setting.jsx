@@ -279,9 +279,11 @@ const Settings = () => {
     processingFeeEnabled: false,
     processingFeePercent: "",
     processingFeeCap: "",
+    processingFeeMinAmount: "",
     mdrEnabled: false,
     mdrPercent: "",
     mdrCap: "",
+    mdrMinAmount: "",
     chargeMode: "extra",
     status: "active",
   };
@@ -317,6 +319,22 @@ const Settings = () => {
     "whatsappSettings",
     "telegramSettings",
   ];
+
+  // Master lists own their own save path (each Add/Edit/Delete row calls its
+  // own sync immediately). Including them in the whole-page payload would let
+  // a stale copy overwrite rows added elsewhere — e.g. another tab or device —
+  // because the page state may be minutes old. They are therefore excluded
+  // from the full "Save Changes" payload.
+  const MASTER_LIST_FIELDS = [
+    "services",
+    "upiIds",
+    "paymentMethodCharges",
+    "interestedServices",
+  ];
+
+  const BUSINESS_DETAILS_SAVE_FIELDS = BUSINESS_DETAILS_FIELDS.filter(
+    (field) => !MASTER_LIST_FIELDS.includes(field),
+  );
 
   const normalizeRole = (role = "") =>
     String(role || "")
@@ -1431,7 +1449,7 @@ const Settings = () => {
 
   // Business Details Handlers
   const buildBusinessSettingsPayload = (settings) =>
-    BUSINESS_DETAILS_FIELDS.reduce((acc, field) => {
+    BUSINESS_DETAILS_SAVE_FIELDS.reduce((acc, field) => {
       acc[field] = settings[field] ?? "";
       return acc;
     }, {});
@@ -2712,9 +2730,11 @@ const Settings = () => {
       processingFeeEnabled: method.processingFeeEnabled === true,
       processingFeePercent: toChargeNumber(method.processingFeePercent),
       processingFeeCap: toChargeNumber(method.processingFeeCap),
-      mdrEnabled: method.mdrEnabled === true,
-      mdrPercent: toChargeNumber(method.mdrPercent),
-      mdrCap: toChargeNumber(method.mdrCap),
+      processingFeeMinAmount: toChargeNumber(method.processingFeeMinAmount),
+        mdrEnabled: method.mdrEnabled === true,
+        mdrPercent: toChargeNumber(method.mdrPercent),
+        mdrCap: toChargeNumber(method.mdrCap),
+        mdrMinAmount: toChargeNumber(method.mdrMinAmount),
       chargeMode: method.chargeMode === "included" ? "included" : "extra",
       isDeleted: method.isDeleted === true,
       deletedAt: method.isDeleted
@@ -2753,9 +2773,12 @@ const Settings = () => {
       processingFeeEnabled: method.processingFeeEnabled === true,
       processingFeePercent: toChargeNumber(method.processingFeePercent) || "",
       processingFeeCap: toChargeNumber(method.processingFeeCap) || "",
+      processingFeeMinAmount:
+        toChargeNumber(method.processingFeeMinAmount) || "",
       mdrEnabled: method.mdrEnabled === true,
       mdrPercent: toChargeNumber(method.mdrPercent) || "",
       mdrCap: toChargeNumber(method.mdrCap) || "",
+      mdrMinAmount: toChargeNumber(method.mdrMinAmount) || "",
       chargeMode: method.chargeMode === "included" ? "included" : "extra",
       status: getPaymentMethodStatus(method),
     });
@@ -2808,9 +2831,13 @@ const Settings = () => {
         paymentMethodFormData.processingFeePercent,
       ),
       processingFeeCap: toChargeNumber(paymentMethodFormData.processingFeeCap),
+      processingFeeMinAmount: toChargeNumber(
+        paymentMethodFormData.processingFeeMinAmount,
+      ),
       mdrEnabled: paymentMethodFormData.mdrEnabled,
       mdrPercent: toChargeNumber(paymentMethodFormData.mdrPercent),
       mdrCap: toChargeNumber(paymentMethodFormData.mdrCap),
+      mdrMinAmount: toChargeNumber(paymentMethodFormData.mdrMinAmount),
       chargeMode: paymentMethodFormData.chargeMode,
       status: paymentMethodFormData.status,
     };

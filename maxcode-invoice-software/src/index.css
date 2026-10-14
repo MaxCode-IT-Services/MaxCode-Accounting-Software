@@ -47,9 +47,11 @@ button {
 button:hover {
   border-color: #646cff;
 }
+/* No focus ring on buttons: the default 4px outline reads as a glow around
+   the button and clashes with the flat field styling. */
 button:focus,
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline: none;
 }
 
 @media (prefers-color-scheme: light) {
@@ -85,10 +87,24 @@ button:focus-visible {
   outline: none !important;
 }
 
+/* Focus is communicated by the border colour alone. The glow ring is
+   intentionally omitted so focused fields do not shift the layout or read as
+   a validation state. */
 .form-control:focus:not([readonly]):not([disabled]),
 .form-control:focus-visible:not([readonly]):not([disabled]) {
   border-color: #007026 !important;
-  box-shadow: 0 0 0 3px rgba(0, 112, 38, 0.12) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Selects (native) and textareas follow the same rule. */
+.form-select:focus,
+.form-select:focus-visible,
+.form-check-input:focus,
+.form-check-input:focus-visible {
+  border-color: #007026 !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 /* React-Select Modern Input Styling */

@@ -17,6 +17,13 @@ import {
   upsertTermsVersionDocument,
 } from "./utils/terms-versioning.js";
 import { ensureTelegramWebhook } from "./utils/payment-verification-telegram.js";
+import {
+  PAYMENT_CHARGE_VERSION_FIELD,
+  resolveChargeVersionForSave,
+  getChargesForVersion,
+  listChargeVersions,
+  normalizeChargeVersion,
+} from "./utils/payment-charge-versioning.js";
 
 const SETTINGS_COLLECTION = "business_settings";
 const ASSETS_COLLECTION = "business_assets";
@@ -159,6 +166,7 @@ const ALLOWED_FIELDS = [
   "services",
   "upiIds",
   "paymentMethodCharges",
+  "paymentMethodChargesVersion",
   "interestedServices",
   "backupSettings",
   "cloudflareSettings",
@@ -581,9 +589,15 @@ const sanitizeSettingsPayload = (payload = {}, existingSettings = {}) => {
               processingFeeEnabled: item?.processingFeeEnabled === true,
               processingFeePercent: toChargeNumber(item?.processingFeePercent),
               processingFeeCap: toChargeNumber(item?.processingFeeCap),
+              // Fee applies only above this amount; 0 = no threshold.
+              processingFeeMinAmount: toChargeNumber(
+                item?.processingFeeMinAmount,
+              ),
               mdrEnabled: item?.mdrEnabled === true,
               mdrPercent: toChargeNumber(item?.mdrPercent),
               mdrCap: toChargeNumber(item?.mdrCap),
+              // MDR applies only above this amount; 0 = no threshold.
+              mdrMinAmount: toChargeNumber(item?.mdrMinAmount),
               // "extra" = customer pays it on top of the amount,
               // "included" = already part of the collected amount.
               chargeMode:
@@ -775,6 +789,12 @@ const mapSettingsForClient = (document, event) => {
   if (!Array.isArray(response.paymentMethodCharges)) {
     response.paymentMethodCharges = [];
   }
+
+  // Always expose the charge-table version so the client can show which
+  // pricing is currently live.
+  response[PAYMENT_CHARGE_VERSION_FIELD] = normalizeChargeVersion(
+    response[PAYMENT_CHARGE_VERSION_FIELD],
+  );
 
   Object.values(TERMS_SETTINGS_CONFIG).forEach((config) => {
     response[config.versionField] = normalizeSemanticVersion(
@@ -1333,6 +1353,48 @@ export async function handler(event) {
         return createResponse(200, resolved, origin, event);
       }
 
+      // Payment method charge history — lets an old pricing version be
+      // inspected after the live rates have moved on.
+      if (action === "payment-method-charges-history") {
+        const versions = await listChargeVersions(db, {
+          limit: query.limit,
+        });
+
+        return createResponse(200,
+          {
+            currentVersion: normalizeChargeVersion(
+              settings?.[PAYMENT_CHARGE_VERSION_FIELD],
+            ),
+            versions: versions.map((doc) => ({
+              version: doc.version,
+              charges: Array.isArray(doc.charges) ? doc.charges : [],
+              createdAt: doc.createdAt || null,
+              updatedAt: doc.updatedAt || null,
+            })),
+          },
+          origin, event);
+      }
+
+      if (action === "payment-method-charges-by-version") {
+        const version = String(query.version || "").trim();
+
+        if (!version) {
+          return createResponse(400,
+            { error: "version is required" },
+            origin, event);
+        }
+
+        const resolved = await getChargesForVersion(db, version);
+
+        if (!resolved) {
+          return createResponse(404,
+            { error: "Payment method charge version not found" },
+            origin, event);
+        }
+
+        return createResponse(200, resolved, origin, event);
+      }
+
       if (action === "reveal-secret") {
         // Decrypted integration secrets (bot token, WhatsApp token, storage
         // password, Drive refresh token) are super-admin-only, matching the
@@ -1509,6 +1571,29 @@ export async function handler(event) {
           version: versionValue,
           terms: selectedTermsValue,
         });
+      }
+
+      // Payment method charges are versioned the same way as terms: a change
+      // in any rate creates a new version, and invoices bind to the version
+      // they were issued under so old pricing is never overwritten.
+      if (
+        Object.prototype.hasOwnProperty.call(
+          sanitizedPayload,
+          "paymentMethodCharges",
+        )
+      ) {
+        const nextChargeVersion = await resolveChargeVersionForSave(db, {
+          incomingCharges: sanitizedPayload.paymentMethodCharges,
+          existingCharges: existingSharedSettings?.paymentMethodCharges,
+          existingVersion:
+            existingSharedSettings?.[PAYMENT_CHARGE_VERSION_FIELD],
+        });
+
+        sanitizedPayload[PAYMENT_CHARGE_VERSION_FIELD] = nextChargeVersion;
+      } else if (existingSharedSettings?.[PAYMENT_CHARGE_VERSION_FIELD]) {
+        // An unrelated save must not drop the pointer.
+        sanitizedPayload[PAYMENT_CHARGE_VERSION_FIELD] =
+          existingSharedSettings[PAYMENT_CHARGE_VERSION_FIELD];
       }
 
       // Process base64 images and convert to short URL references

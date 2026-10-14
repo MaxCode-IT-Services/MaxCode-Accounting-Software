@@ -12,8 +12,49 @@ import {
 } from "../utils/fetchAllEntities";
 import { getUnifiedSelectStyles } from "../utils/reactSelectStyles";
 import { normalizePaymentMethod } from "../utils/paymentMethods";
+import {
+  PAYMENT_PROCESSING_FEE_TYPE,
+  PAYMENT_PROCESSING_FEE_LABEL,
+  isPaymentProcessingFeeItem,
+  buildFeeConfigSnapshot,
+  recalculateFeeItems,
+} from "../utils/paymentProcessingFee";
 
 const SALES_ITEM_DESCRIPTION_MAX_LENGTH = 27;
+
+// Special row type offered alongside the business services in the item's
+// "Services Name" dropdown. Selecting it turns the row into a payment
+// processing fee line whose Description column becomes a payment method
+// selector.
+const PAYMENT_FEE_SERVICE_OPTION = {
+  value: PAYMENT_PROCESSING_FEE_LABEL,
+  label: PAYMENT_PROCESSING_FEE_LABEL,
+  hsnCode: "",
+  isPaymentProcessingFee: true,
+};
+
+const buildBlankItem = (id) => ({
+  id,
+  itemName: "",
+  itemDescription: "",
+  hsnCode: "",
+  qty: "",
+  price: "",
+  amount: 0,
+});
+
+// Description budget for the invoice column. A name that does not fit is cut to
+// 25 characters and closed with "..", so the ellipsis is always visible instead
+// of being the part that gets trimmed off.
+const DESCRIPTION_ELLIPSIS = "..";
+const DESCRIPTION_TEXT_LIMIT =
+  SALES_ITEM_DESCRIPTION_MAX_LENGTH - DESCRIPTION_ELLIPSIS.length;
+
+const fitDescription = (value) => {
+  const text = String(value || "").trim();
+  if (text.length <= SALES_ITEM_DESCRIPTION_MAX_LENGTH) return text;
+  return `${text.slice(0, DESCRIPTION_TEXT_LIMIT)}${DESCRIPTION_ELLIPSIS}`;
+};
 
 // Indian states list for Place of Supply dropdown
 const INDIAN_STATES = [
@@ -112,6 +153,7 @@ const CreateSales = ({
   const [errors, setErrors] = useState({});
   const [clientOptions, setClientOptions] = useState([]);
   const [serviceOptions, setServiceOptions] = useState([]);
+  const [paymentMethodOptions, setPaymentMethodOptions] = useState([]);
   const [isClientLoading, setIsClientLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -295,8 +337,9 @@ const CreateSales = ({
     const fetchBusinessSettings = async () => {
       try {
         const response = await apiGet(API_ENDPOINTS.BUSINESS_SETTINGS.GET);
-        const services = Array.isArray(response?.data?.settings?.services)
-          ? response.data.settings.services
+        const settings = response?.data?.settings || {};
+        const services = Array.isArray(settings.services)
+          ? settings.services
           : [];
 
         const normalizedServices = services
@@ -308,9 +351,34 @@ const CreateSales = ({
           }));
 
         setServiceOptions(normalizedServices);
+
+        // Payment Method Charges master drives the fee line's Description
+        // dropdown. Inactive and deleted rows are not offered.
+        const methods = Array.isArray(settings.paymentMethodCharges)
+          ? settings.paymentMethodCharges
+          : [];
+
+        setPaymentMethodOptions(
+          methods
+            .filter(
+              (method) =>
+                method?.name &&
+                method?.status !== "inactive" &&
+                method?.isDeleted !== true,
+            )
+            .map((method) => ({
+              value: String(method.id),
+              // Only the payment method name is shown — the charge breakdown is
+              // configuration, not invoice content. Long names are shortened to
+              // "25 chars.." so they fit the Description column.
+              label: fitDescription(method.name),
+              method,
+            })),
+        );
       } catch (error) {
         console.error("Failed to fetch business settings:", error);
         setServiceOptions([]);
+        setPaymentMethodOptions([]);
       }
     };
 
@@ -365,17 +433,7 @@ const CreateSales = ({
         description: editingRecord.description || "",
       });
       setItems(
-        editingRecord.items || [
-          {
-            id: 1,
-            itemName: "",
-            itemDescription: "",
-            hsnCode: "",
-            qty: "",
-            price: "",
-            amount: 0,
-          },
-        ],
+        editingRecord.items || [buildBlankItem(1)],
       );
       if (editingRecord.taxData) {
         setTaxData(editingRecord.taxData);
@@ -533,17 +591,7 @@ const CreateSales = ({
       tdsAmount: "0",
       description: "",
     });
-    setItems([
-      {
-        id: 1,
-        itemName: "",
-        itemDescription: "",
-        hsnCode: "",
-        qty: "",
-        price: "",
-        amount: 0,
-      },
-    ]);
+    setItems([buildBlankItem(1)]);
     setTaxData({
       subtotal: "0.00",
       taxPercentage: 18,
@@ -713,7 +761,12 @@ const CreateSales = ({
     manualRoundingAmount = null,
     placeOfSupplyOverride = null,
   ) => {
-    const subtotal = itemsList.reduce(
+    // A payment processing fee line is priced off the other lines, so it is
+    // re-priced here before anything is summed. Without a fee line this is a
+    // no-op and the existing behaviour is untouched.
+    const pricedItems = recalculateFeeItems(itemsList, taxPercentage);
+
+    const subtotal = pricedItems.reduce(
       (sum, item) => sum + (toNumber(item.amount) || 0),
       0,
     );
@@ -774,6 +827,15 @@ const CreateSales = ({
       igst: igst.toFixed(2),
       totalAmount: totalAmount.toFixed(2),
     });
+
+    // Write the re-priced fee rows back so the table shows the recalculated
+    // amount. Only touches rows whose value actually changed.
+    const repriced = pricedItems.some(
+      (item, index) => item !== itemsList[index],
+    );
+    if (repriced) {
+      setItems(pricedItems);
+    }
 
     // Prevent -0.00: if rounded value is effectively zero, force to 0
     const safeRoundValue = Object.is(roundValue, -0) || Math.abs(roundValue) < 0.001 ? 0 : roundValue;
@@ -1121,15 +1183,79 @@ const CreateSales = ({
   })();
 
   const handleServiceSelect = (id, selectedOption) => {
+    const isFee = selectedOption?.isPaymentProcessingFee === true;
+
+    // Only one fee row may exist; a second one would double-charge and would
+    // each be priced off the other, so the pick is rejected with a message.
+    if (
+      isFee &&
+      items.some(
+        (item) => item.id !== id && isPaymentProcessingFeeItem(item),
+      )
+    ) {
+      showError("Payment Processing Fee is already added to this invoice");
+      return;
+    }
+
     const updatedItems = items.map((item) => {
       if (item.id !== id) return item;
 
+      if (isFee) {
+        return {
+          ...item,
+          itemType: PAYMENT_PROCESSING_FEE_TYPE,
+          itemName: PAYMENT_PROCESSING_FEE_LABEL,
+          itemDescription: "",
+          // HSN/SAC comes from the configured "Payment Processing Fee" service,
+          // so the fee line is classified like any other service row.
+          hsnCode: selectedOption?.hsnCode || "",
+          qty: 1,
+          price: 0,
+          amount: 0,
+          feeConfig: null,
+          paymentMethodId: "",
+        };
+      }
+
+      // Switching away from a fee row clears the fee-only fields so a normal
+      // service row can never carry stale charge configuration.
+      const {
+        feeConfig,
+        paymentMethodId,
+        itemType,
+        ...rest
+      } = item;
+
       return {
-        ...item,
+        ...rest,
         itemName: selectedOption?.value || "",
         hsnCode: selectedOption?.hsnCode || "",
       };
     });
+
+    setItems(updatedItems);
+    calculateTotals(updatedItems, taxData.taxPercentage, null);
+  };
+
+  const handlePaymentMethodSelect = (id, selectedOption) => {
+    const method = selectedOption?.method;
+    if (!method) return;
+
+    const feeConfig = buildFeeConfigSnapshot(method);
+
+    const updatedItems = items.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            paymentMethodId: selectedOption.value,
+            // Description carries only the payment method name. A name longer
+            // than the column budget is shortened to "25 chars.." so it fits
+            // the invoice's Description column.
+            itemDescription: fitDescription(method.name),
+            feeConfig,
+          }
+        : item,
+    );
 
     setItems(updatedItems);
     calculateTotals(updatedItems, taxData.taxPercentage, null);
@@ -1199,7 +1325,12 @@ const CreateSales = ({
     const updatedItems = items.map((item) => {
       if (item.id === id) {
         const updatedItem = { ...item, [field]: nextValue };
-        if (field === "qty" || field === "price") {
+        // A fee row is priced by the engine, not typed into, so qty/price
+        // edits are ignored for it.
+        if (
+          (field === "qty" || field === "price") &&
+          !isPaymentProcessingFeeItem(item)
+        ) {
           const qty = toNumber(field === "qty" ? nextValue : updatedItem.qty);
           const price = toNumber(
             field === "price" ? nextValue : updatedItem.price,
@@ -1216,15 +1347,9 @@ const CreateSales = ({
   };
 
   const handleAddItem = () => {
-    const newItem = {
-      id: items.length > 0 ? Math.max(...items.map((i) => i.id)) + 1 : 1,
-      itemName: "",
-      itemDescription: "",
-      hsnCode: "",
-      qty: "",
-      price: "",
-      amount: 0,
-    };
+    const newItem = buildBlankItem(
+      items.length > 0 ? Math.max(...items.map((i) => i.id)) + 1 : 1,
+    );
     setItems((prev) => [...prev, newItem]);
   };
 
@@ -1285,13 +1410,25 @@ const CreateSales = ({
     });
 
     let hasValidItem = false;
+    let feeWithoutMethod = false;
+
     items.forEach((item) => {
+      if (isPaymentProcessingFeeItem(item)) {
+        // A fee row is valid only once a payment method has been chosen.
+        if (!item.paymentMethodId) {
+          feeWithoutMethod = true;
+        }
+        return;
+      }
       if (item.itemName && item.qty && item.price) {
         hasValidItem = true;
       }
     });
 
-    if (!hasValidItem) {
+    if (feeWithoutMethod) {
+      newErrors.items = "Please select a payment method for the processing fee";
+      showError("Please select a payment method for the processing fee");
+    } else if (!hasValidItem) {
       newErrors.items =
         "At least one item with name, quantity, and price is required";
       showError("Please add at least one item with complete details");
@@ -1419,6 +1556,26 @@ const CreateSales = ({
   const itemServiceSelectStyles = getUnifiedSelectStyles({
     compact: true,
   });
+
+  // Business services plus the special Payment Processing Fee row type. A
+  // business service already named "Payment Processing Fee" is replaced by the
+  // fee row type, and its configured HSN/SAC is carried over so the fee line
+  // uses the classification the user set up rather than a hardcoded code.
+  const itemServiceOptions = (() => {
+    const feeServiceName = PAYMENT_PROCESSING_FEE_LABEL.toLowerCase();
+    const isFeeService = (option) =>
+      String(option.value || "").trim().toLowerCase() === feeServiceName;
+
+    const configuredFeeService = serviceOptions.find(isFeeService);
+
+    return [
+      ...serviceOptions.filter((option) => !isFeeService(option)),
+      {
+        ...PAYMENT_FEE_SERVICE_OPTION,
+        hsnCode: configuredFeeService?.hsnCode || "",
+      },
+    ];
+  })();
 
   const dueAmount = computeDueAmount(
     taxData.totalAmount,
@@ -1716,7 +1873,7 @@ const CreateSales = ({
                                 menuPortalTarget={selectMenuPortalTarget}
                                 menuPosition="fixed"
                                 value={
-                                  serviceOptions.find(
+                                  itemServiceOptions.find(
                                     (option) => option.value === item.itemName,
                                   ) ||
                                   (item.itemName
@@ -1734,43 +1891,86 @@ const CreateSales = ({
                                 isClearable
                                 isSearchable
                                 placeholder="Select Service..."
-                                options={serviceOptions}
+                                options={itemServiceOptions}
                               />
                             </td>
                             <td>
-                              <div className="position-relative">
-                                <input
-                                  type="text"
-                                  className="form-control modern-input form-control-sm"
-                                  value={item.itemDescription}
-                                  maxLength={SALES_ITEM_DESCRIPTION_MAX_LENGTH}
-                                  onChange={(e) =>
-                                    handleItemChange(
+                              {isPaymentProcessingFeeItem(item) ? (
+                                <Select
+                                  classNamePrefix="react-select"
+                                  styles={itemServiceSelectStyles}
+                                  menuPortalTarget={selectMenuPortalTarget}
+                                  menuPosition="fixed"
+                                  value={
+                                    paymentMethodOptions.find(
+                                      (option) =>
+                                        option.value === item.paymentMethodId,
+                                    ) ||
+                                    (item.paymentMethodId
+                                      ? {
+                                          value: item.paymentMethodId,
+                                          label:
+                                            item.itemDescription ||
+                                            "Payment Method",
+                                        }
+                                      : null)
+                                  }
+                                  onChange={(selectedOption) =>
+                                    handlePaymentMethodSelect(
                                       item.id,
-                                      "itemDescription",
-                                      e.target.value,
+                                      selectedOption,
                                     )
                                   }
-                                  placeholder="Description"
-                                  readOnly={isViewMode}
-                                  style={{ paddingRight: "38px" }}
+                                  isDisabled={isViewMode}
+                                  isClearable={false}
+                                  isSearchable
+                                  placeholder={
+                                    paymentMethodOptions.length
+                                      ? "Select Payment Method..."
+                                      : "No payment methods configured"
+                                  }
+                                  options={paymentMethodOptions}
+                                  noOptionsMessage={() =>
+                                    "No Payment Methods configured. Add them in Settings → Payment Methods Charge."
+                                  }
                                 />
-                                <span
-                                  className="position-absolute top-50 end-0 translate-middle-y me-2 rounded-circle d-inline-flex align-items-center justify-content-center"
-                                  style={{
-                                    width: "24px",
-                                    height: "24px",
-                                    fontSize: "9px",
-                                    fontWeight: 700,
-                                    backgroundColor: "#e9f8ef",
-                                    color: "#0f5132",
-                                    border: "1px solid #b7e4c7",
-                                  }}
-                                  aria-label="Item description character count"
-                                >
-                                  {(item.itemDescription || "").length}
-                                </span>
-                              </div>
+                              ) : (
+                                <div className="position-relative">
+                                  <input
+                                    type="text"
+                                    className="form-control modern-input form-control-sm"
+                                    value={item.itemDescription}
+                                    maxLength={
+                                      SALES_ITEM_DESCRIPTION_MAX_LENGTH
+                                    }
+                                    onChange={(e) =>
+                                      handleItemChange(
+                                        item.id,
+                                        "itemDescription",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="Description"
+                                    readOnly={isViewMode}
+                                    style={{ paddingRight: "38px" }}
+                                  />
+                                  <span
+                                    className="position-absolute top-50 end-0 translate-middle-y me-2 rounded-circle d-inline-flex align-items-center justify-content-center"
+                                    style={{
+                                      width: "24px",
+                                      height: "24px",
+                                      fontSize: "9px",
+                                      fontWeight: 700,
+                                      backgroundColor: "#e9f8ef",
+                                      color: "#0f5132",
+                                      border: "1px solid #b7e4c7",
+                                    }}
+                                    aria-label="Item description character count"
+                                  >
+                                    {(item.itemDescription || "").length}
+                                  </span>
+                                </div>
+                              )}
                             </td>
                             <td>
                               <input
@@ -1802,7 +2002,12 @@ const CreateSales = ({
                                   );
                                 }}
                                 placeholder="QTY"
-                                readOnly={isViewMode}
+                                readOnly={isViewMode || isPaymentProcessingFeeItem(item)}
+                                style={
+                                  isPaymentProcessingFeeItem(item)
+                                    ? { backgroundColor: "#f8f9fa" }
+                                    : undefined
+                                }
                               />
                             </td>
                             <td>
@@ -1819,7 +2024,12 @@ const CreateSales = ({
                                   );
                                 }}
                                 placeholder="Price"
-                                readOnly={isViewMode}
+                                readOnly={isViewMode || isPaymentProcessingFeeItem(item)}
+                                style={
+                                  isPaymentProcessingFeeItem(item)
+                                    ? { backgroundColor: "#f8f9fa" }
+                                    : undefined
+                                }
                               />
                             </td>
                             <td>
@@ -1882,7 +2092,7 @@ const CreateSales = ({
                                 menuPortalTarget={selectMenuPortalTarget}
                                 menuPosition="fixed"
                                 value={
-                                  serviceOptions.find(
+                                  itemServiceOptions.find(
                                     (option) => option.value === item.itemName,
                                   ) ||
                                   (item.itemName
@@ -1900,30 +2110,72 @@ const CreateSales = ({
                                 isClearable
                                 isSearchable
                                 placeholder="Select Service..."
-                                options={serviceOptions}
+                                options={itemServiceOptions}
                               />
                             </div>
 
-                            {/* Row 2: Description */}
+                            {/* Row 2: Description (payment method picker for fee rows) */}
                             <div className="col-12 mb-3">
                               <label className="form-label fw-semibold">
                                 Description
                               </label>
-                              <div className="position-relative">
-                                <input
-                                  type="text"
-                                  className="form-control modern-input"
-                                  value={item.itemDescription}
-                                  maxLength={SALES_ITEM_DESCRIPTION_MAX_LENGTH}
-                                  onChange={(e) =>
-                                    handleItemChange(
+                              {isPaymentProcessingFeeItem(item) ? (
+                                <Select
+                                  classNamePrefix="react-select"
+                                  styles={itemServiceSelectStyles}
+                                  menuPortalTarget={selectMenuPortalTarget}
+                                  menuPosition="fixed"
+                                  value={
+                                    paymentMethodOptions.find(
+                                      (option) =>
+                                        option.value === item.paymentMethodId,
+                                    ) ||
+                                    (item.paymentMethodId
+                                      ? {
+                                          value: item.paymentMethodId,
+                                          label:
+                                            item.itemDescription ||
+                                            "Payment Method",
+                                        }
+                                      : null)
+                                  }
+                                  onChange={(selectedOption) =>
+                                    handlePaymentMethodSelect(
                                       item.id,
-                                      "itemDescription",
-                                      e.target.value,
+                                      selectedOption,
                                     )
                                   }
-                                  placeholder="Item Description"
-                                  readOnly={isViewMode}
+                                  isDisabled={isViewMode}
+                                  isClearable={false}
+                                  isSearchable
+                                  placeholder={
+                                    paymentMethodOptions.length
+                                      ? "Select Payment Method..."
+                                      : "No payment methods configured"
+                                  }
+                                  options={paymentMethodOptions}
+                                  noOptionsMessage={() =>
+                                    "No Payment Methods configured. Add them in Settings → Payment Methods Charge."
+                                  }
+                                />
+                              ) : (
+                                <div className="position-relative">
+                                  <input
+                                    type="text"
+                                    className="form-control modern-input"
+                                    value={item.itemDescription}
+                                    maxLength={
+                                      SALES_ITEM_DESCRIPTION_MAX_LENGTH
+                                    }
+                                    onChange={(e) =>
+                                      handleItemChange(
+                                        item.id,
+                                        "itemDescription",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="Item Description"
+                                    readOnly={isViewMode}
                                   style={{ paddingRight: "44px" }}
                                 />
                                 <span
@@ -1942,6 +2194,7 @@ const CreateSales = ({
                                   {(item.itemDescription || "").length}
                                 </span>
                               </div>
+                              )}
                             </div>
 
                             {/* Row 3: HSN Code and QTY - Side by Side */}
@@ -1981,7 +2234,12 @@ const CreateSales = ({
                                   );
                                 }}
                                 placeholder="Quantity"
-                                readOnly={isViewMode}
+                                readOnly={isViewMode || isPaymentProcessingFeeItem(item)}
+                                style={
+                                  isPaymentProcessingFeeItem(item)
+                                    ? { backgroundColor: "#f8f9fa" }
+                                    : undefined
+                                }
                               />
                             </div>
 
@@ -2003,7 +2261,12 @@ const CreateSales = ({
                                   );
                                 }}
                                 placeholder="Price"
-                                readOnly={isViewMode}
+                                readOnly={isViewMode || isPaymentProcessingFeeItem(item)}
+                                style={
+                                  isPaymentProcessingFeeItem(item)
+                                    ? { backgroundColor: "#f8f9fa" }
+                                    : undefined
+                                }
                               />
                             </div>
                             <div className="col-6 mb-3">

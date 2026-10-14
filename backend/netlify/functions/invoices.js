@@ -3,6 +3,12 @@ import { ObjectId } from "mongodb";
 import { verifyRequestToken, getAuditFieldsFromEvent } from "./utils/auth.js";
 import { normalizePaymentMethodsInRecord } from "./utils/payment-methods.js";
 import { syncTransactionSnapshot } from "./utils/transactions.js";
+import { verifyAndRepriceFeeItems } from "./utils/payment-processing-fee.js";
+import {
+  PAYMENT_CHARGE_VERSION_FIELD,
+  getChargesForVersion,
+  normalizeChargeVersion,
+} from "./utils/payment-charge-versioning.js";
 import {
   applyTermsBindingToDocument,
   getTermsBindingFromDatabase,
@@ -12,6 +18,77 @@ const META_CACHE_TTL_MS = 30 * 1000;
 const invoiceMetaCache = {
   value: null,
   expiresAt: 0,
+};
+
+/**
+ * Re-prices any Payment Processing Fee line from a trusted charge table
+ * instead of trusting the submitted amount. A mismatch is logged and
+ * overwritten so the stored invoice, the printed invoice and the accounting
+ * snapshot always agree.
+ *
+ * Which table is used matters for historical accuracy:
+ *   - A NEW invoice binds to the live (current) version.
+ *   - An EXISTING invoice keeps the version it was issued under, so editing it
+ *     later never re-prices the fee with rates the customer never agreed to.
+ *     Invoices created before versioning existed carry a per-line `feeConfig`
+ *     snapshot and are left exactly as stored.
+ */
+const verifyInvoiceFeeItems = async (db, invoiceData, { existingInvoice } = {}) => {
+  const items = Array.isArray(invoiceData?.items) ? invoiceData.items : [];
+
+  const hasFee = items.some(
+    (item) => item?.itemType === "payment-processing-fee",
+  );
+
+  if (!hasFee) return invoiceData;
+
+  const settings = await db
+    .collection("business_settings")
+    .findOne({ scope: "global" });
+
+  // An invoice that already exists keeps its bound version; a new one takes
+  // whatever is current.
+  const boundVersion =
+    existingInvoice?.[PAYMENT_CHARGE_VERSION_FIELD] ||
+    settings?.[PAYMENT_CHARGE_VERSION_FIELD];
+
+  let chargeTable = null;
+
+  if (boundVersion) {
+    const versionDoc = await getChargesForVersion(db, boundVersion);
+    if (versionDoc) {
+      chargeTable = versionDoc.charges;
+    }
+  }
+
+  // No versioned table available: fall back to the live settings table.
+  if (!chargeTable) {
+    chargeTable = Array.isArray(settings?.paymentMethodCharges)
+      ? settings.paymentMethodCharges
+      : [];
+  }
+
+  const { items: verifiedItems, discrepancies } = verifyAndRepriceFeeItems({
+    items,
+    taxPercentage: invoiceData?.taxData?.taxPercentage,
+    getTrustedMethod: (id) =>
+      chargeTable.find((method) => String(method.id) === String(id)) || null,
+  });
+
+  if (discrepancies.length > 0) {
+    console.warn(
+      `[invoices] Payment processing fee adjusted for invoice ${invoiceData?.invoiceNumber} (version ${boundVersion || "unversioned"}):`,
+      discrepancies,
+    );
+  }
+
+  return {
+    ...invoiceData,
+    items: verifiedItems,
+    [PAYMENT_CHARGE_VERSION_FIELD]: boundVersion
+      ? normalizeChargeVersion(boundVersion)
+      : undefined,
+  };
 };
 
 /**
@@ -1156,6 +1233,11 @@ export async function handler(event) {
       delete invoiceData.invoiceTermsVersion;
       delete invoiceData.invoiceTermsConditionsSnapshot;
 
+      // Re-price any payment processing fee line from trusted configuration
+      // before it can influence totals, payment status or accounting.
+      const verifiedInvoiceData = await verifyInvoiceFeeItems(db, invoiceData);
+      Object.assign(invoiceData, verifiedInvoiceData);
+
       let defaultYear = null;
       if (invoiceData.financialYear) {
         defaultYear = await yearsCollection.findOne({
@@ -1410,6 +1492,7 @@ export async function handler(event) {
       );
       delete invoiceData.invoiceTermsVersion;
       delete invoiceData.invoiceTermsConditionsSnapshot;
+
       const invoiceObjectId = new ObjectId(id);
       const currentInvoice = await invoicesCollection.findOne({
         _id: invoiceObjectId,
@@ -1419,6 +1502,13 @@ export async function handler(event) {
       if (!currentInvoice) {
         return createResponse(404, { error: "Invoice not found" }, origin, event);
       }
+
+      // Same trusted re-pricing as create, but bound to the version this
+      // invoice was issued under — editing must not adopt newer rates.
+      const verifiedInvoiceData = await verifyInvoiceFeeItems(db, invoiceData, {
+        existingInvoice: currentInvoice,
+      });
+      Object.assign(invoiceData, verifiedInvoiceData);
 
       // Check for duplicate invoice number (excluding current record)
       if (invoiceData.invoiceNumber) {
